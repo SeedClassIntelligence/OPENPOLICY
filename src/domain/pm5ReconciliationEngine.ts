@@ -434,7 +434,7 @@ export function processConsumerVarianceReview(params: {
  * and spawns the next CoverageBaseline for future challenges/renewals.
  * The prior baseline remains preserved historically.
  */
-export function activateVerifiedPolicyToVault(params: {
+export interface VaultActivationParams {
   handoff: BindingHandoff;
   selection: Selection;
   offerVersion: OfferVersion;
@@ -443,7 +443,19 @@ export function activateVerifiedPolicyToVault(params: {
   snapshot: IssuedPolicySnapshot;
   document: IssuedPolicyDocument;
   currentBaseline?: CoverageBaseline;
-}): { vaultItem: PolicyVaultItem; newBaseline: CoverageBaseline } {
+}
+
+// A future baseline is derived only from a prior verified baseline, so it is guaranteed
+// exactly when one is supplied.
+export function activateVerifiedPolicyToVault(
+  params: VaultActivationParams & { currentBaseline: CoverageBaseline }
+): { vaultItem: PolicyVaultItem; newBaseline: CoverageBaseline };
+export function activateVerifiedPolicyToVault(
+  params: VaultActivationParams
+): { vaultItem: PolicyVaultItem; newBaseline: CoverageBaseline | undefined };
+export function activateVerifiedPolicyToVault(
+  params: VaultActivationParams
+): { vaultItem: PolicyVaultItem; newBaseline: CoverageBaseline | undefined } {
   const {
     handoff,
     selection,
@@ -510,28 +522,25 @@ export function activateVerifiedPolicyToVault(params: {
     filedAt: new Date().toISOString()
   };
 
-  // Generate fresh, versioned CoverageBaseline for future challenges
-  const priorVersion = currentBaseline?.version ?? 1;
+  // Generate fresh, versioned CoverageBaseline for future challenges.
+  // Jurisdiction and insured vehicle come only from the prior verified baseline; when
+  // that provenance is missing, no future baseline is manufactured.
+  if (!currentBaseline) {
+    vaultItem.futureCoverageBaselineId = undefined;
+    return { vaultItem, newBaseline: undefined };
+  }
+
   const newBaseline: CoverageBaseline = {
     id: newBaselineId,
     policyId: vaultItem.id,
-    version: priorVersion + 1,
+    version: (currentBaseline.version ?? 1) + 1,
     carrier: snapshot.carrier,
     effectiveDate: snapshot.effectiveDate,
     expirationDate: snapshot.expirationDate,
     baselineAnnualPremium: snapshot.annualPremium,
     baselineMonthlyPremium: snapshot.monthlyPremium ?? Math.round(snapshot.annualPremium / 12),
-    jurisdiction: currentBaseline?.jurisdiction || 'NV',
-    vehicle: currentBaseline?.vehicle || {
-      vin: '1HGCR2F83HA000000',
-      year: 2022,
-      make: 'Honda',
-      model: 'Accord',
-      usage: 'COMMUTE',
-      annualMileage: 12000,
-      garagingZip: '89101',
-      ownership: 'OWNED'
-    },
+    jurisdiction: currentBaseline.jurisdiction,
+    vehicle: currentBaseline.vehicle,
     coverages: snapshot.coverages,
     verifiedAt: new Date().toISOString(),
     verifiedBy: 'system_post_bind_reconciliation'

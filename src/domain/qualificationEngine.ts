@@ -170,7 +170,7 @@ export function evaluateOfferQualification(
       );
     } else {
       qualificationReasons.push(
-        `${rule.jurisdiction} statutory liability minimums verified (${rule.ruleVersion}: ${rule.citation}).`
+        `${rule.jurisdiction} mandatory coverage categories present (${rule.ruleVersion}: ${rule.citation}). Statutory limit amounts were not evaluated.`
       );
     }
   } else if (resolvedJurisdiction) {

@@ -3928,12 +3928,14 @@ export class PolicyChallengeDatabase {
         `Policy #${latestSnapshot.policyNumber} filed into Private Policy Vault (Provenance: ${vaultItem.provenanceHash.substring(0, 16)}...).`
       );
 
-      this.recordAudit(
-        'FUTURE_BASELINE_ACTIVATED',
-        'SYSTEM',
-        'system_baseline_manager',
-        `Activated new CoverageBaseline version ${newBaseline.version} for future renewal cycles.`
-      );
+      if (newBaseline) {
+        this.recordAudit(
+          'FUTURE_BASELINE_ACTIVATED',
+          'SYSTEM',
+          'system_baseline_manager',
+          `Activated new CoverageBaseline version ${newBaseline.version} for future renewal cycles.`
+        );
+      }
 
       postgresStore.savePolicyVaultItem(vaultItem).catch(err => {
         console.warn('[PostgresStore PolicyVaultItem Sync Error]', err?.message || err);
@@ -4024,12 +4026,14 @@ export class PolicyChallengeDatabase {
           `Policy #${snapshot.policyNumber} filed into Private Policy Vault following consumer variance acceptance.`
         );
 
-        this.recordAudit(
-          'FUTURE_BASELINE_ACTIVATED',
-          'SYSTEM',
-          'system_baseline_manager',
-          `Activated new CoverageBaseline version ${newBaseline.version} for future renewal cycles.`
-        );
+        if (newBaseline) {
+          this.recordAudit(
+            'FUTURE_BASELINE_ACTIVATED',
+            'SYSTEM',
+            'system_baseline_manager',
+            `Activated new CoverageBaseline version ${newBaseline.version} for future renewal cycles.`
+          );
+        }
 
         postgresStore.savePolicyVaultItem(vaultItem).catch(err => {
           console.warn('[PostgresStore PolicyVaultItem Sync Error]', err?.message || err);

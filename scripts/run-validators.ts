@@ -16,7 +16,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
-const SUITES = ['pm1', 'pm2', 'pm3', 'pm4', 'pm5', 'commercial-economics', 'ce3', 'ce4', 'ce5'];
+const SUITES = ['pm1', 'pm2', 'pm3', 'pm4', 'pm5', 'commercial-economics', 'ce3', 'ce4', 'ce5', 'semantic-corrections'];
 const TIMEOUT_MS = 300_000;
 
 function arg(name: string): string | undefined {

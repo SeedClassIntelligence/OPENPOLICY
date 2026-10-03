@@ -31,10 +31,15 @@ export function evaluateProviderEligibility(
   }
 
   // 2. Jurisdiction & License Verification
-  const challengeJurisdiction = challenge.jurisdiction || 'NV';
-  const matchingJurisdictionLicenses = licenses.filter(lic => lic.jurisdiction === challengeJurisdiction);
+  // A missing jurisdiction is explicit uncertainty: no license can be matched against it.
+  const challengeJurisdiction = challenge.jurisdiction;
+  const matchingJurisdictionLicenses = challengeJurisdiction
+    ? licenses.filter(lic => lic.jurisdiction === challengeJurisdiction)
+    : [];
 
-  if (matchingJurisdictionLicenses.length === 0) {
+  if (!challengeJurisdiction) {
+    reasons.push('JURISDICTION_UNKNOWN: Challenge has no governing jurisdiction; licensing cannot be evaluated');
+  } else if (matchingJurisdictionLicenses.length === 0) {
     reasons.push(`JURISDICTION: No active, verified license found for jurisdiction ${challengeJurisdiction}`);
   } else {
     const activeVerifiedLicenses = matchingJurisdictionLicenses.filter(
@@ -65,7 +70,7 @@ export function evaluateProviderEligibility(
     reasons.push(`APPETITE_INACTIVE: Provider has not configured an active appetite profile`);
   } else {
     // Check jurisdiction in appetite
-    if (!appetite.jurisdictions.includes(challengeJurisdiction)) {
+    if (challengeJurisdiction && !appetite.jurisdictions.includes(challengeJurisdiction)) {
       reasons.push(`APPETITE_JURISDICTION: Jurisdiction ${challengeJurisdiction} is outside configured appetite`);
     }
 
