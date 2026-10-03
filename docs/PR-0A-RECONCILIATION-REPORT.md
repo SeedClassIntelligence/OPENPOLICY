@@ -2,6 +2,7 @@
 
 **Status:** Analysis only. No repository source code was modified. Implementation is **on hold pending review and approval**.
 **Revision 2:** re-run against `OPENPOLICY_2026-10-02_CE5_COMPLETE.zip` (`main` @ `cfef64a`). Revision 1 audited `OPENPOLICY_2026-09-30.zip`, which predated CE-3–CE-5; its blocker (K1) is resolved.
+**Revision 4:** D3–D10 ruled (§M); D6 executed as a separate tests-first correction set (§A.5). PR-0A implementation has **not** begun.
 **Revision 3:** baseline stabilization (D2, D11, D12) approved and executed; the baseline is now order-independent (§A.4). Adds PR-1-SEC-FIN-001 (§K.1) and the PR-0 ordering invariant (§G). PR-0A implementation has **not** begun.
 **Date:** 2026-10-03
 
@@ -115,6 +116,27 @@ Reproduce with `npm run validate -- --order shuffle --seed <n>`.
 **Unresolved or carried forward**
 - `npm ci` still requires `--legacy-peer-deps` (K14). That is a dependency change outside this pass's scope.
 - `data/test_pm5_pg` (PM-5's own restart-test directory) is still created under `./data`. It is suite-specific, wiped at the start of every PM-5 run, and gitignored, so it cannot couple suites.
+
+### A.5 Baseline semantic corrections: jurisdiction assumption removal (D6)
+
+This is commit `51d1444`, separate from all PR-0A work. It was written tests-first: `src/domain/semanticCorrections.test.ts` (13 assertions), run by `scripts/validate-semantic-corrections.ts` and included in `npm run validate`.
+
+**Before the correction: 6/13 FAIL**, demonstrating all three defects:
+- **Eligibility.** A challenge with **no jurisdiction** was ELIGIBLE for an NV-licensed provider.
+- **Vault, no prior baseline.** The future baseline had `jurisdiction: "NV"` and a fabricated **2022 Honda Accord**, VIN `1HGCR2F83HA000000`, garaged at 89101.
+- **Vault, prior baseline without jurisdiction.** The future baseline was still stamped `NV`.
+- **Qualification.** An NV offer with **10/20/5** limits was reported as *"NV statutory liability minimums verified"*.
+
+**After the correction: 13/13 PASS.** Every control case (an explicit NV challenge stays eligible; a CA prior baseline yields a CA v2 baseline; the citation is retained; the qualification outcome is unchanged) passed both before and after.
+
+| File | Correction |
+|---|---|
+| `src/domain/eligibilityEngine.ts` | `\|\| 'NV'` removed. A missing jurisdiction adds `JURISDICTION_UNKNOWN`, so the provider is ineligible. |
+| `src/domain/pm5ReconciliationEngine.ts` | Jurisdiction and vehicle come only from the prior verified baseline. Without one, the vault item is still filed from the issued policy, but no future baseline is manufactured. Overloads keep `newBaseline` non-optional whenever a prior baseline is passed, so frozen callers and tests are untouched. |
+| `src/domain/qualificationEngine.ts` | The reason now reads "mandatory coverage categories present (`<ruleVersion>`: `<citation>`). Statutory limit amounts were not evaluated." The citation pinned by `validate-pm2.ts:445` is kept. Outcomes are unchanged. |
+| `src/server/db.ts` | `FUTURE_BASELINE_ACTIVATED` is audited only when a future baseline exists |
+
+The commercial-neutrality firewall still passes for both protected engines that changed.
 
 ## B. Repository Architecture Map
 
@@ -658,11 +680,12 @@ All behavioral fixtures use **fictional jurisdictions** registered only in the t
 |---|---|---|---|
 | K1 | ~~BLOCKER~~ **Resolved** | The 09-30 snapshot lacked CE-3–CE-5. | The CE5_COMPLETE snapshot supplies them (§A). |
 | K2 | High | The repository holds a **zip**, not a source tree. There are no diffs, no reviewable PRs and no blame. | First action after approval: commit the extracted tree (excluding `.env` and `node_modules`), then do PR-0A as reviewable commits. The `.env` in the zip has an **empty** `GEMINI_API_KEY`, so no secret was exposed, but `.env` should not be in the archive. |
-| K3 | High | Qualification claims "statutory liability minimums verified" but checks only coverage presence (§C.1). | In PR-0C, real limit evaluation replaces it. Until then the message is inaccurate. It is fixable only by editing a protected engine, which needs approval (D6). |
+| K3 | ~~High~~ **Resolved (D6)** | Qualification claimed "statutory liability minimums verified" while checking only coverage presence | The wording now states that limit amounts were not evaluated; the citation is retained; outcomes are unchanged (§A.5) |
 | K4 | High | The legacy NV/OH/CA registry values are **unverified constants presented as law**, and their citation strings are **pinned by frozen tests** (`validate-pm2.ts:445`, `pm2InformationOffers.test.ts:220`). | Migrate them as `UNVERIFIED` legacy rules in a *SANDBOX-only* seed. Keep the engine and strings untouched in PR-0A. Retiring them in PR-0C requires an explicitly approved change to those two assertions. This is a genuine invariant conflict, surfaced per §33. |
 | K5 | High | `generateRegulatoryAuditProof` produces regulator-certification language that no regulator issued. It is pinned by `governanceAudit.test.ts:270`. | It must not be shown externally as-is. The rewording needs approval to change the pinned assertion. |
 | K6 | High | Jurisdiction is lost or forced: `server.ts:285` hard-codes `'NV'`, `:232` drops it, and ZIP-prefix inference misclassifies. | Fixed in PR-0A in orchestration only (no protected engine touched). |
-| K7 | High | PM-5 vault fallback fabricates `'NV'` and a 2022 Honda Accord into the next baseline (protected engine). | Approval required to fix (D6). |
+| K6a | Medium | Eligibility's silent `\|\| 'NV'` default | **Resolved (D6).** A missing jurisdiction now yields `JURISDICTION_UNKNOWN` (ineligible). The `server.ts:285` hard-code and the `:232` drop remain open; they are fixed by PR-0A jurisdiction determination. |
+| K7 | ~~High~~ **Resolved (D6)** | PM-5 vault fabricated `'NV'` and a 2022 Honda Accord | Jurisdiction and vehicle now come only from the prior verified baseline; otherwise no future baseline is created (§A.5) |
 | K8 | High | Consent recipient falls back to `'org_apex'`. Consumer identity is spoofable with a default user. Consent `termsVersion` is client-suppliable and defaults to a regulator-style ID. | The `org_apex` fallback is a PII-disclosure hazard. Propose fixing it in PR-0A (orchestration). Identity is PR-1. |
 | K9 | High | Persistence: in-memory Maps are authoritative; PGlite writes are fire-and-forget; policies and baselines are never persisted; migrations re-run every boot; no indexes. | PR-0A tables use awaited writes. The full fix is PR-1. Do not build regulatory anchoring on the Map store. |
 | K10 | Medium | Carrier-appointment matching uses a substring match and ignores the appointment's jurisdiction. An empty relationship list passes. | Superseded by provider authority in enforce mode (PR-0C). |
@@ -677,6 +700,7 @@ All behavioral fixtures use **fictional jurisdictions** registered only in the t
 | K19 | ~~Medium~~ **Resolved (D11)** | `tsc --noEmit` failed at `validate-ce5.ts:604` | Row type added; 0 errors (§A.4) |
 | K20 | **High: production-blocking** | Promoted to formal finding **PR-1-SEC-FIN-001** (§K.1 below) | Sandbox-only until resolved |
 | K21 | ~~Low~~ **Resolved (D2)** | Archive packaging debris | The normalized git tree is authoritative; the archive is preserved under `archive/` (§A.4) |
+| K22 | Medium | CE-3 commercial-event attribution falls back to a hard-coded provider: `providerOrganizationId: handoff?.providerOrganizationId \|\| 'org_apex'` (`server.ts` `BASELINE_ACTIVATED` projections, two sites). A handoff without a provider attributes a commercial event, and so any downstream rating, to `org_apex`. | Same pattern as the consent fallback (K8). Fail closed. Not fixed here: it is commercial scope, recorded for PR-1 alongside PR-1-SEC-FIN-001. |
 
 ---
 
@@ -746,15 +770,77 @@ All behavioral fixtures use **fictional jurisdictions** registered only in the t
 |---|---|---|
 | D1 | ~~Supply the CE-3–CE-5 snapshot~~ | **Done** (rev. 2) |
 | D2 | Commit the extracted source tree | **APPROVED 2026-10-03; executed** (§A.4) |
-| D3 | Name the interval end `effectiveUntil` (exclusive) instead of `effectiveThrough` | `effectiveUntil`: repo precedent, and it removes inclusive/exclusive ambiguity |
-| D4 | PR-0A ships in SHADOW mode; ENFORCE switches in PR-0C | Yes |
-| D5 | SANDBOX vs PRODUCTION activation environments | Yes |
-| D6 | Approve defect fixes inside frozen or protected code: eligibility `\|\| 'NV'`, PM-5 vault fabrication, qualification "minimums verified" wording | Approve as a separate, minimal, test-first change set |
-| D7 | Two-axis activation model in place of a single 8-value enum | Yes |
-| D8 | Coverage taxonomy extension (PIP/UMPD/CSL/UM–UIM split) timing | Before PR-0C. It touches the protected comparison engine. |
-| D9 | Suspension's effect on in-flight competitions | Block new challenges and new bindings; allow viewing and selection |
-| D10 | Evaluation-date anchor per enforcement point (§H) | As proposed, subject to legal review |
+| D3 | Interval-end naming | **APPROVED**: `effectiveFrom` inclusive, `effectiveUntil` exclusive or null (§M) |
+| D4 | Shadow mode in PR-0A | **APPROVED**, with discrepancy recording (§M) |
+| D5 | SANDBOX vs PRODUCTION | **APPROVED**, as a no-fallback invariant (§M) |
+| D6 | Frozen-code jurisdiction defects | **APPROVED as a separate pre-PR-0A correction set; executed** in `51d1444` (§A.5) |
+| D7 | Two-axis market state | **APPROVED** (§M) |
+| D8 | Coverage taxonomy expansion | **APPROVED, outside PR-0A**: its own review before PR-0C, backward-compatible (§M) |
+| D9 | Suspension semantics | **APPROVED WITH CHANGE**: an explicit `SuspensionAction`, defaulting to manual review (§M) |
+| D10 | Evaluation dates | **APPROVED as the initial model**, with a rule-addressable `RuleEvaluationContext` (§M) |
 | D11 | Validator isolation; each suite establishes its own prerequisites; fix `tsc`; no assertions weakened | **APPROVED 2026-10-03; executed** (§A.4) |
 | D12 | Replace PM-5's obsolete "zero billing tables" assertion with the real PM-5/CE-5 boundary | **APPROVED 2026-10-03; executed** (§A.4) |
 
-**Stopping here.** No implementation will begin until this report is approved.
+**Stopping here.** PR-0A implementation begins only after the stabilization PR is reviewed and merged into `main`, from that merge SHA.
+
+---
+
+## M. Decision Record: D3–D10 (ruled 2026-10-03)
+
+These rulings are binding design constraints for PR-0A and later phases. Where §E–§J differ, **this section governs.**
+
+**D3. Effective intervals: APPROVED.**
+- `effectiveFrom` is inclusive. `effectiveUntil` is exclusive, or null.
+- A rule applies when `effectiveFrom <= evaluationDate < effectiveUntil`, or when `effectiveFrom <= evaluationDate` and `effectiveUntil IS NULL`.
+- Use calendar dates wherever the legal source acts by effective date. **Never infer intraday effectiveness from a date-only source.** If an authority genuinely sets an effective *time*, model it explicitly rather than folding it into the date convention.
+
+**D4. Shadow mode: APPROVED.**
+- PR-0A may resolve jurisdiction, resolve the ruleset, evaluate rules, produce an evaluation, and audit it.
+- It **must not change** `offer.isQualified`, provider eligibility, challenge creation, competition participation, selection, binding or reconciliation.
+- Shadow mode is a parallel evaluation: frozen behavior vs. the new engine's result. **Discrepancies are recorded explicitly** and never forced into agreement to make shadow tests green.
+- The legacy NV/OH/CA registry retires in PR-0C, not PR-0A. Its citation-pinned frozen tests stay untouched until that migration is deliberately approved.
+
+**D5. Market environment: APPROVED as an invariant.**
+- *A sandbox market activation can never authorize a production transaction.*
+- `MarketEnvironment = SANDBOX | PRODUCTION`. Activation identity includes at least `(jurisdiction, insuranceLine, environment)`.
+- **No fallback**: a missing PRODUCTION activation never resolves to SANDBOX. An acceptance test proves this.
+
+**D6. Frozen-code defects: APPROVED as a separate pre-PR-0A correction set.** Executed (§A.5).
+
+**D7. Two-axis market state: APPROVED.**
+- Axis 1, regulatory readiness (`NOT_CONFIGURED`, `RESEARCHING`, `RULES_IN_REVIEW`, `RULES_VERIFIED`), is **derived only** and never stored as mutable truth.
+- Axis 2, operational activation (`INACTIVE`, `PILOT`, `ACTIVE`, `SUSPENDED`), is **event-sourced**.
+- Human-facing states such as `PROVIDERS_REQUIRED` are projections of the two axes plus gate attestations, never maintained by hand.
+
+**D8. Coverage taxonomy expansion: APPROVED, outside PR-0A.**
+- It is its own change set, *Canonical Coverage Taxonomy Expansion*, completed before PR-0C enforcement, with its own architecture review, acceptance suite and regression gate (it touches the protected comparison engine).
+- **Backward compatibility is mandatory.** `UM_UIM` is not simply replaced. Legacy combined `UM_UIM` evidence stays representable as a legacy or combined fact, while newly extracted policies can express distinct structures (UM, UIM, UMPD, PIP, CSL and so on). Migration semantics are designed deliberately.
+- In the interim, rules needing coverages the taxonomy lacks evaluate to `INDETERMINATE`, never `PASS`.
+
+**D9. Suspension: APPROVED WITH CHANGE.** A suspension blocks new challenges immediately, records stay reconstructable, and revoking a gate raises a critical operational review rather than silently suspending a market. `SUSPENDED` does **not** carry one universal in-flight behavior:
+
+| Under SUSPENDED | Disposition |
+|---|---|
+| VIEW, AUDIT/EXPORT | allowed |
+| NEW_CHALLENGE, NEW_INVITATION, NEW_PROVIDER_ENTRY, NEW_BINDING | blocked |
+| SELECTION, DISCLOSURE | HOLD; governed by the suspension's action |
+
+Each suspension event carries an explicit `SuspensionAction`: `FREEZE_ALL_PROGRESS`, `ALLOW_SELECTION_ONLY`, `ALLOW_EXISTING_TO_COMPLETE` or `REQUIRE_MANUAL_REVIEW`. **The default is `REQUIRE_MANUAL_REVIEW`**: no new consequential transition until reviewed. This supersedes the earlier "allow viewing and selection" proposal.
+
+**D10. Evaluation dates: APPROVED as the initial temporal model**, subject to primary-law verification in PR-0B/PR-0C.
+- **Invariant:** regulatory evaluation uses the legally relevant transaction or effective date, never the server clock.
+- Initial mapping:
+  - Offer coverage qualification → proposed policy effective date
+  - Provider authority → participation date, re-checked at binding
+  - Consent → transaction date
+  - Controlled disclosure → transaction date
+  - Binding authority → binding date
+- The mapping is **not** a universal assumption. Each executable rule declares which temporal fact it consumes from a `RuleEvaluationContext`: `policyEffectiveDate`, `transactionDate`, `invitationDate`, `offerSubmittedDate`, `selectionDate`, `disclosureDate`, `bindingDate`, `issuedPolicyDate`. This set is extensible, for example for application, renewal or notice dates.
+- **If the required date is unknown, the result is `INDETERMINATE`**, never the server clock and never a guessed date.
+
+**Housekeeping rulings.**
+- No credential rotation is indicated.
+- Restrict the Firebase browser key in Google Cloud as defense in depth.
+- `npm ci --legacy-peer-deps` stays a documented build requirement; no dependency modernization now.
+- PM-5's suite-specific restart folder is acceptable.
+- The normalized baseline becomes authoritative when the stabilization PR merges into `main`. **Its merge SHA is the canonical starting point for PR-0A.**
