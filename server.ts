@@ -24,6 +24,19 @@ import { runPM4AcceptanceTestSuite } from './src/domain/pm4SelectionBinding.test
 import { runPM5DomainTestSuite } from './src/domain/pm5Reconciliation.test';
 import { runCommercialEconomicsTestSuite } from './src/domain/commercialEconomics.test';
 import { commercialStore } from './src/server/db/commercialStore';
+import { jurisdictionStore } from './src/server/db/jurisdictionStore';
+import { determineJurisdiction } from './src/domain/jurisdictionDetermination';
+import { JurisdictionSignal } from './src/types/jurisdiction';
+import {
+  ensureJurisdictionFramework,
+  inShadow,
+  marketEnvironment,
+  recordDetermination,
+  shadowChallengeOpen,
+  shadowOfferQualification,
+  shadowProviderAuthority,
+  transactionDateOf
+} from './src/server/jurisdictionShadow';
 import {
   createCommercialAccount,
   createCommercialAgreement,
@@ -165,6 +178,63 @@ app.get('/api/metrics', (req, res) => {
   res.json(db.getMetrics());
 });
 
+// ==========================================
+// PR-0A: Jurisdiction framework (read-only)
+// Mutations (rulesets, publication, activation, gates) are store-level only until
+// PR-1 provides authenticated operator authorization.
+// ==========================================
+app.get('/api/jurisdictions', async (req, res) => {
+  try {
+    await ensureJurisdictionFramework();
+    res.json({ environment: marketEnvironment(), jurisdictions: await jurisdictionStore.getJurisdictions() });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/jurisdictions/:code/rulesets', async (req, res) => {
+  try {
+    await ensureJurisdictionFramework();
+    const code = req.params.code.toUpperCase();
+    const ruleSets = await jurisdictionStore.getRuleSets(code);
+    const withRules = [];
+    for (const ruleSet of ruleSets) {
+      withRules.push({ ...ruleSet, rules: await jurisdictionStore.getRules(ruleSet.id), reviews: await jurisdictionStore.getReviews(ruleSet.id) });
+    }
+    res.json({ jurisdictionCode: code, ruleSets: withRules, sources: await jurisdictionStore.getSources(code) });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/jurisdictions/:code/market', async (req, res) => {
+  try {
+    await ensureJurisdictionFramework();
+    const requested = String(req.query.environment || marketEnvironment()).toUpperCase();
+    if (requested !== 'SANDBOX' && requested !== 'PRODUCTION') {
+      return res.status(400).json({ error: 'environment must be SANDBOX or PRODUCTION' });
+    }
+    const key = { jurisdictionCode: req.params.code.toUpperCase(), insuranceLine: 'PERSONAL_AUTO' as const, environment: requested as 'SANDBOX' | 'PRODUCTION' };
+    res.json({ ...(await jurisdictionStore.getMarketStatus(key)), events: await jurisdictionStore.getActivationEvents(key) });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/jurisdiction-evaluations', async (req, res) => {
+  try {
+    await ensureJurisdictionFramework();
+    const evaluations = await jurisdictionStore.getEvaluations({
+      subjectType: req.query.subjectType ? String(req.query.subjectType) : undefined,
+      subjectId: req.query.subjectId ? String(req.query.subjectId) : undefined,
+      discrepancy: req.query.discrepancy === undefined ? undefined : req.query.discrepancy === 'true'
+    });
+    res.json({ evaluations });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/api/audit-events', (req, res) => {
   res.json(db.getAuditEvents());
 });
@@ -246,6 +316,7 @@ app.post('/api/baselines/create', (req, res) => {
     expirationDate: policy.expirationDate,
     baselineAnnualPremium: policy.annualPremium,
     baselineMonthlyPremium: policy.monthlyPremium,
+    jurisdiction: policy.jurisdiction,
     vehicle: policy.vehicles[0],
     coverages: policy.coverages,
     verifiedAt: new Date().toISOString(),
@@ -267,9 +338,40 @@ app.post('/api/challenges/create', async (req, res) => {
   }
 
   const challengeId = `CHAL-${Date.now()}`;
+  const openingTimestamp = new Date().toISOString();
+
+  // PR-0A: the governing jurisdiction comes from evidence, never a default or a ZIP prefix.
+  // The policy's stated state is the evidence; the baseline's copy is a cross-check, so a
+  // disagreement surfaces as CONFLICT.
+  const sourcePolicy = db.getPolicy(baseline.policyId);
+  const signals: JurisdictionSignal[] = [];
+  if (sourcePolicy?.jurisdiction) {
+    signals.push({ signal: 'POLICY_STATED_STATE', value: sourcePolicy.jurisdiction, evidenceRef: `policy:${sourcePolicy.id}` });
+  }
+  if (baseline.jurisdiction) {
+    signals.push({ signal: 'POLICY_STATED_STATE', value: baseline.jurisdiction, evidenceRef: `baseline:${baseline.id}` });
+  }
+  const determination = determineJurisdiction({
+    id: `JDET-${challengeId}`,
+    signals,
+    policyId: baseline.policyId,
+    challengeId,
+    determinedAt: openingTimestamp
+  });
+  await inShadow('determination', () => recordDetermination(determination));
+  const jurisdiction = determination.confirmedJurisdiction || determination.proposedJurisdiction;
+  if (!jurisdiction) {
+    return res.status(422).json({
+      error: 'JURISDICTION_UNDETERMINED',
+      code: 'JURISDICTION_UNDETERMINED',
+      message: 'The governing jurisdiction for this policy could not be determined; the challenge cannot open.',
+      determination
+    });
+  }
+
   const challenge: Challenge = {
     id: challengeId,
-    referenceNumber: `CHALLENGE #${baseline.vehicle.garagingZip ? 'NV' : 'US'}-${Math.floor(10000 + Math.random() * 90000)}`,
+    referenceNumber: `CHALLENGE #${jurisdiction}-${Math.floor(10000 + Math.random() * 90000)}`,
     consumerId: 'user_consumer_1',
     coverageBaselineId: baselineId,
     baseline,
@@ -282,19 +384,43 @@ app.post('/api/challenges/create', async (req, res) => {
       mustIncludeRental: true,
       mustIncludeRoadside: true
     },
-    jurisdiction: 'NV',
-    openingTimestamp: new Date().toISOString(),
+    jurisdiction,
+    jurisdictionDeterminationId: determination.id,
+    openingTimestamp,
     closingTimestamp: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
     status: 'OPEN',
     disclosureLevel: 'MARKETPLACE_ANONYMOUS',
     offersCount: 0
   };
 
+  // PR-0A shadow: market activation for opening, and the ruleset anchor. Never blocks (D4).
+  const anchor = await inShadow('challenge-open', () => shadowChallengeOpen(challenge));
+  if (anchor) {
+    challenge.ruleSetId = anchor.ruleSetId;
+    challenge.ruleSetContentSha256 = anchor.ruleSetContentSha256;
+    challenge.regulatoryEvaluationDate = anchor.evaluationDate;
+  }
+
   db.createChallenge(challenge);
 
   // CE-3: Instrument VPO_AVAILABLE for every eligible invitation successfully created
   const createdInvitations = db.getInvitationsForChallenge(challenge.id);
   for (const inv of createdInvitations) {
+    // PR-0A shadow: provider jurisdictional authority for each invited provider.
+    const invitedOrg = db.getProviderOrganization(inv.providerOrganizationId);
+    if (invitedOrg) {
+      await inShadow('authority-invitation', () => shadowProviderAuthority({
+        invitation: inv,
+        challenge,
+        org: invitedOrg,
+        licenses: db.getProviderLicenses(invitedOrg.id),
+        carrierRelationships: db.getCarrierRelationships(invitedOrg.id),
+        legacyEligible: inv.eligibilityResult === 'ELIGIBLE',
+        evaluationDate: transactionDateOf(inv.invitedAt),
+        stage: 'INVITATION'
+      }));
+    }
+
     await commercialStore.projectMarketplaceEvent({
       eventType: 'VPO_AVAILABLE',
       sourceEntityType: 'CHALLENGE_INVITATION',
@@ -365,6 +491,9 @@ app.post('/api/offers/submit', async (req, res) => {
   offerData.isLatestRevision = offerData.isLatestRevision ?? true;
 
   const savedOffer = db.submitOffer(offerData);
+
+  // PR-0A shadow: jurisdiction coverage evaluation compared with the frozen qualification (D4).
+  await inShadow('offer-qualification', () => shadowOfferQualification(savedOffer, db.getChallenge(savedOffer.challengeId)));
 
   // CE-3: Instrument PROPOSITION_SUBMITTED for valid OfferVersion
   const offerVersions = db.getOfferVersions(savedOffer.id);
@@ -613,6 +742,22 @@ app.post('/api/marketplace/invitations/:id/accept', async (req, res) => {
       return res.json({ success: true, ...result });
     }
 
+    // PR-0A ordering invariant: provider jurisdictional authority is evaluated before any
+    // commercial capacity is consumed. SHADOW mode records the result and never blocks (D4).
+    const acceptingOrg = db.getProviderOrganization(orgId);
+    if (acceptingOrg) {
+      await inShadow('authority-acceptance', () => shadowProviderAuthority({
+        invitation,
+        challenge: db.getChallenge(invitation.challengeId),
+        org: acceptingOrg,
+        licenses: db.getProviderLicenses(orgId),
+        carrierRelationships: db.getCarrierRelationships(orgId),
+        legacyEligible: true,
+        evaluationDate: transactionDateOf(new Date().toISOString()),
+        stage: 'ACCEPTANCE'
+      }));
+    }
+
     // 2. Commercial Capacity Check & Atomic Consumption
     const idempotencyKey = `usage:vpo_engagement:${orgId}:${invitationId}`;
     const capacityResult = await commercialStore.consumeEngagementCapacity({
@@ -834,6 +979,9 @@ app.post('/api/marketplace/competition/:challengeId/revise-offer/:offerId', asyn
       req.body.revisedData,
       orgId
     );
+
+    // PR-0A shadow: re-evaluate jurisdiction coverage requirements for the revision (D4).
+    await inShadow('offer-qualification', () => shadowOfferQualification(revisedOffer, db.getChallenge(req.params.challengeId)));
 
     // CE-3: Instrument PROPOSITION_SUBMITTED for revised OfferVersion
     const versionId = `VER-${revisedOffer.id}-v${revisedOffer.version || 2}`;
@@ -2318,6 +2466,7 @@ async function startServer() {
     await postgresStore.init();
     await postgresStore.seedCanonicalProviderData();
     await commercialStore.seedCanonicalPlans();
+    await ensureJurisdictionFramework();
   } catch (err: any) {
     console.warn('[PostgresStore Initialization Warning]:', err?.message || err);
   }
