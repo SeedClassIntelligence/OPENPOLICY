@@ -2,6 +2,7 @@
 
 **Status:** Analysis only. No repository source code was modified. Implementation is **on hold pending review and approval**.
 **Revision 2:** re-run against `OPENPOLICY_2026-10-02_CE5_COMPLETE.zip` (`main` @ `cfef64a`). Revision 1 audited `OPENPOLICY_2026-09-30.zip`, which predated CE-3–CE-5; its blocker (K1) is resolved.
+**Revision 5:** PR-0A implemented from canonical baseline `6cc90208d53172a4dc46a9137111eb6f383920f8` (merge of PR #1) in SHADOW mode (§N).
 **Revision 4:** D3–D10 ruled (§M); D6 executed as a separate tests-first correction set (§A.5). PR-0A implementation has **not** begun.
 **Revision 3:** baseline stabilization (D2, D11, D12) approved and executed; the baseline is now order-independent (§A.4). Adds PR-1-SEC-FIN-001 (§K.1) and the PR-0 ordering invariant (§G). PR-0A implementation has **not** begun.
 **Date:** 2026-10-03
@@ -844,3 +845,91 @@ Each suspension event carries an explicit `SuspensionAction`: `FREEZE_ALL_PROGRE
 - `npm ci --legacy-peer-deps` stays a documented build requirement; no dependency modernization now.
 - PM-5's suite-specific restart folder is acceptable.
 - The normalized baseline becomes authoritative when the stabilization PR merges into `main`. **Its merge SHA is the canonical starting point for PR-0A.**
+
+---
+
+## N. PR-0A Implementation Record (rev. 5)
+
+**Canonical baseline:** `6cc90208d53172a4dc46a9137111eb6f383920f8`, the merge of PR #1. Its tree is byte-identical to the verified head `69003bb`.
+**Mode:** SHADOW (D4). No frozen outcome changes, with the one exception in N.3.
+
+### N.1 What was built
+
+| Layer | File | Responsibility |
+|---|---|---|
+| Vocabulary | `src/types/jurisdiction.ts` | All PR-0A types: provenance, rulesets and rules, the closed `MachineRule` union, `RuleEvaluationContext` (D10), outcomes, activation axes (D7), `SuspensionAction` (D9), `MarketEnvironment` (D5). No score, rank, order, priority or weight anywhere. |
+| Reference | `src/domain/jurisdiction/usJurisdictions.ts` | The 51 codes and names. No law. |
+| Pure engine | `src/domain/jurisdictionRuleEngine.ts` | Per-rule temporal basis; `effectiveFrom <= date < effectiveUntil` on calendar dates; unknown date or fact gives `INDETERMINATE`; uncovered taxonomy gives `INDETERMINATE` (D8) |
+| Pure engine | `src/domain/providerAuthorityEngine.ts` | Authority derived from license and appointment evidence plus in-force requirements. Never reads `org.states`, appetite or commercial capacity. Exact carrier match; jurisdiction-, line- and date-scoped appointments. |
+| Pure engine | `src/domain/jurisdictionDetermination.ts` | Evidence signals become PROPOSED, CONSUMER_CONFIRMED, CONFLICT or UNRESOLVED. No ZIP inference, no default. |
+| Pure engine | `src/domain/marketActivationEngine.ts` | Derived readiness and event-sourced activation (D7); no environment fallback (D5); production gates; TEST_FIXTURE guard; D9 disposition table |
+| Pure engine | `src/domain/rulesetGovernance.ts` | Publication validation (four-eyes, VERIFIED, sources, interval integrity), supersession, withdrawal, discard, order-independent content hash |
+| Persistence | `src/server/db/migrate.ts` (`SQL_MIGRATION_V8`), `postgresStore.ts` | Migration `0008_jurisdiction_framework`: 11 tables, nullable additive columns, 9 indexes, and immutability **triggers** (verified working in PGlite) |
+| Persistence | `src/server/db/jurisdictionStore.ts` | Awaited writes only; lifecycle enforced by the pure engines, and again by triggers |
+| Seed | `src/server/db/seeds/legacyJurisdictionSeed.ts` | NV/OH/CA legacy registry migrated **verbatim as IN_REVIEW rulesets with UNVERIFIED rules**; citation sources labelled "not retrieved from or verified against the official source"; SANDBOX fixture activations only when the deployment environment is SANDBOX |
+| Orchestration | `src/server/jurisdictionShadow.ts` | The only bridge to marketplace flows. It records append-only evaluations with explicit discrepancies, and `inShadow()` guarantees a shadow failure never alters a response. |
+| HTTP | `server.ts` | The two hard-code fixes (N.3); shadow hooks at challenge open, each invitation, offer submit and revise, and invitation acceptance (before CE-2 capacity consumption); read-only `GET /api/jurisdictions`, `/api/jurisdictions/:code/rulesets`, `/api/jurisdictions/:code/market`, `/api/jurisdiction-evaluations`. **No mutation endpoints** until PR-1 authorization. |
+| Types (additive) | `src/types/insurance.ts` | Optional `ProviderLicense.providerUserId/npn/verification*`, `CarrierRelationship.effectiveFrom/Until/verification*`, and `Challenge` anchor fields |
+| Config | `.env.example` | `OPENPOLICY_MARKET_ENVIRONMENT` (default SANDBOX) |
+| Tests | `src/domain/jurisdiction.test.ts`, `scripts/validate-pr0a.ts` | 76 pure-engine assertions on fictional X1/X2, plus 93 integration assertions: 169 in total |
+
+**Not modified:** all five protected engines, `eligibilityEngine.ts`, every existing test and validator, all CE files, all UI.
+
+### N.2 Rulings realized
+
+| Ruling | How it is enforced | Proven by |
+|---|---|---|
+| D3 | `isRuleInForce`; `DATE` columns; `CHECK (effective_until > effective_from)`; timestamps rejected as dates | DATE-1..4, 8 |
+| D4 | `jurisdictionShadow.ts` + `inShadow`; legacy registry untouched; discrepancies recorded with `legacyOutcome` | §8 of `validate-pr0a`: `isQualified` equals an independent frozen-engine run; the 10/20/5 NV offer is recorded as FAIL vs STATUTORY_PASS |
+| D5 | Activation keyed by environment in both engine and SQL; no code path reads another environment | MKT-2; `validate-pr0a` §6, §7. A mutation removing the environment filter is caught. |
+| D6 | (prior change set) | `validate-pr0a` §10 re-checks |
+| D7 | `deriveReadiness` (never stored), event-sourced `market_activation_events`, `displayStatus` projection | MKT-17..19 |
+| D8 | `CANONICAL_COVERAGE_CODES` guard, giving `INDETERMINATE` | EXEC-11 |
+| D9 | `SuspensionAction` required on every suspension (DB `CHECK`), default `REQUIRE_MANUAL_REVIEW`; disposition table; gate revocation never auto-suspends | MKT-8, 11..16; `validate-pr0a` §6 |
+| D10 | `JurisdictionRule.temporalBasis` against `RuleEvaluationContext.dates`; unknown date gives `INDETERMINATE` | DATE-7, 9 |
+| §G ordering | Authority is evaluated at acceptance **before** `consumeEngagementCapacity`; activation is evaluated before invitations are recorded. Shadow only; enforcement is PR-0C. | `validate-pr0a` §8 |
+
+### N.3 The one observable behavior change, for your ruling
+
+Removing the `server.ts` hard-code means a policy with **no jurisdiction evidence** now gets `422 JURISDICTION_UNDETERMINED` at challenge creation. Before, it was silently stamped `NV`.
+
+This change comes from the approved hard-code removal and the D6 principle ("missing jurisdiction must become explicit uncertainty"), **not** from rule or activation evaluation, which stay shadow-only. No existing suite exercised the old silent default.
+
+The policy's stated state is the evidence. The baseline's copy is a cross-check, so a disagreement between them is a CONFLICT. That matters because the seeded fixture baseline `BL-NV-49281` omits `jurisdiction`; its policy carries NV.
+
+### N.4 What shadow mode is already showing (expected, recorded, not reconciled)
+- **Offer coverage.** NV offers below the legacy registry's recorded minimums are FAIL in shadow and qualified by the frozen engine, which never compares limits. This is exactly the gap D6 exposed in wording.
+- **Provider authority.** Every invitation is INDETERMINATE in shadow vs. ELIGIBLE in the frozen engine. No `PRODUCER_AUTHORITY` requirement exists for any real jurisdiction until PR-0B research, and license evidence alone cannot establish which license the law requires.
+- **Challenge opening.** It is PASS for NV, OH and CA (SANDBOX fixture activations). For any other jurisdiction it would be BLOCK (INACTIVE), recorded as a discrepancy.
+
+### N.5 Design decisions taken while building (flagged for confirmation)
+1. **A `DISCARDED` ruleset status was added.** Review history is append-only, so an abandoned draft cannot be deleted. Its rules are removed and the record stays.
+2. **Rules are verified while their ruleset is DRAFT.** `IN_REVIEW` freezes rule content, so review means approving exactly what was verified. The flow is: author drafts → second person verifies (DRAFT) → submit → third person, or anyone but the author, publishes.
+3. **Gate revocations live in their own append-only table**, rather than being an update to an attestation.
+4. **The transaction date is the UTC calendar date** in PR-0A. Jurisdiction-local legal-date conversion is a PR-0B/0C determination.
+5. **A license expiring *on* the evaluation date gives INDETERMINATE.** Expiration-day semantics are unverified.
+6. **Activation does not force PILOT before ACTIVE.** That ordering was never ruled on.
+
+### N.6 Open questions for you
+- **D9 tension.** Your table blocks `NEW_BINDING` under every suspension, but `ALLOW_EXISTING_TO_COMPLETE` implies in-flight transactions can finish. As implemented, that action allows SELECTION and DISCLOSURE but **NEW_BINDING stays BLOCKED**. Should in-flight binding be allowed under that action?
+- Should PRODUCTION activation require passing through PILOT?
+- The `generate-proof` route's `jurisdiction || 'NV'` default (`server.ts`, governance proof, related to K5) remains. It is pinned with K5 and was not in D6 or PR-0A scope.
+
+### N.7 Validation
+See the PR description for the multi-order results on the final tree.
+
+### N.8 Rulings on §N (2026-10-03), binding
+
+| Item | Ruling | Implementation |
+|---|---|---|
+| N.3 | **APPROVED as permanent behavior.** Known jurisdiction: continue. Conflicting evidence: `422 JURISDICTION_CONFLICT`. Insufficient evidence: `422 JURISDICTION_UNDETERMINED`. Never invent one. | Distinct `JURISDICTION_CONFLICT` code added; both paths tested over HTTP |
+| D9 / N.6 | **Keep as built.** `ALLOW_EXISTING_TO_COMPLETE` allows VIEW, existing offers, SELECTION and DISCLOSURE. **BINDING, new challenge, new invitation and new provider entry stay BLOCKED.** Binding an in-flight transaction during a suspension requires a future explicit, authorized override (actor, reason, scope, audit record), never a blanket exemption. | Unchanged (MKT-11, 14). The override mechanism is a later change set, with no binding enforcement before PR-0C. |
+| N.6 pilot | **The first PRODUCTION activation must pass through PILOT.** Once a PRODUCTION pilot has completed, `SUSPENDED -> ACTIVE` is allowed (subject to gates). A SANDBOX pilot never counts. | `productionPilotCompletion()` is derived from immutable history (a PRODUCTION `PILOT -> ACTIVE` event); its event id is the pilot approval reference. There is no mutable flag. (MKT-21..24) |
+| 4A | **`DISCARDED` approved and terminal, reachable only from DRAFT.** It can never be published. Resurrecting its content means a new draft with provenance linking back. | `canDiscard` accepts DRAFT only; a governed `returnToDraft` (IN_REVIEW -> DRAFT, with actor and reason) records the history; a trigger makes DISCARDED immutable. A provenance link for resurrected drafts is deferred to PR-0E. |
+| 4B | **Verify while DRAFT, approved.** Publication freezes exactly what was verified; a substantive change after verification makes that verification stale. | A trigger resets a DRAFT rule to UNVERIFIED (clearing verifier and time) on any substantive column change; tested |
+| 4C | **UTC calendar date approved for PR-0A only.** Before enforcement, each jurisdiction needs this chain: event timestamp → jurisdiction → its time-zone rule → legally relevant date. Some dates are not transaction-derived at all (D10). | Unchanged; tracked for PR-0B/0C |
+| 4D | **A license expiring on the evaluation date is INDETERMINATE until PR-0B establishes the semantics from the licensing authority.** | Unchanged (AUTH-5) |
+| Legacy NV/OH/CA | **Not verified law.** PR-0B must independently establish each value from primary sources before it can become executable production authority. | They remain IN_REVIEW and UNVERIFIED |
+| Audit proof | The `generate-proof` `\|\| 'NV'` default and the regulator-certificate wording (K5) stay unchanged in PR-0A, because of the pinned frozen test. **They go into the PR-0C legacy-retirement and change-control package.** | Tracked for PR-0C |
+
+**Sequence:** merge #2 (done) → rebase PR-0A onto `main` → full validation → push → PR #3 → independent CI → review. **PR-0B does not begin until PR-0A is merged.** At that point PR-0B becomes the 51-jurisdiction primary-authority research and regulatory-data programme.

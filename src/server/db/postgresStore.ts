@@ -1,6 +1,6 @@
 import { PGlite } from '@electric-sql/pglite';
 import fs from 'fs';
-import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7 } from './migrate';
+import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8 } from './migrate';
 import {
   ProviderOrganization,
   ProviderUser,
@@ -94,6 +94,10 @@ export class PostgresStore {
         await this.pglite.exec(SQL_MIGRATION_V7);
         await this.pglite.query(
           `INSERT INTO _migrations (name) VALUES ('0007_commercial_billing_settlement') ON CONFLICT (name) DO NOTHING;`
+        );
+        await this.pglite.exec(SQL_MIGRATION_V8);
+        await this.pglite.query(
+          `INSERT INTO _migrations (name) VALUES ('0008_jurisdiction_framework') ON CONFLICT (name) DO NOTHING;`
         );
         this.isReady = true;
         console.log('[Open Policy Postgres] PostgreSQL 16 durable engine initialized at', this.dataDir);
@@ -804,8 +808,9 @@ export class PostgresStore {
   public async saveChallenge(chal: Challenge) {
     await this.ensureReady();
     await this.pglite!.query(
-      `INSERT INTO challenges (id, user_id, reference_number, jurisdiction, status, created_at, baseline_data, requirements_data)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `INSERT INTO challenges (id, user_id, reference_number, jurisdiction, status, created_at, baseline_data, requirements_data,
+         jurisdiction_determination_id, rule_set_id, rule_set_content_sha256, regulatory_evaluation_date)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status;`,
       [
         chal.id,
@@ -815,7 +820,11 @@ export class PostgresStore {
         chal.status,
         chal.openingTimestamp || (chal as any).createdAt || new Date().toISOString(),
         JSON.stringify(chal.baseline || {}),
-        JSON.stringify(chal.requirements || {})
+        JSON.stringify(chal.requirements || {}),
+        chal.jurisdictionDeterminationId ?? null,
+        chal.ruleSetId ?? null,
+        chal.ruleSetContentSha256 ?? null,
+        chal.regulatoryEvaluationDate ?? null
       ]
     );
   }

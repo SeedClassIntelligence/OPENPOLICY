@@ -631,6 +631,290 @@ CREATE INDEX IF NOT EXISTS idx_refunds_orig ON refund_records(original_payment_r
 CREATE INDEX IF NOT EXISTS idx_settlement_invoice ON settlement_allocations(invoice_id);
 `;
 
+export const SQL_MIGRATION_V8 = `
+-- Open Policy PR-0A Migration 0008: Jurisdiction framework
+-- Additive only. Regulatory records are append-only or immutable once published,
+-- enforced by triggers. No table name contains billing, ledger, fee or commission.
+
+CREATE TABLE IF NOT EXISTS jurisdictions (
+  code TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('STATE', 'FEDERAL_DISTRICT', 'TEST_FIXTURE'))
+);
+
+CREATE TABLE IF NOT EXISTS regulatory_authorities (
+  id TEXT PRIMARY KEY,
+  jurisdiction_code TEXT NOT NULL REFERENCES jurisdictions(code),
+  name TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  official_url TEXT
+);
+
+CREATE TABLE IF NOT EXISTS regulatory_sources (
+  id TEXT PRIMARY KEY,
+  jurisdiction_code TEXT NOT NULL REFERENCES jurisdictions(code),
+  authority_id TEXT NOT NULL REFERENCES regulatory_authorities(id),
+  source_type TEXT NOT NULL,
+  citation TEXT NOT NULL,
+  title TEXT NOT NULL,
+  official_url TEXT,
+  retrieved_at TEXT,
+  content_sha256 TEXT,
+  archived_copy_ref TEXT,
+  notes TEXT
+);
+
+CREATE TABLE IF NOT EXISTS jurisdiction_rule_sets (
+  id TEXT PRIMARY KEY,
+  jurisdiction_code TEXT NOT NULL REFERENCES jurisdictions(code),
+  insurance_line TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('DRAFT', 'IN_REVIEW', 'PUBLISHED', 'SUPERSEDED', 'WITHDRAWN', 'DISCARDED')),
+  supersedes_rule_set_id TEXT,
+  authored_by TEXT NOT NULL,
+  published_by TEXT,
+  published_at TEXT,
+  content_sha256 TEXT,
+  created_at TEXT NOT NULL,
+  UNIQUE (jurisdiction_code, insurance_line, version)
+);
+
+CREATE TABLE IF NOT EXISTS jurisdiction_rules (
+  id TEXT PRIMARY KEY,
+  rule_set_id TEXT NOT NULL REFERENCES jurisdiction_rule_sets(id),
+  rule_code TEXT NOT NULL,
+  rule_category TEXT NOT NULL,
+  enforcement_point TEXT NOT NULL,
+  temporal_basis TEXT NOT NULL,
+  requirement_text TEXT NOT NULL,
+  source_ids TEXT NOT NULL,
+  effective_from DATE NOT NULL,
+  effective_until DATE,
+  verification_status TEXT NOT NULL,
+  verified_at TEXT,
+  verified_by TEXT,
+  supersedes_rule_id TEXT,
+  machine_rule TEXT,
+  CHECK (effective_until IS NULL OR effective_until > effective_from)
+);
+
+CREATE TABLE IF NOT EXISTS jurisdiction_rule_set_reviews (
+  id TEXT PRIMARY KEY,
+  rule_set_id TEXT NOT NULL REFERENCES jurisdiction_rule_sets(id),
+  action TEXT NOT NULL,
+  actor_id TEXT NOT NULL,
+  notes TEXT,
+  recorded_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS market_activation_events (
+  id TEXT PRIMARY KEY,
+  jurisdiction_code TEXT NOT NULL REFERENCES jurisdictions(code),
+  insurance_line TEXT NOT NULL,
+  environment TEXT NOT NULL CHECK (environment IN ('SANDBOX', 'PRODUCTION')),
+  from_state TEXT NOT NULL,
+  to_state TEXT NOT NULL CHECK (to_state IN ('INACTIVE', 'PILOT', 'ACTIVE', 'SUSPENDED')),
+  suspension_action TEXT,
+  rule_set_id TEXT,
+  actor_id TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  recorded_at TEXT NOT NULL,
+  CHECK ((to_state = 'SUSPENDED') = (suspension_action IS NOT NULL))
+);
+
+CREATE TABLE IF NOT EXISTS market_activation_gate_attestations (
+  id TEXT PRIMARY KEY,
+  jurisdiction_code TEXT NOT NULL REFERENCES jurisdictions(code),
+  insurance_line TEXT NOT NULL,
+  environment TEXT NOT NULL CHECK (environment IN ('SANDBOX', 'PRODUCTION')),
+  gate_code TEXT NOT NULL,
+  evidence_ref TEXT NOT NULL,
+  attested_by TEXT NOT NULL,
+  attested_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS market_activation_gate_revocations (
+  id TEXT PRIMARY KEY,
+  attestation_id TEXT NOT NULL UNIQUE REFERENCES market_activation_gate_attestations(id),
+  revoked_by TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  revoked_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS jurisdiction_determinations (
+  id TEXT PRIMARY KEY,
+  policy_id TEXT,
+  challenge_id TEXT,
+  basis TEXT NOT NULL,
+  status TEXT NOT NULL,
+  proposed_jurisdiction TEXT,
+  confirmed_jurisdiction TEXT,
+  consumer_confirmed_at TEXT,
+  reasons TEXT NOT NULL,
+  determined_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS jurisdiction_rule_evaluations (
+  id TEXT PRIMARY KEY,
+  subject_type TEXT NOT NULL,
+  subject_id TEXT NOT NULL,
+  jurisdiction_code TEXT,
+  enforcement_point TEXT NOT NULL,
+  rule_set_id TEXT,
+  rule_set_content_sha256 TEXT,
+  rule_set_basis TEXT NOT NULL,
+  evaluation_date TEXT,
+  outcome TEXT NOT NULL,
+  results TEXT NOT NULL,
+  inputs_sha256 TEXT NOT NULL,
+  mode TEXT NOT NULL CHECK (mode IN ('SHADOW', 'ENFORCE')),
+  legacy_outcome TEXT,
+  discrepancy BOOLEAN NOT NULL,
+  discrepancy_notes TEXT,
+  evaluated_at TEXT NOT NULL
+);
+
+ALTER TABLE provider_licenses ADD COLUMN IF NOT EXISTS provider_user_id TEXT;
+ALTER TABLE provider_licenses ADD COLUMN IF NOT EXISTS npn TEXT;
+ALTER TABLE provider_licenses ADD COLUMN IF NOT EXISTS verification_source TEXT;
+ALTER TABLE provider_licenses ADD COLUMN IF NOT EXISTS verified_at TEXT;
+ALTER TABLE provider_licenses ADD COLUMN IF NOT EXISTS verified_by TEXT;
+ALTER TABLE carrier_relationships ADD COLUMN IF NOT EXISTS effective_from DATE;
+ALTER TABLE carrier_relationships ADD COLUMN IF NOT EXISTS effective_until DATE;
+ALTER TABLE carrier_relationships ADD COLUMN IF NOT EXISTS verification_source TEXT;
+ALTER TABLE carrier_relationships ADD COLUMN IF NOT EXISTS verified_at TEXT;
+ALTER TABLE challenges ADD COLUMN IF NOT EXISTS jurisdiction_determination_id TEXT;
+ALTER TABLE challenges ADD COLUMN IF NOT EXISTS rule_set_id TEXT;
+ALTER TABLE challenges ADD COLUMN IF NOT EXISTS rule_set_content_sha256 TEXT;
+ALTER TABLE challenges ADD COLUMN IF NOT EXISTS regulatory_evaluation_date TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_jrs_jurisdiction_line_status ON jurisdiction_rule_sets (jurisdiction_code, insurance_line, status);
+CREATE INDEX IF NOT EXISTS idx_jr_ruleset_point ON jurisdiction_rules (rule_set_id, enforcement_point);
+CREATE INDEX IF NOT EXISTS idx_jr_code_from ON jurisdiction_rules (rule_code, effective_from);
+CREATE INDEX IF NOT EXISTS idx_jre_subject ON jurisdiction_rule_evaluations (subject_type, subject_id);
+CREATE INDEX IF NOT EXISTS idx_jre_discrepancy ON jurisdiction_rule_evaluations (discrepancy, enforcement_point);
+CREATE INDEX IF NOT EXISTS idx_mae_market ON market_activation_events (jurisdiction_code, insurance_line, environment, recorded_at);
+CREATE INDEX IF NOT EXISTS idx_maga_market ON market_activation_gate_attestations (jurisdiction_code, insurance_line, environment);
+CREATE INDEX IF NOT EXISTS idx_pl_org_jurisdiction ON provider_licenses (provider_organization_id, jurisdiction);
+CREATE INDEX IF NOT EXISTS idx_cr_org_jurisdiction_line ON carrier_relationships (provider_organization_id, jurisdiction, line_of_business);
+
+-- Append-only enforcement.
+CREATE OR REPLACE FUNCTION op_reject_mutation() RETURNS trigger AS $$
+BEGIN
+  RAISE EXCEPTION 'Append-only regulatory record: % on % is not permitted', TG_OP, TG_TABLE_NAME;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_append_only_reviews ON jurisdiction_rule_set_reviews;
+CREATE TRIGGER trg_append_only_reviews BEFORE UPDATE OR DELETE ON jurisdiction_rule_set_reviews
+  FOR EACH ROW EXECUTE FUNCTION op_reject_mutation();
+DROP TRIGGER IF EXISTS trg_append_only_activation ON market_activation_events;
+CREATE TRIGGER trg_append_only_activation BEFORE UPDATE OR DELETE ON market_activation_events
+  FOR EACH ROW EXECUTE FUNCTION op_reject_mutation();
+DROP TRIGGER IF EXISTS trg_append_only_attestations ON market_activation_gate_attestations;
+CREATE TRIGGER trg_append_only_attestations BEFORE UPDATE OR DELETE ON market_activation_gate_attestations
+  FOR EACH ROW EXECUTE FUNCTION op_reject_mutation();
+DROP TRIGGER IF EXISTS trg_append_only_revocations ON market_activation_gate_revocations;
+CREATE TRIGGER trg_append_only_revocations BEFORE UPDATE OR DELETE ON market_activation_gate_revocations
+  FOR EACH ROW EXECUTE FUNCTION op_reject_mutation();
+DROP TRIGGER IF EXISTS trg_append_only_determinations ON jurisdiction_determinations;
+CREATE TRIGGER trg_append_only_determinations BEFORE UPDATE OR DELETE ON jurisdiction_determinations
+  FOR EACH ROW EXECUTE FUNCTION op_reject_mutation();
+DROP TRIGGER IF EXISTS trg_append_only_evaluations ON jurisdiction_rule_evaluations;
+CREATE TRIGGER trg_append_only_evaluations BEFORE UPDATE OR DELETE ON jurisdiction_rule_evaluations
+  FOR EACH ROW EXECUTE FUNCTION op_reject_mutation();
+DROP TRIGGER IF EXISTS trg_append_only_sources ON regulatory_sources;
+CREATE TRIGGER trg_append_only_sources BEFORE UPDATE OR DELETE ON regulatory_sources
+  FOR EACH ROW EXECUTE FUNCTION op_reject_mutation();
+
+-- Rulesets are never deleted. Content is frozen once published; only
+-- PUBLISHED -> SUPERSEDED | WITHDRAWN may follow. Unpublished work may become DISCARDED.
+CREATE OR REPLACE FUNCTION op_guard_rule_set() RETURNS trigger AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'Ruleset % (%) can never be deleted', OLD.id, OLD.status;
+  END IF;
+  IF OLD.status IN ('SUPERSEDED', 'WITHDRAWN', 'DISCARDED') THEN
+    RAISE EXCEPTION 'Ruleset % is % and immutable', OLD.id, OLD.status;
+  END IF;
+  IF OLD.status = 'PUBLISHED' THEN
+    IF NEW.status NOT IN ('SUPERSEDED', 'WITHDRAWN')
+       OR NEW.jurisdiction_code IS DISTINCT FROM OLD.jurisdiction_code
+       OR NEW.insurance_line IS DISTINCT FROM OLD.insurance_line
+       OR NEW.version IS DISTINCT FROM OLD.version
+       OR NEW.supersedes_rule_set_id IS DISTINCT FROM OLD.supersedes_rule_set_id
+       OR NEW.authored_by IS DISTINCT FROM OLD.authored_by
+       OR NEW.published_by IS DISTINCT FROM OLD.published_by
+       OR NEW.published_at IS DISTINCT FROM OLD.published_at
+       OR NEW.content_sha256 IS DISTINCT FROM OLD.content_sha256
+       OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+      RAISE EXCEPTION 'Published ruleset % may only move to SUPERSEDED or WITHDRAWN', OLD.id;
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_guard_rule_set ON jurisdiction_rule_sets;
+CREATE TRIGGER trg_guard_rule_set BEFORE UPDATE OR DELETE ON jurisdiction_rule_sets
+  FOR EACH ROW EXECUTE FUNCTION op_guard_rule_set();
+
+-- Rules: editable only while their ruleset is DRAFT; deletable while DRAFT or IN_REVIEW.
+-- A substantive change to a DRAFT rule makes its verification stale (ruling §N.4B).
+CREATE OR REPLACE FUNCTION op_guard_rule() RETURNS trigger AS $$
+DECLARE
+  parent_status TEXT;
+BEGIN
+  SELECT status INTO parent_status FROM jurisdiction_rule_sets WHERE id = OLD.rule_set_id;
+  IF TG_OP = 'DELETE' THEN
+    IF parent_status IS NOT NULL AND parent_status NOT IN ('DRAFT', 'IN_REVIEW') THEN
+      RAISE EXCEPTION 'Rule % belongs to a % ruleset and can never be deleted', OLD.id, parent_status;
+    END IF;
+    RETURN OLD;
+  END IF;
+  IF parent_status <> 'DRAFT' THEN
+    RAISE EXCEPTION 'Rule % belongs to a % ruleset and is immutable', OLD.id, parent_status;
+  END IF;
+  IF NEW.rule_code IS DISTINCT FROM OLD.rule_code
+     OR NEW.rule_category IS DISTINCT FROM OLD.rule_category
+     OR NEW.enforcement_point IS DISTINCT FROM OLD.enforcement_point
+     OR NEW.temporal_basis IS DISTINCT FROM OLD.temporal_basis
+     OR NEW.requirement_text IS DISTINCT FROM OLD.requirement_text
+     OR NEW.source_ids IS DISTINCT FROM OLD.source_ids
+     OR NEW.effective_from IS DISTINCT FROM OLD.effective_from
+     OR NEW.effective_until IS DISTINCT FROM OLD.effective_until
+     OR NEW.supersedes_rule_id IS DISTINCT FROM OLD.supersedes_rule_id
+     OR NEW.machine_rule IS DISTINCT FROM OLD.machine_rule THEN
+    NEW.verification_status := 'UNVERIFIED';
+    NEW.verified_by := NULL;
+    NEW.verified_at := NULL;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_guard_rule ON jurisdiction_rules;
+CREATE TRIGGER trg_guard_rule BEFORE UPDATE OR DELETE ON jurisdiction_rules
+  FOR EACH ROW EXECUTE FUNCTION op_guard_rule();
+
+-- New rules may be added only to a DRAFT ruleset.
+CREATE OR REPLACE FUNCTION op_guard_rule_insert() RETURNS trigger AS $$
+DECLARE
+  parent_status TEXT;
+BEGIN
+  SELECT status INTO parent_status FROM jurisdiction_rule_sets WHERE id = NEW.rule_set_id;
+  IF parent_status IS DISTINCT FROM 'DRAFT' THEN
+    RAISE EXCEPTION 'Rules can only be added to a DRAFT ruleset (ruleset % is %)', NEW.rule_set_id, parent_status;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_guard_rule_insert ON jurisdiction_rules;
+CREATE TRIGGER trg_guard_rule_insert BEFORE INSERT ON jurisdiction_rules
+  FOR EACH ROW EXECUTE FUNCTION op_guard_rule_insert();
+`;
+
 export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR || './data/openpolicy_pg') {
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
@@ -667,7 +951,11 @@ export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR ||
     await pglite.query(
       `INSERT INTO _migrations (name) VALUES ('0007_commercial_billing_settlement') ON CONFLICT (name) DO NOTHING;`
     );
-    console.log(`[Open Policy DB] Migrations 0001 through 0007 applied successfully.`);
+    await pglite.exec(SQL_MIGRATION_V8);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0008_jurisdiction_framework') ON CONFLICT (name) DO NOTHING;`
+    );
+    console.log(`[Open Policy DB] Migrations 0001 through 0008 applied successfully.`);
     return pglite;
   } catch (error) {
     console.error(`[Open Policy DB] Migration error:`, error);
