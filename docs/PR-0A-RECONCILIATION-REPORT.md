@@ -917,3 +917,19 @@ The policy's stated state is the evidence. The baseline's copy is a cross-check,
 
 ### N.7 Validation
 See the PR description for the multi-order results on the final tree.
+
+### N.8 Rulings on §N (2026-10-03), binding
+
+| Item | Ruling | Implementation |
+|---|---|---|
+| N.3 | **APPROVED as permanent behavior.** Known jurisdiction: continue. Conflicting evidence: `422 JURISDICTION_CONFLICT`. Insufficient evidence: `422 JURISDICTION_UNDETERMINED`. Never invent one. | Distinct `JURISDICTION_CONFLICT` code added; both paths tested over HTTP |
+| D9 / N.6 | **Keep as built.** `ALLOW_EXISTING_TO_COMPLETE` allows VIEW, existing offers, SELECTION and DISCLOSURE. **BINDING, new challenge, new invitation and new provider entry stay BLOCKED.** Binding an in-flight transaction during a suspension requires a future explicit, authorized override (actor, reason, scope, audit record), never a blanket exemption. | Unchanged (MKT-11, 14). The override mechanism is a later change set, with no binding enforcement before PR-0C. |
+| N.6 pilot | **The first PRODUCTION activation must pass through PILOT.** Once a PRODUCTION pilot has completed, `SUSPENDED -> ACTIVE` is allowed (subject to gates). A SANDBOX pilot never counts. | `productionPilotCompletion()` is derived from immutable history (a PRODUCTION `PILOT -> ACTIVE` event); its event id is the pilot approval reference. There is no mutable flag. (MKT-21..24) |
+| 4A | **`DISCARDED` approved and terminal, reachable only from DRAFT.** It can never be published. Resurrecting its content means a new draft with provenance linking back. | `canDiscard` accepts DRAFT only; a governed `returnToDraft` (IN_REVIEW -> DRAFT, with actor and reason) records the history; a trigger makes DISCARDED immutable. A provenance link for resurrected drafts is deferred to PR-0E. |
+| 4B | **Verify while DRAFT, approved.** Publication freezes exactly what was verified; a substantive change after verification makes that verification stale. | A trigger resets a DRAFT rule to UNVERIFIED (clearing verifier and time) on any substantive column change; tested |
+| 4C | **UTC calendar date approved for PR-0A only.** Before enforcement, each jurisdiction needs this chain: event timestamp → jurisdiction → its time-zone rule → legally relevant date. Some dates are not transaction-derived at all (D10). | Unchanged; tracked for PR-0B/0C |
+| 4D | **A license expiring on the evaluation date is INDETERMINATE until PR-0B establishes the semantics from the licensing authority.** | Unchanged (AUTH-5) |
+| Legacy NV/OH/CA | **Not verified law.** PR-0B must independently establish each value from primary sources before it can become executable production authority. | They remain IN_REVIEW and UNVERIFIED |
+| Audit proof | The `generate-proof` `\|\| 'NV'` default and the regulator-certificate wording (K5) stay unchanged in PR-0A, because of the pinned frozen test. **They go into the PR-0C legacy-retirement and change-control package.** | Tracked for PR-0C |
+
+**Sequence:** merge #2 (done) → rebase PR-0A onto `main` → full validation → push → PR #3 → independent CI → review. **PR-0B does not begin until PR-0A is merged.** At that point PR-0B becomes the 51-jurisdiction primary-authority research and regulatory-data programme.

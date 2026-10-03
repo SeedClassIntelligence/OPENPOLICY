@@ -30,12 +30,13 @@ import {
   SuspensionAction
 } from '../../types/jurisdiction';
 import { US_JURISDICTIONS } from '../../domain/jurisdiction/usJurisdictions';
-import { canDiscard, canModifyRules, computeRuleSetContentHash, publishRuleSet, validateWithdrawal } from '../../domain/rulesetGovernance';
+import { canDiscard, canModifyRules, canReturnToDraft, computeRuleSetContentHash, publishRuleSet, validateWithdrawal } from '../../domain/rulesetGovernance';
 import {
   activeGates,
   deriveReadiness,
   displayStatus,
   MarketKey,
+  productionPilotCompletion,
   replayActivation,
   validateActivationTransition
 } from '../../domain/marketActivationEngine';
@@ -262,6 +263,16 @@ export class JurisdictionStore {
     await this.recordReview(ruleSetId, 'SUBMITTED_FOR_REVIEW', actorId);
   }
 
+  /** Review rejected or correction needed: IN_REVIEW returns to DRAFT, recorded with a reason. */
+  public async returnToDraft(ruleSetId: string, actorId: string, reason: string): Promise<void> {
+    const ruleSet = await this.getRuleSet(ruleSetId);
+    if (!ruleSet || !canReturnToDraft(ruleSet)) throw new Error('Only an IN_REVIEW ruleset can return to DRAFT');
+    if (!actorId || !reason) throw new Error('Returning a ruleset to DRAFT requires an actor and a reason');
+    const c = await this.client();
+    await c.query(`UPDATE jurisdiction_rule_sets SET status = 'DRAFT' WHERE id = $1`, [ruleSetId]);
+    await this.recordReview(ruleSetId, 'RETURNED_TO_DRAFT', actorId, reason);
+  }
+
   public async publish(ruleSetId: string, publisherId: string, publishedAt: string): Promise<JurisdictionRuleSet> {
     const ruleSet = await this.getRuleSet(ruleSetId);
     if (!ruleSet) throw new Error(`Ruleset ${ruleSetId} not found`);
@@ -448,6 +459,7 @@ export class JurisdictionStore {
     const kind = await this.getJurisdictionKind(key.jurisdictionCode);
     if (!kind) throw new Error(`Unknown jurisdiction ${key.jurisdictionCode}`);
     const status = await this.getMarketStatus(key);
+    const pilotCompletion = productionPilotCompletion(await this.getActivationEvents(key), key);
     const check = validateActivationTransition({
       key,
       jurisdictionKind: kind,
@@ -457,7 +469,8 @@ export class JurisdictionStore {
       gates: new Set(status.gates),
       actorId,
       reason,
-      suspensionAction: params.suspensionAction
+      suspensionAction: params.suspensionAction,
+      productionPilotCompletedEventId: pilotCompletion?.id
     });
     if (!check.allowed) throw new Error(`Market transition rejected: ${check.errors.join(' ')}`);
 

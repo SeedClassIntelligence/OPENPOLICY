@@ -7,7 +7,8 @@
  *   versions of the same ruleCode.
  * - Publishing supersedes the prior PUBLISHED ruleset for the same jurisdiction and line.
  * - A published ruleset is never rewritten or deleted; an erroneous one is WITHDRAWN.
- * - Unpublished DRAFT / IN_REVIEW rulesets may be discarded.
+ * - Only a DRAFT ruleset may be discarded; DISCARDED is terminal and can never be published.
+ *   An IN_REVIEW ruleset returns to DRAFT first. Resurrecting content means a new draft.
  */
 import { JurisdictionRule, JurisdictionRuleSet } from '../types/jurisdiction';
 import { isCalendarDate, sha256Hex } from './jurisdiction/canonical';
@@ -27,7 +28,11 @@ export function canModifyRules(ruleSet: JurisdictionRuleSet): boolean {
 }
 
 export function canDiscard(ruleSet: JurisdictionRuleSet): boolean {
-  return ruleSet.status === 'DRAFT' || ruleSet.status === 'IN_REVIEW';
+  return ruleSet.status === 'DRAFT';
+}
+
+export function canReturnToDraft(ruleSet: JurisdictionRuleSet): boolean {
+  return ruleSet.status === 'IN_REVIEW';
 }
 
 export function validateRuleIntegrity(rules: JurisdictionRule[]): string[] {

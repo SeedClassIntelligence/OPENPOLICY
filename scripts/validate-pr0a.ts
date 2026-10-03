@@ -151,11 +151,17 @@ async function run() {
   await jurisdictionStore.submitForReview(v1.id, 'author_a');
   assert(await rejects(() => jurisdictionStore.publish(v1.id, 'publisher_c', new Date().toISOString())), 'Publication rejected while rules are UNVERIFIED');
   assert(await rejects(() => client.query(`UPDATE jurisdiction_rules SET verification_status = 'VERIFIED' WHERE id = 'X1-BI-MIN-v1'`)), 'DB trigger: rules of an IN_REVIEW ruleset are immutable');
-  // Verification happens in DRAFT: discard this attempt and redo it properly.
-  await jurisdictionStore.discard(v1.id, 'author_a', 'Rules must be verified before review');
+  // Verification happens in DRAFT. DISCARDED is reachable only from DRAFT (ruling §N.4A).
+  assert(await rejects(() => jurisdictionStore.discard(v1.id, 'author_a', 'x')), 'An IN_REVIEW ruleset cannot be discarded directly');
+  await jurisdictionStore.returnToDraft(v1.id, 'reviewer_b', 'Rules must be verified before review');
+  await jurisdictionStore.discard(v1.id, 'author_a', 'Abandoned: rules must be verified before review');
   const discarded = await jurisdictionStore.getRuleSet(v1.id);
   assert(discarded?.status === 'DISCARDED' && (await jurisdictionStore.getRules(v1.id)).length === 0, 'Unpublished ruleset discarded: status DISCARDED, its rules removed');
-  assert((await jurisdictionStore.getReviews(v1.id)).some(r => r.action === 'DISCARDED'), 'Discard is recorded in the append-only review history');
+  const v1Reviews = (await jurisdictionStore.getReviews(v1.id)).map(r => r.action);
+  assert(v1Reviews.includes('RETURNED_TO_DRAFT') && v1Reviews.includes('DISCARDED'), 'Return-to-draft and discard are recorded in the append-only review history');
+  assert(await rejects(() => client.query(`UPDATE jurisdiction_rule_sets SET status = 'DRAFT' WHERE id = $1`, [v1.id])), 'DB trigger: DISCARDED is terminal');
+  assert(await rejects(() => jurisdictionStore.submitForReview(v1.id, 'author_a')) && await rejects(() => jurisdictionStore.publish(v1.id, 'publisher_c', new Date().toISOString())),
+    'A discarded ruleset can never be reviewed or published');
 
   const setA = await jurisdictionStore.createRuleSet({ jurisdictionCode: 'X1', insuranceLine: 'PERSONAL_AUTO', authoredBy: 'author_a' });
   await jurisdictionStore.addRule(rule({ id: 'X1-BI-MIN-A', ruleSetId: setA.id, ruleCode: 'X1.BI.MIN', verificationStatus: 'UNVERIFIED', verifiedBy: undefined, verifiedAt: undefined,
@@ -163,6 +169,11 @@ async function run() {
   await jurisdictionStore.addRule(rule({ id: 'X1-PA-A', ruleSetId: setA.id, ruleCode: 'X1.PRODUCER', ruleCategory: 'PRODUCER_LICENSING', enforcementPoint: 'PROVIDER_AUTHORITY',
     temporalBasis: 'transactionDate', verificationStatus: 'UNVERIFIED', verifiedBy: undefined, verifiedAt: undefined,
     machineRule: { kind: 'PRODUCER_AUTHORITY', acceptedLicenseClasses: ['PROPERTY_CASUALTY'], entityLicenseRequired: true, individualLicenseRequired: false, appointmentRequired: false } }));
+  await jurisdictionStore.verifyRule('X1-BI-MIN-A', 'verifier_b', '2026-01-02T00:00:00Z');
+  // Ruling §N.4B: a substantive change after verification makes the verification stale.
+  await client.query(`UPDATE jurisdiction_rules SET requirement_text = 'Edited after verification' WHERE id = 'X1-BI-MIN-A'`);
+  const staled = (await jurisdictionStore.getRules(setA.id)).find(r => r.id === 'X1-BI-MIN-A');
+  assert(staled?.verificationStatus === 'UNVERIFIED' && !staled.verifiedBy, 'DB trigger: editing a verified DRAFT rule resets it to UNVERIFIED');
   await jurisdictionStore.verifyRule('X1-BI-MIN-A', 'verifier_b', '2026-01-02T00:00:00Z');
   await jurisdictionStore.verifyRule('X1-PA-A', 'verifier_b', '2026-01-02T00:00:00Z');
   await jurisdictionStore.submitForReview(setA.id, 'author_a');
@@ -242,6 +253,12 @@ async function run() {
     assert(!!caChallenge.body.challenge.jurisdictionDeterminationId && !!caChallenge.body.challenge.ruleSetContentSha256, 'Challenge anchors its determination and ruleset content hash');
 
     const nvDoc = await request(server, 'POST', '/api/documents/upload-sample', { sampleId: 'DOC-NV-49281' });
+    const conflictDoc = await request(server, 'POST', '/api/documents/upload-sample', { sampleId: 'DOC-NV-49281' });
+    const conflictBaseline = await request(server, 'POST', '/api/baselines/create', { policyId: conflictDoc.body.policy.id });
+    await request(server, 'POST', `/api/policies/${conflictDoc.body.policy.id}/verify`, { ...conflictDoc.body.policy, jurisdiction: 'CA' });
+    const conflict = await request(server, 'POST', '/api/challenges/create', { baselineId: conflictBaseline.body.baseline.id });
+    assert(conflict.status === 422 && conflict.body.code === 'JURISDICTION_CONFLICT', 'Conflicting evidence (policy CA, baseline NV) -> 422 JURISDICTION_CONFLICT');
+
     const nvBaseline = await request(server, 'POST', '/api/baselines/create', { policyId: nvDoc.body.policy.id });
     const nvChallenge = await request(server, 'POST', '/api/challenges/create', { baselineId: nvBaseline.body.baseline.id });
     assert(nvChallenge.body.challenge?.jurisdiction === 'NV', 'An NV policy still produces an NV challenge');

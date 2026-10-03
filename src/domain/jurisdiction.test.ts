@@ -16,10 +16,12 @@ import {
   decideMarketTransition,
   deriveReadiness,
   displayStatus,
+  productionPilotCompletion,
   replayActivation,
   validateActivationTransition
 } from './marketActivationEngine';
 import {
+  canDiscard,
   computeRuleSetContentHash,
   publishRuleSet,
   validatePublication,
@@ -270,6 +272,18 @@ export function runJurisdictionTestSuite(): { total: number; passed: number; fai
   const revoked: GateAttestation = { id: 'G', ...prodKey, gateCode: 'SECURITY_READY', evidenceRef: 'e', attestedBy: 'a', attestedAt: 't', revokedAt: 't2' };
   test('MKT-20: a revoked gate is not active', 'Market activation', !activeGates([revoked], prodKey).has('SECURITY_READY'));
 
+  // Ruling §N.3: first PRODUCTION activation passes through PILOT.
+  test('MKT-21: first PRODUCTION activation cannot go INACTIVE -> ACTIVE directly', 'Market activation',
+    !prodCheck({ from: 'INACTIVE', to: 'ACTIVE' }).allowed);
+  test('MKT-22: PRODUCTION PILOT -> ACTIVE completes the pilot', 'Market activation', prodCheck({ from: 'PILOT', to: 'ACTIVE' }).allowed);
+  test('MKT-23: after a completed PRODUCTION pilot, SUSPENDED -> ACTIVE is allowed; without one it is not', 'Market activation',
+    prodCheck({ from: 'SUSPENDED', to: 'ACTIVE', productionPilotCompletedEventId: 'E-PILOT-DONE' }).allowed &&
+    !prodCheck({ from: 'SUSPENDED', to: 'ACTIVE' }).allowed);
+  const pilotDone: MarketActivationEvent = { ...sandboxActive, id: 'E-P', fromState: 'PILOT', toState: 'ACTIVE' };
+  test('MKT-24: pilot completion is derived from PRODUCTION history only; a SANDBOX pilot never counts', 'Market activation',
+    productionPilotCompletion([pilotDone], prodKey) === undefined &&
+    productionPilotCompletion([{ ...pilotDone, environment: 'PRODUCTION' }], prodKey)?.id === 'E-P');
+
   // ------------------------------------------------------------------
   // Ruleset governance
   // ------------------------------------------------------------------
@@ -302,6 +316,10 @@ export function runJurisdictionTestSuite(): { total: number; passed: number; fai
   test('GOV-11: only a PUBLISHED ruleset can be withdrawn, with an actor and a reason', 'Governance',
     validateWithdrawal(rs('PUBLISHED'), 'ops', 'erroneous').length === 0 && validateWithdrawal(rs('DRAFT'), 'ops', 'x').length > 0 &&
     validateWithdrawal(rs('PUBLISHED'), '', '').length > 0);
+
+  test('GOV-12: only DRAFT can be discarded; DISCARDED is terminal', 'Governance',
+    canDiscard(rs('DRAFT')) && !canDiscard(rs('IN_REVIEW')) && !canDiscard(rs('DISCARDED')) && !canDiscard(rs('PUBLISHED')) &&
+    validatePublication({ ruleSet: rs('DISCARDED'), rules: [goodRule], publisherId: 'publisher_c' }).length > 0);
 
   return {
     total: results.length,

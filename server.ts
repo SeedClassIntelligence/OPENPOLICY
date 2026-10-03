@@ -360,6 +360,14 @@ app.post('/api/challenges/create', async (req, res) => {
   });
   await inShadow('determination', () => recordDetermination(determination));
   const jurisdiction = determination.confirmedJurisdiction || determination.proposedJurisdiction;
+  if (determination.status === 'CONFLICT') {
+    return res.status(422).json({
+      error: 'JURISDICTION_CONFLICT',
+      code: 'JURISDICTION_CONFLICT',
+      message: 'Jurisdiction evidence for this policy conflicts; it must be resolved before the challenge can open.',
+      determination
+    });
+  }
   if (!jurisdiction) {
     return res.status(422).json({
       error: 'JURISDICTION_UNDETERMINED',

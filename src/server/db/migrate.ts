@@ -860,6 +860,7 @@ CREATE TRIGGER trg_guard_rule_set BEFORE UPDATE OR DELETE ON jurisdiction_rule_s
   FOR EACH ROW EXECUTE FUNCTION op_guard_rule_set();
 
 -- Rules: editable only while their ruleset is DRAFT; deletable while DRAFT or IN_REVIEW.
+-- A substantive change to a DRAFT rule makes its verification stale (ruling §N.4B).
 CREATE OR REPLACE FUNCTION op_guard_rule() RETURNS trigger AS $$
 DECLARE
   parent_status TEXT;
@@ -873,6 +874,20 @@ BEGIN
   END IF;
   IF parent_status <> 'DRAFT' THEN
     RAISE EXCEPTION 'Rule % belongs to a % ruleset and is immutable', OLD.id, parent_status;
+  END IF;
+  IF NEW.rule_code IS DISTINCT FROM OLD.rule_code
+     OR NEW.rule_category IS DISTINCT FROM OLD.rule_category
+     OR NEW.enforcement_point IS DISTINCT FROM OLD.enforcement_point
+     OR NEW.temporal_basis IS DISTINCT FROM OLD.temporal_basis
+     OR NEW.requirement_text IS DISTINCT FROM OLD.requirement_text
+     OR NEW.source_ids IS DISTINCT FROM OLD.source_ids
+     OR NEW.effective_from IS DISTINCT FROM OLD.effective_from
+     OR NEW.effective_until IS DISTINCT FROM OLD.effective_until
+     OR NEW.supersedes_rule_id IS DISTINCT FROM OLD.supersedes_rule_id
+     OR NEW.machine_rule IS DISTINCT FROM OLD.machine_rule THEN
+    NEW.verification_status := 'UNVERIFIED';
+    NEW.verified_by := NULL;
+    NEW.verified_at := NULL;
   END IF;
   RETURN NEW;
 END;

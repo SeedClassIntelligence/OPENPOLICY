@@ -68,6 +68,18 @@ export function replayActivation(
   return { state: last.toState, suspensionAction: last.toState === 'SUSPENDED' ? last.suspensionAction : undefined, lastEvent: last };
 }
 
+/**
+ * Ruling §N.3: the first PRODUCTION activation must pass through PILOT. Completion is derived
+ * from immutable history (a PRODUCTION PILOT -> ACTIVE event), never stored as a mutable flag.
+ * Returns the completing event, whose id serves as the pilot approval reference.
+ */
+export function productionPilotCompletion(events: MarketActivationEvent[], key: MarketKey): MarketActivationEvent | undefined {
+  if (key.environment !== 'PRODUCTION') return undefined;
+  return events
+    .filter(e => matchesKey(e, key) && e.fromState === 'PILOT' && e.toState === 'ACTIVE')
+    .sort((a, b) => (a.recordedAt < b.recordedAt ? -1 : a.recordedAt > b.recordedAt ? 1 : 0))[0];
+}
+
 /** Axis 1: derived readiness. A PUBLISHED ruleset counts as verified only if every executable rule is VERIFIED. */
 export function deriveReadiness(
   ruleSets: JurisdictionRuleSet[],
@@ -103,6 +115,8 @@ export function validateActivationTransition(params: {
   actorId: string;
   reason: string;
   suspensionAction?: SuspensionAction;
+  /** Id of the event that completed this market's PRODUCTION pilot, if any. */
+  productionPilotCompletedEventId?: string;
 }): { allowed: boolean; errors: string[]; suspensionAction?: SuspensionAction } {
   const { key, jurisdictionKind, from, to, readiness, gates, actorId, reason } = params;
   const errors: string[] = [];
@@ -116,6 +130,10 @@ export function validateActivationTransition(params: {
     if (readiness !== 'RULES_VERIFIED') errors.push(`PRODUCTION activation requires readiness RULES_VERIFIED (current: ${readiness}).`);
     const missing = REQUIRED_PRODUCTION_GATES.filter(g => !gates.has(g));
     if (missing.length > 0) errors.push(`PRODUCTION activation requires attested gates; missing: ${missing.join(', ')}.`);
+    // A SANDBOX pilot never satisfies this: only PRODUCTION history is consulted.
+    if (to === 'ACTIVE' && from !== 'PILOT' && !params.productionPilotCompletedEventId) {
+      errors.push('The first PRODUCTION activation must pass through PILOT; no completed PRODUCTION pilot is on record.');
+    }
   }
 
   let suspensionAction: SuspensionAction | undefined;
