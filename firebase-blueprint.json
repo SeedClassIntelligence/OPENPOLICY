@@ -1,0 +1,91 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Registered consumer or provider profile.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique Firebase Auth user ID." },
+        "email": { "type": "string", "format": "email", "description": "User email address." },
+        "displayName": { "type": "string", "description": "User full name or display alias." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Timestamp of account registration." }
+      },
+      "required": ["id", "email", "createdAt"]
+    },
+    "UserChallenge": {
+      "title": "UserChallenge",
+      "description": "A consumer-owned insurance policy challenge submitted for blind bidding.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique challenge identifier." },
+        "userId": { "type": "string", "description": "Owner user UID." },
+        "referenceNumber": { "type": "string", "description": "Canonical reference string e.g. CHALLENGE #NV-49281." },
+        "jurisdiction": { "type": "string", "description": "State jurisdiction code e.g. NV." },
+        "insuranceType": { "type": "string", "enum": ["AUTO", "HOME", "COMMERCIAL"], "description": "Line of business." },
+        "status": { "type": "string", "enum": ["OPEN", "EVALUATING", "OFFERS_RECEIVED", "BOUND", "ARCHIVED"], "description": "Current lifecycle status." },
+        "baselineMonthlyPremium": { "type": "number", "description": "Monthly premium from current declarations page." },
+        "baselineAnnualPremium": { "type": "number", "description": "Annualized premium." },
+        "carrier": { "type": "string", "description": "Incumbent insurance carrier." },
+        "vehicleOrProperty": { "type": "string", "description": "Insured vehicle VIN/model or property description." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp." },
+        "offersCount": { "type": "number", "description": "Number of blind provider offers received." },
+        "bestSavings": { "type": "number", "description": "Highest verified annual parity savings." }
+      },
+      "required": ["id", "userId", "referenceNumber", "insuranceType", "status", "baselineMonthlyPremium", "createdAt"]
+    },
+    "UserOrder": {
+      "title": "UserOrder",
+      "description": "An accepted and bound policy contract or binder order.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique order/binder identifier." },
+        "userId": { "type": "string", "description": "Purchasing policyholder UID." },
+        "challengeId": { "type": "string", "description": "Related challenge ID." },
+        "challengeRef": { "type": "string", "description": "Related challenge reference number." },
+        "carrier": { "type": "string", "description": "Winning insurance carrier." },
+        "policyTier": { "type": "string", "description": "Coverage classification e.g. PARITY_MATCH or SUPERIOR." },
+        "monthlyPremium": { "type": "number", "description": "Agreed monthly premium." },
+        "annualSavings": { "type": "number", "description": "Verified annual savings." },
+        "boundAt": { "type": "string", "format": "date-time", "description": "Timestamp of digital signature and binding." },
+        "binderStatus": { "type": "string", "enum": ["ACTIVE", "PENDING_CARRIER_ISSUE", "RENEWAL_WINDOW"], "description": "Status of the binder." },
+        "section32DossierRef": { "type": "string", "description": "SHA-256 reference to the statutory consent dossier." },
+        "policyNumber": { "type": "string", "description": "Assigned policy or binder number." }
+      },
+      "required": ["id", "userId", "challengeId", "carrier", "monthlyPremium", "binderStatus", "boundAt"]
+    },
+    "UserVaultDocument": {
+      "title": "UserVaultDocument",
+      "description": "A policy declaration, endorsement, or ID card stored in the user vault.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique document identifier." },
+        "userId": { "type": "string", "description": "Owner UID." },
+        "challengeId": { "type": "string", "description": "Optional associated challenge ID." },
+        "name": { "type": "string", "description": "Document filename or label." },
+        "documentType": { "type": "string", "enum": ["DECLARATIONS_PAGE", "ENDORSEMENT", "BINDER", "ID_CARD", "RENEWAL_NOTICE"], "description": "Type of document." },
+        "uploadedAt": { "type": "string", "format": "date-time", "description": "Upload timestamp." },
+        "size": { "type": "string", "description": "Formatted file size." },
+        "notes": { "type": "string", "description": "Policyholder or audit notes." }
+      },
+      "required": ["id", "userId", "name", "documentType", "uploadedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles restricted to account owners."
+    },
+    "/challenges/{challengeId}": {
+      "schema": "UserChallenge",
+      "description": "Consumer insurance policy challenges owned by individual users."
+    },
+    "/orders/{orderId}": {
+      "schema": "UserOrder",
+      "description": "Bound policies and binder orders owned by individual consumers."
+    },
+    "/vault/{documentId}": {
+      "schema": "UserVaultDocument",
+      "description": "Private policy declarations and endorsements."
+    }
+  }
+}
