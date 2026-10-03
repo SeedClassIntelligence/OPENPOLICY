@@ -10,7 +10,8 @@
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "validate": "tsx scripts/run-validators.ts"
+    "validate": "tsx scripts/run-validators.ts",
+    "pr0b:capture": "NODE_USE_ENV_PROXY=1 tsx scripts/pr0b/capture-source.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.8",
