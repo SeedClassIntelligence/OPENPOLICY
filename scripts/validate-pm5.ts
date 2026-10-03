@@ -20,7 +20,8 @@ import http from 'http';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { PostgresStore } from '../src/server/db/postgresStore';
+import { PostgresStore, postgresStore } from '../src/server/db/postgresStore';
+import { SQL_MIGRATION_V4 } from '../src/server/db/migrate';
 import { db } from '../src/server/db';
 import { app } from '../server';
 import { runComparisonEngineTestSuite } from '../src/domain/comparisonEngine.test';
@@ -727,15 +728,66 @@ async function runPM5AcceptanceValidation() {
     // ------------------------------------------------------------------------
     // Test 3.12: Strict Zero Platform Economics Invariant
     // ------------------------------------------------------------------------
-    console.log('\n--- Test 3.12: Strict Zero Platform Economics Invariant ---');
+    // PM-5 must not create, own, import, mutate, or depend upon CE-5 billing/settlement
+    // structures. CE-5 legitimately adds billing tables to the platform schema, so the
+    // invariant is tested as a boundary against the real schema, not as "no billing
+    // tables exist anywhere".
+    console.log('\n--- Test 3.12: Strict Zero Platform Economics Invariant (PM-5 / CE-5 boundary) ---');
+    const ECONOMICS_TABLE_PATTERN = /billing|ledger|fee|commission|invoice|payment|refund|settlement/;
+    const CE5_TABLES = ['billing_periods', 'invoices', 'invoice_line_items', 'payment_records', 'refund_records', 'settlement_allocations'];
+
+    // Own / create: the PM-5 migration (0004) creates no economics tables.
+    const pm5OwnedTables = Array.from(SQL_MIGRATION_V4.matchAll(/CREATE TABLE IF NOT EXISTS (\w+)/g), m => m[1]);
+    assert(
+      pm5OwnedTables.length > 0 && !pm5OwnedTables.some(t => ECONOMICS_TABLE_PATTERN.test(t)),
+      `PM-5 boundary: PM-5 migration creates no billing/settlement tables (owns: ${pm5OwnedTables.join(', ')})`
+    );
+
     const testStore = new PostgresStore(testDbDir);
     await testStore.init();
-    const allTableCounts = await testStore.getTableCounts();
+    const schemaClient = await testStore.getPgClient();
+    const schemaTables = (await schemaClient.query<{ table_name: string }>(
+      `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`
+    )).rows.map(r => r.table_name);
+    assert(
+      CE5_TABLES.every(t => schemaTables.includes(t)),
+      'PM-5 boundary: real schema inspected, and it contains the CE-5 billing/settlement tables'
+    );
+
+    // Depend: no PM-5 table holds a foreign key into a CE-5 table.
+    const pm5ToCe5ForeignKeys = (await schemaClient.query<{ from_table: string; to_table: string }>(`
+      SELECT tc.table_name AS from_table, ccu.table_name AS to_table
+      FROM information_schema.table_constraints tc
+      JOIN information_schema.constraint_column_usage ccu
+        ON tc.constraint_name = ccu.constraint_name AND tc.table_schema = ccu.table_schema
+      WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = 'public'
+    `)).rows.filter(r => pm5OwnedTables.includes(r.from_table) && CE5_TABLES.includes(r.to_table));
     await testStore.close();
-    
-    const tableNames = Object.keys(allTableCounts);
-    const hasBillingLedger = tableNames.some(t => t.includes('billing') || t.includes('ledger') || t.includes('fee') || t.includes('commission'));
-    assert(!hasBillingLedger, 'Relational schema contains ZERO billing/ledger/commission tables');
+    assert(
+      pm5ToCe5ForeignKeys.length === 0,
+      `PM-5 boundary: no PM-5 table holds a foreign key into CE-5 tables (found ${pm5ToCe5ForeignKeys.length})`
+    );
+
+    // Import: the PM-5 engine references no commercial or CE-5 structure.
+    const pm5EngineSource = fs.readFileSync(path.join(process.cwd(), 'src/domain/pm5ReconciliationEngine.ts'), 'utf8');
+    const ce5Tokens = [
+      'commercialStore', 'commercialEconomicsEngine', ...CE5_TABLES,
+      'BillingPeriod', 'InvoiceLineItem', 'PaymentRecord', 'RefundRecord', 'SettlementAllocation'
+    ];
+    const ce5TokensInEngine = ce5Tokens.filter(t => pm5EngineSource.includes(t));
+    assert(
+      ce5TokensInEngine.length === 0,
+      `PM-5 boundary: pm5ReconciliationEngine references no CE-5 billing/settlement structure (${ce5TokensInEngine.join(', ') || 'none'})`
+    );
+
+    // Mutate: the full PM-5 lifecycle exercised above wrote nothing to CE-5 tables.
+    const liveClient = await postgresStore.getPgClient();
+    let ce5RowsWritten = 0;
+    for (const table of CE5_TABLES) {
+      const res = await liveClient.query<{ n: number }>(`SELECT COUNT(*)::int AS n FROM ${table}`);
+      ce5RowsWritten += res.rows[0].n;
+    }
+    assert(ce5RowsWritten === 0, `PM-5 boundary: PM-5 lifecycle wrote zero rows to CE-5 tables (found ${ce5RowsWritten})`);
 
     const econEndpointRes = await request(server, 'POST', '/api/marketplace/billing/ledger', {});
     assert(econEndpointRes.status === 404, 'Zero Platform Economics: Billing ledger endpoint does not exist (404)');
