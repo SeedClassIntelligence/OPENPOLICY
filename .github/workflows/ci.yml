@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  baseline:
+    name: Typecheck, build and validators
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Documented build requirement: esbuild ^0.25 conflicts with vite 8's optional peer range.
+      - name: Install
+        run: npm ci --legacy-peer-deps
+
+      - name: Typecheck (tsc --noEmit must report 0 errors)
+        run: npx tsc --noEmit
+
+      - name: Production build
+        run: npm run build
+
+      - name: Validators (canonical order)
+        run: npm run validate
+
+      # A different, reproducible order on every run proves suites stay independent.
+      - name: Validators (seeded shuffle)
+        run: npm run validate -- --order shuffle --seed ${{ github.run_number }}
