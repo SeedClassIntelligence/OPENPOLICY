@@ -46,7 +46,8 @@ export class PostgresStore {
   private dataDir: string;
   private initPromise: Promise<void> | null = null;
 
-  constructor(dataDir = './data/openpolicy_pg') {
+  // OPENPOLICY_DATA_DIR lets validators run against an isolated database; unset keeps the default.
+  constructor(dataDir = process.env.OPENPOLICY_DATA_DIR || './data/openpolicy_pg') {
     this.dataDir = dataDir;
   }
 

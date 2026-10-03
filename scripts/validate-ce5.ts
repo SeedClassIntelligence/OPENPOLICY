@@ -11,6 +11,8 @@
  * Part VI: HTTP Endpoints, Tenant Isolation & Full Regression (Tests 36–42)
  */
 
+// Must stay the first import: isolates this suite's database before any store is constructed.
+import './lib/isolatedDataDir';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
@@ -593,7 +595,13 @@ async function runValidation() {
 
   // Test 26: Relational Provenance Join Integrity
   console.log('Test 26: Relational Provenance Join Integrity');
-  const joinQuery = await testClient.query(`
+  const joinQuery = await testClient.query<{
+    line_id: string;
+    amount_cents: number;
+    charge_code: string;
+    event_type: string;
+    source_entity_id: string;
+  }>(`
     SELECT il.id as line_id, il.amount_cents, be.charge_code, ce.event_type, ce.source_entity_id
     FROM invoice_line_items il
     JOIN billable_events be ON il.billable_event_id = be.id

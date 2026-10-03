@@ -49,6 +49,8 @@
  *    - Zero billing/invoicing endpoints or records
  */
 
+// Must stay the first import: isolates this suite's database before any store is constructed.
+import './lib/isolatedDataDir';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
@@ -147,6 +149,11 @@ export async function runCE3ValidationSuite() {
     const testOrgB = 'org_sierra';
     const apexHeaders = { 'x-provider-user-id': 'user_apex_1' };
     const sierraHeaders = { 'x-provider-user-id': 'user_sierra_1' };
+
+    // Prerequisite: the structural (price-free) commercial plan catalog that production
+    // startup establishes via seedCanonicalPlans(). This suite runs on an isolated database,
+    // so it must create its own prerequisites rather than inherit another suite's data.
+    await commercialStore.seedCanonicalPlans();
 
     // Pre-enroll active commercial agreement with capacity so all events anchor to active agreement
     const enrollRes = await request(
@@ -728,6 +735,15 @@ export async function runCE3ValidationSuite() {
 
     // 7.2 Zero BillableEvent records generated in CE-3
     console.log('\n[7.2] Testing zero BillableEvent records generated in CE-3...');
+    // Attribution: this suite runs on an isolated database, so every CommercialEvent in it was
+    // produced by the CE-3 scenario. None of them may have produced a BillableEvent.
+    const ce3Events = await commercialStore.getCommercialEvents({ limit: 100000 });
+    assert(ce3Events.length > 0, `CE-3 scenario produced CommercialEvents to examine (count=${ce3Events.length})`);
+    let attributableBillables = 0;
+    for (const ev of ce3Events) {
+      attributableBillables += (await commercialStore.getBillableEventsForCommercialEvent(ev.id)).length;
+    }
+    assert(attributableBillables === 0, `Zero BillableEvents attributable to CE-3 CommercialEvents (count=${attributableBillables})`);
     const billables = await commercialStore.getBillableEvents({ providerOrganizationId: testOrgId });
     assert(billables.length === 0, `Zero BillableEvents generated across CE-3 lifecycle (count=${billables.length})`);
 

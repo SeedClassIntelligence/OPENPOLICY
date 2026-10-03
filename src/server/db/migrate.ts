@@ -631,7 +631,7 @@ CREATE INDEX IF NOT EXISTS idx_refunds_orig ON refund_records(original_payment_r
 CREATE INDEX IF NOT EXISTS idx_settlement_invoice ON settlement_allocations(invoice_id);
 `;
 
-export async function runMigrations(dataDir = './data/openpolicy_pg') {
+export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR || './data/openpolicy_pg') {
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
   }

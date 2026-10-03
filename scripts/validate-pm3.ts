@@ -17,6 +17,8 @@
  *   11. 100% Core Domain Engine Test Suites (PM-1, PM-2, PM-3 + Domain Suites)
  */
 
+// Must stay the first import: isolates this suite's database before any store is constructed.
+import './lib/isolatedDataDir';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';

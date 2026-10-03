@@ -14,6 +14,8 @@
  *  10. Strict Exclusion: Zero platform fees, billing ledger events, or settlement endpoints
  */
 
+// Must stay the first import: isolates this suite's database before any store is constructed.
+import './lib/isolatedDataDir';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';

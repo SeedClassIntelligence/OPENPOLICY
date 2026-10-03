@@ -26,6 +26,8 @@
  * 9. Platform Test Aggregation & Full Pass.
  */
 
+// Must stay the first import: isolates this suite's database before any store is constructed.
+import './lib/isolatedDataDir';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
