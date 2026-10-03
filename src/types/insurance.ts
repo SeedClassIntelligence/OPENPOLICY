@@ -147,6 +147,11 @@ export interface Challenge {
   offersCount: number;
   isFinalRound?: boolean;
   incumbentDefended?: boolean;
+  // PR-0A (additive): regulatory anchoring for historical reconstruction.
+  jurisdictionDeterminationId?: string;
+  ruleSetId?: string;
+  ruleSetContentSha256?: string;
+  regulatoryEvaluationDate?: string;
 }
 
 export type CompetitionRound = 
@@ -681,6 +686,12 @@ export interface ProviderLicense {
   effectiveDate: string;
   expirationDate: string;
   verificationStatus: 'VERIFIED' | 'PENDING' | 'REJECTED';
+  // PR-0A (additive): an individual producer's license; absent = organization (entity) license.
+  providerUserId?: string;
+  npn?: string;
+  verificationSource?: string;
+  verifiedAt?: string;
+  verifiedBy?: string;
 }
 
 export interface CarrierRelationship {
@@ -692,6 +703,11 @@ export interface CarrierRelationship {
   lineOfBusiness: string;
   relationshipType: 'APPOINTED' | 'AUTHORIZED_BROKER' | 'DIRECT' | 'OTHER';
   status: 'ACTIVE' | 'INACTIVE';
+  // PR-0A (additive): calendar dates; effectiveFrom inclusive, effectiveUntil exclusive.
+  effectiveFrom?: string;
+  effectiveUntil?: string;
+  verificationSource?: string;
+  verifiedAt?: string;
 }
 
 export type RiskMarket = 'PREFERRED' | 'STANDARD' | 'NONSTANDARD';
