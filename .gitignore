@@ -6,3 +6,12 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Local database state (PGlite) and validator scratch directories
+data/
+.validator-data/
+
+# Archives are not a change-control mechanism; only the frozen
+# historical artifacts under archive/ are tracked.
+*.zip
+!archive/*.zip
