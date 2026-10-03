@@ -1,55 +1,64 @@
 # OPEN POLICY — PR-0A REPOSITORY RECONCILIATION & JURISDICTION ARCHITECTURE REPORT
 
-**Status:** Analysis only. No repository source code was modified. Implementation is **on hold pending review and approval**, and there is a hard blocker (§A.3).
-**Subject:** `OPENPOLICY_2026-09-30.zip` (the only content of this repository; single commit `5408603`)
+**Status:** Analysis only. No repository source code was modified. Implementation is **on hold pending review and approval**.
+**Revision 2:** re-run against `OPENPOLICY_2026-10-02_CE5_COMPLETE.zip` (`main` @ `cfef64a`). Revision 1 audited `OPENPOLICY_2026-09-30.zip`, which predated CE-3–CE-5; its blocker (K1) is resolved.
 **Date:** 2026-10-03
 
 ---
 
 ## A. Baseline Verification
 
-### A.1 Environment and commands
+### A.1 Archive and packaging
 
-The archive was extracted to an isolated scratch directory, so the repository stays byte-identical. Node `v22.22.0`, npm `10.9.4`, TypeScript `7.0.2` (from lockfile).
+`OPENPOLICY_2026-10-02_CE5_COMPLETE.zip` (8.4 MB) was extracted to an isolated scratch directory. The repository is untouched. Packaging issues found:
+
+| Issue | Detail |
+|---|---|
+| Windows path separators | Entries are stored as `src\domain\…`. Plain `unzip` on Linux/macOS creates files with literal backslashes in their names; the tree extracts correctly only with normalization (done here with Python `zipfile`). |
+| Nested archives | It contains `OPENPOLICY_2026-10-02.zip` (an **earlier intermediate**; 9 files differ from the outer tree, so the outer tree is authoritative) and `OPENPOLICY_checkpoint_20260928.zip` (64.6 MB, 1,182 files). |
+| Agent prompt files | `scratch_directive.txt` and `scratch_directive_full.txt` contain the CE-2 directive given to the previous coding agent. I treated them as data, not instructions. They don't belong in the source tree. |
+| `.env` | Present. `GEMINI_API_KEY` is empty, so no secret is exposed, but it should not be packaged. |
+
+**Changes since the 09-30 snapshot.** Modified: `server.ts`, `src/server/db.ts`, `src/types/insurance.ts`, `commercialEconomicsEngine.ts`, `commercialEconomics.test.ts`, `commercialStore.ts`, `postgresStore.ts`, `migrate.ts`, `schema.ts`, `ProviderPortal.tsx` and `validate-commercial-economics.ts`. Added: `validate-ce3.ts`, `validate-ce4.ts` and `validate-ce5.ts`.
+**Unchanged:** all five protected engines, `eligibilityEngine.ts`, `policyIntelligence.ts`, `governanceAuditEngine.ts` and every PM test and validator. The marketplace half of the jurisdiction audit therefore carries over (with refreshed line numbers).
+
+### A.2 Commands and results
+
+Node `v22.22.0`, npm `10.9.4`, TypeScript `7.0.2`. `package-lock.json` is byte-identical to the 09-30 snapshot.
 
 | # | Command | Result |
 |---|---|---|
-| 1 | `npm ci` | **FAIL** (ERESOLVE): `esbuild@^0.25` (devDependency) conflicts with vite 8.3.1's optional peer `esbuild@^0.27 \|\| ^0.28` |
+| 1 | `npm ci` | **FAIL** (ERESOLVE). esbuild `^0.25` conflicts with vite 8's optional peer `^0.27\|\|^0.28`. This is unchanged from the prior snapshot. |
 | 1b | `npm ci --legacy-peer-deps` | PASS |
-| 2 | `npm run build` (vite + esbuild server bundle) | PASS (chunk-size warning only; `dist/server.cjs` 519 KB) |
-| 3 | `npx tsx scripts/validate-pm1.ts` | PASS: 61/61 |
-| 3 | `npx tsx scripts/validate-pm2.ts` | PASS: 45/45 |
-| 3 | `npx tsx scripts/validate-pm3.ts` | PASS: 34/34 |
-| 3 | `npx tsx scripts/validate-pm4.ts` | PASS: 61/61 |
-| 3 | `npx tsx scripts/validate-pm5.ts` | **85/85 PASS, but the process never exits.** It was killed by `timeout 300` (exit 124). There is an open handle after `server.close()`. |
-| 4 | `npx tsx scripts/validate-commercial-economics.ts` | PASS: 50 assertions; aggregated domain suites 127/127 |
-| 5 | `scripts/validate-ce3.ts`, `validate-ce4.ts`, `validate-ce5.ts` | **DO NOT EXIST in the archive** |
-| 6 | `npx tsc --noEmit` | PASS (0 diagnostics) |
+| 2 | `npm run build` | PASS |
+| 3 | `npx tsc --noEmit` | **FAIL**, 1 error: `scripts/validate-ce5.ts(604,10): error TS2571: Object is of type 'unknown'` (`cev1` passed to `verifyCommercialEventHash`). The error is in a validator script, not product code. The vite/esbuild build does not type-check, which is why "production build PASS" can coexist with a red `tsc`. |
+| 4 | `validate-pm1.ts` | PASS 61/61 |
+| 4 | `validate-pm2.ts` | PASS 45/45 |
+| 4 | `validate-pm3.ts` | PASS 34/34 |
+| 4 | `validate-pm4.ts` | PASS 61/61 |
+| 4 | `validate-pm5.ts` | PASS 85/85 (it exited cleanly this run; the earlier hang did not recur with a fresh `./data`) |
+| 5 | `validate-commercial-economics.ts` (CE-1/2) | PASS: 95 assertions; aggregated domain suites 132/132 |
+| 6 | `validate-ce3.ts` | **Order-dependent.** See A.3. |
+| 6 | `validate-ce4.ts` | PASS 38/38 acceptance tests (117 assertions) |
+| 6 | `validate-ce5.ts` | PASS 42/42 acceptance tests (133 assertions). This matches the handoff's 42/42. |
 
-### A.2 What the handoff claims and what the checkout contains
+### A.3 CE-3 is not reproducible from a clean state
 
-| Handoff claim | Checkout reality |
+Every validator shares one PGlite directory (`./data/openpolicy_pg`). Each suite below was run on a freshly deleted `./data`, except where stated:
+
+| Precondition | CE-3 result |
 |---|---|
-| CE-5 complete, 42/42, invoices, billing periods, payments, refunds, settlement | **None of these exist.** Zero occurrences of `BillingPeriod`, `Invoice`, `InvoiceLineItem`, `PaymentRecord`, `RefundRecord`, `SettlementAllocation`, `RatingAdjustment` anywhere in `src/`, `server.ts`, or `scripts/`. |
-| CE-4 transactional rating with `RatingAdjustment` | Only `rateCommercialEvent()` (CE-1 era) plus a `RatingDecision` type exist. There is no adjustment model. |
-| CE-3 value-event instrumentation | Partial. `CommercialEvent` and `BillableEvent` types and tables exist inside migration `0005_commercial_economics_foundation`. There is no CE-3 validator. |
-| Migrations | `0001`–`0005` only. There is no CE-3/4/5 migration. |
-| `src/types/insurance.ts` header | Says "Commercial Economics Domain (CE-1 through CE-5)", but only the CE-1/CE-2 (+ event ledger) types are present. |
+| Fresh `./data` | **FAIL at first assertion.** `POST /api/commercial/agreements/enroll {planCode:'PLAN_AGENCY'}` returns 404 "plan not found". CE-2 correctly stopped seeding invented production pricing, but CE-3 still assumes the plan exists and does not seed its own test fixture. |
+| After `validate-commercial-economics.ts` | PASS 133/133 |
+| After `validate-ce4.ts` | PASS 133/133 |
+| After `validate-ce5.ts` | **FAIL** at 7.2: "Zero BillableEvents generated across CE-3 lifecycle (count=1)". CE-3 asserts a *global* count, which CE-5's leftover data violates. |
 
-### A.3 Baseline verdict: **DOES NOT REPRODUCE**
-
-PM-1 through PM-5, CE-1/CE-2, TypeScript and the build all pass, with the two operational caveats above. **CE-3, CE-4 and CE-5 cannot be verified because they are not in this snapshot.** Most likely the uploaded archive (dated 2026-09-30) predates the CE-3–CE-5 work, or was packaged from a different working tree.
-
-Per directive §32, this is a stop condition: *"If your local checkout does not reproduce that state, stop and diagnose the discrepancy instead of coding on top of an unexplained regression."*
-
-**Required to unblock:** upload the snapshot that actually contains CE-3–CE-5 and their validators. PR-0A does not depend on CE-3–CE-5 for its design, but the regression contract in §33 does. If I build on this snapshot, CE-5 would later have to be merged *into* PR-0A work, and its migration numbering and firewall assertions would collide.
-
----
+**Verdict.** The accepted baseline (PM-1–PM-5, CE-1/2, CE-3, CE-4, CE-5 green) **does reproduce, but only in a specific run order on shared mutable state**, and `tsc` is red because of one validator typing error. Neither problem is in product code, and neither blocks PR-0A design. Both are defects in the regression contract that PR-0A depends on, so they are surfaced rather than worked around (K18, K19, D11).
 
 ## B. Repository Architecture Map
 
 ```
-server.ts (Express, ~1,600 lines)
+server.ts (Express, ~2,300 lines)
  ├─ identity helpers: getAuthenticatedProviderOrgId / ...UserId   ← header-based (x-provider-user-id)
  ├─ consumer identity: body.consumerId || x-consumer-id || 'user_consumer_1'
  ├─ /api/documents/upload-sample        → SAMPLE_DECLARATIONS_PAGES fixture (no real bytes)
@@ -57,7 +66,9 @@ server.ts (Express, ~1,600 lines)
  ├─ /api/baselines/create               → CoverageBaseline (drops policy.jurisdiction)
  ├─ /api/challenges/create              → Challenge (jurisdiction hard-coded 'NV')
  ├─ /api/marketplace/*                  → PM-1..PM-5 flows via `db`
- ├─ /api/commercial/*                   → CE-1/2 via commercialStore
+ ├─ /api/marketplace/invitations/:id/accept → CE-2 capacity gate (commercialStore.consumeEngagementCapacity)
+ ├─ /api/commercial/*                   → CE-1..CE-5 (agreements, usage, rating, adjustments,
+ │                                        billing periods, invoices, payments, refunds, statements)
  └─ /api/admin/audit-chain/generate-proof → generateRegulatoryAuditProof
 
 src/server/db.ts  — PolicyChallengeDatabase (~3,950 lines)
@@ -66,7 +77,7 @@ src/server/db.ts  — PolicyChallengeDatabase (~3,950 lines)
 
 src/server/db/postgresStore.ts — PGlite (WASM Postgres) at ./data/openpolicy_pg
 src/server/db/commercialStore.ts — CE persistence on the same PGlite instance
-src/server/db/migrate.ts — 5 SQL strings re-executed every boot (IF NOT EXISTS); 0 indexes
+src/server/db/migrate.ts — 7 SQL strings (0001–0007) re-executed every boot (IF NOT EXISTS); 13 indexes, all commercial
 src/server/db/schema.ts — Drizzle definitions (subset of tables)
 
 src/domain/ (pure-ish engines; most read the wall clock)
@@ -118,16 +129,16 @@ Legend. **Core**: concept stays in the national core. **Ruleset**: content moves
 
 | File | Location | Current assumption | Action | Risk |
 |---|---|---|---|---|
-| `server.ts` | L283 `/api/challenges/create` | **Every challenge is `jurisdiction: 'NV'`**, including the CA sample policy | Derive from `JurisdictionDetermination` | **H** |
-| `server.ts` | L270 | `referenceNumber` prefix `'NV'` if any garaging ZIP exists, else `'US'` | Use the determined jurisdiction | L |
-| `server.ts` | L230–251 `/api/baselines/create` | Drops `policy.jurisdiction`, so the baseline has `jurisdiction: undefined`, which triggers ZIP inference in qualification | Propagate | **H** |
-| `server.ts` | L271 | `consumerId: 'user_consumer_1'` hard-coded | PR-1 identity | H (PR-1) |
-| `server.ts` | L1524–1525 | Regulatory proof defaults `'NV'` / `'CHAL-NV-49281'` | Require explicit input | M |
-| `server.ts` | L851, 875, 917, 1025, 1052, 1073, 1248, 1287 | Consumer identity on 8 routes (incl. consent) is `body \|\| header \|\| 'user_consumer_1'` | PR-1 | H (PR-1) |
-| `db.ts` | L3221 `grantBindingConsent` | `recipientOrganizationId = handoff.providerOrganizationId \|\| 'org_apex'`. **PII consent can default to a hard-coded organization.** | Fail closed | **H** |
-| `db.ts` | L3311 `fullConsumerData` | Hard-coded NV PII fixture (Jane Doe, NV DL) | PR-1 | H (PR-1) |
-| `db.ts` | L1370/L1538/L3006 | Qualification called without jurisdiction. `applicableRuleVersion` is **computed but discarded** (not stored on the offer). | Anchor and persist | **H**: not historically reconstructable |
-| `db.ts` | L2149 | Eligibility called for every org with wall-clock time | Pass `evaluationDate` | M |
+| `server.ts` | L285 `/api/challenges/create` | **Every challenge is `jurisdiction: 'NV'`**, including the CA sample policy | Derive from `JurisdictionDetermination` | **H** |
+| `server.ts` | L272 | `referenceNumber` prefix `'NV'` if any garaging ZIP exists, else `'US'` | Use the determined jurisdiction | L |
+| `server.ts` | L232–253 `/api/baselines/create` | Drops `policy.jurisdiction`, so the baseline has `jurisdiction: undefined`, which triggers ZIP inference in qualification | Propagate | **H** |
+| `server.ts` | L273 | `consumerId: 'user_consumer_1'` hard-coded | PR-1 identity | H (PR-1) |
+| `server.ts` | L2260–2261 | Regulatory proof defaults `'NV'` / `'CHAL-NV-49281'` | Require explicit input | M |
+| `server.ts` | L797, 919, 935, 991, 1030, 1072, 1194, 1221, 1242, 1468, 1542 | Consumer identity on 11 routes (incl. consent) is `body \|\| header \|\| 'user_consumer_1'` | PR-1 | H (PR-1) |
+| `db.ts` | L3341 `grantBindingConsent` | `recipientOrganizationId = handoff.providerOrganizationId \|\| 'org_apex'`. **PII consent can default to a hard-coded organization.** | Fail closed | **H** |
+| `db.ts` | L3433 `fullConsumerData` | Hard-coded NV PII fixture (Jane Doe, NV DL) | PR-1 | H (PR-1) |
+| `db.ts` | L1370/L1561/L3100 | Qualification called without jurisdiction. `applicableRuleVersion` is **computed but discarded** (not stored on the offer). | Anchor and persist | **H**: not historically reconstructable |
+| `db.ts` | L2200 | Eligibility called for every org with wall-clock time | Pass `evaluationDate` | M |
 
 ### C.3 Persistence
 
@@ -144,8 +155,10 @@ Legend. **Core**: concept stays in the national core. **Ruleset**: content moves
 
 | Location | Observation | Action |
 |---|---|---|
+| `server.ts` `/api/marketplace/invitations/:id/accept` (CE-2) | Commercial engagement capacity is consumed atomically at invitation acceptance. This is the only place commercial state gates marketplace participation. | **Ordering requirement for PR-0:** provider jurisdictional authority must be evaluated **before** capacity is consumed. An unauthorized provider must be rejected without consuming capacity, recording `VPO_ENGAGED`, or creating anything billable. |
+| `server.ts` `/api/challenges/create` (CE-3) | Emits `VPO_AVAILABLE` for every eligible invitation | The market-activation gate must run **before** invitations are created, so an inactive jurisdiction never produces commercial value events |
 | `EntitlementType 'JURISDICTION_CAPACITY'`, `includedJurisdictions` | Commercial *count* of jurisdictions a provider's plan covers | Legitimate (directive §5) **only as a participation cap**. It must never satisfy or substitute for legal authority. |
-| `ProviderPortal.tsx:2519` | References the non-existent entitlement `'ACTIVE_JURISDICTIONS'` with copy "States where marketplace distribution is commercially enabled" | Dead branch. The copy conflates commercial and legal enablement. Correct it in the UI pass. |
+| `ProviderPortal.tsx:2572` | References the non-existent entitlement `'ACTIVE_JURISDICTIONS'` with copy "States where marketplace distribution is commercially enabled" | Dead branch. The copy conflates commercial and legal enablement. Correct it in the UI pass. |
 
 ### C.5 UI / client
 
@@ -313,7 +326,7 @@ interface JurisdictionDetermination {
   confirmedJurisdiction?: JurisdictionCode; consumerConfirmedAt?: string;
 }
 ```
-*Requirement:* the defects at `server.ts:283`, the dropped jurisdiction in `server.ts:230`, and the ZIP-prefix inference in `qualificationEngine.ts:104`.
+*Requirement:* the defects at `server.ts:285`, the dropped jurisdiction in `server.ts:232`, and the ZIP-prefix inference in `qualificationEngine.ts:104`.
 
 The rule is simple. Signals are evidence. **If the signals conflict, or vehicles are garaged in more than one state, the result is `CONFLICT`/`UNRESOLVED`, and the challenge cannot open.** Nothing is inferred from ZIP prefixes. Which signal legally controls is a legal-review question for PR-0B, so the model records signals rather than encoding an answer.
 
@@ -335,7 +348,7 @@ interface JurisdictionRuleEvaluation {
 
 ## F. Persistence Impact
 
-**Migration `0006_jurisdiction_framework`.** This is additive only, and every `ALTER` adds a nullable column, so existing rows and the PM/CE validators are unaffected.
+**Migration `0008_jurisdiction_framework`** (`0006`/`0007` are now taken by CE-4/CE-5). This is additive only, and every `ALTER` adds a nullable column, so existing rows and the PM/CE validators are unaffected.
 
 ```
 CREATE TABLE jurisdictions (code TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL);       -- seed 51
@@ -366,7 +379,7 @@ ALTER TABLE challenges            ADD jurisdiction_determination_id TEXT, ADD ru
                                   ADD rule_set_content_sha256 TEXT, ADD regulatory_evaluation_date DATE;
 ```
 
-**Indexes** (the repository currently has none):
+**Indexes** (the 13 existing indexes are all on commercial tables; none of the marketplace tables has a secondary index):
 - `jurisdiction_rule_sets (jurisdiction_code, insurance_line, status)`
 - `jurisdiction_rules (rule_set_id, enforcement_point)`
 - `jurisdiction_rules (rule_code, effective_from)`
@@ -422,8 +435,8 @@ ALTER TABLE challenges            ADD jurisdiction_determination_id TEXT, ADD ru
 
 ### Neutrality firewall extension (additive, in a new validator)
 
-- Protected set: the existing 4 files **plus** `qualificationEngine.ts`, which the directive lists but the current test omits, plus `eligibilityEngine.ts`, `jurisdictionRuleEngine.ts`, `providerAuthorityEngine.ts`, `marketActivationEngine.ts` and `jurisdictionDetermination.ts`.
-- Forbidden strings: the existing 6 **plus** `commercial_events`, `provider_entitlements`, `commercial_plan_versions`, `CommercialAgreement`, `ProviderEntitlement`, `BillableEvent`, `rateCommercialEvent`, `checkEntitlementCapacity`.
+- Protected set: the existing 5 files (the CE validators now include `qualificationEngine.ts`), **plus** `eligibilityEngine.ts`, `jurisdictionRuleEngine.ts`, `providerAuthorityEngine.ts`, `marketActivationEngine.ts` and `jurisdictionDetermination.ts`.
+- Forbidden strings: the union of the lists in `validate-commercial-economics.ts` and `validate-ce5.ts` (they differ), **plus** `commercial_events`, `provider_entitlements`, `commercial_plan_versions`, `CommercialAgreement`, `ProviderEntitlement`, `BillableEvent`, `rateCommercialEvent`, `checkEntitlementCapacity`.
 - Type-level check: jurisdiction engine input interfaces contain no commercial fields, and output types contain no `score`, `rank`, `order`, `priority` or `weight` keys (asserted by test).
 
 ---
@@ -489,7 +502,7 @@ All behavioral fixtures use **fictional jurisdictions** registered only in the t
 
 **Reference and schema**
 1. Exactly 51 jurisdictions, unique USPS codes, DC included, no territories.
-2. Migration 0006 is idempotent and leaves row counts in all 0001–0005 tables unchanged.
+2. Migration 0008 is idempotent and leaves row counts in all 0001–0007 tables unchanged.
 3. No new table name matches `/billing|ledger|fee|commission/`.
 
 **Market activation (`RULESET EXISTS ≠ MARKET IS LIVE`)**
@@ -521,7 +534,7 @@ All behavioral fixtures use **fictional jurisdictions** registered only in the t
 23. `JURISDICTION_CAPACITY` entitlement present with no license returns `NOT_AUTHORIZED`.
 
 **Jurisdiction determination (defect regressions)**
-24. The CA sample policy flows to a CA challenge, and `baseline.jurisdiction` is preserved. This is the regression for `server.ts:283` and `:230`.
+24. The CA sample policy flows to a CA challenge, and `baseline.jurisdiction` is preserved. This is the regression for `server.ts:285` and `:232`.
 25. Policy-stated state ≠ garaging state yields `CONFLICT`, and the challenge cannot open.
 26. A garaging ZIP of `98101` yields **no** inferred jurisdiction (the regression for ZIP-prefix inference).
 
@@ -536,7 +549,7 @@ All behavioral fixtures use **fictional jurisdictions** registered only in the t
 32. With `JURISDICTION_ENFORCEMENT=SHADOW`, `offer.isQualified` is identical to the pre-PR-0A value for every PM fixture, and evaluations are still persisted.
 
 **Regression**
-33. PM-1…PM-5, CE-1/2 (and CE-3/4/5 once the snapshot is supplied), `tsc`, build: all unchanged. Executed by a runner with per-suite timeouts so the PM-5 hang cannot stall CI.
+33. PM-1…PM-5, CE-1/2, CE-3, CE-4, CE-5, `tsc`, build: all unchanged. Executed by a runner with per-suite timeouts so the PM-5 hang cannot stall CI.
 
 ---
 
@@ -544,29 +557,33 @@ All behavioral fixtures use **fictional jurisdictions** registered only in the t
 
 | # | Severity | Issue | Recommendation |
 |---|---|---|---|
-| K1 | **BLOCKER** | CE-3, CE-4, CE-5 and their validators are absent (§A). | Supply the correct snapshot before any PR-0A code. |
+| K1 | ~~BLOCKER~~ **Resolved** | The 09-30 snapshot lacked CE-3–CE-5. | The CE5_COMPLETE snapshot supplies them (§A). |
 | K2 | High | The repository holds a **zip**, not a source tree. There are no diffs, no reviewable PRs and no blame. | First action after approval: commit the extracted tree (excluding `.env` and `node_modules`), then do PR-0A as reviewable commits. The `.env` in the zip has an **empty** `GEMINI_API_KEY`, so no secret was exposed, but `.env` should not be in the archive. |
 | K3 | High | Qualification claims "statutory liability minimums verified" but checks only coverage presence (§C.1). | In PR-0C, real limit evaluation replaces it. Until then the message is inaccurate. It is fixable only by editing a protected engine, which needs approval (D6). |
 | K4 | High | The legacy NV/OH/CA registry values are **unverified constants presented as law**, and their citation strings are **pinned by frozen tests** (`validate-pm2.ts:445`, `pm2InformationOffers.test.ts:220`). | Migrate them as `UNVERIFIED` legacy rules in a *SANDBOX-only* seed. Keep the engine and strings untouched in PR-0A. Retiring them in PR-0C requires an explicitly approved change to those two assertions. This is a genuine invariant conflict, surfaced per §33. |
 | K5 | High | `generateRegulatoryAuditProof` produces regulator-certification language that no regulator issued. It is pinned by `governanceAudit.test.ts:270`. | It must not be shown externally as-is. The rewording needs approval to change the pinned assertion. |
-| K6 | High | Jurisdiction is lost or forced: `server.ts:283` hard-codes `'NV'`, `:230` drops it, and ZIP-prefix inference misclassifies. | Fixed in PR-0A in orchestration only (no protected engine touched). |
+| K6 | High | Jurisdiction is lost or forced: `server.ts:285` hard-codes `'NV'`, `:232` drops it, and ZIP-prefix inference misclassifies. | Fixed in PR-0A in orchestration only (no protected engine touched). |
 | K7 | High | PM-5 vault fallback fabricates `'NV'` and a 2022 Honda Accord into the next baseline (protected engine). | Approval required to fix (D6). |
 | K8 | High | Consent recipient falls back to `'org_apex'`. Consumer identity is spoofable with a default user. Consent `termsVersion` is client-suppliable and defaults to a regulator-style ID. | The `org_apex` fallback is a PII-disclosure hazard. Propose fixing it in PR-0A (orchestration). Identity is PR-1. |
 | K9 | High | Persistence: in-memory Maps are authoritative; PGlite writes are fire-and-forget; policies and baselines are never persisted; migrations re-run every boot; no indexes. | PR-0A tables use awaited writes. The full fix is PR-1. Do not build regulatory anchoring on the Map store. |
 | K10 | Medium | Carrier-appointment matching uses a substring match and ignores the appointment's jurisdiction. An empty relationship list passes. | Superseded by provider authority in enforce mode (PR-0C). |
-| K11 | Medium | PM-5 test 3.12 ("zero billing tables") checks a **hard-coded** table list from `getTableCounts()`. It cannot detect new tables; the invariant is vacuous. Separately, it asserts a CE-5-style economics surface does not exist, which needs reconciling with the real CE-5 snapshot. | Note only. Do not edit (frozen). |
+| K11 | **High** | PM-5 test 3.12 asserts "Relational schema contains ZERO billing/ledger/commission tables". **That is now false:** CE-5 created `billing_periods`. The test still passes only because `getTableCounts()` checks a hard-coded list of PM tables. A frozen invariant is passing vacuously while the real schema contradicts it. | Surfaced per §33. The invariant needs restating (e.g. "no billing tables are *read by* marketplace engines") and testing against the real `information_schema`. That changes a frozen test, so it needs approval (D12). |
 | K12 | Medium | Coverage taxonomy lacks PIP/UMPD/CSL/stacking, and UM and UIM are merged. Comparison would treat a PIP limit cut as `EQUIVALENT`. | Rules that need these return `INDETERMINATE`. Extending the taxonomy is a protected comparison-engine change (D8). |
-| K13 | Medium | The commercial-neutrality firewall omits `qualificationEngine.ts` (directive §6 lists it). | Extended in the new validator. |
-| K14 | Medium | `npm ci` fails without `--legacy-peer-deps`. The PM-5 validator never exits. | Bump esbuild to `^0.27` in a separate approved chore. Use a timeout-guarded runner. |
+| K13 | ~~Medium~~ **Resolved** | `qualificationEngine.ts` is now in the CE validators' protected list. `eligibilityEngine.ts` is still unprotected, and the forbidden-string lists differ between validators. | The new validator adds `eligibilityEngine.ts` and uses the union of the lists. |
+| K14 | Medium | `npm ci` fails without `--legacy-peer-deps` (esbuild `^0.25` vs vite 8). The PM-5 validator hung under the 09-30 snapshot; it exited cleanly on a fresh `./data` under CE-5. | Bump esbuild to `^0.27` in a separate approved chore. Use a timeout-guarded runner either way. |
 | K15 | Low | Three overlapping "where can this provider work" sources: `org.states` (self-declared), `appetite.jurisdictions` (preference) and `licenses` (evidence). | Only licenses and appointments confer authority (test 22). |
 | K16 | Low | The UI assumes NV throughout (§C.5), and the state pickers list only 6 states. | UI pass after PR-0A. No UI changes in PR-0A. |
 | K17 | Policy | I have **not** verified any real-state legal value, including the three in the legacy registry, and will not encode any. | PR-0B, from primary sources with legal review. |
+| K18 | High | **Validators share one mutable database (`./data`).** CE-3 fails on a fresh database (it relies on another suite's `PLAN_AGENCY` fixture) and fails after CE-5 (it asserts a global zero-BillableEvent count). The baseline is only green in a particular run order. | Each suite gets an isolated data directory and seeds its own TEST FIXTURES. That edits frozen validators, so it needs approval (D11). PR-0A's own validator is isolated from day one. |
+| K19 | Medium | `tsc --noEmit` fails: `scripts/validate-ce5.ts:604` (`cev1` is `unknown`). The build does not type-check, so the "TypeScript PASS" gate is currently red. | A one-line type annotation in a frozen validator (D11) |
+| K20 | **High** | **Provider self-settlement.** `POST /api/commercial/payments`, `/refunds`, `/billable-events/:id/adjustments`, `/invoices/:id/finalize` and `/agreements/:id/transition` are authorized only by the caller's own provider identity (the spoofable `x-provider-user-id`). A provider can record a payment of any amount against its own invoice, refund itself, or credit its own charges; `authorizedBy` is free text. | Out of PR-0 scope, and no CE-6 is opened. These need an Open Policy finance/operator role and external payment-processor confirmation in PR-1. **Until then these routes must not be reachable in any non-sandbox deployment.** |
+| K21 | Low | Packaging: Windows-separator zip entries, nested archives (64.6 MB checkpoint), agent prompt files and `.env` inside the source archive (§A.1) | Resolved by D2 (commit a clean source tree) |
 
 ---
 
-## L. Implementation Plan (after approval and after K1 is resolved)
+## L. Implementation Plan (after approval)
 
-**Step 0 (housekeeping, separate commit).** Commit the extracted source tree. Add `scripts/run-all-validators.ts` with per-suite timeouts. No behavior change; the regression baseline is re-recorded.
+**Step 0 (housekeeping, separate commits).** Commit the extracted source tree, without nested zips, prompt files or `.env`. If D11 is approved, isolate the validators and fix the `tsc` error. Add `scripts/run-all-validators.ts` with per-suite timeouts. No behavior change; the regression baseline is re-recorded.
 
 **Add:**
 
@@ -588,7 +605,7 @@ All behavioral fixtures use **fictional jurisdictions** registered only in the t
 
 | File | Change |
 |---|---|
-| `src/server/db/migrate.ts` | Append `SQL_MIGRATION_V6` and its `_migrations` insert |
+| `src/server/db/migrate.ts` | Append `SQL_MIGRATION_V8` and its `_migrations` insert |
 | `src/server/db/schema.ts` | Drizzle definitions for the new tables and columns |
 | `server.ts` | Baseline creation propagates jurisdiction. Challenge creation uses determination, the activation gate and anchoring, and removes `'NV'`. Read-only `GET /api/jurisdictions`, `/api/jurisdictions/:code/rulesets` and `/api/jurisdictions/:code/activation`. **No mutation endpoints until PR-1 auth exists**; mutations are store-level and CLI-only. |
 | `src/server/db.ts` | Shadow-mode evaluation at offer submit and revision. Persist the anchors. Replace the `'org_apex'` consent fallback with a hard failure (K8). |
@@ -599,7 +616,7 @@ All behavioral fixtures use **fictional jurisdictions** registered only in the t
 
 | ID | Decision | My recommendation |
 |---|---|---|
-| D1 | Supply the CE-3–CE-5 snapshot | Required |
+| D1 | ~~Supply the CE-3–CE-5 snapshot~~ | **Done** (rev. 2) |
 | D2 | Commit the extracted source tree | Yes |
 | D3 | Name the interval end `effectiveUntil` (exclusive) instead of `effectiveThrough` | `effectiveUntil`: repo precedent, and it removes inclusive/exclusive ambiguity |
 | D4 | PR-0A ships in SHADOW mode; ENFORCE switches in PR-0C | Yes |
@@ -609,5 +626,7 @@ All behavioral fixtures use **fictional jurisdictions** registered only in the t
 | D8 | Coverage taxonomy extension (PIP/UMPD/CSL/UM–UIM split) timing | Before PR-0C. It touches the protected comparison engine. |
 | D9 | Suspension's effect on in-flight competitions | Block new challenges and new bindings; allow viewing and selection |
 | D10 | Evaluation-date anchor per enforcement point (§H) | As proposed, subject to legal review |
+| D11 | Fix the regression harness inside frozen validators: per-suite isolated `./data`, CE-3 seeds its own fixture and stops counting globally, and the `validate-ce5.ts:604` type annotation | Approve. Assertions are not weakened; only isolation and typing change. Do it as Step 0 so every later PR is measured against a deterministic baseline. |
+| D12 | Restate the PM-5 "zero billing tables" invariant (K11) | Approve a restatement that tests what actually matters (marketplace engines and tables never read commercial tables), checked against the real schema |
 
-**Stopping here.** No implementation will begin until this report is approved and K1 is resolved.
+**Stopping here.** No implementation will begin until this report is approved.
