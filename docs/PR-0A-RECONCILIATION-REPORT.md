@@ -2,6 +2,7 @@
 
 **Status:** Analysis only. No repository source code was modified. Implementation is **on hold pending review and approval**.
 **Revision 2:** re-run against `OPENPOLICY_2026-10-02_CE5_COMPLETE.zip` (`main` @ `cfef64a`). Revision 1 audited `OPENPOLICY_2026-09-30.zip`, which predated CE-3–CE-5; its blocker (K1) is resolved.
+**Revision 3:** baseline stabilization (D2, D11, D12) approved and executed; the baseline is now order-independent (§A.4). Adds PR-1-SEC-FIN-001 (§K.1) and the PR-0 ordering invariant (§G). PR-0A implementation has **not** begun.
 **Date:** 2026-10-03
 
 ---
@@ -54,6 +55,66 @@ Every validator shares one PGlite directory (`./data/openpolicy_pg`). Each suite
 | After `validate-ce5.ts` | **FAIL** at 7.2: "Zero BillableEvents generated across CE-3 lifecycle (count=1)". CE-3 asserts a *global* count, which CE-5's leftover data violates. |
 
 **Verdict.** The accepted baseline (PM-1–PM-5, CE-1/2, CE-3, CE-4, CE-5 green) **does reproduce, but only in a specific run order on shared mutable state**, and `tsc` is red because of one validator typing error. Neither problem is in product code, and neither blocks PR-0A design. Both are defects in the regression contract that PR-0A depends on, so they are surfaced rather than worked around (K18, K19, D11).
+
+### A.4 Baseline stabilization (rev. 3): D2, D11, D12 executed
+
+These are separate commits on `claude/eager-curie-yqreig`. They contain no jurisdiction code.
+
+| Commit | Decision | Change |
+|---|---|---|
+| `ad7d1d8` | D2 | Byte-exact import of the CE-5 source tree from the archive (POSIX paths). `.env`, nested zips and agent prompt files are excluded. |
+| `3d5a8ac` | D2 | `.gitignore` (local DB state, archives), `.gitattributes`, `archive/README.md` (SHA-256 manifest) |
+| `eb602d2` | D11 | Per-suite isolated databases, CE-3 establishes its own prerequisite, CE-5 typing fix, `npm run validate` runner |
+| `0529e9d` | D12 | PM-5 test 3.12 rewritten as a PM-5/CE-5 boundary test against the real schema |
+
+**Files changed and why**
+
+| File | Why |
+|---|---|
+| `src/server/db/postgresStore.ts`, `src/server/db/migrate.ts` | The default data directory honors `OPENPOLICY_DATA_DIR`. Behavior is identical when it is unset. This is the only product-code change. |
+| `scripts/lib/isolatedDataDir.ts` (new) | First import of every validator: a fresh empty database per process, removed on exit |
+| `scripts/validate-*.ts` (all 9) | Import the isolation module first. No assertion changed except as listed below. |
+| `scripts/validate-ce3.ts` | Seeds the structural, **price-free** plan catalog (`seedCanonicalPlans`, the same call production startup makes) instead of inheriting it. 7.2 gains an attribution-scoped check (every CommercialEvent in the suite's own database has zero BillableEvents) plus a non-vacuity check. The original assertion is kept. 133 → **135**. |
+| `scripts/validate-ce5.ts` | Row type on the provenance-join query (TS2571). Typing only. |
+| `scripts/validate-pm5.ts` | 3.12: the one "zero billing tables" assertion is replaced by five boundary assertions (own/create, non-vacuity, foreign-key dependency, import, mutation). The two 404 assertions are unchanged. 85 → **89**. |
+| `scripts/run-validators.ts` (new), `package.json` (`validate` script) | Sequential multi-process runner with timeouts and canonical, reverse or seeded-shuffle order |
+
+**Assertion-count changes are all additions.** CE-3 +2, PM-5 +4 net (one assertion replaced by five). No assertion was removed without a stronger replacement, and none was relaxed.
+
+**Results after stabilization**
+
+| Gate | Result |
+|---|---|
+| `npx tsc --noEmit` | **0 errors** (was 1) |
+| `npm run build` | PASS |
+| PM-1 / PM-2 / PM-3 / PM-4 | 61/61 · 45/45 · 34/34 · 61/61 |
+| PM-5 | **89/89** (was 85/85; see above) |
+| CE-1/2 | 95 assertions; aggregated domain suites 132/132 |
+| CE-3 | **135/135, independently**, on an empty database (was: FAIL fresh, FAIL after CE-5) |
+| CE-4 | 38/38 acceptance tests (117 assertions) |
+| CE-5 | 42/42 acceptance tests (133 assertions) |
+
+**Order-independence evidence: 47 suite runs, 0 failures**
+- Canonical order: 9/9
+- Reverse order: 9/9
+- Seeded shuffle 7 (`commercial-economics, ce4, pm4, pm2, pm3, pm5, ce3, ce5, pm1`): 9/9
+- Seeded shuffle 2026 (`commercial-economics, pm2, ce4, ce3, pm1, pm4, ce5, pm3, pm5`): 9/9
+- Each suite alone: 9/9
+- CE-3 three times consecutively: 3/3
+- CE-5 then CE-3 (the previously failing sequence): 2/2
+
+Reproduce with `npm run validate -- --order shuffle --seed <n>`.
+
+**Mutation check on D12.** A probe confirmed the foreign-key query sees all 42 FK edges in the schema, and that it detects an injected `policy_vault_items → billing_periods` foreign key. Incidentally, PM-5's four tables declare no outgoing foreign keys at all; their links to binding handoffs are enforced in code, not by the schema.
+
+**Secrets review (D2).** All archives ever committed were scanned, including nested zips and the 64.6 MB checkpoint: `OPENPOLICY_2026-09-30.zip` @ `5408603` and the CE-5 archive.
+- `.env`: in every copy, `GEMINI_API_KEY` is **empty** and `APP_URL`/`PORT` are localhost. **No credential was exposed, so nothing needs rotating.**
+- The only key-shaped value is the Firebase **Web** API key in `firebase-applet-config.json`, also compiled into the checkpoint's `dist/` bundle. It is imported by `src/firebase/config.ts` and shipped to browsers by design, so it is a public client identifier, not a secret. **Recommended:** restrict it in Google Cloud (HTTP-referrer and API restrictions) and keep Firestore security rules authoritative. It remains tracked because runtime needs it.
+- No private keys, service-account JSON, cloud credentials or database URLs were found.
+
+**Unresolved or carried forward**
+- `npm ci` still requires `--legacy-peer-deps` (K14). That is a dependency change outside this pass's scope.
+- `data/test_pm5_pg` (PM-5's own restart-test directory) is still created under `./data`. It is suite-specific, wiped at the start of every PM-5 run, and gitignored, so it cannot couple suites.
 
 ## B. Repository Architecture Map
 
@@ -433,6 +494,44 @@ ALTER TABLE challenges            ADD jurisdiction_determination_id TEXT, ADD ru
 | `governanceAuditEngine` | Ruleset publish, activation transitions and gate attestations emit `AuditEvent`s on the existing chain. | Additive event types only |
 | `commercialEconomicsEngine` | May *read* activation state downstream. It must never be read *by* jurisdiction engines. `JURISDICTION_CAPACITY` stays a commercial cap and never substitutes for authority. | None |
 
+### PR-0 ordering invariant (design constraint, recorded 2026-10-03, not yet implemented)
+
+Regulatory gates precede commercial consequences. A transaction must traverse:
+
+```
+Consumer / Policy
+      ↓
+Determine Governing Jurisdiction          (JurisdictionDetermination)
+      ↓
+MarketActivation Gate                     ── closed → no challenge, no invitations, no VPO_AVAILABLE
+      ↓
+Challenge / Opportunity Creation
+      ↓
+Candidate Provider
+      ↓
+ProviderJurisdictionAuthority Gate        ── NOT_AUTHORIZED / INDETERMINATE → not invited
+      ↓
+Eligibility / Invitation                  (CE-3 VPO_AVAILABLE emitted only here)
+      ↓
+Provider Accepts                          ── authority re-checked at acceptance (evaluationDate = now)
+      ↓
+CE-2 Capacity Consumption
+      ↓
+Competition Participation
+      ↓
+CE-3 Commercial Observation
+      ↓
+CE-4 Rating
+```
+
+**Invariants:**
+- `MarketActivation` gates opportunity and invitation creation.
+- `ProviderJurisdictionAuthority` gates participation **before** CE-2 capacity consumption.
+- A provider rejected by either gate consumes no capacity, produces no `CommercialEvent`, and creates nothing billable.
+- Commercial state never feeds back into either gate.
+
+This sequence is part of the PR-0A design. **It is not implemented** until PR-0A is approved, and it will be proven by acceptance tests (an unauthorized provider's acceptance attempt leaves capacity usage, `commercial_events` and `billable_events` unchanged).
+
 ### Neutrality firewall extension (additive, in a new validator)
 
 - Protected set: the existing 5 files (the CE validators now include `qualificationEngine.ts`), **plus** `eligibilityEngine.ts`, `jurisdictionRuleEngine.ts`, `providerAuthorityEngine.ts`, `marketActivationEngine.ts` and `jurisdictionDetermination.ts`.
@@ -567,19 +666,48 @@ All behavioral fixtures use **fictional jurisdictions** registered only in the t
 | K8 | High | Consent recipient falls back to `'org_apex'`. Consumer identity is spoofable with a default user. Consent `termsVersion` is client-suppliable and defaults to a regulator-style ID. | The `org_apex` fallback is a PII-disclosure hazard. Propose fixing it in PR-0A (orchestration). Identity is PR-1. |
 | K9 | High | Persistence: in-memory Maps are authoritative; PGlite writes are fire-and-forget; policies and baselines are never persisted; migrations re-run every boot; no indexes. | PR-0A tables use awaited writes. The full fix is PR-1. Do not build regulatory anchoring on the Map store. |
 | K10 | Medium | Carrier-appointment matching uses a substring match and ignores the appointment's jurisdiction. An empty relationship list passes. | Superseded by provider authority in enforce mode (PR-0C). |
-| K11 | **High** | PM-5 test 3.12 asserts "Relational schema contains ZERO billing/ledger/commission tables". **That is now false:** CE-5 created `billing_periods`. The test still passes only because `getTableCounts()` checks a hard-coded list of PM tables. A frozen invariant is passing vacuously while the real schema contradicts it. | Surfaced per §33. The invariant needs restating (e.g. "no billing tables are *read by* marketplace engines") and testing against the real `information_schema`. That changes a frozen test, so it needs approval (D12). |
+| K11 | ~~High~~ **Resolved (D12)** | PM-5 test 3.12 asserted zero billing tables while CE-5 had created them, passing vacuously via a hard-coded table list | Replaced by five boundary assertions against the real schema (§A.4) |
 | K12 | Medium | Coverage taxonomy lacks PIP/UMPD/CSL/stacking, and UM and UIM are merged. Comparison would treat a PIP limit cut as `EQUIVALENT`. | Rules that need these return `INDETERMINATE`. Extending the taxonomy is a protected comparison-engine change (D8). |
 | K13 | ~~Medium~~ **Resolved** | `qualificationEngine.ts` is now in the CE validators' protected list. `eligibilityEngine.ts` is still unprotected, and the forbidden-string lists differ between validators. | The new validator adds `eligibilityEngine.ts` and uses the union of the lists. |
 | K14 | Medium | `npm ci` fails without `--legacy-peer-deps` (esbuild `^0.25` vs vite 8). The PM-5 validator hung under the 09-30 snapshot; it exited cleanly on a fresh `./data` under CE-5. | Bump esbuild to `^0.27` in a separate approved chore. Use a timeout-guarded runner either way. |
 | K15 | Low | Three overlapping "where can this provider work" sources: `org.states` (self-declared), `appetite.jurisdictions` (preference) and `licenses` (evidence). | Only licenses and appointments confer authority (test 22). |
 | K16 | Low | The UI assumes NV throughout (§C.5), and the state pickers list only 6 states. | UI pass after PR-0A. No UI changes in PR-0A. |
 | K17 | Policy | I have **not** verified any real-state legal value, including the three in the legacy registry, and will not encode any. | PR-0B, from primary sources with legal review. |
-| K18 | High | **Validators share one mutable database (`./data`).** CE-3 fails on a fresh database (it relies on another suite's `PLAN_AGENCY` fixture) and fails after CE-5 (it asserts a global zero-BillableEvent count). The baseline is only green in a particular run order. | Each suite gets an isolated data directory and seeds its own TEST FIXTURES. That edits frozen validators, so it needs approval (D11). PR-0A's own validator is isolated from day one. |
-| K19 | Medium | `tsc --noEmit` fails: `scripts/validate-ce5.ts:604` (`cev1` is `unknown`). The build does not type-check, so the "TypeScript PASS" gate is currently red. | A one-line type annotation in a frozen validator (D11) |
-| K20 | **High** | **Provider self-settlement.** `POST /api/commercial/payments`, `/refunds`, `/billable-events/:id/adjustments`, `/invoices/:id/finalize` and `/agreements/:id/transition` are authorized only by the caller's own provider identity (the spoofable `x-provider-user-id`). A provider can record a payment of any amount against its own invoice, refund itself, or credit its own charges; `authorizedBy` is free text. | Out of PR-0 scope, and no CE-6 is opened. These need an Open Policy finance/operator role and external payment-processor confirmation in PR-1. **Until then these routes must not be reachable in any non-sandbox deployment.** |
-| K21 | Low | Packaging: Windows-separator zip entries, nested archives (64.6 MB checkpoint), agent prompt files and `.env` inside the source archive (§A.1) | Resolved by D2 (commit a clean source tree) |
+| K18 | ~~High~~ **Resolved (D11)** | Validators shared one mutable database, so CE-3's result depended on run order | Each validator now runs on its own empty database (§A.4) |
+| K19 | ~~Medium~~ **Resolved (D11)** | `tsc --noEmit` failed at `validate-ce5.ts:604` | Row type added; 0 errors (§A.4) |
+| K20 | **High: production-blocking** | Promoted to formal finding **PR-1-SEC-FIN-001** (§K.1 below) | Sandbox-only until resolved |
+| K21 | ~~Low~~ **Resolved (D2)** | Archive packaging debris | The normalized git tree is authoritative; the archive is preserved under `archive/` (§A.4) |
 
 ---
+
+### K.1 PR-1-SEC-FIN-001: Privileged Commercial Operations Authorization
+
+**Status:** OPEN · **Severity:** production-blocking · **Owner phase:** PR-1 · **Recorded:** 2026-10-03 · **Not implemented in PR-0A.**
+
+**Finding.** Operations that require Open Policy accounting authority are currently authorized only by the caller's *provider* identity, and that identity is the spoofable `x-provider-user-id` header. Two routes are not authorized at all. **Owning the affected invoice, payment or event is treated as authority over it. It is not.** Authentication establishes identity; authorization (RBAC) establishes authority; the audit record records the resulting actor. The free-text `authorizedBy` field is none of these.
+
+| Route (server.ts) | Current gate | Actor class that should hold authority |
+|---|---|---|
+| `POST /api/commercial/payments` (L2090) | Provider owns invoice | Finance/admin, or a system actor confirming an external payment processor |
+| `POST /api/commercial/refunds` (L2126) | Provider owns payment | Finance/admin |
+| `POST /api/commercial/billable-events/:id/adjustments` (L1812) | Provider owns event; `authorizedBy` is free text | Finance/admin |
+| `POST /api/commercial/invoices/generate-draft` (L2047) | Provider org | Operator or system |
+| `POST /api/commercial/invoices/:id/finalize` (L2073) | Provider org | Finance/admin |
+| `POST /api/commercial/billing-periods` (L1975) | Provider org | Operator or system |
+| `POST /api/commercial/billing-periods/:id/close` (L2005) | Provider org | Operator or system |
+| `POST /api/commercial/agreements/:id/transition` (L1688) | Provider org | Operator, except a provider-initiated termination request |
+| `POST /api/commercial/agreements/enroll` (L1649) | Provider org | Provider may *request*; operator accepts or activates |
+| `POST /api/commercial/rating/evaluate-event` (L1846) | **None** unless the provider header is present; omitting it skips the tenant check | System |
+| `POST /api/commercial/events/reconcile` (L1949) | **None** | System or operator |
+
+**Required actor classes (minimum):** `PROVIDER`, `OPEN_POLICY_OPERATOR`, `OPEN_POLICY_FINANCE_ADMIN`, `SYSTEM_SERVICE`.
+
+**Constraints on the fix.**
+- The CE-5 ledger model (append-only refunds, settlement allocations, reconstructed balances) is not reopened. This is a boundary defect, not a model defect.
+- No CE-6.
+- Every route above needs an explicit authority classification, a server-verified actor, and that actor's identity in the audit record.
+
+**Until resolved:** these routes are **sandbox-only and non-production-capable**. No deployment that handles real providers or real money may expose them.
 
 ## L. Implementation Plan (after approval)
 
@@ -617,7 +745,7 @@ All behavioral fixtures use **fictional jurisdictions** registered only in the t
 | ID | Decision | My recommendation |
 |---|---|---|
 | D1 | ~~Supply the CE-3–CE-5 snapshot~~ | **Done** (rev. 2) |
-| D2 | Commit the extracted source tree | Yes |
+| D2 | Commit the extracted source tree | **APPROVED 2026-10-03; executed** (§A.4) |
 | D3 | Name the interval end `effectiveUntil` (exclusive) instead of `effectiveThrough` | `effectiveUntil`: repo precedent, and it removes inclusive/exclusive ambiguity |
 | D4 | PR-0A ships in SHADOW mode; ENFORCE switches in PR-0C | Yes |
 | D5 | SANDBOX vs PRODUCTION activation environments | Yes |
@@ -626,7 +754,7 @@ All behavioral fixtures use **fictional jurisdictions** registered only in the t
 | D8 | Coverage taxonomy extension (PIP/UMPD/CSL/UM–UIM split) timing | Before PR-0C. It touches the protected comparison engine. |
 | D9 | Suspension's effect on in-flight competitions | Block new challenges and new bindings; allow viewing and selection |
 | D10 | Evaluation-date anchor per enforcement point (§H) | As proposed, subject to legal review |
-| D11 | Fix the regression harness inside frozen validators: per-suite isolated `./data`, CE-3 seeds its own fixture and stops counting globally, and the `validate-ce5.ts:604` type annotation | Approve. Assertions are not weakened; only isolation and typing change. Do it as Step 0 so every later PR is measured against a deterministic baseline. |
-| D12 | Restate the PM-5 "zero billing tables" invariant (K11) | Approve a restatement that tests what actually matters (marketplace engines and tables never read commercial tables), checked against the real schema |
+| D11 | Validator isolation; each suite establishes its own prerequisites; fix `tsc`; no assertions weakened | **APPROVED 2026-10-03; executed** (§A.4) |
+| D12 | Replace PM-5's obsolete "zero billing tables" assertion with the real PM-5/CE-5 boundary | **APPROVED 2026-10-03; executed** (§A.4) |
 
 **Stopping here.** No implementation will begin until this report is approved.
