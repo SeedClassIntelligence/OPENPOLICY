@@ -3,6 +3,8 @@
 **Status:** Founder-authorized research schedule  
 **Scope:** Research scheduling only; this document does not create, verify, publish, or activate law.
 
+Research input: `docs/pr0b/DEEP-RESEARCH-RECONCILIATION.md`.
+
 PR-0B proceeds by complete regional cohorts rather than by selecting scattered states. Nevada remains Wave 0 solely to calibrate the research, evidence-capture, reconciliation, and independent-verification method. After that approval gate, research proceeds West Coast, East Coast, South, then North.
 
 The operational cohort names below map to the four-region membership used by the completed PR-0B research reconciliation. The names control scheduling, not legal applicability.
