@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { PlatformNotification } from '../../types/insurance';
 import { assertNotificationRecipient, notificationMatchesRecipient, validateNotificationRecipient } from './notificationAuthorization';
+import { SQL_MIGRATION_V9 } from '../db/migrate';
 
 function notification(overrides: Partial<PlatformNotification>): PlatformNotification {
   return {
@@ -17,6 +18,12 @@ function notification(overrides: Partial<PlatformNotification>): PlatformNotific
     ...overrides
   };
 }
+
+test('durable notification migration enforces exactly one matching recipient', () => {
+  assert.match(SQL_MIGRATION_V9, /platform_notifications_exactly_one_recipient/);
+  assert.match(SQL_MIGRATION_V9, /platform_notifications_recipient_type_matches/);
+  assert.match(SQL_MIGRATION_V9, /recipient_type = 'PROVIDER_ORGANIZATION'/);
+});
 
 test('notification invariant requires exactly one matching recipient authority', () => {
   assert.throws(() => validateNotificationRecipient(notification({ recipientConsumerId: undefined })), /exactly one/);

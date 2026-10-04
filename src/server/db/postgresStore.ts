@@ -1,6 +1,6 @@
 import { PGlite } from '@electric-sql/pglite';
 import fs from 'fs';
-import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8 } from './migrate';
+import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8, SQL_MIGRATION_V9 } from './migrate';
 import {
   ProviderOrganization,
   ProviderUser,
@@ -26,7 +26,8 @@ import {
   IssuedPolicyDocument,
   IssuedPolicySnapshot,
   ReconciliationReport,
-  PolicyVaultItem
+  PolicyVaultItem,
+  PlatformNotification
 } from '../../types/insurance';
 
 /**
@@ -98,6 +99,10 @@ export class PostgresStore {
         await this.pglite.exec(SQL_MIGRATION_V8);
         await this.pglite.query(
           `INSERT INTO _migrations (name) VALUES ('0008_jurisdiction_framework') ON CONFLICT (name) DO NOTHING;`
+        );
+        await this.pglite.exec(SQL_MIGRATION_V9);
+        await this.pglite.query(
+          `INSERT INTO _migrations (name) VALUES ('0009_notification_recipient_ownership') ON CONFLICT (name) DO NOTHING;`
         );
         this.isReady = true;
         console.log('[Open Policy Postgres] PostgreSQL 16 durable engine initialized at', this.dataDir);
@@ -1481,6 +1486,35 @@ export class PostgresStore {
         item.effectiveDate, item.expirationDate, JSON.stringify(item.coverages || []),
         item.provenanceHash, item.status, item.filedAt
       ]
+    );
+  }
+
+  public async saveNotification(notification: PlatformNotification): Promise<void> {
+    await this.ensureReady();
+    await this.pglite!.query(
+      `INSERT INTO platform_notifications (
+        id, type, title, message, timestamp, is_read, read_at, recipient_type,
+        recipient_consumer_id, recipient_provider_user_id, recipient_provider_organization_id,
+        recipient_operator_id, created_from_event, action_target
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+      ON CONFLICT (id) DO UPDATE SET is_read = EXCLUDED.is_read, read_at = EXCLUDED.read_at;`,
+      [
+        notification.id, notification.type, notification.title, notification.message,
+        notification.timestamp, notification.read, notification.readAt || null,
+        notification.recipientType, notification.recipientConsumerId || null,
+        notification.recipientProviderUserId || null,
+        notification.recipientProviderOrganizationId || null,
+        notification.recipientOperatorId || null, notification.createdFromEvent,
+        notification.actionTarget || null
+      ]
+    );
+  }
+
+  public async markNotificationRead(id: string, readAt: string): Promise<void> {
+    await this.ensureReady();
+    await this.pglite!.query(
+      `UPDATE platform_notifications SET is_read = TRUE, read_at = $2 WHERE id = $1;`,
+      [id, readAt]
     );
   }
 

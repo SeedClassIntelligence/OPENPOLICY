@@ -2508,7 +2508,7 @@ app.get('/api/admin/review-queue/:id', (req, res) => {
 });
 
 app.post('/api/admin/review-queue/:id/resolve', (req, res) => {
-  const { action, resolvedBy, notes } = req.body;
+  const { action, notes } = req.body;
   if (!action || !['OVERRIDE', 'REJECT'].includes(action)) {
     return res.status(400).json({ error: 'Invalid action. Must be OVERRIDE or REJECT.' });
   }
@@ -2516,7 +2516,7 @@ app.post('/api/admin/review-queue/:id/resolve', (req, res) => {
     const updated = db.resolveReviewQueueItem({
       id: req.params.id,
       action,
-      resolvedBy: resolvedBy || 'Admin Supervisor',
+      resolvedBy: req.openPolicyIdentity!.uid,
       notes: notes || 'Reviewed and adjudicated under Section 32 protocol.'
     });
     res.json({ success: true, item: updated });

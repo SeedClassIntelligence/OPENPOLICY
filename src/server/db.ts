@@ -1069,6 +1069,9 @@ export class PolicyChallengeDatabase {
   private addNotification(notification: PlatformNotification): void {
     this.validateNotificationRecipient(notification);
     this.notifications.unshift(notification);
+    postgresStore.saveNotification(notification).catch(err => {
+      console.warn('[PostgresStore Notification Sync Error]', err?.message || err);
+    });
   }
 
   public createNotification(notification: PlatformNotification): PlatformNotification {
@@ -1086,6 +1089,9 @@ export class PolicyChallengeDatabase {
     assertNotificationRecipient(notif, recipient);
     notif.read = true;
     notif.readAt = new Date().toISOString();
+    postgresStore.markNotificationRead(notif.id, notif.readAt).catch(err => {
+      console.warn('[PostgresStore Notification Read Sync Error]', err?.message || err);
+    });
   }
 
   public getPolicy(id: string): Policy | undefined {

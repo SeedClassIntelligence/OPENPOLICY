@@ -4,6 +4,7 @@ process.env.OPENPOLICY_AUTH_MODE = 'firebase';
 delete process.env.OPENPOLICY_FIXTURE_AUTHORIZATION_BYPASS;
 
 const { app } = await import('../server');
+const { postgresStore } = await import('../src/server/db/postgresStore');
 const server = app.listen(0, '127.0.0.1');
 await new Promise<void>(resolve => server.once('listening', resolve));
 const address = server.address();
@@ -76,4 +77,5 @@ try {
   console.log(`SECURITY HTTP PROBES PASS (${results.length}/${results.length})`);
 } finally {
   server.close();
+  await postgresStore.close();
 }

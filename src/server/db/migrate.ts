@@ -915,6 +915,38 @@ CREATE TRIGGER trg_guard_rule_insert BEFORE INSERT ON jurisdiction_rules
   FOR EACH ROW EXECUTE FUNCTION op_guard_rule_insert();
 `;
 
+export const SQL_MIGRATION_V9 = `
+-- Open Policy notification recipient ownership Migration 0009
+CREATE TABLE IF NOT EXISTS platform_notifications (
+  id TEXT PRIMARY KEY,
+  type TEXT NOT NULL,
+  title TEXT NOT NULL,
+  message TEXT NOT NULL,
+  timestamp TEXT NOT NULL,
+  is_read BOOLEAN NOT NULL DEFAULT FALSE,
+  read_at TEXT,
+  recipient_type TEXT NOT NULL CHECK (recipient_type IN ('CONSUMER', 'PROVIDER_USER', 'PROVIDER_ORGANIZATION', 'PLATFORM_OPERATOR')),
+  recipient_consumer_id TEXT,
+  recipient_provider_user_id TEXT,
+  recipient_provider_organization_id TEXT,
+  recipient_operator_id TEXT,
+  created_from_event TEXT NOT NULL,
+  action_target TEXT,
+  CONSTRAINT platform_notifications_exactly_one_recipient CHECK (
+    ((recipient_consumer_id IS NOT NULL)::int +
+     (recipient_provider_user_id IS NOT NULL)::int +
+     (recipient_provider_organization_id IS NOT NULL)::int +
+     (recipient_operator_id IS NOT NULL)::int) = 1
+  ),
+  CONSTRAINT platform_notifications_recipient_type_matches CHECK (
+    (recipient_type = 'CONSUMER' AND recipient_consumer_id IS NOT NULL) OR
+    (recipient_type = 'PROVIDER_USER' AND recipient_provider_user_id IS NOT NULL) OR
+    (recipient_type = 'PROVIDER_ORGANIZATION' AND recipient_provider_organization_id IS NOT NULL) OR
+    (recipient_type = 'PLATFORM_OPERATOR' AND recipient_operator_id IS NOT NULL)
+  )
+);
+`;
+
 export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR || './data/openpolicy_pg') {
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
@@ -955,7 +987,11 @@ export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR ||
     await pglite.query(
       `INSERT INTO _migrations (name) VALUES ('0008_jurisdiction_framework') ON CONFLICT (name) DO NOTHING;`
     );
-    console.log(`[Open Policy DB] Migrations 0001 through 0008 applied successfully.`);
+    await pglite.exec(SQL_MIGRATION_V9);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0009_notification_recipient_ownership') ON CONFLICT (name) DO NOTHING;`
+    );
+    console.log(`[Open Policy DB] Migrations 0001 through 0009 applied successfully.`);
     return pglite;
   } catch (error) {
     console.error(`[Open Policy DB] Migration error:`, error);
