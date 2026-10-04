@@ -144,13 +144,13 @@ Required consolidated input: Firebase/GCP project; securely supplied Admin crede
 
 ### GitHub Milestone 3 — blocked by configuration
 
-The GitHub harness is in the sibling `Custody-Core` repository on `milestone-3-code-home`, not in Open Policy. The checkout is clean and its local branch reports two commits ahead of the locally known remote (`1c7bcdc`, `7791b2a`). Each required command was invoked:
+The GitHub harness is in the sibling `Custody-Core` repository on `milestone-3-code-home`, not in Open Policy. The checkout is clean. Two existing local recovery commits (`1c7bcdc`, `7791b2a`) were pushed to `origin/milestone-3-code-home`; local and remote now resolve to `7791b2a`. Each required command was invoked:
 
 - `npm run github-e2e`
 - `npm run github-e2e -- --connect`
 - `npm run github-e2e -- --cleanup`
 
-All stopped before external mutation because `GITHUB_APP_ID` is not a numeric configured App ID. Therefore no GitHub organization/repository was created or changed, and installation, lockdown, upload, token revocation, webhook/replay, recovery, rename, uninstall, and dashboard read-back remain unverified. Required input: the dedicated GitHub test organization/App and valid GitHub App credentials/configuration. Remote equality also remains unverified because GitHub credentials were unavailable to fetch/push.
+All stopped before external mutation because `GITHUB_APP_ID` is not a numeric configured App ID. Therefore no GitHub organization/repository was created or changed, and installation, lockdown, upload, token revocation, webhook/replay, recovery, rename, uninstall, and dashboard read-back remain unverified. Required input: the dedicated GitHub test organization/App and valid GitHub App credentials/configuration.
 
 ## Secret and bundle scan
 
