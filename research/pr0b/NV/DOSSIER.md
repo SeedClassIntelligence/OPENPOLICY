@@ -1,12 +1,14 @@
 # Nevada Personal Auto Regulatory Dossier (PR-0B Wave 0: methodology calibration)
 
-**Status: BLOCKED. Research not started.** The research environment's network policy denies the Nevada primary-source hosts (see "Access required"). No Nevada proposition in this file has been researched. Nothing here is drawn from model memory or secondary sources.
+**Status: RESEARCH INPUT AVAILABLE; CANONICAL CAPTURE AND EXTRACTION PENDING.** A later deep-research reconciliation identified Nevada primary-authority surfaces and established the regional programme, but its findings have not yet been converted into repository-held verbatim captures, atomic candidate rules, or independently verified propositions. Nothing in this dossier is `VERIFIED`, `PUBLISHED`, or active.
 
 Format: `docs/pr0b/DOSSIER-FORMAT.md` · Baseline: `main` @ `7d5133a` · Author: Claude Code · Verifier: none assigned.
 
-## Access required
+Research schedule: `docs/pr0b/REGIONAL-RESEARCH-MANIFEST.md`. Nevada is the Wave 0 calibration gate; California belongs to the later West Coast cohort and Ohio belongs to the North cohort.
 
-Denied by the egress proxy on 2026-10-03 (CONNECT 403):
+## Source capture still required
+
+The original Claude Code environment recorded CONNECT 403 responses on 2026-10-03. Later research could inspect relevant public sources, but the repository still requires canonical, content-addressed captures before candidate propositions advance.
 
 | Host | Needed for | Tier |
 |---|---|---|

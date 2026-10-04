@@ -10,7 +10,7 @@ import {
   GoogleAuthProvider
 } from 'firebase/auth';
 import { auth } from '../firebase/config';
-import { syncUserProfile, FirestoreUserProfile } from '../services/userService';
+import { createUserProfile, loadUserProfile, FirestoreUserProfile } from '../services/userService';
 
 export type UserRole = 'CONSUMER' | 'PROVIDER' | 'ADMIN';
 
@@ -26,10 +26,10 @@ export interface AuthContextType {
   authModalInitialMode: 'SIGN_IN' | 'SIGN_UP' | 'DEMO';
   openAuthModal: (options?: { initialRole?: 'CONSUMER' | 'PROVIDER'; initialMode?: 'SIGN_IN' | 'SIGN_UP' | 'DEMO' } | any) => void;
   closeAuthModal: () => void;
-  signUpWithEmail: (email: string, pass: string, name: string) => Promise<void>;
-  signUpAsConsumer: (name: string, email: string, pass: string, state?: string, currentCarrier?: string) => Promise<void>;
-  signUpAsProvider: (name: string, agencyName: string, license: string, state: string, email: string, pass: string) => Promise<void>;
-  signInWithEmail: (email: string, pass: string) => Promise<void>;
+  signUpWithEmail: (email: string, pass: string, name: string) => Promise<UserRole>;
+  signUpAsConsumer: (name: string, email: string, pass: string, state?: string, currentCarrier?: string) => Promise<UserRole>;
+  signUpAsProvider: (name: string, agencyName: string, license: string, state: string, email: string, pass: string) => Promise<UserRole>;
+  signInWithEmail: (email: string, pass: string) => Promise<UserRole>;
   signInWithGoogle: () => Promise<void>;
   signOutUser: () => Promise<void>;
   useDemoAccount: (role?: 'CONSUMER' | 'PROVIDER', alias?: string) => void;
@@ -74,24 +74,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setCurrentUser(user);
         setIsDemoUser(false);
         try {
-          const profile = await syncUserProfile({
-            uid: user.uid,
-            email: user.email,
-            displayName: user.displayName
-          });
-          setUserProfile({
-            ...profile,
-            role: profile.role || 'CONSUMER'
-          });
+          const profile = await loadUserProfile(user.uid);
+          if (!profile?.role) throw new Error('This account has no Open Policy role profile.');
+          setUserProfile(profile);
         } catch (e) {
           console.warn('[Open Policy] Failed to sync user profile:', e);
-          setUserProfile({
-            id: user.uid,
-            email: user.email || 'user@example.com',
-            displayName: user.displayName || 'Policyholder',
-            role: 'CONSUMER',
-            createdAt: new Date().toISOString()
-          });
+          setUserProfile(null);
         }
       } else {
         // Initial guest/visitor state: Not authenticated
@@ -127,18 +115,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     pass: string, 
     state?: string, 
     currentCarrier?: string
-  ) => {
+  ): Promise<UserRole> => {
     setLoading(true);
     try {
-      let uid = `user_${Date.now()}`;
-      try {
-        const res = await createUserWithEmailAndPassword(auth, email, pass);
-        await updateProfile(res.user, { displayName: name });
-        uid = res.user.uid;
-      } catch (authErr: any) {
-        // Fallback for local development or if offline
-        console.warn('[Open Policy Auth] Firebase auth fallback to local session:', authErr?.message);
-      }
+      const res = await createUserWithEmailAndPassword(auth, email, pass);
+      await updateProfile(res.user, { displayName: name });
+      const uid = res.user.uid;
 
       const profile: FirestoreUserProfile = {
         id: uid,
@@ -146,18 +128,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         displayName: name,
         role: 'CONSUMER',
         state: state || 'NV',
+        currentCarrier: currentCarrier?.trim() || undefined,
         createdAt: new Date().toISOString()
       };
 
-      try {
-        await syncUserProfile({ uid, email, displayName: name });
-      } catch (e) {
-        console.warn('[Open Policy] Firestore profile sync fallback:', e);
-      }
+      await createUserProfile(profile);
 
       setUserProfile(profile);
       setIsDemoUser(false);
       setAuthModalOpen(false);
+      return 'CONSUMER';
     } finally {
       setLoading(false);
     }
@@ -170,17 +150,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     state: string,
     email: string,
     pass: string
-  ) => {
+  ): Promise<UserRole> => {
     setLoading(true);
     try {
-      let uid = `provider_${Date.now()}`;
-      try {
-        const res = await createUserWithEmailAndPassword(auth, email, pass);
-        await updateProfile(res.user, { displayName: name });
-        uid = res.user.uid;
-      } catch (authErr: any) {
-        console.warn('[Open Policy Auth] Provider auth fallback to local session:', authErr?.message);
-      }
+      const res = await createUserWithEmailAndPassword(auth, email, pass);
+      await updateProfile(res.user, { displayName: name });
+      const uid = res.user.uid;
 
       const profile: FirestoreUserProfile = {
         id: uid,
@@ -190,41 +165,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         agencyName,
         licenseNumber: license,
         state,
+        providerStatus: 'PENDING_VERIFICATION',
         createdAt: new Date().toISOString()
       };
 
+      await createUserProfile(profile);
       setUserProfile(profile);
       setIsDemoUser(false);
       setAuthModalOpen(false);
+      return 'PROVIDER';
     } finally {
       setLoading(false);
     }
   };
 
-  const signInWithEmail = async (email: string, pass: string) => {
+  const signInWithEmail = async (email: string, pass: string): Promise<UserRole> => {
     setLoading(true);
     try {
-      let uid = `user_${Date.now()}`;
-      let name = email.split('@')[0];
-      try {
-        const res = await signInWithEmailAndPassword(auth, email, pass);
-        uid = res.user.uid;
-        name = res.user.displayName || name;
-      } catch (authErr: any) {
-        console.warn('[Open Policy Auth] Firebase signIn fallback to local session:', authErr?.message);
+      const res = await signInWithEmailAndPassword(auth, email, pass);
+      const profile = await loadUserProfile(res.user.uid);
+      if (!profile?.role) {
+        await signOut(auth);
+        throw new Error('This account has no Open Policy role profile. Complete onboarding or contact support.');
       }
-
-      const profile: FirestoreUserProfile = {
-        id: uid,
-        email,
-        displayName: name,
-        role: email.includes('broker') || email.includes('agency') || email.includes('provider') ? 'PROVIDER' : 'CONSUMER',
-        createdAt: new Date().toISOString()
-      };
 
       setUserProfile(profile);
       setIsDemoUser(false);
       setAuthModalOpen(false);
+      return profile.role;
     } finally {
       setLoading(false);
     }
@@ -235,15 +203,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const provider = new GoogleAuthProvider();
       const res = await signInWithPopup(auth, provider);
-      const profile = await syncUserProfile({
-        uid: res.user.uid,
-        email: res.user.email,
-        displayName: res.user.displayName
-      });
-      setUserProfile({
-        ...profile,
-        role: profile.role || 'CONSUMER'
-      });
+      const profile = await loadUserProfile(res.user.uid);
+      if (!profile?.role) {
+        await signOut(auth);
+        throw new Error('Choose Consumer or Provider onboarding before using Google sign-in.');
+      }
+      setUserProfile(profile);
       setIsDemoUser(false);
       setAuthModalOpen(false);
     } catch (e: any) {

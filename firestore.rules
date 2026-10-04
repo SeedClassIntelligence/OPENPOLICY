@@ -35,9 +35,13 @@ service cloud.firestore {
       allow create: if isOwner(userId) 
         && incoming().id == userId
         && incoming().email is string
-        && incoming().email.size() <= 254;
+        && incoming().email.size() <= 254
+        && incoming().role in ['CONSUMER', 'PROVIDER']
+        && (incoming().role != 'PROVIDER' || incoming().providerStatus == 'PENDING_VERIFICATION');
       allow update: if isOwner(userId) 
-        && incoming().id == existing().id;
+        && incoming().id == existing().id
+        && incoming().role == existing().role
+        && incoming().get('providerStatus', null) == existing().get('providerStatus', null);
       allow delete: if false;
     }
 

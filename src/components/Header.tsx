@@ -111,7 +111,7 @@ export const Header: React.FC<HeaderProps> = ({
   onReset,
   activeChallengeRef = '#NV-49281'
 }) => {
-  const { userProfile, isAuthenticated, isDemoUser, openAuthModal } = useAuth();
+  const { userProfile, userRole, isAuthenticated, isDemoUser, openAuthModal } = useAuth();
   const [notifications, setNotifications] = useState<PlatformNotification[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showDoctrineModal, setShowDoctrineModal] = useState(false);
@@ -214,6 +214,9 @@ export const Header: React.FC<HeaderProps> = ({
                     ? 'nav-arch-btn' 
                     : `nav-${p.label.toLowerCase()}-btn`;
 
+                  if (isAuthenticated && p.id === 'CONSUMER' && userRole !== 'CONSUMER') return null;
+                  if (isAuthenticated && p.id === 'PROVIDER' && userRole !== 'PROVIDER') return null;
+
                   // Primary perspectives always visible; secondary hidden below xl unless active
                   const isPrimary = p.id === 'LANDING' || p.id === 'CONSUMER' || p.id === 'PROVIDER';
                   const visibilityClass = isPrimary ? 'flex' : (isActive ? 'flex' : 'hidden xl:flex');
@@ -270,6 +273,8 @@ export const Header: React.FC<HeaderProps> = ({
                   {PERSPECTIVES.map((p) => {
                     const isActive = activePerspective === p.id;
                     const Icon = p.icon;
+                    if (isAuthenticated && p.id === 'CONSUMER' && userRole !== 'CONSUMER') return null;
+                    if (isAuthenticated && p.id === 'PROVIDER' && userRole !== 'PROVIDER') return null;
                     return (
                       <button
                         key={p.id}

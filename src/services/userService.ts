@@ -67,6 +67,8 @@ export interface FirestoreUserProfile {
   agencyName?: string;
   licenseNumber?: string;
   state?: string;
+  currentCarrier?: string;
+  providerStatus?: 'PENDING_VERIFICATION' | 'ACTIVE' | 'REJECTED';
 }
 
 export interface UserChallengeRecord {
@@ -111,9 +113,19 @@ export interface UserVaultRecord {
   notes?: string;
 }
 
-/**
- * Creates or retrieves a user profile in Firestore
- */
+export async function loadUserProfile(userId: string): Promise<FirestoreUserProfile | null> {
+  const snap = await getDoc(doc(firestore, 'users', userId));
+  return snap.exists() ? (snap.data() as FirestoreUserProfile) : null;
+}
+
+export async function createUserProfile(profile: FirestoreUserProfile): Promise<FirestoreUserProfile> {
+  const userRef = doc(firestore, 'users', profile.id);
+  const existing = await getDoc(userRef);
+  if (existing.exists()) return existing.data() as FirestoreUserProfile;
+  await setDoc(userRef, profile);
+  return profile;
+}
+
 export async function syncUserProfile(user: { uid: string; email: string | null; displayName: string | null }): Promise<FirestoreUserProfile> {
   const userRef = doc(firestore, 'users', user.uid);
   const snap = await getDoc(userRef);
@@ -122,19 +134,7 @@ export async function syncUserProfile(user: { uid: string; email: string | null;
     return snap.data() as FirestoreUserProfile;
   }
 
-  const newProfile: FirestoreUserProfile = {
-    id: user.uid,
-    email: user.email || 'consumer@example.com',
-    displayName: user.displayName || user.email?.split('@')[0] || 'Policyholder',
-    createdAt: new Date().toISOString()
-  };
-
-  await setDoc(userRef, newProfile);
-
-  // Auto-seed initial canonical challenge for this user's personal account
-  await seedInitialUserChallenge(user.uid, newProfile.displayName);
-
-  return newProfile;
+  throw new Error('This account has no Open Policy role profile. Complete the correct consumer or provider onboarding process.');
 }
 
 /**

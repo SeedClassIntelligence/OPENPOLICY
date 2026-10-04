@@ -11,7 +11,8 @@
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "validate": "tsx scripts/run-validators.ts",
-    "pr0b:capture": "NODE_USE_ENV_PROXY=1 tsx scripts/pr0b/capture-source.ts"
+    "pr0b:capture": "NODE_USE_ENV_PROXY=1 tsx scripts/pr0b/capture-source.ts",
+    "test:onboarding": "node --import tsx --test src/auth/roleAccess.test.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.8",

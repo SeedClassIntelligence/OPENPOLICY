@@ -76,22 +76,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
 
     try {
       if (mode === 'SIGN_IN') {
-        await signInWithEmail(signInEmail, signInPassword);
-        const resolvedRole: UserRole = signInEmail.includes('broker') || signInEmail.includes('agency') || signInEmail.includes('provider') ? 'PROVIDER' : 'CONSUMER';
+        const resolvedRole = await signInWithEmail(signInEmail, signInPassword);
         if (onSuccess) onSuccess(resolvedRole);
       } else if (mode === 'SIGN_UP') {
         if (role === 'CONSUMER') {
           if (!consumerName.trim()) {
             throw new Error('Please enter your full name or preferred alias.');
           }
-          await signUpAsConsumer(consumerName, consumerEmail, consumerPassword, consumerState, currentCarrier);
-          if (onSuccess) onSuccess('CONSUMER');
+          const createdRole = await signUpAsConsumer(consumerName, consumerEmail, consumerPassword, consumerState, currentCarrier);
+          if (onSuccess) onSuccess(createdRole);
         } else {
           if (!agentName.trim() || !agencyName.trim() || !licenseNumber.trim()) {
             throw new Error('Please complete all agency registration fields.');
           }
-          await signUpAsProvider(agentName, agencyName, licenseNumber, providerState, providerEmail, providerPassword);
-          if (onSuccess) onSuccess('PROVIDER');
+          const createdRole = await signUpAsProvider(agentName, agencyName, licenseNumber, providerState, providerEmail, providerPassword);
+          if (onSuccess) onSuccess(createdRole);
         }
       }
     } catch (err: any) {

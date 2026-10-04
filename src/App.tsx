@@ -15,9 +15,10 @@ import { AuthProvider, useAuth, UserRole } from './context/AuthContext';
 import { AuthModal } from './components/AuthModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Challenge, Offer } from './types/insurance';
+import { canEnterMarketplaceDestination, destinationForRole } from './auth/roleAccess';
 
 function MainApp() {
-  const { isAuthenticated, userRole, openAuthModal } = useAuth();
+  const { isAuthenticated, userRole, userProfile, isDemoUser, openAuthModal } = useAuth();
   const [activePerspective, setActivePerspective] = useState<ActivePerspective>('LANDING');
   const [consumerInitialStep, setConsumerInitialStep] = useState<'UPLOAD_EXTRACT' | 'ACCOUNT_DASHBOARD'>('UPLOAD_EXTRACT');
   const [challenge, setChallenge] = useState<Challenge | null>(null);
@@ -70,6 +71,15 @@ function MainApp() {
       return;
     }
 
+    if (
+      (perspective === 'CONSUMER' || perspective === 'PROVIDER') &&
+      !canEnterMarketplaceDestination(userRole, perspective)
+    ) {
+      showToast(`This account belongs to the ${userRole === 'PROVIDER' ? 'Provider' : 'Consumer'} pipeline.`);
+      setActivePerspective(userRole ? destinationForRole(userRole) : 'LANDING');
+      return;
+    }
+
     if (step) {
       setConsumerInitialStep(step);
     }
@@ -90,7 +100,7 @@ function MainApp() {
   const handleAuthSuccess = (role: UserRole) => {
     if (role === 'PROVIDER') {
       setActivePerspective('PROVIDER');
-      showToast('Authenticated as Licensed Provider. Provider Quoting Desk active.');
+      showToast('Provider identity loaded. License verification determines desk access.');
     } else {
       setConsumerInitialStep('UPLOAD_EXTRACT');
       setActivePerspective('CONSUMER');
@@ -157,7 +167,17 @@ function MainApp() {
               </ErrorBoundary>
             )}
 
-            {activePerspective === 'PROVIDER' && (
+            {activePerspective === 'PROVIDER' && userRole === 'PROVIDER' && !isDemoUser && userProfile?.providerStatus !== 'ACTIVE' && (
+              <div className="max-w-2xl mx-auto bg-white border border-amber-200 rounded-3xl p-8 shadow-sm">
+                <p className="text-xs font-mono uppercase tracking-wider text-amber-700">Provider onboarding</p>
+                <h2 className="text-xl font-bold text-slate-900 mt-2">License verification pending</h2>
+                <p className="text-sm text-slate-600 mt-3 leading-relaxed">
+                  Your agency account exists, but the Provider Quoting Desk remains closed until Open Policy verifies the submitted license and activates the provider profile.
+                </p>
+              </div>
+            )}
+
+            {activePerspective === 'PROVIDER' && (isDemoUser || userProfile?.providerStatus === 'ACTIVE') && (
               <ErrorBoundary 
                 fallbackTitle="Unable to Display Provider Quoting Desk" 
                 onReset={loadData}
