@@ -11,6 +11,7 @@ import {
 } from 'firebase/auth';
 import { auth } from '../firebase/config';
 import { createUserProfile, loadUserProfile, FirestoreUserProfile } from '../services/userService';
+import { REAUTH_REQUIRED_EVENT } from '../services/apiClient';
 
 export type UserRole = 'CONSUMER' | 'PROVIDER' | 'ADMIN';
 
@@ -91,6 +92,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const requireReauthentication = () => {
+      setCurrentUser(null);
+      setUserProfile(null);
+      setIsDemoUser(false);
+      setAuthModalInitialMode('SIGN_IN');
+      setAuthModalOpen(true);
+    };
+    window.addEventListener(REAUTH_REQUIRED_EVENT, requireReauthentication);
+    return () => window.removeEventListener(REAUTH_REQUIRED_EVENT, requireReauthentication);
   }, []);
 
   const openAuthModal = (options?: { initialRole?: 'CONSUMER' | 'PROVIDER'; initialMode?: 'SIGN_IN' | 'SIGN_UP' | 'DEMO' } | any) => {

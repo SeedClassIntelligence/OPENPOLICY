@@ -62,7 +62,7 @@ function firebaseAdminApp() {
   });
 }
 
-async function resolveFirebaseIdentity(token: string): Promise<RequestIdentity> {
+export async function resolveFirebaseIdentity(token: string): Promise<RequestIdentity> {
   const adminApp = firebaseAdminApp();
   const decoded = await getAuth(adminApp).verifyIdToken(token, true);
   const profileSnapshot = await getFirestore(adminApp).collection('users').doc(decoded.uid).get();
@@ -99,9 +99,16 @@ function resolveFixtureIdentity(req: Request): RequestIdentity {
   return { uid: consumerId, role: 'CONSUMER', source: 'FIXTURE' };
 }
 
-export async function attachRequestIdentity(req: Request, res: Response, next: NextFunction) {
+export type FirebaseIdentityResolver = (token: string) => Promise<RequestIdentity>;
+
+/** Factory exists so the security boundary can be tested without real credentials. */
+export function createRequestIdentityMiddleware(
+  resolveIdentity: FirebaseIdentityResolver = resolveFirebaseIdentity,
+  env: NodeJS.ProcessEnv = process.env
+) {
+  return async function requestIdentityMiddleware(req: Request, res: Response, next: NextFunction) {
   try {
-    if (configuredAuthMode() === 'fixture') {
+    if (configuredAuthMode(env) === 'fixture') {
       req.openPolicyIdentity = resolveFixtureIdentity(req);
       next();
       return;
@@ -112,13 +119,16 @@ export async function attachRequestIdentity(req: Request, res: Response, next: N
       next();
       return;
     }
-    req.openPolicyIdentity = await resolveFirebaseIdentity(token);
+    req.openPolicyIdentity = await resolveIdentity(token);
     next();
   } catch (error: any) {
     const status = error?.statusCode || 401;
     res.status(status).json({
       error: status === 401 ? 'Unauthorized' : 'Forbidden',
-      message: error?.message || 'Identity verification failed'
+      message: status === 401 ? 'Identity verification failed' : (error?.message || 'Identity is not authorized')
     });
   }
+  };
 }
+
+export const attachRequestIdentity = createRequestIdentityMiddleware();
