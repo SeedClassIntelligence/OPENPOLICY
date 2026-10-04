@@ -35,6 +35,34 @@ export function configuredAuthMode(env: NodeJS.ProcessEnv = process.env): AuthMo
   return configured;
 }
 
+export function assertProductionAuthConfiguration(env: NodeJS.ProcessEnv = process.env): void {
+  if (env.NODE_ENV !== 'production') return;
+  if (configuredAuthMode(env) !== 'firebase') {
+    throw new Error('Production authentication must use OPENPOLICY_AUTH_MODE=firebase.');
+  }
+  if (!env.FIREBASE_PROJECT_ID?.trim()) {
+    throw new Error('FIREBASE_PROJECT_ID is required in production.');
+  }
+
+  const hasServiceAccount = Boolean(env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim());
+  const hasCredentialFile = Boolean(env.GOOGLE_APPLICATION_CREDENTIALS?.trim());
+  const hasDeclaredAdc = env.OPENPOLICY_USE_APPLICATION_DEFAULT_CREDENTIALS === 'true';
+  if (!hasServiceAccount && !hasCredentialFile && !hasDeclaredAdc) {
+    throw new Error(
+      'Firebase Admin credentials are required in production via FIREBASE_SERVICE_ACCOUNT_JSON, ' +
+      'GOOGLE_APPLICATION_CREDENTIALS, or explicit OPENPOLICY_USE_APPLICATION_DEFAULT_CREDENTIALS=true.'
+    );
+  }
+
+  if (hasServiceAccount) {
+    try {
+      JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_JSON!);
+    } catch {
+      throw new Error('FIREBASE_SERVICE_ACCOUNT_JSON is not valid JSON.');
+    }
+  }
+}
+
 export function parseBearerToken(header: string | undefined): string | null {
   if (!header) return null;
   const match = /^Bearer\s+(.+)$/i.exec(header.trim());

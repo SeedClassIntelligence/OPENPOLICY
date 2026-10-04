@@ -807,6 +807,10 @@ export class PostgresStore {
 
   public async saveChallenge(chal: Challenge) {
     await this.ensureReady();
+    const consumerId = chal.consumerId || (chal as any).userId;
+    if (!consumerId) {
+      throw new Error(`Challenge '${chal.id}' has no authoritative consumer owner.`);
+    }
     await this.pglite!.query(
       `INSERT INTO challenges (id, user_id, reference_number, jurisdiction, status, created_at, baseline_data, requirements_data,
          jurisdiction_determination_id, rule_set_id, rule_set_content_sha256, regulatory_evaluation_date)
@@ -814,7 +818,7 @@ export class PostgresStore {
        ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status;`,
       [
         chal.id,
-        chal.consumerId || (chal as any).userId || 'usr_consumer_default',
+        consumerId,
         chal.referenceNumber,
         chal.jurisdiction,
         chal.status,

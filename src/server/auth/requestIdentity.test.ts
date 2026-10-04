@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { Request, Response } from 'express';
-import { configuredAuthMode, createRequestIdentityMiddleware, parseBearerToken } from './requestIdentity';
+import { assertProductionAuthConfiguration, configuredAuthMode, createRequestIdentityMiddleware, parseBearerToken } from './requestIdentity';
 
 test('Firebase verification is the default authentication mode', () => {
   assert.equal(configuredAuthMode({} as NodeJS.ProcessEnv), 'firebase');
@@ -13,6 +13,21 @@ test('fixture identity is explicitly selected and forbidden in production', () =
     () => configuredAuthMode({ OPENPOLICY_AUTH_MODE: 'fixture', NODE_ENV: 'production' } as NodeJS.ProcessEnv),
     /forbidden/
   );
+});
+
+test('production Firebase configuration fails closed without project and credential configuration', () => {
+  assert.throws(() => assertProductionAuthConfiguration({ NODE_ENV: 'production' } as NodeJS.ProcessEnv), /FIREBASE_PROJECT_ID/);
+  assert.throws(() => assertProductionAuthConfiguration({
+    NODE_ENV: 'production', OPENPOLICY_AUTH_MODE: 'firebase', FIREBASE_PROJECT_ID: 'open-policy'
+  } as NodeJS.ProcessEnv), /credentials are required/);
+  assert.doesNotThrow(() => assertProductionAuthConfiguration({
+    NODE_ENV: 'production', OPENPOLICY_AUTH_MODE: 'firebase', FIREBASE_PROJECT_ID: 'open-policy',
+    OPENPOLICY_USE_APPLICATION_DEFAULT_CREDENTIALS: 'true'
+  } as NodeJS.ProcessEnv));
+  assert.throws(() => assertProductionAuthConfiguration({
+    NODE_ENV: 'production', OPENPOLICY_AUTH_MODE: 'firebase', FIREBASE_PROJECT_ID: 'open-policy',
+    FIREBASE_SERVICE_ACCOUNT_JSON: '{not-json}'
+  } as NodeJS.ProcessEnv), /not valid JSON/);
 });
 
 test('bearer tokens must use the Authorization Bearer scheme', () => {

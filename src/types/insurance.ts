@@ -618,6 +618,13 @@ export interface PlatformNotification {
   message: string;
   timestamp: string;
   read: boolean;
+  readAt?: string;
+  recipientType: 'CONSUMER' | 'PROVIDER_USER' | 'PROVIDER_ORGANIZATION' | 'PLATFORM_OPERATOR';
+  recipientConsumerId?: string;
+  recipientProviderUserId?: string;
+  recipientProviderOrganizationId?: string;
+  recipientOperatorId?: string;
+  createdFromEvent: string;
   actionTarget?: string;
 }
 

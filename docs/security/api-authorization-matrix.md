@@ -1,6 +1,6 @@
 # API authorization matrix — Phase 2
 
-Baseline: `70b7868`. Generated from every `/api/*` Express registration in `server.ts` before route mutation. `ARCHITECTURE_DECISION_REQUIRED` means deny until founder-approved semantics exist.
+Baseline: `70b7868`; closure implementation continues through the final candidate. Generated from every `/api/*` Express registration in `server.ts`. All founder decisions are resolved: **zero routes remain unresolved**.
 
 | # | Method | Path | Context | Operation | Actor | Required relationship | Org boundary | Identity source | Anonymous | Wrong authority | Fixture behavior | Existing enforcement / test |
 |---:|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -32,8 +32,8 @@ Baseline: `70b7868`. Generated from every `/api/*` Express registration in `serv
 | 26 | POST | `/api/vault/upload` | vault | write | CONSUMER | owns target resource | consumer | verified UID | 401 | 403/404 | canonical fixture consumer | consumer helper/domain ownership required |
 | 27 | POST | `/api/challenges/:id/final-round` | challenges | write | AUTHENTICATED_RESOURCE_PARTICIPANT | consumer owner or participating provider | resource-scoped | verified canonical actor | 401 | 403/404 | canonical fixture actor | resource participant helper required |
 | 28 | POST | `/api/challenges/:id/incumbent-defense` | challenges | write | AUTHENTICATED_RESOURCE_PARTICIPANT | consumer owner or participating provider | resource-scoped | verified canonical actor | 401 | 403/404 | canonical fixture actor | resource participant helper required |
-| 29 | GET | `/api/marketplace/users` | marketplace | read | ARCHITECTURE_DECISION_REQUIRED | directory visibility not established | potential cross-org | none yet | 401 | 403 | deny | none; deny gate required |
-| 30 | GET | `/api/marketplace/providers` | marketplace | read | ARCHITECTURE_DECISION_REQUIRED | directory visibility not established | potential cross-org | none yet | 401 | 403 | deny | none; deny gate required |
+| 29 | GET | `/api/marketplace/users` | marketplace | read | PLATFORM_OPERATOR/ADMIN | operator inspection only; never provider user browsing | platform | verified Firebase ADMIN | 401 | 403 | explicit operator fixture only | centralized admin gate |
+| 30 | GET | `/api/marketplace/providers` | marketplace | read | AUTHENTICATED_RESOURCE_PARTICIPANT | authenticated provider discovery; public profile projection only | no private organization data | verified canonical actor | 401 | 403 | canonical fixture actor | authenticated gate + response projection |
 | 31 | GET | `/api/marketplace/my-provider` | marketplace | read | PROVIDER_ORG_MEMBER | target belongs to canonical org | provider organization | verified UID -> ProviderUser -> org | 401 | 403/404 | canonical fixture provider | provider helper/domain org ownership required |
 | 32 | GET | `/api/marketplace/active-provider` | marketplace | read | PROVIDER_ORG_MEMBER | target belongs to canonical org | provider organization | verified UID -> ProviderUser -> org | 401 | 403/404 | canonical fixture provider | provider helper/domain org ownership required |
 | 33 | GET | `/api/marketplace/opportunities` | marketplace | read | PROVIDER_ORG_MEMBER | target belongs to canonical org | provider organization | verified UID -> ProviderUser -> org | 401 | 403/404 | canonical fixture provider | provider helper/domain org ownership required |
@@ -52,7 +52,7 @@ Baseline: `70b7868`. Generated from every `/api/*` Express registration in `serv
 | 46 | GET | `/api/marketplace/competition/:challengeId/activity-feed` | marketplace | read | AUTHENTICATED_RESOURCE_PARTICIPANT | consumer owner or participating provider | resource-scoped | verified canonical actor | 401 | 403/404 | canonical fixture actor | resource participant helper required |
 | 47 | GET | `/api/marketplace/competition/:challengeId/deadline-status` | marketplace | read | AUTHENTICATED_RESOURCE_PARTICIPANT | consumer owner or participating provider | resource-scoped | verified canonical actor | 401 | 403/404 | canonical fixture actor | resource participant helper required |
 | 48 | POST | `/api/marketplace/competition/:challengeId/revise-offer/:offerId` | marketplace | write | PROVIDER_ORG_MEMBER | target belongs to canonical org | provider organization | verified UID -> ProviderUser -> org | 401 | 403/404 | canonical fixture provider | provider helper/domain org ownership required |
-| 49 | POST | `/api/marketplace/competition/:challengeId/seed-competitors` | marketplace | write | ARCHITECTURE_DECISION_REQUIRED | production fixture seeding has no authorized actor | n/a | none yet | 401 | 403 | explicit fixture bypass only | deny gate required |
+| 49 | POST | `/api/marketplace/competition/:challengeId/seed-competitors` | marketplace | write | FIXTURE_ONLY | synthetic competition data is prohibited in production | n/a | process fixture mode only | 404 | 404 | explicit validator bypass only | centralized fixture-only 404 gate |
 | 50 | GET | `/api/marketplace/challenges/:id/information-requests` | marketplace | read | AUTHENTICATED_RESOURCE_PARTICIPANT | consumer owner or participating provider | resource-scoped | verified canonical actor | 401 | 403/404 | canonical fixture actor | resource participant helper required |
 | 51 | POST | `/api/marketplace/challenges/:id/information-requests` | marketplace | write | PROVIDER_ORG_MEMBER | target belongs to canonical org | provider organization | verified UID -> ProviderUser -> org | 401 | 403/404 | canonical fixture provider | provider helper/domain org ownership required |
 | 52 | POST | `/api/marketplace/information-requests/:id/answer` | marketplace | write | PROVIDER_ORG_MEMBER | target belongs to canonical org | provider organization | verified UID -> ProviderUser -> org | 401 | 403/404 | canonical fixture provider | provider helper/domain org ownership required |
@@ -111,8 +111,8 @@ Baseline: `70b7868`. Generated from every `/api/*` Express registration in `serv
 | 105 | GET | `/api/commercial/statements/balance` | commercial | read | PROVIDER_ORG_MEMBER | target belongs to canonical org | provider organization | verified UID -> ProviderUser -> org | 401 | 403/404 | canonical fixture provider | provider helper/domain org ownership required |
 | 106 | GET | `/api/commercial/account-balance` | commercial | read | PROVIDER_ORG_MEMBER | target belongs to canonical org | provider organization | verified UID -> ProviderUser -> org | 401 | 403/404 | canonical fixture provider | provider helper/domain org ownership required |
 | 107 | GET | `/api/commercial/statements/current` | commercial | read | PROVIDER_ORG_MEMBER | target belongs to canonical org | provider organization | verified UID -> ProviderUser -> org | 401 | 403/404 | canonical fixture provider | provider helper/domain org ownership required |
-| 108 | GET | `/api/notifications` | notifications | read | ARCHITECTURE_DECISION_REQUIRED | notification records have no recipient owner | unresolved | none yet | 401 | 403 | explicit fixture bypass only | deny gate required |
-| 109 | POST | `/api/notifications/:id/read` | notifications | write | ARCHITECTURE_DECISION_REQUIRED | notification records have no recipient owner | unresolved | none yet | 401 | 403 | explicit fixture bypass only | deny gate required |
+| 108 | GET | `/api/notifications` | notifications | read | AUTHENTICATED_RESOURCE_PARTICIPANT | exact consumer, provider user, provider organization, or operator recipient | recipient scoped | verified canonical actor | 401 | 403 | canonical fixture actor | exclusive recipient invariant + stored-recipient filter |
+| 109 | POST | `/api/notifications/:id/read` | notifications | write | AUTHENTICATED_RESOURCE_PARTICIPANT | same exact authorized recipient as listing | recipient scoped | verified canonical actor | 401 | 403/404 | canonical fixture actor | stored-recipient assertion |
 | 110 | GET | `/api/admin/review-queue` | admin | read | PLATFORM_OPERATOR/ADMIN | operator capability | n/a | server Firebase profile role | 401 | 403 | explicit operator fixture only | new operator gate required |
 | 111 | GET | `/api/admin/review-queue/:id` | admin | read | PLATFORM_OPERATOR/ADMIN | operator capability | n/a | server Firebase profile role | 401 | 403 | explicit operator fixture only | new operator gate required |
 | 112 | POST | `/api/admin/review-queue/:id/resolve` | admin | write | PLATFORM_OPERATOR/ADMIN | operator capability | n/a | server Firebase profile role | 401 | 403 | explicit operator fixture only | new operator gate required |
@@ -122,3 +122,13 @@ Baseline: `70b7868`. Generated from every `/api/*` Express registration in `serv
 | 116 | GET | `/api/docs/spec` | docs | read | PUBLIC | none | none | public | 200/n-a | 200/n-a | same | route/public |
 
 Total registrations inventoried: **116**. Array aliases are expanded as separate paths. The SPA catch-all and non-API download routes are outside this matrix.
+
+Final classification totals (each registration counted once):
+
+- PUBLIC: 9
+- CONSUMER: 21
+- PROVIDER_USER / PROVIDER_ORGANIZATION: 47
+- RESOURCE_PARTICIPANT: 14
+- PLATFORM_OPERATOR: 24
+- FIXTURE/DEVELOPMENT_ONLY: 1
+- Unresolved: 0

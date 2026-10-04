@@ -3,30 +3,58 @@ import { auth } from '../firebase/config';
 
 export const REAUTH_REQUIRED_EVENT = 'openpolicy:reauth-required';
 
+export interface AuthenticatedFetchUser {
+  getIdToken(forceRefresh?: boolean): Promise<string>;
+}
+
+export interface AuthenticatedFetchDependencies {
+  user: AuthenticatedFetchUser | null;
+  fetchImpl: typeof fetch;
+  signOutUser: () => Promise<void>;
+  requireReauthentication: () => void;
+}
+
+async function endRejectedSession(dependencies: AuthenticatedFetchDependencies): Promise<void> {
+  try {
+    await dependencies.signOutUser();
+  } finally {
+    dependencies.requireReauthentication();
+  }
+}
+
+/** The injectable session boundary used by apiFetch and its acceptance tests. */
+export async function executeAuthenticatedFetch(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  dependencies: AuthenticatedFetchDependencies
+): Promise<Response> {
+  const headers = new Headers(init.headers);
+  const { user } = dependencies;
+  if (user) headers.set('Authorization', `Bearer ${await user.getIdToken()}`);
+
+  let response = await dependencies.fetchImpl(input, { ...init, headers });
+  if (response.status !== 401 || !user) return response;
+
+  try {
+    headers.set('Authorization', `Bearer ${await user.getIdToken(true)}`);
+    response = await dependencies.fetchImpl(input, { ...init, headers });
+  } catch {
+    await endRejectedSession(dependencies);
+    return response;
+  }
+
+  if (response.status === 401 || response.status === 403) {
+    await endRejectedSession(dependencies);
+  }
+  return response;
+}
+
 /** Attach the current Firebase ID token to Open Policy API requests. */
 export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
-  const headers = new Headers(init.headers);
-  const user = auth.currentUser;
-  if (user) {
-    headers.set('Authorization', `Bearer ${await user.getIdToken()}`);
-  }
-  let response = await fetch(input, { ...init, headers });
-
-  // Firebase refreshes near-expiry tokens automatically. A backend 401 can mean the
-  // cached token expired or was revoked, so force one refresh and retry exactly once.
-  if (response.status === 401 && user) {
-    try {
-      headers.set('Authorization', `Bearer ${await user.getIdToken(true)}`);
-      response = await fetch(input, { ...init, headers });
-    } catch {
-      // The common controlled path below signs out and requests reauthentication.
-    }
-
-    if (response.status === 401) {
-      await signOut(auth);
-      window.dispatchEvent(new CustomEvent(REAUTH_REQUIRED_EVENT));
-    }
-  }
-
-  return response;
+  return executeAuthenticatedFetch(input, init, {
+    user: auth.currentUser,
+    fetchImpl: fetch,
+    signOutUser: () => signOut(auth),
+    requireReauthentication: () => window.dispatchEvent(new CustomEvent(REAUTH_REQUIRED_EVENT))
+  });
 }

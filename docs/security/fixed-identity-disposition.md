@@ -15,5 +15,8 @@ Review scope: runtime TypeScript under `server.ts`, `src/server`, and `src/domai
 | Binding consent `handoff.providerOrganizationId || 'org_apex'` | RUNTIME_AUTHORITY — REMOVED | Missing provider organization now fails closed. |
 | Reconciliation/commercial projection `handoff?.providerOrganizationId || 'org_apex'` | RUNTIME_AUTHORITY — REMOVED | Projection now requires the handoff's authoritative organization and throws when absent. |
 | Commercial backfill `offer?.providerId || 'org_apex'` | RUNTIME_AUTHORITY — REMOVED | Backfill now fails if an offer has no authoritative provider organization. |
+| Browser Firestore demo records on missing/mismatched identity or permission denial | RUNTIME DATA FALLBACK — REMOVED | Direct browser reads now throw on missing identity or Firestore denial; demo consumer data can no longer substitute for another actor's records. |
+| PostgreSQL challenge owner `usr_consumer_default` | RUNTIME AUTHORITY — REMOVED | Durable challenge persistence now rejects a challenge without an authoritative consumer owner. |
+| Consumer request-body fixed/default consumer IDs | REQUEST HINT — REMOVED | The server already derives consumer UID; removing these fields prevents future accidental reuse as ownership evidence. |
 
 No remaining `org_apex` occurrence is permitted to answer “which organization owns this runtime resource?” Seed and fixture occurrences remain because they are legitimate canonical test data.

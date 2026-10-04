@@ -37,11 +37,16 @@ service cloud.firestore {
         && incoming().email is string
         && incoming().email.size() <= 254
         && incoming().role in ['CONSUMER', 'PROVIDER']
+        && incoming().keys().hasOnly([
+          'id', 'email', 'displayName', 'createdAt', 'role', 'state',
+          'currentCarrier', 'agencyName', 'licenseNumber', 'providerStatus'
+        ])
         && (incoming().role != 'PROVIDER' || incoming().providerStatus == 'PENDING_VERIFICATION');
       allow update: if isOwner(userId) 
         && incoming().id == existing().id
         && incoming().role == existing().role
-        && incoming().get('providerStatus', null) == existing().get('providerStatus', null);
+        && incoming().get('providerStatus', null) == existing().get('providerStatus', null)
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'currentCarrier']);
       allow delete: if false;
     }
 
@@ -55,7 +60,8 @@ service cloud.firestore {
         && incoming().status in ['OPEN', 'EVALUATING', 'OFFERS_RECEIVED', 'BOUND', 'ARCHIVED'];
       allow update: if isSignedIn() 
         && existing().userId == request.auth.uid 
-        && incoming().userId == request.auth.uid;
+        && incoming().userId == request.auth.uid
+        && incoming().id == existing().id;
       allow delete: if isSignedIn() && existing().userId == request.auth.uid;
     }
 
@@ -69,7 +75,8 @@ service cloud.firestore {
         && incoming().binderStatus in ['ACTIVE', 'PENDING_CARRIER_ISSUE', 'RENEWAL_WINDOW'];
       allow update: if isSignedIn() 
         && existing().userId == request.auth.uid 
-        && incoming().userId == request.auth.uid;
+        && incoming().userId == request.auth.uid
+        && incoming().id == existing().id;
       allow delete: if false; // Historical insurance binding orders cannot be silently deleted
     }
 
@@ -83,13 +90,12 @@ service cloud.firestore {
         && incoming().name.size() <= 255;
       allow update: if isSignedIn() 
         && existing().userId == request.auth.uid 
-        && incoming().userId == request.auth.uid;
+        && incoming().userId == request.auth.uid
+        && incoming().id == existing().id;
       allow delete: if isSignedIn() && existing().userId == request.auth.uid;
     }
 
-    // Connection test document
-    match /test/{docId} {
-      allow read: if true;
-    }
+    // No public connection-test collection: successful SDK initialization is not
+    // evidence that an unauthenticated browser should be able to read a document.
   }
 }

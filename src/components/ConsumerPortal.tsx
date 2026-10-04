@@ -204,7 +204,6 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          consumerId: userProfile?.id || 'user_consumer_1',
           reason: 'Consumer elected to retain incumbent policy coverage without forced concession.'
         })
       });
@@ -247,7 +246,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
       const res = await apiFetch(`/api/marketplace/information-requests/${requestId}/answer`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ answerValue: val, consumerId: 'user_consumer_1' })
+        body: JSON.stringify({ answerValue: val })
       });
       if (res.ok) {
         setActionToast('Answer attested and shared as a reusable verified fact across all participating brokers.');
@@ -535,8 +534,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           offerId,
-          versionNumber: offer?.version || 1,
-          consumerId: challenge.consumerId || 'user_consumer_1'
+          versionNumber: offer?.version || 1
         })
       });
       const data = await res.json();
@@ -566,7 +564,6 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           challengeId: challenge.id,
-          consumerId: challenge.consumerId || 'user_consumer_1',
           authorizedFieldNames: authorizedFields,
           purpose: 'STAGE_C_BINDING_DISCLOSURE',
           purposeExplanation: 'Authorization to disclose Stage C PII for policy binding handoff'
@@ -601,8 +598,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          consentGrantId: activeConsentGrant.id,
-          consumerId: challenge?.consumerId || 'user_consumer_1'
+          consentGrantId: activeConsentGrant.id
         })
       });
       const data = await res.json();
@@ -623,8 +619,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          modificationId: activeModification.id,
-          consumerId: challenge?.consumerId || 'user_consumer_1'
+          modificationId: activeModification.id
         })
       });
       const data = await res.json();

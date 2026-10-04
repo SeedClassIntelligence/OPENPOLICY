@@ -6,14 +6,15 @@
   "scripts": {
     "dev": "tsx server.ts",
     "db:migrate": "tsx src/server/db/migrate.ts",
-    "build": "vite build && esbuild ./server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "build": "vite build && node scripts/build-server.mjs",
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "validate": "tsx scripts/run-validators.ts",
     "pr0b:capture": "NODE_USE_ENV_PROXY=1 tsx scripts/pr0b/capture-source.ts",
     "test:onboarding": "node --import tsx --test src/auth/roleAccess.test.ts src/server/auth/requestIdentity.test.ts src/server/auth/routeAuthorization.test.ts",
-    "test:authorization": "node --import tsx --test src/server/auth/requestIdentity.test.ts src/server/auth/routeAuthorization.test.ts"
+    "test:authorization": "node --import tsx --test src/server/auth/requestIdentity.test.ts src/server/auth/routeAuthorization.test.ts src/server/auth/notificationAuthorization.test.ts src/services/apiClient.test.ts src/services/firestoreSecurity.test.ts",
+    "test:security-http": "tsx scripts/security-http-probes.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.8",

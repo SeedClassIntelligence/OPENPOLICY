@@ -11,7 +11,7 @@ import { SAMPLE_DECLARATIONS_PAGES, detectQuoteDiscrepancies } from './src/domai
 import { compareOfferAgainstBaseline } from './src/domain/comparisonEngine';
 import { explainCoverageComparison, generateDeterministicExplanation } from './src/server/geminiService';
 import { Offer, CoverageBaseline, ConsumerRequirements, Challenge } from './src/types/insurance';
-import { attachRequestIdentity } from './src/server/auth/requestIdentity';
+import { assertProductionAuthConfiguration, attachRequestIdentity } from './src/server/auth/requestIdentity';
 import { assertBindingRelationship, assertChallengeRelationship, enforceApiAuthorization } from './src/server/auth/routeAuthorization';
 
 import { runComparisonEngineTestSuite } from './src/domain/comparisonEngine.test';
@@ -57,7 +57,7 @@ app.use('/api', attachRequestIdentity);
 app.use('/api', enforceApiAuthorization);
 
 // Provider and consumer identity is attached by verified Firebase ID token.
-// The legacy identity headers are recognized only in explicit non-production fixture mode.
+// Legacy identity headers exist only inside explicit non-production fixture mode.
 function getAuthenticatedProviderOrgId(req: express.Request): string {
   const identity = req.openPolicyIdentity;
   if (!identity || identity.role !== 'PROVIDER') {
@@ -195,6 +195,16 @@ function requireHandoffProviderOrganization(handoff: { providerOrganizationId?: 
     throw err;
   }
   return handoff.providerOrganizationId;
+}
+
+function notificationRecipientForRequest(req: express.Request) {
+  const identity = req.openPolicyIdentity;
+  if (!identity) throw Object.assign(new Error('Verified identity required'), { statusCode: 401 });
+  if (identity.role === 'CONSUMER') return { consumerId: identity.uid };
+  if (identity.role === 'ADMIN') return { operatorId: identity.uid };
+  const providerOrganizationId = getAuthenticatedProviderOrgId(req);
+  const providerUserId = getAuthenticatedProviderUserId(req);
+  return { providerUserId, providerOrganizationId };
 }
 
 // ==========================================
@@ -770,12 +780,26 @@ app.get('/api/marketplace/users', async (req, res) => {
 });
 
 app.get('/api/marketplace/providers', async (req, res) => {
-  // Returns all registered provider organizations (public directory, no auth required)
+  // Authenticated discovery exposes only public provider profile fields.
   try {
     const orgs = await postgresStore.getProviderOrganizations();
-    res.json({ orgs });
+    res.json({ orgs: orgs
+      .filter(org => org.marketplaceStatus === 'ACTIVE' && ['ACTIVE', 'MARKETPLACE_APPROVED'].includes(org.verificationStatus))
+      .map(org => ({
+        displayName: org.displayName,
+        organizationType: org.organizationType,
+        states: org.states,
+        linesOfBusiness: org.linesOfBusiness
+      })) });
   } catch (e: any) {
-    res.json({ orgs: db.getProviderOrganizations() });
+    res.json({ orgs: db.getProviderOrganizations()
+      .filter(org => org.marketplaceStatus === 'ACTIVE' && ['ACTIVE', 'MARKETPLACE_APPROVED'].includes(org.verificationStatus))
+      .map(org => ({
+        displayName: org.displayName,
+        organizationType: org.organizationType,
+        states: org.states,
+        linesOfBusiness: org.linesOfBusiness
+      })) });
   }
 });
 
@@ -2452,12 +2476,20 @@ app.get('/api/commercial/statements/current', async (req, res) => {
 // 11. Notification Stream API (Section 28)
 // ==========================================
 app.get('/api/notifications', (req, res) => {
-  res.json(db.getNotifications());
+  try {
+    res.json(db.getNotificationsForRecipient(notificationRecipientForRequest(req)));
+  } catch (e: any) {
+    res.status(e.statusCode || 403).json({ error: e.message });
+  }
 });
 
 app.post('/api/notifications/:id/read', (req, res) => {
-  db.markNotificationRead(req.params.id);
-  res.json({ success: true });
+  try {
+    db.markNotificationRead(req.params.id, notificationRecipientForRequest(req));
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(e.statusCode || 403).json({ error: e.message });
+  }
 });
 
 // ==========================================
@@ -2571,6 +2603,10 @@ app.get(['/download/codebase.zip', '/download/OPENPOLICY_2026-10-02.zip'], (req,
 
 // Vite Middleware for SPA Frontend
 async function startServer() {
+  // Production must never boot with an implicit fixture mode or an unusable
+  // Firebase Admin configuration. This checks configuration presence only;
+  // credential validity is proven by the real Firebase acceptance gate.
+  assertProductionAuthConfiguration();
   // BLOCKER 1: Initialize authoritative durable store on startup
   try {
     await postgresStore.init();
