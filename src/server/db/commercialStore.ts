@@ -881,7 +881,10 @@ export class CommercialStore {
     const offerVersions = targetDb.getAllOfferVersionsFlat();
     for (const ver of offerVersions) {
       const offer = targetDb.getOffer(ver.offerId);
-      const providerOrgId = offer?.providerId || 'org_apex';
+      const providerOrgId = offer?.providerId;
+      if (!providerOrgId) {
+        throw new Error(`Cannot project offer version ${ver.id}: offer has no authoritative provider organization`);
+      }
       await projectOne({
         eventType: 'PROPOSITION_SUBMITTED',
         sourceEntityType: 'OFFER_VERSION',

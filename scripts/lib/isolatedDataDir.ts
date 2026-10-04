@@ -19,6 +19,10 @@ export const ISOLATED_DATA_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), `openpol
 
 process.env.OPENPOLICY_DATA_DIR = path.join(ISOLATED_DATA_ROOT, 'openpolicy_pg');
 process.env.OPENPOLICY_AUTH_MODE = 'fixture';
+// Canonical validators predate Firebase identities and exercise domain behavior.
+// This explicit process-only switch preserves those fixtures; it is forbidden by
+// configuredAuthMode when NODE_ENV=production and cannot be request-controlled.
+process.env.OPENPOLICY_FIXTURE_AUTHORIZATION_BYPASS = '1';
 
 process.on('exit', () => {
   try {

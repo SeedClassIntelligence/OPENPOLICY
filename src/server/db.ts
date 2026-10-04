@@ -1949,11 +1949,12 @@ export class PolicyChallengeDatabase {
   }
 
   public uploadVaultDocument(doc: Partial<VaultDocument>): VaultDocument {
+    if (!doc.ownerId) throw new Error('Forbidden: Vault document requires an authoritative consumer owner');
     const documentId = doc.documentId || `DOC-USER-${Date.now()}`;
     const hash = this.generateHash(`${documentId}|${doc.fileName}|${Date.now()}`);
     const fullDoc: VaultDocument = {
       documentId,
-      ownerId: doc.ownerId || 'user_consumer_1',
+      ownerId: doc.ownerId,
       documentType: doc.documentType || 'ENDORSEMENT',
       source: doc.source || 'UPLOAD',
       uploadTimestamp: new Date().toISOString(),
@@ -1970,7 +1971,7 @@ export class PolicyChallengeDatabase {
       isImmutable: true
     };
     this.vaultDocuments.set(fullDoc.documentId, fullDoc);
-    this.recordAudit('VAULT_DOCUMENT_ADDED', 'CONSUMER', 'user_consumer_1', `Added document ${fullDoc.fileName} (${fullDoc.documentType}) to Policy Vault`);
+    this.recordAudit('VAULT_DOCUMENT_ADDED', 'CONSUMER', fullDoc.ownerId, `Added document ${fullDoc.fileName} (${fullDoc.documentType}) to Policy Vault`);
     return fullDoc;
   }
 
@@ -3338,7 +3339,10 @@ export class PolicyChallengeDatabase {
       throw new Error('Unauthorized: Only the challenge owner can grant consent for this handoff');
     }
 
-    const recipientOrganizationId = handoff.providerOrganizationId || 'org_apex';
+    const recipientOrganizationId = handoff.providerOrganizationId;
+    if (!recipientOrganizationId) {
+      throw new Error('Forbidden: Binding handoff has no authoritative provider organization mapping');
+    }
 
     const consentGrant = createConsentGrant({
       challengeId: params.challengeId,

@@ -12,6 +12,7 @@ import { compareOfferAgainstBaseline } from './src/domain/comparisonEngine';
 import { explainCoverageComparison, generateDeterministicExplanation } from './src/server/geminiService';
 import { Offer, CoverageBaseline, ConsumerRequirements, Challenge } from './src/types/insurance';
 import { attachRequestIdentity } from './src/server/auth/requestIdentity';
+import { assertBindingRelationship, assertChallengeRelationship, enforceApiAuthorization } from './src/server/auth/routeAuthorization';
 
 import { runComparisonEngineTestSuite } from './src/domain/comparisonEngine.test';
 import { runEligibilityEngineTestSuite } from './src/domain/eligibilityEngine.test';
@@ -53,6 +54,7 @@ const DEFAULT_PORT = Number(process.env.PORT) || 3000;
 
 app.use(express.json({ limit: '10mb' }));
 app.use('/api', attachRequestIdentity);
+app.use('/api', enforceApiAuthorization);
 
 // Provider and consumer identity is attached by verified Firebase ID token.
 // The legacy identity headers are recognized only in explicit non-production fixture mode.
@@ -150,6 +152,49 @@ function getAuthenticatedConsumerId(req: express.Request): string {
     throw err;
   }
   return identity.uid;
+}
+
+function authorizeChallengeResource(req: express.Request, challengeId: string): void {
+  const challenge = db.getChallenge(challengeId);
+  if (!challenge) {
+    const err: any = new Error('Challenge not found');
+    err.statusCode = 404;
+    throw err;
+  }
+  const identity = req.openPolicyIdentity!;
+  const providerOrganizationId = identity.role === 'PROVIDER' ? getAuthenticatedProviderOrgId(req) : undefined;
+  const participatingOrganizationIds = db.getAllParticipations()
+    .filter(p => p.challengeId === challengeId && p.status !== 'WITHDRAWN')
+    .map(p => p.providerOrganizationId);
+  assertChallengeRelationship({
+    identity, challengeConsumerId: challenge.consumerId,
+    providerOrganizationId, participatingOrganizationIds
+  });
+}
+
+function authorizeBindingResource(req: express.Request, handoffId: string): void {
+  const handoff = db.getBindingHandoff(handoffId);
+  if (!handoff) {
+    const err: any = new Error('Binding handoff not found');
+    err.statusCode = 404;
+    throw err;
+  }
+  const identity = req.openPolicyIdentity!;
+  const providerOrganizationId = identity.role === 'PROVIDER' ? getAuthenticatedProviderOrgId(req) : undefined;
+  assertBindingRelationship({
+    identity, handoffConsumerId: handoff.consumerId,
+    handoffProviderOrganizationId: handoff.providerOrganizationId,
+    providerOrganizationId
+  });
+}
+
+function requireHandoffProviderOrganization(handoff: { providerOrganizationId?: string } | undefined): string {
+  if (!handoff?.providerOrganizationId) {
+    const err: any = new Error('Forbidden: Binding handoff has no authoritative provider organization mapping');
+    err.statusCode = 403;
+    throw err;
+  }
+  return handoff.providerOrganizationId;
 }
 
 // ==========================================
@@ -358,6 +403,12 @@ app.post('/api/baselines/create', (req, res) => {
 // 4. Challenge & Marketplace API
 // ==========================================
 app.post('/api/challenges/create', async (req, res) => {
+  let consumerId: string;
+  try {
+    consumerId = getAuthenticatedConsumerId(req);
+  } catch (e: any) {
+    return res.status(e.statusCode || 401).json({ error: e.message });
+  }
   const { baselineId, requirements } = req.body;
   const baseline = db.getBaseline(baselineId);
   if (!baseline) {
@@ -407,7 +458,7 @@ app.post('/api/challenges/create', async (req, res) => {
   const challenge: Challenge = {
     id: challengeId,
     referenceNumber: `CHALLENGE #${jurisdiction}-${Math.floor(10000 + Math.random() * 90000)}`,
-    consumerId: 'user_consumer_1',
+    consumerId,
     coverageBaselineId: baselineId,
     baseline,
     requirements: requirements || {
@@ -471,10 +522,20 @@ app.post('/api/challenges/create', async (req, res) => {
 });
 
 app.get('/api/challenges', (req, res) => {
-  res.json(db.getChallenges());
+  try {
+    const consumerId = getAuthenticatedConsumerId(req);
+    res.json(db.getChallenges().filter(challenge => challenge.consumerId === consumerId));
+  } catch (e: any) {
+    res.status(e.statusCode || 403).json({ error: e.message });
+  }
 });
 
 app.get('/api/challenges/:id', (req, res) => {
+  try {
+    authorizeChallengeResource(req, req.params.id);
+  } catch (e: any) {
+    return res.status(e.statusCode || 403).json({ error: e.message });
+  }
   const challenge = db.getChallenge(req.params.id);
   if (!challenge) {
     return res.status(404).json({ error: 'Challenge not found' });
@@ -573,30 +634,34 @@ app.post('/api/explain-comparison', async (req, res) => {
 app.post('/api/selection/handoff', (req, res) => {
   const { challengeId, offerId, consumerContact, consumerConsentGiven, acknowledgedReductions } = req.body;
   try {
+    authorizeChallengeResource(req, challengeId);
+    if (!consumerContact?.name || !consumerContact?.email || !consumerContact?.phone) {
+      return res.status(400).json({ error: 'consumerContact name, email, and phone are required' });
+    }
     const result = db.createBindingDossier({
       challengeId,
       offerId,
-      consumerContact: consumerContact || {
-        name: 'Jane Doe',
-        email: 'jane.doe@example.com',
-        phone: '(702) 555-0192'
-      },
+      consumerContact,
       consumerConsentGiven: consumerConsentGiven !== undefined ? consumerConsentGiven : true,
       acknowledgedReductions: acknowledgedReductions || []
     });
     res.json({ success: true, handoff: result.handoff, dossier: result.dossier });
   } catch (e: any) {
-    res.status(400).json({ error: e.message });
+    res.status(e.statusCode || 400).json({ error: e.message });
   }
 });
 
 app.get('/api/selection/dossier/:id', (req, res) => {
   const dossier = db.getBindingDossier(req.params.id);
   if (!dossier) return res.status(404).json({ error: 'Binding dossier not found' });
+  try { authorizeChallengeResource(req, dossier.challengeId); }
+  catch (e: any) { return res.status(e.statusCode || 403).json({ error: e.message }); }
   res.json(dossier);
 });
 
 app.get('/api/selection/dossier-by-challenge/:challengeId', (req, res) => {
+  try { authorizeChallengeResource(req, req.params.challengeId); }
+  catch (e: any) { return res.status(e.statusCode || 403).json({ error: e.message }); }
   const dossier = db.getDossierByChallenge(req.params.challengeId);
   if (!dossier) return res.status(404).json({ error: 'No binding dossier found for challenge' });
   res.json(dossier);
@@ -608,7 +673,11 @@ app.get('/api/selection/dossier-by-challenge/:challengeId', (req, res) => {
 app.post('/api/reconciliation/verify', (req, res) => {
   const { handoffId, dossierId, issuedData } = req.body;
   try {
+    if (handoffId) authorizeBindingResource(req, handoffId);
     if (dossierId && issuedData?.coverages) {
+      const dossier = db.getBindingDossier(dossierId);
+      if (!dossier) return res.status(404).json({ error: 'Binding dossier not found' });
+      authorizeChallengeResource(req, dossier.challengeId);
       const detailedRec = db.performDetailedReconciliation({
         dossierId,
         issuedData
@@ -625,6 +694,10 @@ app.post('/api/reconciliation/verify', (req, res) => {
 });
 
 app.get('/api/reconciliation/dossier/:dossierId', (req, res) => {
+  const dossier = db.getBindingDossier(req.params.dossierId);
+  if (!dossier) return res.status(404).json({ error: 'Binding dossier not found' });
+  try { authorizeChallengeResource(req, dossier.challengeId); }
+  catch (e: any) { return res.status(e.statusCode || 403).json({ error: e.message }); }
   const report = db.getDetailedReconciliationByDossier(req.params.dossierId);
   if (!report) return res.status(404).json({ error: 'No reconciliation report found for dossier' });
   res.json(report);
@@ -634,12 +707,22 @@ app.get('/api/reconciliation/dossier/:dossierId', (req, res) => {
 // 9. Private Policy Vault API (Section 4)
 // ==========================================
 app.get('/api/vault/documents', (req, res) => {
-  res.json(db.getVaultDocuments());
+  try {
+    const consumerId = getAuthenticatedConsumerId(req);
+    res.json(db.getVaultDocuments().filter(document => document.ownerId === consumerId));
+  } catch (e: any) {
+    res.status(e.statusCode || 403).json({ error: e.message });
+  }
 });
 
 app.post('/api/vault/upload', (req, res) => {
-  const doc = db.uploadVaultDocument(req.body);
-  res.json({ success: true, document: doc });
+  try {
+    const consumerId = getAuthenticatedConsumerId(req);
+    const doc = db.uploadVaultDocument({ ...req.body, ownerId: consumerId });
+    res.json({ success: true, document: doc });
+  } catch (e: any) {
+    res.status(e.statusCode || 403).json({ error: e.message });
+  }
 });
 
 // ==========================================
@@ -900,10 +983,11 @@ app.post('/api/challenges/:id/compete', (req, res) => {
 // ==========================================
 app.get('/api/marketplace/competition/:challengeId/status', (req, res) => {
   try {
+    authorizeChallengeResource(req, req.params.challengeId);
     const summary = db.getCompetitionEvaluation(req.params.challengeId);
     res.json(summary);
   } catch (e: any) {
-    res.status(400).json({ error: e.message });
+    res.status(e.statusCode || 400).json({ error: e.message });
   }
 });
 
@@ -983,6 +1067,7 @@ app.post('/api/marketplace/competition/:challengeId/keep-current-policy', (req, 
 
 app.get('/api/marketplace/competition/:challengeId/activity-feed', (req, res) => {
   try {
+    authorizeChallengeResource(req, req.params.challengeId);
     let orgId: string | undefined = undefined;
     if (req.openPolicyIdentity?.role === 'PROVIDER') {
       orgId = getAuthenticatedProviderOrgId(req);
@@ -996,10 +1081,11 @@ app.get('/api/marketplace/competition/:challengeId/activity-feed', (req, res) =>
 
 app.get('/api/marketplace/competition/:challengeId/deadline-status', (req, res) => {
   try {
+    authorizeChallengeResource(req, req.params.challengeId);
     const status = db.getCompetitionDeadlineStatus(req.params.challengeId);
     res.json({ success: true, status });
   } catch (e: any) {
-    res.status(400).json({ error: e.message });
+    res.status(e.statusCode || 400).json({ error: e.message });
   }
 });
 
@@ -1056,6 +1142,7 @@ app.post('/api/marketplace/competition/:challengeId/seed-competitors', (req, res
 
 app.get('/api/marketplace/challenges/:id/information-requests', (req, res) => {
   try {
+    if (req.openPolicyIdentity?.role === 'CONSUMER') authorizeChallengeResource(req, req.params.id);
     let orgId: string | undefined = undefined;
     if (req.openPolicyIdentity?.role === 'PROVIDER') {
       orgId = getAuthenticatedProviderOrgId(req);
@@ -1124,6 +1211,7 @@ app.post('/api/marketplace/supplemental-facts/:id/consent', (req, res) => {
 
 app.get('/api/marketplace/challenges/:id/supplemental-facts', (req, res) => {
   try {
+    if (req.openPolicyIdentity?.role === 'CONSUMER') authorizeChallengeResource(req, req.params.id);
     let orgId: string | undefined = undefined;
     if (req.openPolicyIdentity?.role === 'PROVIDER') {
       orgId = getAuthenticatedProviderOrgId(req);
@@ -1137,6 +1225,9 @@ app.get('/api/marketplace/challenges/:id/supplemental-facts', (req, res) => {
 
 app.get('/api/marketplace/offers/:id/versions', (req, res) => {
   try {
+    const offer = db.getOffer(req.params.id);
+    if (!offer) return res.status(404).json({ error: 'Offer not found' });
+    authorizeChallengeResource(req, offer.challengeId);
     const versions = db.getOfferVersions(req.params.id);
     res.json({ versions });
   } catch (e: any) {
@@ -1469,6 +1560,11 @@ app.post('/api/marketplace/binding/:handoffId/update-status', async (req, res) =
 
 // 8. Query Binding Handoff Details
 app.get('/api/marketplace/binding/:handoffId', (req, res) => {
+  try {
+    authorizeBindingResource(req, req.params.handoffId);
+  } catch (e: any) {
+    return res.status(e.statusCode || 403).json({ error: e.message });
+  }
   const handoff = db.getBindingHandoff(req.params.handoffId);
   if (!handoff) {
     return res.status(404).json({ error: 'Binding handoff not found' });
@@ -1491,6 +1587,11 @@ app.get('/api/marketplace/binding/:handoffId', (req, res) => {
 
 // 9. Query Challenge Selection & Binding State
 app.get('/api/marketplace/challenges/:id/selection-binding', (req, res) => {
+  try {
+    authorizeChallengeResource(req, req.params.id);
+  } catch (e: any) {
+    return res.status(e.statusCode || 403).json({ error: e.message });
+  }
   const challengeId = req.params.id;
   const selection = db.getSelectionForChallenge(challengeId);
   const handoff = db.getBindingHandoffForChallenge(challengeId);
@@ -1560,7 +1661,7 @@ app.post('/api/marketplace/binding/:handoffId/reconcile', async (req, res) => {
         eventType: 'VERIFIED_BOUND_OUTCOME',
         sourceEntityType: 'RECONCILIATION_REPORT',
         sourceEntityId: result.report.id,
-        providerOrganizationId: handoff?.providerOrganizationId || 'org_apex',
+        providerOrganizationId: requireHandoffProviderOrganization(handoff),
         challengeId: result.report.challengeId,
         occurredAt: result.report.reconciledAt,
         metadata: {
@@ -1577,7 +1678,7 @@ app.post('/api/marketplace/binding/:handoffId/reconcile', async (req, res) => {
         eventType: 'BASELINE_ACTIVATED',
         sourceEntityType: 'COVERAGE_BASELINE',
         sourceEntityId: result.newBaseline.id,
-        providerOrganizationId: handoff?.providerOrganizationId || 'org_apex',
+        providerOrganizationId: requireHandoffProviderOrganization(handoff),
         challengeId: result.report.challengeId,
         occurredAt: result.newBaseline.effectiveDate || new Date().toISOString(),
         metadata: {
@@ -1603,6 +1704,7 @@ app.post('/api/marketplace/binding/:handoffId/reconcile', async (req, res) => {
 app.get('/api/marketplace/binding/:handoffId/reconciliation', (req, res) => {
   try {
     const handoffId = req.params.handoffId;
+    authorizeBindingResource(req, handoffId);
     const reports = db.getReconciliationReportsForHandoff(handoffId);
     const documents = db.getIssuedPolicyDocumentsForHandoff(handoffId);
     const snapshots = db.getIssuedPolicySnapshotsForHandoff(handoffId);
@@ -1615,7 +1717,7 @@ app.get('/api/marketplace/binding/:handoffId/reconciliation', (req, res) => {
       snapshots
     });
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    res.status(e.statusCode || 500).json({ error: e.message });
   }
 });
 
@@ -1654,7 +1756,7 @@ app.post('/api/marketplace/binding/:handoffId/consumer-verify', async (req, res)
         eventType: 'VERIFIED_BOUND_OUTCOME',
         sourceEntityType: 'RECONCILIATION_REPORT',
         sourceEntityId: result.report.id,
-        providerOrganizationId: handoff?.providerOrganizationId || 'org_apex',
+        providerOrganizationId: requireHandoffProviderOrganization(handoff),
         challengeId: result.report.challengeId,
         occurredAt: result.report.reconciledAt,
         metadata: {
@@ -1672,7 +1774,7 @@ app.post('/api/marketplace/binding/:handoffId/consumer-verify', async (req, res)
         eventType: 'BASELINE_ACTIVATED',
         sourceEntityType: 'COVERAGE_BASELINE',
         sourceEntityId: result.newBaseline.id,
-        providerOrganizationId: handoff?.providerOrganizationId || 'org_apex',
+        providerOrganizationId: requireHandoffProviderOrganization(handoff),
         challengeId: result.report.challengeId,
         occurredAt: result.newBaseline.effectiveDate || new Date().toISOString(),
         metadata: {

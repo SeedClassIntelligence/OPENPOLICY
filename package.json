@@ -12,7 +12,8 @@
     "lint": "tsc --noEmit",
     "validate": "tsx scripts/run-validators.ts",
     "pr0b:capture": "NODE_USE_ENV_PROXY=1 tsx scripts/pr0b/capture-source.ts",
-    "test:onboarding": "node --import tsx --test src/auth/roleAccess.test.ts src/server/auth/requestIdentity.test.ts"
+    "test:onboarding": "node --import tsx --test src/auth/roleAccess.test.ts src/server/auth/requestIdentity.test.ts src/server/auth/routeAuthorization.test.ts",
+    "test:authorization": "node --import tsx --test src/server/auth/requestIdentity.test.ts src/server/auth/routeAuthorization.test.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.8",
