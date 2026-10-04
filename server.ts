@@ -11,6 +11,7 @@ import { SAMPLE_DECLARATIONS_PAGES, detectQuoteDiscrepancies } from './src/domai
 import { compareOfferAgainstBaseline } from './src/domain/comparisonEngine';
 import { explainCoverageComparison, generateDeterministicExplanation } from './src/server/geminiService';
 import { Offer, CoverageBaseline, ConsumerRequirements, Challenge } from './src/types/insurance';
+import { attachRequestIdentity } from './src/server/auth/requestIdentity';
 
 import { runComparisonEngineTestSuite } from './src/domain/comparisonEngine.test';
 import { runEligibilityEngineTestSuite } from './src/domain/eligibilityEngine.test';
@@ -51,29 +52,40 @@ export const app = express();
 const DEFAULT_PORT = Number(process.env.PORT) || 3000;
 
 app.use(express.json({ limit: '10mb' }));
+app.use('/api', attachRequestIdentity);
 
-// Helper: Resolves provider organization identity from server-side user session ONLY (Blocker 3 fix)
-// The server determines the authenticated user's provider organization.
-// Client-supplied org IDs (headers, query params, body) are NOT accepted as identity proof.
-// Only x-provider-user-id is accepted; the server resolves the user's organizationId server-side.
-// Impersonation invariant: User A authenticated -> cannot access org_B resources.
+// Provider and consumer identity is attached by verified Firebase ID token.
+// The legacy identity headers are recognized only in explicit non-production fixture mode.
 function getAuthenticatedProviderOrgId(req: express.Request): string {
-  const userIdHeader = req.headers['x-provider-user-id'] as string;
-  if (!userIdHeader) {
-    const err: any = new Error('Unauthorized: x-provider-user-id session header required');
+  const identity = req.openPolicyIdentity;
+  if (!identity || identity.role !== 'PROVIDER') {
+    const err: any = new Error('Unauthorized: verified provider identity required');
     err.statusCode = 401;
     throw err;
   }
 
-  const user = db.getProviderUser(userIdHeader);
+  if (identity.source === 'FIREBASE' && identity.providerStatus !== 'ACTIVE') {
+    const err: any = new Error(`Forbidden: Provider profile status is ${identity.providerStatus || 'UNVERIFIED'}`);
+    err.statusCode = 403;
+    throw err;
+  }
+
+  const providerUserId = identity.providerUserId;
+  if (!providerUserId) {
+    const err: any = new Error('Forbidden: Provider profile is not linked to a marketplace ProviderUser');
+    err.statusCode = 403;
+    throw err;
+  }
+
+  const user = db.getProviderUser(providerUserId);
   if (!user) {
-    const err: any = new Error(`Unauthorized: Provider user '${userIdHeader}' not found in session registry`);
+    const err: any = new Error(`Unauthorized: Provider user '${providerUserId}' is not registered`);
     err.statusCode = 401;
     throw err;
   }
 
   if (user.status !== 'ACTIVE') {
-    const err: any = new Error(`Forbidden: Provider user '${userIdHeader}' account is not active`);
+    const err: any = new Error(`Forbidden: Provider user '${providerUserId}' account is not active`);
     err.statusCode = 403;
     throw err;
   }
@@ -105,24 +117,39 @@ function getAuthenticatedProviderOrgId(req: express.Request): string {
     throw err;
   }
 
+  if (identity.providerOrganizationId && identity.providerOrganizationId !== user.organizationId) {
+    const err: any = new Error('Forbidden: Authenticated profile organization does not match the marketplace user organization');
+    err.statusCode = 403;
+    throw err;
+  }
+
   return user.organizationId;
 }
 
 function getAuthenticatedProviderUserId(req: express.Request): string {
-  const userIdHeader = req.headers['x-provider-user-id'] as string;
-  if (!userIdHeader) {
-    if (req.body?.providerUserId) return req.body.providerUserId;
-    const err: any = new Error('Unauthorized: x-provider-user-id session header required');
+  const identity = req.openPolicyIdentity;
+  if (!identity || identity.role !== 'PROVIDER' || !identity.providerUserId) {
+    const err: any = new Error('Unauthorized: verified provider identity required');
     err.statusCode = 401;
     throw err;
   }
-  const user = db.getProviderUser(userIdHeader);
+  const user = db.getProviderUser(identity.providerUserId);
   if (!user) {
-    const err: any = new Error(`Unauthorized: Provider user '${userIdHeader}' not found in session registry`);
-    err.statusCode = 401;
+    const err: any = new Error(`Forbidden: Provider user '${identity.providerUserId}' is not registered`);
+    err.statusCode = 403;
     throw err;
   }
   return user.id;
+}
+
+function getAuthenticatedConsumerId(req: express.Request): string {
+  const identity = req.openPolicyIdentity;
+  if (!identity || identity.role !== 'CONSUMER') {
+    const err: any = new Error('Unauthorized: verified consumer identity required');
+    err.statusCode = 401;
+    throw err;
+  }
+  return identity.uid;
 }
 
 // ==========================================
@@ -188,7 +215,7 @@ app.get('/api/jurisdictions', async (req, res) => {
     await ensureJurisdictionFramework();
     res.json({ environment: marketEnvironment(), jurisdictions: await jurisdictionStore.getJurisdictions() });
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    res.status(e.statusCode || 500).json({ error: e.message });
   }
 });
 
@@ -203,7 +230,7 @@ app.get('/api/jurisdictions/:code/rulesets', async (req, res) => {
     }
     res.json({ jurisdictionCode: code, ruleSets: withRules, sources: await jurisdictionStore.getSources(code) });
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    res.status(e.statusCode || 500).json({ error: e.message });
   }
 });
 
@@ -477,18 +504,15 @@ app.post('/api/offers/validate-quote', (req, res) => {
 
 app.post('/api/offers/submit', async (req, res) => {
   const offerData: Offer = req.body;
-  const userIdHeader = req.headers['x-provider-user-id'] as string;
-  if (userIdHeader) {
-    try {
-      const authOrgId = getAuthenticatedProviderOrgId(req);
-      offerData.providerId = authOrgId;
-      const org = db.getProviderOrganization(authOrgId);
-      if (org) {
-        offerData.providerName = org.displayName;
-      }
-    } catch (e: any) {
-      return res.status(e.statusCode || 401).json({ error: e.message });
+  try {
+    const authOrgId = getAuthenticatedProviderOrgId(req);
+    offerData.providerId = authOrgId;
+    const org = db.getProviderOrganization(authOrgId);
+    if (org) {
+      offerData.providerName = org.displayName;
     }
+  } catch (e: any) {
+    return res.status(e.statusCode || 401).json({ error: e.message });
   }
   offerData.id = offerData.id || `OFFER-${Date.now()}`;
   offerData.submittedAt = new Date().toISOString();
@@ -944,10 +968,11 @@ app.post('/api/marketplace/competition/:challengeId/withdraw', (req, res) => {
 
 app.post('/api/marketplace/competition/:challengeId/keep-current-policy', (req, res) => {
   try {
-    const { consumerId, reason } = req.body;
+    const { reason } = req.body;
+    const consumerId = getAuthenticatedConsumerId(req);
     const challenge = db.keepCurrentPolicy(
       req.params.challengeId,
-      consumerId || 'user_consumer_1',
+      consumerId,
       reason
     );
     res.json({ success: true, challenge });
@@ -959,7 +984,7 @@ app.post('/api/marketplace/competition/:challengeId/keep-current-policy', (req, 
 app.get('/api/marketplace/competition/:challengeId/activity-feed', (req, res) => {
   try {
     let orgId: string | undefined = undefined;
-    if (req.headers['x-provider-user-id']) {
+    if (req.openPolicyIdentity?.role === 'PROVIDER') {
       orgId = getAuthenticatedProviderOrgId(req);
     }
     const events = db.getCompetitionActivityFeed(req.params.challengeId, orgId);
@@ -1032,7 +1057,7 @@ app.post('/api/marketplace/competition/:challengeId/seed-competitors', (req, res
 app.get('/api/marketplace/challenges/:id/information-requests', (req, res) => {
   try {
     let orgId: string | undefined = undefined;
-    if (req.headers['x-provider-user-id']) {
+    if (req.openPolicyIdentity?.role === 'PROVIDER') {
       orgId = getAuthenticatedProviderOrgId(req);
     }
     const requests = db.getInformationRequests(req.params.id, orgId);
@@ -1065,14 +1090,15 @@ app.post('/api/marketplace/challenges/:id/information-requests', (req, res) => {
 
 app.post('/api/marketplace/information-requests/:id/answer', (req, res) => {
   try {
-    const { answerValue, consumerId, consentScope, authorizedOrgIds } = req.body;
+    const { answerValue, consentScope, authorizedOrgIds } = req.body;
+    const consumerId = getAuthenticatedConsumerId(req);
     if (answerValue === undefined) {
       return res.status(400).json({ error: 'Missing required field: answerValue' });
     }
     const result = db.answerInformationRequest({
       requestId: req.params.id,
       answerValue,
-      consumerId: consumerId || 'user_consumer_1',
+      consumerId,
       consentScope,
       authorizedOrgIds
     });
@@ -1084,11 +1110,12 @@ app.post('/api/marketplace/information-requests/:id/answer', (req, res) => {
 
 app.post('/api/marketplace/supplemental-facts/:id/consent', (req, res) => {
   try {
-    const { organizationIds, consumerId } = req.body;
+    const { organizationIds } = req.body;
+    const consumerId = getAuthenticatedConsumerId(req);
     if (!organizationIds || !Array.isArray(organizationIds)) {
       return res.status(400).json({ error: 'organizationIds array is required' });
     }
-    const updatedFact = db.grantFactConsent(req.params.id, organizationIds, consumerId || 'user_consumer_1');
+    const updatedFact = db.grantFactConsent(req.params.id, organizationIds, consumerId);
     res.json({ success: true, fact: updatedFact });
   } catch (e: any) {
     res.status(e.statusCode || 400).json({ error: e.message });
@@ -1098,7 +1125,7 @@ app.post('/api/marketplace/supplemental-facts/:id/consent', (req, res) => {
 app.get('/api/marketplace/challenges/:id/supplemental-facts', (req, res) => {
   try {
     let orgId: string | undefined = undefined;
-    if (req.headers['x-provider-user-id']) {
+    if (req.openPolicyIdentity?.role === 'PROVIDER') {
       orgId = getAuthenticatedProviderOrgId(req);
     }
     const facts = db.getSupplementalFacts(req.params.id, orgId);
@@ -1144,7 +1171,7 @@ app.post('/api/marketplace/challenges/:id/select-version', async (req, res) => {
   try {
     const challengeId = req.params.id;
     const { offerId, versionNumber, notes } = req.body;
-    const consumerId = req.body.consumerId || (req.headers['x-consumer-id'] as string) || 'user_consumer_1';
+    const consumerId = getAuthenticatedConsumerId(req);
 
     if (!offerId) {
       return res.status(400).json({ error: 'offerId is required to select an offer version' });
@@ -1183,7 +1210,7 @@ app.post('/api/marketplace/challenges/:id/select-version', async (req, res) => {
 app.post('/api/marketplace/binding/:handoffId/grant-consent', (req, res) => {
   try {
     const handoffId = req.params.handoffId;
-    const consumerId = req.body.consumerId || (req.headers['x-consumer-id'] as string) || 'user_consumer_1';
+    const consumerId = getAuthenticatedConsumerId(req);
     const {
       challengeId,
       authorizedFieldNames,
@@ -1225,7 +1252,7 @@ app.post('/api/marketplace/binding/:handoffId/grant-consent', (req, res) => {
 app.post('/api/marketplace/binding/:handoffId/revoke-consent', (req, res) => {
   try {
     const consentId = req.body.consentGrantId || req.body.consentId;
-    const consumerId = req.body.consumerId || (req.headers['x-consumer-id'] as string) || 'user_consumer_1';
+    const consumerId = getAuthenticatedConsumerId(req);
 
     if (!consentId) {
       return res.status(400).json({ error: 'consentGrantId is required' });
@@ -1248,17 +1275,8 @@ app.post('/api/marketplace/binding/:handoffId/execute-disclosure', async (req, r
       return res.status(400).json({ error: 'consentGrantId is required' });
     }
 
-    let providerOrgId: string;
-    let providerUserId: string | undefined;
-
-    if (req.headers['x-provider-user-id']) {
-      providerOrgId = getAuthenticatedProviderOrgId(req);
-      providerUserId = req.headers['x-provider-user-id'] as string;
-    } else {
-      // Fallback for direct integration tests
-      providerOrgId = req.body.providerOrgId || 'org_apex';
-      providerUserId = req.body.providerUserId || 'usr_marcus';
-    }
+    const providerOrgId = getAuthenticatedProviderOrgId(req);
+    const providerUserId = getAuthenticatedProviderUserId(req);
 
     const result = db.executeControlledDisclosure({
       handoffId,
@@ -1315,16 +1333,8 @@ app.post('/api/marketplace/binding/:handoffId/propose-modification', (req, res) 
       return res.status(400).json({ error: 'underwritingReason is required' });
     }
 
-    let providerOrgId: string;
-    let providerUserId: string;
-
-    if (req.headers['x-provider-user-id']) {
-      providerOrgId = getAuthenticatedProviderOrgId(req);
-      providerUserId = req.headers['x-provider-user-id'] as string;
-    } else {
-      providerOrgId = req.body.providerOrgId || 'org_apex';
-      providerUserId = req.body.providerUserId || 'usr_marcus';
-    }
+    const providerOrgId = getAuthenticatedProviderOrgId(req);
+    const providerUserId = getAuthenticatedProviderUserId(req);
 
     const result = db.proposeUnderwritingModification({
       handoffId,
@@ -1347,7 +1357,7 @@ app.post('/api/marketplace/binding/:handoffId/propose-modification', (req, res) 
 app.post('/api/marketplace/binding/:handoffId/resolve-modification', (req, res) => {
   try {
     const { modificationId, decision, rejectionReason } = req.body;
-    const consumerId = req.body.consumerId || (req.headers['x-consumer-id'] as string) || 'user_consumer_1';
+    const consumerId = getAuthenticatedConsumerId(req);
 
     if (!modificationId) {
       return res.status(400).json({ error: 'modificationId is required' });
@@ -1374,7 +1384,7 @@ app.post('/api/marketplace/binding/:handoffId/resolve-modification', (req, res) 
 app.post('/api/marketplace/binding/:handoffId/accept-modification', (req, res) => {
   try {
     const { modificationId } = req.body;
-    const consumerId = req.body.consumerId || (req.headers['x-consumer-id'] as string) || 'user_consumer_1';
+    const consumerId = getAuthenticatedConsumerId(req);
 
     if (!modificationId) {
       return res.status(400).json({ error: 'modificationId is required' });
@@ -1395,7 +1405,7 @@ app.post('/api/marketplace/binding/:handoffId/accept-modification', (req, res) =
 app.post('/api/marketplace/binding/:handoffId/reject-modification', (req, res) => {
   try {
     const { modificationId, rejectionReason } = req.body;
-    const consumerId = req.body.consumerId || (req.headers['x-consumer-id'] as string) || 'user_consumer_1';
+    const consumerId = getAuthenticatedConsumerId(req);
 
     if (!modificationId) {
       return res.status(400).json({ error: 'modificationId is required' });
@@ -1424,12 +1434,7 @@ app.post('/api/marketplace/binding/:handoffId/update-status', async (req, res) =
       return res.status(400).json({ error: 'newStatus is required' });
     }
 
-    let providerOrgId: string;
-    if (req.headers['x-provider-user-id']) {
-      providerOrgId = getAuthenticatedProviderOrgId(req);
-    } else {
-      providerOrgId = req.body.providerOrgId || 'org_apex';
-    }
+    const providerOrgId = getAuthenticatedProviderOrgId(req);
 
     const updatedHandoff = db.updateBindingStatus({
       handoffId,
@@ -1539,10 +1544,7 @@ app.post('/api/marketplace/binding/:handoffId/upload-issued-policy', (req, res) 
 app.post('/api/marketplace/binding/:handoffId/reconcile', async (req, res) => {
   try {
     const handoffId = req.params.handoffId;
-    let providerUserId: string | undefined;
-    if (req.headers['x-provider-user-id']) {
-      providerUserId = getAuthenticatedProviderUserId(req);
-    }
+    const providerUserId = getAuthenticatedProviderUserId(req);
 
     const result = db.reconcileIssuedPolicyForHandoff({
       bindingHandoffId: handoffId,
@@ -1621,7 +1623,7 @@ app.get('/api/marketplace/binding/:handoffId/reconciliation', (req, res) => {
 app.post('/api/marketplace/binding/:handoffId/consumer-verify', async (req, res) => {
   try {
     let { reconciliationReportId, decision, disputeNotes } = req.body;
-    const consumerId = req.body.consumerId || (req.headers['x-consumer-id'] as string) || 'user_consumer_1';
+    const consumerId = getAuthenticatedConsumerId(req);
 
     if (!reconciliationReportId) {
       const reports = db.getReconciliationReportsForHandoff(req.params.handoffId);
@@ -1695,11 +1697,11 @@ app.post('/api/marketplace/binding/:handoffId/consumer-verify', async (req, res)
 // 5. Query Private Policy Vault Items (Consumer Only)
 app.get('/api/marketplace/vault/policies', (req, res) => {
   try {
-    const consumerId = (req.query.consumerId as string) || (req.headers['x-consumer-id'] as string) || 'user_consumer_1';
+    const consumerId = getAuthenticatedConsumerId(req);
     const vaultItems = db.getPolicyVaultItemsForConsumer(consumerId);
     res.json({ success: true, vaultItems });
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    res.status(e.statusCode || 500).json({ error: e.message });
   }
 });
 
@@ -1710,14 +1712,14 @@ app.get('/api/marketplace/vault/policies/:id', (req, res) => {
     if (!item) {
       return res.status(404).json({ error: 'Policy vault item not found' });
     }
-    const consumerId = (req.headers['x-consumer-id'] as string) || (req.query.consumerId as string);
-    if (consumerId && item.consumerId !== consumerId) {
+    const consumerId = getAuthenticatedConsumerId(req);
+    if (item.consumerId !== consumerId) {
       return res.status(403).json({ error: 'Forbidden: Policy vault item belongs to another consumer' });
     }
     const report = db.getReconciliationReport(item.reconciliationReportId);
     res.json({ success: true, vaultItem: item, policy: item, reconciliationReport: report });
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    res.status(e.statusCode || 500).json({ error: e.message });
   }
 });
 
@@ -1976,12 +1978,12 @@ app.post('/api/commercial/billable-events/:id/adjustments', async (req, res) => 
       return res.status(403).json({ error: 'Forbidden: Billable event belongs to another provider organization' });
     }
 
-    const { adjustmentType, amountCents, reason, authorizedBy, idempotencyKey } = req.body;
+    const { adjustmentType, amountCents, reason, idempotencyKey } = req.body;
     if (!adjustmentType || !reason) {
       return res.status(400).json({ error: 'adjustmentType and reason are required' });
     }
 
-    const authActor = authorizedBy || (req.headers['x-provider-user-id'] as string) || 'Authorized Supervisor';
+    const authActor = getAuthenticatedProviderUserId(req);
     const adjustment = await commercialStore.createRatingAdjustment({
       originalBillableEventId: billableEvent.id,
       adjustmentType,
@@ -2007,12 +2009,10 @@ app.post('/api/commercial/rating/evaluate-event', async (req, res) => {
     }
 
     // Verify tenant isolation if request comes from provider context
-    if (req.headers['x-provider-user-id']) {
-      const orgId = getAuthenticatedProviderOrgId(req);
-      const event = await commercialStore.getCommercialEventById(eventId);
-      if (event && event.providerOrganizationId !== orgId) {
-        return res.status(403).json({ error: 'Forbidden: Commercial event belongs to another provider organization' });
-      }
+    const orgId = getAuthenticatedProviderOrgId(req);
+    const event = await commercialStore.getCommercialEventById(eventId);
+    if (event && event.providerOrganizationId !== orgId) {
+      return res.status(403).json({ error: 'Forbidden: Commercial event belongs to another provider organization' });
     }
 
     const decision = await commercialStore.rateCommercialEventById(eventId);

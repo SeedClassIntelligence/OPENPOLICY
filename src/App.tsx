@@ -16,6 +16,7 @@ import { AuthModal } from './components/AuthModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Challenge, Offer } from './types/insurance';
 import { canEnterMarketplaceDestination, destinationForRole } from './auth/roleAccess';
+import { apiFetch } from './services/apiClient';
 
 function MainApp() {
   const { isAuthenticated, userRole, userProfile, isDemoUser, openAuthModal } = useAuth();
@@ -33,10 +34,10 @@ function MainApp() {
 
   const loadData = async () => {
     try {
-      const res = await fetch('/api/challenges');
+      const res = await apiFetch('/api/challenges');
       const challenges: Challenge[] = await res.json();
       if (challenges.length > 0) {
-        const chalRes = await fetch(`/api/challenges/${challenges[0].id}`);
+        const chalRes = await apiFetch(`/api/challenges/${challenges[0].id}`);
         const chalData = await chalRes.json();
         setChallenge(chalData.challenge);
         setOffers(chalData.offers);
@@ -111,7 +112,7 @@ function MainApp() {
 
   const handleResetCanonical = async () => {
     try {
-      await fetch('/api/reset', { method: 'POST' });
+      await apiFetch('/api/reset', { method: 'POST' });
       await loadData();
       showToast('Database reset to canonical initial baseline and offers');
     } catch (e) {

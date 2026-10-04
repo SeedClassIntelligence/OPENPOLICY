@@ -445,7 +445,7 @@ export async function runCE3ValidationSuite() {
     );
     assert(uploadRes.status === 200, 'Policy upload succeeded');
 
-    const reconcileRes = await request(server, 'POST', `/api/marketplace/binding/${handoff.id}/reconcile`, {});
+    const reconcileRes = await request(server, 'POST', `/api/marketplace/binding/${handoff.id}/reconcile`, {}, apexHeaders);
     assert(reconcileRes.status === 200, 'Reconciliation execution succeeded');
     const unverifiedReport = reconcileRes.body.report;
     assert(unverifiedReport.verdict === 'UNAUTHORIZED_VARIANCE', 'Report correctly flagged unauthorized variance');

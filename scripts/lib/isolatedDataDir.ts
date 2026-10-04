@@ -18,6 +18,7 @@ const suiteName = path.basename(process.argv[1] || 'validator').replace(/\.[cm]?
 export const ISOLATED_DATA_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), `openpolicy-${suiteName}-`));
 
 process.env.OPENPOLICY_DATA_DIR = path.join(ISOLATED_DATA_ROOT, 'openpolicy_pg');
+process.env.OPENPOLICY_AUTH_MODE = 'fixture';
 
 process.on('exit', () => {
   try {

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { apiFetch } from '../services/apiClient';
 import { 
   GitBranch, 
   CheckCircle2, 
@@ -60,7 +61,7 @@ export const ArchitectureDocs: React.FC = () => {
   const handleExecuteApi = async () => {
     setLoadingApi(true);
     try {
-      const res = await fetch(apiEndpoint);
+      const res = await apiFetch(apiEndpoint);
       const data = await res.json();
       setApiResponse(JSON.stringify(data, null, 2));
     } catch (e: any) {

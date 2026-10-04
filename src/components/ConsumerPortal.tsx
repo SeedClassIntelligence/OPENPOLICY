@@ -62,6 +62,7 @@ import { SAMPLE_DECLARATIONS_PAGES } from '../domain/policyIntelligence';
 import { compareOfferAgainstBaseline, formatClassification } from '../domain/comparisonEngine';
 import { useAuth } from '../context/AuthContext';
 import { AccountDashboard } from './AccountDashboard';
+import { apiFetch } from '../services/apiClient';
 
 interface ConsumerPortalProps {
   challenge: Challenge | null;
@@ -112,7 +113,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
 
   const fetchVaultDocs = async () => {
     try {
-      const res = await fetch('/api/vault/documents');
+      const res = await apiFetch('/api/vault/documents');
       if (res.ok) {
         const docs = await res.json();
         setVaultDocs(docs);
@@ -130,7 +131,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
   const fetchConsumerInfoRequests = async () => {
     if (!challenge?.id) return;
     try {
-      const res = await fetch(`/api/marketplace/challenges/${challenge.id}/information-requests`);
+      const res = await apiFetch(`/api/marketplace/challenges/${challenge.id}/information-requests`);
       if (res.ok) {
         const data = await res.json();
         setConsumerInfoRequests(data.requests || []);
@@ -152,9 +153,9 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
     if (!challenge?.id) return;
     try {
       const [deadRes, evalRes, feedRes] = await Promise.all([
-        fetch(`/api/marketplace/competition/${challenge.id}/deadline-status`),
-        fetch(`/api/marketplace/competition/${challenge.id}/status`),
-        fetch(`/api/marketplace/competition/${challenge.id}/activity-feed`)
+        apiFetch(`/api/marketplace/competition/${challenge.id}/deadline-status`),
+        apiFetch(`/api/marketplace/competition/${challenge.id}/status`),
+        apiFetch(`/api/marketplace/competition/${challenge.id}/activity-feed`)
       ]);
       if (deadRes.ok) {
         const deadData = await deadRes.json();
@@ -177,7 +178,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
     if (!challenge?.id) return;
     setAdvancingRound(targetRound);
     try {
-      const res = await fetch(`/api/marketplace/competition/${challenge.id}/advance-round`, {
+      const res = await apiFetch(`/api/marketplace/competition/${challenge.id}/advance-round`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ targetRound, reason })
@@ -199,7 +200,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
     if (!challenge?.id) return;
     setRetainingCurrentPolicy(true);
     try {
-      const res = await fetch(`/api/marketplace/competition/${challenge.id}/keep-current-policy`, {
+      const res = await apiFetch(`/api/marketplace/competition/${challenge.id}/keep-current-policy`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -243,7 +244,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
 
   const handleAnswerInfoRequest = async (requestId: string, val: any) => {
     try {
-      const res = await fetch(`/api/marketplace/information-requests/${requestId}/answer`, {
+      const res = await apiFetch(`/api/marketplace/information-requests/${requestId}/answer`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ answerValue: val, consumerId: 'user_consumer_1' })
@@ -262,7 +263,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
 
   const handleUploadVaultDoc = async () => {
     try {
-      const res = await fetch('/api/vault/upload', {
+      const res = await apiFetch('/api/vault/upload', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -288,7 +289,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
     if (!challenge) return;
     setTriggeringFinalRound(true);
     try {
-      const res = await fetch(`/api/challenges/${challenge.id}/final-round`, { method: 'POST' });
+      const res = await apiFetch(`/api/challenges/${challenge.id}/final-round`, { method: 'POST' });
       if (res.ok) {
         onRefreshData();
         setActionToast('Best & Final Round activated! Challengers submitted sharpened rates.');
@@ -305,7 +306,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
     if (!challenge) return;
     setTriggeringIncumbent(true);
     try {
-      const res = await fetch(`/api/challenges/${challenge.id}/incumbent-defense`, { method: 'POST' });
+      const res = await apiFetch(`/api/challenges/${challenge.id}/incumbent-defense`, { method: 'POST' });
       if (res.ok) {
         onRefreshData();
         setActionToast('Current company (GEICO) defense initiated! Retention offer entered the competition.');
@@ -420,7 +421,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
     let isCancelled = false;
     if (selectedComparison) {
       setLoadingAi(true);
-      fetch('/api/explain-comparison', {
+      apiFetch('/api/explain-comparison', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ comparison: selectedComparison })
@@ -449,7 +450,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
 
   // Handle sample upload
   const handleSelectSample = async (sampleId: string) => {
-    const res = await fetch('/api/documents/upload-sample', {
+    const res = await apiFetch('/api/documents/upload-sample', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sampleId })
@@ -466,7 +467,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
     if (!activePolicy) return;
     
     // Create baseline
-    const res = await fetch('/api/baselines/create', {
+    const res = await apiFetch('/api/baselines/create', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -484,7 +485,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
   // Launch challenge
   const handleLaunchChallenge = async () => {
     if (!activeBaseline) return;
-    const res = await fetch('/api/challenges/create', {
+    const res = await apiFetch('/api/challenges/create', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -529,7 +530,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
 
     try {
       const offer = offers.find(o => o.id === offerId);
-      const res = await fetch(`/api/marketplace/challenges/${challenge.id}/select-version`, {
+      const res = await apiFetch(`/api/marketplace/challenges/${challenge.id}/select-version`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -560,7 +561,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
     setIsGrantingConsent(true);
     setConsentError(null);
     try {
-      const res = await fetch(`/api/marketplace/binding/${handoffResult.id}/grant-consent`, {
+      const res = await apiFetch(`/api/marketplace/binding/${handoffResult.id}/grant-consent`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -575,7 +576,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
       if (res.ok && data.success) {
         setActiveConsentGrant(data.consentGrant);
         // Refresh handoff status
-        const hRes = await fetch(`/api/marketplace/binding/${handoffResult.id}`);
+        const hRes = await apiFetch(`/api/marketplace/binding/${handoffResult.id}`);
         const hData = await hRes.json();
         if (hRes.ok && hData.handoff) {
           setHandoffResult(hData.handoff);
@@ -596,7 +597,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
   const handleRevokeConsent = async () => {
     if (!handoffResult || !activeConsentGrant) return;
     try {
-      const res = await fetch(`/api/marketplace/binding/${handoffResult.id}/revoke-consent`, {
+      const res = await apiFetch(`/api/marketplace/binding/${handoffResult.id}/revoke-consent`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -618,7 +619,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
     setIsResolvingMod(true);
     try {
       const endpoint = decision === 'ACCEPT' ? 'accept-modification' : 'reject-modification';
-      const res = await fetch(`/api/marketplace/binding/${handoffResult.id}/${endpoint}`, {
+      const res = await apiFetch(`/api/marketplace/binding/${handoffResult.id}/${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -641,7 +642,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
   // PM-5 Fetch Reconciliation & Policy Vault data
   const fetchPM5Data = async (targetHandoffId?: string) => {
     try {
-      const vRes = await fetch('/api/marketplace/vault/policies');
+      const vRes = await apiFetch('/api/marketplace/vault/policies');
       if (vRes.ok) {
         const vData = await vRes.json();
         if (vData.success && Array.isArray(vData.vaultItems)) {
@@ -650,7 +651,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
       }
       const hid = targetHandoffId || handoffResult?.id;
       if (hid) {
-        const rRes = await fetch(`/api/marketplace/binding/${hid}/reconciliation`);
+        const rRes = await apiFetch(`/api/marketplace/binding/${hid}/reconciliation`);
         if (rRes.ok) {
           const rData = await rRes.json();
           if (rData.success && rData.report) {
@@ -668,7 +669,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
     if (!handoffResult?.id) return;
     setIsVerifyingReconciliation(true);
     try {
-      const res = await fetch(`/api/marketplace/binding/${handoffResult.id}/consumer-verify`, {
+      const res = await apiFetch(`/api/marketplace/binding/${handoffResult.id}/consumer-verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -723,7 +724,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
       coverages: issuedCoverages
     };
 
-    const res = await fetch('/api/reconciliation/verify', {
+    const res = await apiFetch('/api/reconciliation/verify', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

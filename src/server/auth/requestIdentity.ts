@@ -1,0 +1,124 @@
+import type { NextFunction, Request, Response } from 'express';
+import { applicationDefault, cert, getApps, initializeApp } from 'firebase-admin/app';
+import { getAuth } from 'firebase-admin/auth';
+import { getFirestore } from 'firebase-admin/firestore';
+
+export type AuthMode = 'firebase' | 'fixture';
+export type IdentityRole = 'CONSUMER' | 'PROVIDER' | 'ADMIN';
+
+export interface RequestIdentity {
+  uid: string;
+  role: IdentityRole;
+  email?: string;
+  providerUserId?: string;
+  providerOrganizationId?: string;
+  providerStatus?: 'PENDING_VERIFICATION' | 'ACTIVE' | 'REJECTED';
+  source: 'FIREBASE' | 'FIXTURE';
+}
+
+declare global {
+  namespace Express {
+    interface Request {
+      openPolicyIdentity?: RequestIdentity;
+    }
+  }
+}
+
+export function configuredAuthMode(env: NodeJS.ProcessEnv = process.env): AuthMode {
+  const configured = (env.OPENPOLICY_AUTH_MODE || 'firebase').toLowerCase();
+  if (configured !== 'firebase' && configured !== 'fixture') {
+    throw new Error(`Invalid OPENPOLICY_AUTH_MODE '${configured}'. Expected firebase or fixture.`);
+  }
+  if (configured === 'fixture' && env.NODE_ENV === 'production') {
+    throw new Error('OPENPOLICY_AUTH_MODE=fixture is forbidden when NODE_ENV=production.');
+  }
+  return configured;
+}
+
+export function parseBearerToken(header: string | undefined): string | null {
+  if (!header) return null;
+  const match = /^Bearer\s+(.+)$/i.exec(header.trim());
+  return match?.[1]?.trim() || null;
+}
+
+function firebaseAdminApp() {
+  const existing = getApps()[0];
+  if (existing) return existing;
+
+  const encoded = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+  if (encoded) {
+    let serviceAccount: Record<string, unknown>;
+    try {
+      serviceAccount = JSON.parse(encoded);
+    } catch {
+      throw new Error('FIREBASE_SERVICE_ACCOUNT_JSON is not valid JSON.');
+    }
+    return initializeApp({ credential: cert(serviceAccount as any) });
+  }
+
+  return initializeApp({
+    credential: applicationDefault(),
+    projectId: process.env.FIREBASE_PROJECT_ID
+  });
+}
+
+async function resolveFirebaseIdentity(token: string): Promise<RequestIdentity> {
+  const adminApp = firebaseAdminApp();
+  const decoded = await getAuth(adminApp).verifyIdToken(token, true);
+  const profileSnapshot = await getFirestore(adminApp).collection('users').doc(decoded.uid).get();
+  if (!profileSnapshot.exists) {
+    throw Object.assign(new Error('Authenticated Firebase account has no Open Policy profile.'), { statusCode: 403 });
+  }
+
+  const profile = profileSnapshot.data() || {};
+  const role = profile.role as IdentityRole | undefined;
+  if (!role || !['CONSUMER', 'PROVIDER', 'ADMIN'].includes(role)) {
+    throw Object.assign(new Error('Open Policy profile has no valid account role.'), { statusCode: 403 });
+  }
+
+  return {
+    uid: decoded.uid,
+    email: decoded.email,
+    role,
+    providerUserId: profile.providerUserId,
+    providerOrganizationId: profile.providerOrganizationId,
+    providerStatus: profile.providerStatus,
+    source: 'FIREBASE'
+  };
+}
+
+function resolveFixtureIdentity(req: Request): RequestIdentity {
+  const providerUserId = String(req.headers['x-provider-user-id'] || req.body?.providerUserId || '').trim();
+  if (providerUserId) {
+    return { uid: providerUserId, providerUserId, role: 'PROVIDER', providerStatus: 'ACTIVE', source: 'FIXTURE' };
+  }
+
+  const consumerId = String(
+    req.headers['x-consumer-id'] || req.body?.consumerId || req.query.consumerId || 'user_consumer_1'
+  ).trim();
+  return { uid: consumerId, role: 'CONSUMER', source: 'FIXTURE' };
+}
+
+export async function attachRequestIdentity(req: Request, res: Response, next: NextFunction) {
+  try {
+    if (configuredAuthMode() === 'fixture') {
+      req.openPolicyIdentity = resolveFixtureIdentity(req);
+      next();
+      return;
+    }
+
+    const token = parseBearerToken(req.headers.authorization);
+    if (!token) {
+      next();
+      return;
+    }
+    req.openPolicyIdentity = await resolveFirebaseIdentity(token);
+    next();
+  } catch (error: any) {
+    const status = error?.statusCode || 401;
+    res.status(status).json({
+      error: status === 401 ? 'Unauthorized' : 'Forbidden',
+      message: error?.message || 'Identity verification failed'
+    });
+  }
+}

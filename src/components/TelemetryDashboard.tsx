@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { apiFetch } from '../services/apiClient';
 import { 
   Activity, 
   Database, 
@@ -40,7 +41,7 @@ export const TelemetryDashboard: React.FC = () => {
 
   const fetchMetrics = async () => {
     try {
-      const res = await fetch('/api/metrics');
+      const res = await apiFetch('/api/metrics');
       const data = await res.json();
       setMetrics(data);
     } catch (e) {
