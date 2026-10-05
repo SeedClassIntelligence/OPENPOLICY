@@ -952,6 +952,15 @@ export const SQL_MIGRATION_V10 = `
 -- These tables represent business objects that previously existed only in the
 -- process-local PolicyChallengeDatabase. Existing challenge snapshot columns remain
 -- immutable historical evidence; they are not replaced by mutable joins.
+ALTER TABLE challenges ADD COLUMN IF NOT EXISTS payload TEXT;
+ALTER TABLE challenges ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 1;
+ALTER TABLE competitions ADD COLUMN IF NOT EXISTS payload TEXT;
+ALTER TABLE competitions ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 1;
+ALTER TABLE challenge_invitations ADD COLUMN IF NOT EXISTS payload TEXT;
+ALTER TABLE challenge_invitations ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 1;
+ALTER TABLE challenge_participations ADD COLUMN IF NOT EXISTS payload TEXT;
+ALTER TABLE challenge_participations ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 1;
+
 CREATE TABLE IF NOT EXISTS coverage_baselines (
   id TEXT PRIMARY KEY,
   policy_id TEXT NOT NULL REFERENCES policies(id),

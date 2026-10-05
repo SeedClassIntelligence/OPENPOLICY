@@ -426,7 +426,7 @@ export class PostgresStore {
     await this.ensureReady();
     const res = await this.sql!.query<{
       id: string; challenge_id: string; status: string; current_round: string;
-      participant_count: number; opened_at: string; closes_at: string;
+      participant_count: number; opened_at: string; closes_at: string; payload: string | null;
     }>(`SELECT * FROM competitions WHERE id = $1;`, [id]);
     if (res.rows.length === 0) return undefined;
     return this._mapCompetition(res.rows[0]);
@@ -436,7 +436,7 @@ export class PostgresStore {
     await this.ensureReady();
     const res = await this.sql!.query<{
       id: string; challenge_id: string; status: string; current_round: string;
-      participant_count: number; opened_at: string; closes_at: string;
+      participant_count: number; opened_at: string; closes_at: string; payload: string | null;
     }>(`SELECT * FROM competitions WHERE challenge_id = $1 LIMIT 1;`, [challengeId]);
     if (res.rows.length === 0) return undefined;
     return this._mapCompetition(res.rows[0]);
@@ -446,15 +446,16 @@ export class PostgresStore {
     await this.ensureReady();
     const res = await this.sql!.query<{
       id: string; challenge_id: string; status: string; current_round: string;
-      participant_count: number; opened_at: string; closes_at: string;
+      participant_count: number; opened_at: string; closes_at: string; payload: string | null;
     }>(`SELECT * FROM competitions;`);
     return res.rows.map(r => this._mapCompetition(r));
   }
 
   private _mapCompetition(row: {
     id: string; challenge_id: string; status: string; current_round: string;
-    participant_count: number; opened_at: string; closes_at: string;
+    participant_count: number; opened_at: string; closes_at: string; payload: string | null;
   }): Competition {
+    if (row.payload) return JSON.parse(row.payload) as Competition;
     return {
       id: row.id,
       challengeId: row.challenge_id,
@@ -473,7 +474,7 @@ export class PostgresStore {
     const res = await this.sql!.query<{
       id: string; challenge_id: string; competition_id: string; provider_organization_id: string;
       status: string; invited_at: string; viewed_at: string | null; accepted_at: string | null;
-      declined_at: string | null; decline_reason: string | null; decline_notes: string | null;
+      declined_at: string | null; decline_reason: string | null; decline_notes: string | null; payload: string | null;
     }>(`SELECT * FROM challenge_invitations WHERE id = $1;`, [id]);
     if (res.rows.length === 0) return undefined;
     return this._mapInvitation(res.rows[0]);
@@ -484,7 +485,7 @@ export class PostgresStore {
     const res = await this.sql!.query<{
       id: string; challenge_id: string; competition_id: string; provider_organization_id: string;
       status: string; invited_at: string; viewed_at: string | null; accepted_at: string | null;
-      declined_at: string | null; decline_reason: string | null; decline_notes: string | null;
+      declined_at: string | null; decline_reason: string | null; decline_notes: string | null; payload: string | null;
     }>(`SELECT * FROM challenge_invitations WHERE challenge_id = $1;`, [challengeId]);
     return res.rows.map(r => this._mapInvitation(r));
   }
@@ -494,7 +495,7 @@ export class PostgresStore {
     const res = await this.sql!.query<{
       id: string; challenge_id: string; competition_id: string; provider_organization_id: string;
       status: string; invited_at: string; viewed_at: string | null; accepted_at: string | null;
-      declined_at: string | null; decline_reason: string | null; decline_notes: string | null;
+      declined_at: string | null; decline_reason: string | null; decline_notes: string | null; payload: string | null;
     }>(`SELECT * FROM challenge_invitations WHERE provider_organization_id = $1;`, [orgId]);
     return res.rows.map(r => this._mapInvitation(r));
   }
@@ -504,7 +505,7 @@ export class PostgresStore {
     const res = await this.sql!.query<{
       id: string; challenge_id: string; competition_id: string; provider_organization_id: string;
       status: string; invited_at: string; viewed_at: string | null; accepted_at: string | null;
-      declined_at: string | null; decline_reason: string | null; decline_notes: string | null;
+      declined_at: string | null; decline_reason: string | null; decline_notes: string | null; payload: string | null;
     }>(`SELECT * FROM challenge_invitations;`);
     return res.rows.map(r => this._mapInvitation(r));
   }
@@ -512,8 +513,9 @@ export class PostgresStore {
   private _mapInvitation(row: {
     id: string; challenge_id: string; competition_id: string; provider_organization_id: string;
     status: string; invited_at: string; viewed_at: string | null; accepted_at: string | null;
-    declined_at: string | null; decline_reason: string | null; decline_notes: string | null;
+    declined_at: string | null; decline_reason: string | null; decline_notes: string | null; payload: string | null;
   }): ChallengeInvitation {
+    if (row.payload) return JSON.parse(row.payload) as ChallengeInvitation;
     return {
       id: row.id,
       challengeId: row.challenge_id,
@@ -561,8 +563,9 @@ export class PostgresStore {
 
   private _mapParticipation(row: {
     id: string; challenge_id: string; competition_id: string; provider_organization_id: string;
-    accepted_at: string; status: string; last_activity_at: string;
+    accepted_at: string; status: string; last_activity_at: string; payload?: string | null;
   }): ChallengeParticipation {
+    if (row.payload) return JSON.parse(row.payload) as ChallengeParticipation;
     return {
       id: row.id,
       challengeId: row.challenge_id,
@@ -612,8 +615,9 @@ export class PostgresStore {
 
   private _mapChallenge(row: {
     id: string; user_id: string; reference_number: string; jurisdiction: string;
-    status: string; created_at: string; baseline_data: string | null; requirements_data: string | null;
+    status: string; created_at: string; baseline_data: string | null; requirements_data: string | null; payload?: string | null;
   }): Challenge {
+    if (row.payload) return JSON.parse(row.payload) as Challenge;
     return {
       id: row.id,
       referenceNumber: row.reference_number,
@@ -877,13 +881,15 @@ export class PostgresStore {
   public async saveCompetition(comp: Competition) {
     await this.ensureReady();
     await this.sql!.query(
-      `INSERT INTO competitions (id, challenge_id, jurisdiction, line_of_business, status, current_round, participant_count, opened_at, closes_at, rules)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `INSERT INTO competitions (id, challenge_id, jurisdiction, line_of_business, status, current_round, participant_count, opened_at, closes_at, rules, payload)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        ON CONFLICT (id) DO UPDATE SET
          status = EXCLUDED.status,
          current_round = EXCLUDED.current_round,
          participant_count = EXCLUDED.participant_count,
-         closes_at = EXCLUDED.closes_at;`,
+         closes_at = EXCLUDED.closes_at,
+         payload = EXCLUDED.payload,
+         version = competitions.version + 1;`,
       [
         comp.id,
         comp.challengeId,
@@ -894,7 +900,8 @@ export class PostgresStore {
         comp.participantCount,
         comp.openedAt,
         comp.closesAt,
-        JSON.stringify((comp as any).rules || {})
+        JSON.stringify((comp as any).rules || {}),
+        JSON.stringify(comp)
       ]
     );
   }
@@ -902,15 +909,17 @@ export class PostgresStore {
   public async saveInvitation(inv: ChallengeInvitation) {
     await this.ensureReady();
     await this.sql!.query(
-      `INSERT INTO challenge_invitations (id, challenge_id, competition_id, provider_organization_id, status, invited_at, viewed_at, accepted_at, declined_at, decline_reason, decline_notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      `INSERT INTO challenge_invitations (id, challenge_id, competition_id, provider_organization_id, status, invited_at, viewed_at, accepted_at, declined_at, decline_reason, decline_notes, payload)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        ON CONFLICT (id) DO UPDATE SET
          status = EXCLUDED.status,
          viewed_at = EXCLUDED.viewed_at,
          accepted_at = EXCLUDED.accepted_at,
          declined_at = EXCLUDED.declined_at,
          decline_reason = EXCLUDED.decline_reason,
-         decline_notes = EXCLUDED.decline_notes;`,
+         decline_notes = EXCLUDED.decline_notes,
+         payload = EXCLUDED.payload,
+         version = challenge_invitations.version + 1;`,
       [
         inv.id,
         inv.challengeId,
@@ -922,7 +931,8 @@ export class PostgresStore {
         inv.acceptedAt || null,
         inv.declinedAt || null,
         inv.declineReason || null,
-        inv.declineNotes || null
+        inv.declineNotes || null,
+        JSON.stringify(inv)
       ]
     );
   }
@@ -930,11 +940,13 @@ export class PostgresStore {
   public async saveParticipation(part: ChallengeParticipation) {
     await this.ensureReady();
     await this.sql!.query(
-      `INSERT INTO challenge_participations (id, challenge_id, competition_id, provider_organization_id, accepted_at, status, last_activity_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO challenge_participations (id, challenge_id, competition_id, provider_organization_id, accepted_at, status, last_activity_at, payload)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        ON CONFLICT (id) DO UPDATE SET
          status = EXCLUDED.status,
-         last_activity_at = EXCLUDED.last_activity_at;`,
+         last_activity_at = EXCLUDED.last_activity_at,
+         payload = EXCLUDED.payload,
+         version = challenge_participations.version + 1;`,
       [
         part.id,
         part.challengeId,
@@ -942,7 +954,8 @@ export class PostgresStore {
         part.providerOrganizationId,
         part.acceptedAt,
         part.status,
-        part.lastActivityAt
+        part.lastActivityAt,
+        JSON.stringify(part)
       ]
     );
   }
@@ -955,9 +968,10 @@ export class PostgresStore {
     }
     await this.sql!.query(
       `INSERT INTO challenges (id, user_id, reference_number, jurisdiction, status, created_at, baseline_data, requirements_data,
-         jurisdiction_determination_id, rule_set_id, rule_set_content_sha256, regulatory_evaluation_date)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-       ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status;`,
+         jurisdiction_determination_id, rule_set_id, rule_set_content_sha256, regulatory_evaluation_date, payload)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+       ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, payload = EXCLUDED.payload,
+         version = challenges.version + 1;`,
       [
         chal.id,
         consumerId,
@@ -970,7 +984,8 @@ export class PostgresStore {
         chal.jurisdictionDeterminationId ?? null,
         chal.ruleSetId ?? null,
         chal.ruleSetContentSha256 ?? null,
-        chal.regulatoryEvaluationDate ?? null
+        chal.regulatoryEvaluationDate ?? null,
+        JSON.stringify(chal)
       ]
     );
   }
