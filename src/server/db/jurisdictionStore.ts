@@ -8,8 +8,7 @@
  * Commercial tables are never read or written here.
  */
 import crypto from 'crypto';
-import { PGlite } from '@electric-sql/pglite';
-import { PostgresStore, postgresStore } from './postgresStore';
+import { PostgresStore, postgresStore, type SqlClient } from './postgresStore';
 import {
   ActivationGateCode,
   GateAttestation,
@@ -54,7 +53,7 @@ function toDate(value: unknown): string | undefined {
 export class JurisdictionStore {
   constructor(private store: PostgresStore = postgresStore) {}
 
-  private async client(): Promise<PGlite> {
+  private async client(): Promise<SqlClient> {
     return this.store.getPgClient();
   }
 

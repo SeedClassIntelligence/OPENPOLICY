@@ -1,5 +1,6 @@
 import { PGlite } from '@electric-sql/pglite';
 import fs from 'fs';
+import pg from 'pg';
 import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8, SQL_MIGRATION_V9 } from './migrate';
 import {
   ProviderOrganization,
@@ -30,6 +31,79 @@ import {
   PlatformNotification
 } from '../../types/insurance';
 
+export interface SqlClient {
+  query<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<{ rows: T[]; rowCount?: number }>;
+  exec(sql: string): Promise<unknown>;
+  transaction<T>(callback: (client: SqlClient) => Promise<T>): Promise<T>;
+  close(): Promise<void>;
+}
+
+class CloudSqlClient implements SqlClient {
+  private readonly pool: pg.Pool;
+
+  constructor() {
+    const connectionString = process.env.DATABASE_URL?.trim();
+    if (connectionString) {
+      this.pool = new pg.Pool({ connectionString, max: 5 });
+      return;
+    }
+
+    const instance = process.env.CLOUD_SQL_INSTANCE?.trim();
+    const user = process.env.DB_USER?.trim();
+    const database = process.env.DB_NAME?.trim();
+    const password = process.env.DB_PASSWORD;
+    if (!instance || !user || !database || !password) {
+      throw new Error(
+        'Cloud SQL requires DATABASE_URL or CLOUD_SQL_INSTANCE, DB_USER, DB_NAME, and DB_PASSWORD.'
+      );
+    }
+    this.pool = new pg.Pool({
+      host: `/cloudsql/${instance}`,
+      user,
+      password,
+      database,
+      max: 5
+    });
+  }
+
+  async query<T = Record<string, unknown>>(sql: string, params: unknown[] = []): Promise<{ rows: T[]; rowCount?: number }> {
+    const result = await this.pool.query(sql, params);
+    return { rows: result.rows as T[], rowCount: result.rowCount ?? undefined };
+  }
+
+  async exec(sql: string): Promise<unknown> {
+    return this.pool.query(sql);
+  }
+
+  async transaction<T>(callback: (client: SqlClient) => Promise<T>): Promise<T> {
+    const connection = await this.pool.connect();
+    const transactionClient: SqlClient = {
+      query: async <R = Record<string, unknown>>(sql: string, params: unknown[] = []) => {
+        const result = await connection.query(sql, params);
+        return { rows: result.rows as R[], rowCount: result.rowCount ?? undefined };
+      },
+      exec: sql => connection.query(sql),
+      transaction: async nested => nested(transactionClient),
+      close: async () => undefined
+    };
+    try {
+      await connection.query('BEGIN');
+      const result = await callback(transactionClient);
+      await connection.query('COMMIT');
+      return result;
+    } catch (error) {
+      await connection.query('ROLLBACK');
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
+  async close(): Promise<void> {
+    await this.pool.end();
+  }
+}
+
 /**
  * PostgresStore — Durable PGlite persistence layer for Open Policy marketplace and transaction entities.
  *
@@ -42,14 +116,23 @@ import {
  * Commercial Economics (CE) entities are persisted in commercialStore.ts operating over the same underlying database.
  */
 export class PostgresStore {
-  private pglite: PGlite | null = null;
+  private sql: SqlClient | null = null;
   private isReady = false;
   private dataDir: string;
+  private useCloudSql: boolean;
   private initPromise: Promise<void> | null = null;
 
   // OPENPOLICY_DATA_DIR lets validators run against an isolated database; unset keeps the default.
-  constructor(dataDir = process.env.OPENPOLICY_DATA_DIR || './data/openpolicy_pg') {
-    this.dataDir = dataDir;
+  constructor(dataDir?: string) {
+    this.dataDir = dataDir || process.env.OPENPOLICY_DATA_DIR || './data/openpolicy_pg';
+    this.useCloudSql = !dataDir && !process.env.OPENPOLICY_DATA_DIR && Boolean(
+      process.env.DATABASE_URL?.trim() || process.env.CLOUD_SQL_INSTANCE?.trim()
+    );
+    if (process.env.OPENPOLICY_REQUIRE_DURABLE_STORAGE === 'true' && !this.useCloudSql) {
+      throw new Error(
+        'Durable storage is required, but neither DATABASE_URL nor CLOUD_SQL_INSTANCE is configured.'
+      );
+    }
   }
 
   public async ensureReady(): Promise<void> {
@@ -57,55 +140,65 @@ export class PostgresStore {
   }
 
   public async init(): Promise<void> {
-    if (this.isReady && this.pglite) return;
+    if (this.isReady && this.sql) return;
     if (this.initPromise) {
       return this.initPromise;
     }
     this.initPromise = (async () => {
       try {
-        if (!fs.existsSync(this.dataDir)) {
-          fs.mkdirSync(this.dataDir, { recursive: true });
+        if (this.useCloudSql) {
+          this.sql = new CloudSqlClient();
+          await this.sql.query('SELECT 1');
+        } else {
+          if (!fs.existsSync(this.dataDir)) {
+            fs.mkdirSync(this.dataDir, { recursive: true });
+          }
+          const pglite = new PGlite(this.dataDir);
+          await pglite.waitReady;
+          this.sql = pglite as unknown as SqlClient;
         }
-        this.pglite = new PGlite(this.dataDir);
-        await this.pglite.waitReady;
-        await this.pglite.exec(SQL_MIGRATION_V1);
-        await this.pglite.query(
+        await this.sql.exec(SQL_MIGRATION_V1);
+        await this.sql.query(
           `INSERT INTO _migrations (name) VALUES ('0001_pm1_canonical_marketplace') ON CONFLICT (name) DO NOTHING;`
         );
-        await this.pglite.exec(SQL_MIGRATION_V2);
-        await this.pglite.query(
+        await this.sql.exec(SQL_MIGRATION_V2);
+        await this.sql.query(
           `INSERT INTO _migrations (name) VALUES ('0002_pm2_information_and_offers') ON CONFLICT (name) DO NOTHING;`
         );
-        await this.pglite.exec(SQL_MIGRATION_V3);
-        await this.pglite.query(
+        await this.sql.exec(SQL_MIGRATION_V3);
+        await this.sql.query(
           `INSERT INTO _migrations (name) VALUES ('0003_pm4_selection_disclosure_binding') ON CONFLICT (name) DO NOTHING;`
         );
-        await this.pglite.exec(SQL_MIGRATION_V4);
-        await this.pglite.query(
+        await this.sql.exec(SQL_MIGRATION_V4);
+        await this.sql.query(
           `INSERT INTO _migrations (name) VALUES ('0004_pm5_issued_policy_reconciliation_vault') ON CONFLICT (name) DO NOTHING;`
         );
-        await this.pglite.exec(SQL_MIGRATION_V5);
-        await this.pglite.query(
+        await this.sql.exec(SQL_MIGRATION_V5);
+        await this.sql.query(
           `INSERT INTO _migrations (name) VALUES ('0005_commercial_economics_foundation') ON CONFLICT (name) DO NOTHING;`
         );
-        await this.pglite.exec(SQL_MIGRATION_V6);
-        await this.pglite.query(
+        await this.sql.exec(SQL_MIGRATION_V6);
+        await this.sql.query(
           `INSERT INTO _migrations (name) VALUES ('0006_commercial_rating_engine') ON CONFLICT (name) DO NOTHING;`
         );
-        await this.pglite.exec(SQL_MIGRATION_V7);
-        await this.pglite.query(
+        await this.sql.exec(SQL_MIGRATION_V7);
+        await this.sql.query(
           `INSERT INTO _migrations (name) VALUES ('0007_commercial_billing_settlement') ON CONFLICT (name) DO NOTHING;`
         );
-        await this.pglite.exec(SQL_MIGRATION_V8);
-        await this.pglite.query(
+        await this.sql.exec(SQL_MIGRATION_V8);
+        await this.sql.query(
           `INSERT INTO _migrations (name) VALUES ('0008_jurisdiction_framework') ON CONFLICT (name) DO NOTHING;`
         );
-        await this.pglite.exec(SQL_MIGRATION_V9);
-        await this.pglite.query(
+        await this.sql.exec(SQL_MIGRATION_V9);
+        await this.sql.query(
           `INSERT INTO _migrations (name) VALUES ('0009_notification_recipient_ownership') ON CONFLICT (name) DO NOTHING;`
         );
         this.isReady = true;
-        console.log('[Open Policy Postgres] PostgreSQL 16 durable engine initialized at', this.dataDir);
+        console.log(
+          this.useCloudSql
+            ? '[Open Policy Postgres] Cloud SQL durable engine initialized'
+            : `[Open Policy Postgres] PostgreSQL 16 durable engine initialized at ${this.dataDir}`
+        );
       } catch (err: any) {
         this.initPromise = null;
         this.isReady = false;
@@ -115,9 +208,9 @@ export class PostgresStore {
     return this.initPromise;
   }
 
-  public async getPgClient(): Promise<PGlite> {
+  public async getPgClient(): Promise<SqlClient> {
     await this.ensureReady();
-    return this.pglite!;
+    return this.sql!;
   }
 
 
@@ -128,9 +221,9 @@ export class PostgresStore {
       } catch {}
       this.initPromise = null;
     }
-    if (this.pglite) {
-      await this.pglite.close();
-      this.pglite = null;
+    if (this.sql) {
+      await this.sql.close();
+      this.sql = null;
       this.isReady = false;
     }
   }
@@ -141,7 +234,7 @@ export class PostgresStore {
 
   public async getProviderOrganizations(): Promise<ProviderOrganization[]> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; legal_name: string; display_name: string; organization_type: string;
       verification_status: string; marketplace_status: string; states: string;
       lines_of_business: string; created_at: string; verified_at: string | null;
@@ -162,7 +255,7 @@ export class PostgresStore {
 
   public async getProviderOrganization(id: string): Promise<ProviderOrganization | undefined> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; legal_name: string; display_name: string; organization_type: string;
       verification_status: string; marketplace_status: string; states: string;
       lines_of_business: string; created_at: string; verified_at: string | null;
@@ -186,11 +279,11 @@ export class PostgresStore {
   public async getProviderUsers(orgId?: string): Promise<ProviderUser[]> {
     await this.ensureReady();
     const res = orgId
-      ? await this.pglite!.query<{
+      ? await this.sql!.query<{
           id: string; organization_id: string; email: string; full_name: string;
           role: string; is_active: boolean; created_at: string;
         }>(`SELECT * FROM provider_users WHERE organization_id = $1;`, [orgId])
-      : await this.pglite!.query<{
+      : await this.sql!.query<{
           id: string; organization_id: string; email: string; full_name: string;
           role: string; is_active: boolean; created_at: string;
         }>(`SELECT * FROM provider_users;`);
@@ -206,7 +299,7 @@ export class PostgresStore {
 
   public async getProviderUser(userId: string): Promise<ProviderUser | undefined> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; organization_id: string; email: string; full_name: string;
       role: string; is_active: boolean; created_at: string;
     }>(`SELECT * FROM provider_users WHERE id = $1;`, [userId]);
@@ -224,7 +317,7 @@ export class PostgresStore {
 
   public async getProviderLicenses(orgId: string): Promise<ProviderLicense[]> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; provider_organization_id: string; jurisdiction: string;
       license_number: string; license_type: string; status: string;
       expiration_date: string; verified_at: string | null;
@@ -244,7 +337,7 @@ export class PostgresStore {
 
   public async getCarrierRelationships(orgId: string): Promise<CarrierRelationship[]> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; provider_organization_id: string; carrier_id: string;
       carrier_name: string; jurisdiction: string; line_of_business: string;
       relationship_type: string; status: string;
@@ -263,7 +356,7 @@ export class PostgresStore {
 
   public async getProviderAppetite(orgId: string): Promise<ProviderAppetite | undefined> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       provider_organization_id: string; jurisdictions: string; lines_of_business: string;
       min_annual_premium: number | null; max_annual_premium: number | null;
       target_vehicle_years_min: number | null; target_vehicle_years_max: number | null;
@@ -287,7 +380,7 @@ export class PostgresStore {
 
   public async getCompetition(id: string): Promise<Competition | undefined> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; challenge_id: string; status: string; current_round: string;
       participant_count: number; opened_at: string; closes_at: string;
     }>(`SELECT * FROM competitions WHERE id = $1;`, [id]);
@@ -297,7 +390,7 @@ export class PostgresStore {
 
   public async getCompetitionForChallenge(challengeId: string): Promise<Competition | undefined> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; challenge_id: string; status: string; current_round: string;
       participant_count: number; opened_at: string; closes_at: string;
     }>(`SELECT * FROM competitions WHERE challenge_id = $1 LIMIT 1;`, [challengeId]);
@@ -307,7 +400,7 @@ export class PostgresStore {
 
   public async getAllCompetitions(): Promise<Competition[]> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; challenge_id: string; status: string; current_round: string;
       participant_count: number; opened_at: string; closes_at: string;
     }>(`SELECT * FROM competitions;`);
@@ -333,7 +426,7 @@ export class PostgresStore {
 
   public async getInvitation(id: string): Promise<ChallengeInvitation | undefined> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; challenge_id: string; competition_id: string; provider_organization_id: string;
       status: string; invited_at: string; viewed_at: string | null; accepted_at: string | null;
       declined_at: string | null; decline_reason: string | null; decline_notes: string | null;
@@ -344,7 +437,7 @@ export class PostgresStore {
 
   public async getInvitationsForChallenge(challengeId: string): Promise<ChallengeInvitation[]> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; challenge_id: string; competition_id: string; provider_organization_id: string;
       status: string; invited_at: string; viewed_at: string | null; accepted_at: string | null;
       declined_at: string | null; decline_reason: string | null; decline_notes: string | null;
@@ -354,7 +447,7 @@ export class PostgresStore {
 
   public async getInvitationsForOrg(orgId: string): Promise<ChallengeInvitation[]> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; challenge_id: string; competition_id: string; provider_organization_id: string;
       status: string; invited_at: string; viewed_at: string | null; accepted_at: string | null;
       declined_at: string | null; decline_reason: string | null; decline_notes: string | null;
@@ -364,7 +457,7 @@ export class PostgresStore {
 
   public async getAllInvitations(): Promise<ChallengeInvitation[]> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; challenge_id: string; competition_id: string; provider_organization_id: string;
       status: string; invited_at: string; viewed_at: string | null; accepted_at: string | null;
       declined_at: string | null; decline_reason: string | null; decline_notes: string | null;
@@ -397,7 +490,7 @@ export class PostgresStore {
 
   public async getParticipationsForOrg(orgId: string): Promise<ChallengeParticipation[]> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; challenge_id: string; competition_id: string; provider_organization_id: string;
       accepted_at: string; status: string; last_activity_at: string;
     }>(`SELECT * FROM challenge_participations WHERE provider_organization_id = $1;`, [orgId]);
@@ -406,7 +499,7 @@ export class PostgresStore {
 
   public async getParticipationsForChallenge(challengeId: string): Promise<ChallengeParticipation[]> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; challenge_id: string; competition_id: string; provider_organization_id: string;
       accepted_at: string; status: string; last_activity_at: string;
     }>(`SELECT * FROM challenge_participations WHERE challenge_id = $1;`, [challengeId]);
@@ -415,7 +508,7 @@ export class PostgresStore {
 
   public async getAllParticipations(): Promise<ChallengeParticipation[]> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; challenge_id: string; competition_id: string; provider_organization_id: string;
       accepted_at: string; status: string; last_activity_at: string;
     }>(`SELECT * FROM challenge_participations;`);
@@ -439,7 +532,7 @@ export class PostgresStore {
 
   public async getAuditEvents(): Promise<AuditEvent[]> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; timestamp: string; event_type: string;
       actor_role: string; actor_id: string; details: string; hash: string;
     }>(`SELECT * FROM audit_events ORDER BY timestamp ASC;`);
@@ -456,7 +549,7 @@ export class PostgresStore {
 
   public async getChallenges(): Promise<Challenge[]> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; user_id: string; reference_number: string; jurisdiction: string;
       status: string; created_at: string; baseline_data: string | null; requirements_data: string | null;
     }>(`SELECT * FROM challenges ORDER BY created_at ASC;`);
@@ -465,7 +558,7 @@ export class PostgresStore {
 
   public async getChallenge(id: string): Promise<Challenge | undefined> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; user_id: string; reference_number: string; jurisdiction: string;
       status: string; created_at: string; baseline_data: string | null; requirements_data: string | null;
     }>(`SELECT * FROM challenges WHERE id = $1;`, [id]);
@@ -499,7 +592,7 @@ export class PostgresStore {
 
   public async getInformationRequests(challengeId: string): Promise<InformationRequest[]> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; challenge_id: string; competition_id: string; provider_organization_id: string;
       requested_field: string; custom_field_name: string | null; purpose: string;
       purpose_explanation: string; status: string; requested_at: string;
@@ -524,7 +617,7 @@ export class PostgresStore {
 
   public async getInformationRequest(id: string): Promise<InformationRequest | undefined> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; challenge_id: string; competition_id: string; provider_organization_id: string;
       requested_field: string; custom_field_name: string | null; purpose: string;
       purpose_explanation: string; status: string; requested_at: string;
@@ -551,7 +644,7 @@ export class PostgresStore {
 
   public async getVerifiedSupplementalFacts(challengeId: string): Promise<VerifiedSupplementalFact[]> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; consumer_id: string; challenge_id: string; field_type: string;
       field_name: string; value: string; formatted_value: string;
       verification_state: string; source: string; created_at: string;
@@ -574,7 +667,7 @@ export class PostgresStore {
 
   public async getVerifiedSupplementalFact(id: string): Promise<VerifiedSupplementalFact | undefined> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; consumer_id: string; challenge_id: string; field_type: string;
       field_name: string; value: string; formatted_value: string;
       verification_state: string; source: string; created_at: string;
@@ -599,7 +692,7 @@ export class PostgresStore {
 
   public async getOfferVersions(offerId: string): Promise<OfferVersion[]> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; offer_id: string; version_number: number; round: string;
       carrier: string; annual_premium: number; monthly_premium: number;
       coverages: string; supporting_quote_doc_name: string; revision_reason: string;
@@ -623,7 +716,7 @@ export class PostgresStore {
 
   public async getOfferVerification(offerId: string): Promise<OfferVerification | undefined> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; offer_id: string; document_name: string; status: string;
       verified_at: string; discrepancy_count: number; discrepancies: string;
       extracted_premium: number | null; entered_premium: number | null;
@@ -645,7 +738,7 @@ export class PostgresStore {
 
   public async saveProviderOrganization(org: ProviderOrganization) {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO provider_organizations (id, legal_name, display_name, organization_type, verification_status, marketplace_status, states, lines_of_business, created_at, verified_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        ON CONFLICT (id) DO UPDATE SET
@@ -670,7 +763,7 @@ export class PostgresStore {
 
   public async saveProviderUser(user: ProviderUser) {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO provider_users (id, organization_id, email, full_name, role, is_active, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT (id) DO UPDATE SET full_name = EXCLUDED.full_name, role = EXCLUDED.role;`,
@@ -688,7 +781,7 @@ export class PostgresStore {
 
   public async saveProviderLicense(lic: ProviderLicense) {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO provider_licenses (id, provider_organization_id, jurisdiction, license_number, license_type, status, expiration_date, verified_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, expiration_date = EXCLUDED.expiration_date;`,
@@ -707,7 +800,7 @@ export class PostgresStore {
 
   public async saveCarrierRelationship(rel: CarrierRelationship) {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO carrier_relationships (id, provider_organization_id, carrier_id, carrier_name, jurisdiction, line_of_business, relationship_type, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status;`,
@@ -717,7 +810,7 @@ export class PostgresStore {
 
   public async saveProviderAppetite(appetite: ProviderAppetite) {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO provider_appetites (provider_organization_id, jurisdictions, lines_of_business, min_annual_premium, max_annual_premium, target_vehicle_years_min, target_vehicle_years_max, preferred_risk_tiers, excluded_vehicle_types)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        ON CONFLICT (provider_organization_id) DO UPDATE SET
@@ -739,7 +832,7 @@ export class PostgresStore {
 
   public async saveCompetition(comp: Competition) {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO competitions (id, challenge_id, jurisdiction, line_of_business, status, current_round, participant_count, opened_at, closes_at, rules)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        ON CONFLICT (id) DO UPDATE SET
@@ -764,7 +857,7 @@ export class PostgresStore {
 
   public async saveInvitation(inv: ChallengeInvitation) {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO challenge_invitations (id, challenge_id, competition_id, provider_organization_id, status, invited_at, viewed_at, accepted_at, declined_at, decline_reason, decline_notes)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        ON CONFLICT (id) DO UPDATE SET
@@ -792,7 +885,7 @@ export class PostgresStore {
 
   public async saveParticipation(part: ChallengeParticipation) {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO challenge_participations (id, challenge_id, competition_id, provider_organization_id, accepted_at, status, last_activity_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT (id) DO UPDATE SET
@@ -816,7 +909,7 @@ export class PostgresStore {
     if (!consumerId) {
       throw new Error(`Challenge '${chal.id}' has no authoritative consumer owner.`);
     }
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO challenges (id, user_id, reference_number, jurisdiction, status, created_at, baseline_data, requirements_data,
          jurisdiction_determination_id, rule_set_id, rule_set_content_sha256, regulatory_evaluation_date)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
@@ -840,7 +933,7 @@ export class PostgresStore {
 
   public async savePolicy(policy: Policy) {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO policies (id, policy_number, carrier, jurisdiction, named_insured, effective_date, expiration_date, annual_premium, status, payload)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status;`,
@@ -861,7 +954,7 @@ export class PostgresStore {
 
   public async saveOffer(offer: Offer) {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO offers (id, challenge_id, provider_id, provider_name, carrier, annual_premium, monthly_premium, status, round, version, previous_offer_id, is_latest_revision, payload)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
        ON CONFLICT (id) DO UPDATE SET
@@ -888,7 +981,7 @@ export class PostgresStore {
 
   public async saveAuditEvent(event: AuditEvent) {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO audit_events (id, timestamp, event_type, actor_role, actor_id, details, hash)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT (id) DO NOTHING;`,
@@ -902,7 +995,7 @@ export class PostgresStore {
 
   public async saveInformationRequest(req: InformationRequest): Promise<void> {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO information_requests (
         id, challenge_id, competition_id, provider_organization_id, requested_field,
         custom_field_name, purpose, purpose_explanation, status, requested_at,
@@ -933,7 +1026,7 @@ export class PostgresStore {
 
   public async saveVerifiedSupplementalFact(fact: VerifiedSupplementalFact): Promise<void> {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO verified_supplemental_facts (
         id, consumer_id, challenge_id, field_type, field_name, value, formatted_value,
         verification_state, source, created_at, shared_with_organization_ids
@@ -961,7 +1054,7 @@ export class PostgresStore {
 
   public async saveOfferVersion(ver: OfferVersion): Promise<void> {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO offer_versions (
         id, offer_id, version_number, round, carrier, annual_premium, monthly_premium,
         coverages, supporting_quote_doc_name, revision_reason, submitted_at, superseded_at
@@ -987,7 +1080,7 @@ export class PostgresStore {
 
   public async saveOfferVerification(ver: OfferVerification): Promise<void> {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO offer_verifications (
         id, offer_id, document_name, status, verified_at, discrepancy_count,
         discrepancies, extracted_premium, entered_premium
@@ -1023,7 +1116,7 @@ export class PostgresStore {
 
   public async saveSelection(sel: Selection): Promise<void> {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO selections (
         id, challenge_id, consumer_id, offer_id, offer_version_id, version_number,
         provider_organization_id, carrier, annual_premium, monthly_premium, selected_at, status
@@ -1043,7 +1136,7 @@ export class PostgresStore {
       ? `SELECT * FROM selections WHERE challenge_id = $1 ORDER BY selected_at DESC;`
       : `SELECT * FROM selections ORDER BY selected_at DESC;`;
     const params = challengeId ? [challengeId] : [];
-    const res = await this.pglite!.query<any>(query, params);
+    const res = await this.sql!.query<any>(query, params);
     return res.rows.map(r => ({
       id: r.id,
       challengeId: r.challenge_id,
@@ -1062,7 +1155,7 @@ export class PostgresStore {
 
   public async saveConsentGrant(grant: ConsentGrant): Promise<void> {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO consent_grants (
         id, challenge_id, consumer_id, recipient_organization_id, recipient_user_id,
         purpose, purpose_explanation, authorized_field_names, acknowledged_variations,
@@ -1085,7 +1178,7 @@ export class PostgresStore {
       ? `SELECT * FROM consent_grants WHERE challenge_id = $1 ORDER BY granted_at DESC;`
       : `SELECT * FROM consent_grants ORDER BY granted_at DESC;`;
     const params = challengeId ? [challengeId] : [];
-    const res = await this.pglite!.query<any>(query, params);
+    const res = await this.sql!.query<any>(query, params);
     return res.rows.map(r => ({
       id: r.id,
       challengeId: r.challenge_id,
@@ -1106,7 +1199,7 @@ export class PostgresStore {
 
   public async saveDisclosureEvent(evt: DisclosureEvent): Promise<void> {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO disclosure_events (
         id, challenge_id, binding_handoff_id, consent_grant_id,
         recipient_provider_organization_id, recipient_provider_user_id,
@@ -1128,7 +1221,7 @@ export class PostgresStore {
       ? `SELECT * FROM disclosure_events WHERE challenge_id = $1 OR binding_handoff_id = $1 ORDER BY disclosed_at DESC;`
       : `SELECT * FROM disclosure_events ORDER BY disclosed_at DESC;`;
     const params = id ? [id] : [];
-    const res = await this.pglite!.query<any>(query, params);
+    const res = await this.sql!.query<any>(query, params);
     return res.rows.map(r => ({
       id: r.id,
       challengeId: r.challenge_id,
@@ -1145,7 +1238,7 @@ export class PostgresStore {
 
   public async saveBindingHandoff(h: BindingHandoff): Promise<void> {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO binding_handoffs (
         id, binding_reference, challenge_id, selection_id, offer_id, offer_version_id,
         consumer_id, provider_organization_id, carrier, status, created_at, updated_at,
@@ -1178,7 +1271,7 @@ export class PostgresStore {
       ? `SELECT * FROM binding_handoffs WHERE challenge_id = $1 ORDER BY created_at DESC;`
       : `SELECT * FROM binding_handoffs ORDER BY created_at DESC;`;
     const params = challengeId ? [challengeId] : [];
-    const res = await this.pglite!.query<any>(query, params);
+    const res = await this.sql!.query<any>(query, params);
     return res.rows.map(r => ({
       id: r.id,
       bindingReference: r.binding_reference,
@@ -1207,7 +1300,7 @@ export class PostgresStore {
 
   public async saveBindingModification(mod: BindingModification): Promise<void> {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO binding_modifications (
         id, binding_handoff_id, challenge_id, provider_organization_id, provider_user_id,
         carrier, original_annual_premium, modified_annual_premium, coverage_changes,
@@ -1232,7 +1325,7 @@ export class PostgresStore {
       ? `SELECT * FROM binding_modifications WHERE binding_handoff_id = $1 ORDER BY proposed_at DESC;`
       : `SELECT * FROM binding_modifications ORDER BY proposed_at DESC;`;
     const params = handoffId ? [handoffId] : [];
-    const res = await this.pglite!.query<any>(query, params);
+    const res = await this.sql!.query<any>(query, params);
     return res.rows.map(r => ({
       id: r.id,
       bindingHandoffId: r.binding_handoff_id,
@@ -1257,7 +1350,7 @@ export class PostgresStore {
 
   public async saveIssuedPolicyDocument(doc: IssuedPolicyDocument): Promise<void> {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO issued_policy_documents (
         id, binding_handoff_id, challenge_id, provider_organization_id,
         file_name, file_size_bytes, mime_type, document_sha256, storage_ref, uploaded_at
@@ -1277,7 +1370,7 @@ export class PostgresStore {
       ? `SELECT * FROM issued_policy_documents WHERE binding_handoff_id = $1 ORDER BY uploaded_at DESC;`
       : `SELECT * FROM issued_policy_documents ORDER BY uploaded_at DESC;`;
     const params = bindingHandoffId ? [bindingHandoffId] : [];
-    const res = await this.pglite!.query<any>(query, params);
+    const res = await this.sql!.query<any>(query, params);
     return res.rows.map(r => ({
       id: r.id,
       bindingHandoffId: r.binding_handoff_id,
@@ -1294,7 +1387,7 @@ export class PostgresStore {
 
   public async getIssuedPolicyDocument(id: string): Promise<IssuedPolicyDocument | undefined> {
     await this.ensureReady();
-    const res = await this.pglite!.query<any>(
+    const res = await this.sql!.query<any>(
       `SELECT * FROM issued_policy_documents WHERE id = $1;`,
       [id]
     );
@@ -1316,7 +1409,7 @@ export class PostgresStore {
 
   public async saveIssuedPolicySnapshot(snapshot: IssuedPolicySnapshot): Promise<void> {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO issued_policy_snapshots (
         id, issued_policy_document_id, binding_handoff_id, carrier, policy_number,
         annual_premium, monthly_premium, effective_date, expiration_date, coverages,
@@ -1339,7 +1432,7 @@ export class PostgresStore {
       ? `SELECT * FROM issued_policy_snapshots WHERE binding_handoff_id = $1 ORDER BY extracted_at DESC;`
       : `SELECT * FROM issued_policy_snapshots ORDER BY extracted_at DESC;`;
     const params = bindingHandoffId ? [bindingHandoffId] : [];
-    const res = await this.pglite!.query<any>(query, params);
+    const res = await this.sql!.query<any>(query, params);
     return res.rows.map(r => ({
       id: r.id,
       issuedPolicyDocumentId: r.issued_policy_document_id,
@@ -1360,7 +1453,7 @@ export class PostgresStore {
 
   public async getIssuedPolicySnapshot(id: string): Promise<IssuedPolicySnapshot | undefined> {
     await this.ensureReady();
-    const res = await this.pglite!.query<any>(
+    const res = await this.sql!.query<any>(
       `SELECT * FROM issued_policy_snapshots WHERE id = $1;`,
       [id]
     );
@@ -1386,7 +1479,7 @@ export class PostgresStore {
 
   public async saveReconciliationReport(report: ReconciliationReport): Promise<void> {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO reconciliation_reports (
         id, binding_handoff_id, challenge_id, issued_policy_document_id,
         issued_policy_snapshot_id, verdict, status, discrepancies,
@@ -1418,7 +1511,7 @@ export class PostgresStore {
       ? `SELECT * FROM reconciliation_reports WHERE challenge_id = $1 OR binding_handoff_id = $1 ORDER BY reconciled_at DESC;`
       : `SELECT * FROM reconciliation_reports ORDER BY reconciled_at DESC;`;
     const params = refId ? [refId] : [];
-    const res = await this.pglite!.query<any>(query, params);
+    const res = await this.sql!.query<any>(query, params);
     return res.rows.map(r => ({
       id: r.id,
       bindingHandoffId: r.binding_handoff_id,
@@ -1441,7 +1534,7 @@ export class PostgresStore {
 
   public async getReconciliationReport(id: string): Promise<ReconciliationReport | undefined> {
     await this.ensureReady();
-    const res = await this.pglite!.query<any>(
+    const res = await this.sql!.query<any>(
       `SELECT * FROM reconciliation_reports WHERE id = $1;`,
       [id]
     );
@@ -1469,7 +1562,7 @@ export class PostgresStore {
 
   public async savePolicyVaultItem(item: PolicyVaultItem): Promise<void> {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO policy_vault_items (
         id, consumer_id, challenge_id, selection_id, binding_handoff_id,
         selected_offer_version_id, accepted_binding_modification_ids,
@@ -1491,7 +1584,7 @@ export class PostgresStore {
 
   public async saveNotification(notification: PlatformNotification): Promise<void> {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO platform_notifications (
         id, type, title, message, timestamp, is_read, read_at, recipient_type,
         recipient_consumer_id, recipient_provider_user_id, recipient_provider_organization_id,
@@ -1512,7 +1605,7 @@ export class PostgresStore {
 
   public async markNotificationRead(id: string, readAt: string): Promise<void> {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `UPDATE platform_notifications SET is_read = TRUE, read_at = $2 WHERE id = $1;`,
       [id, readAt]
     );
@@ -1524,7 +1617,7 @@ export class PostgresStore {
       ? `SELECT * FROM policy_vault_items WHERE consumer_id = $1 ORDER BY filed_at DESC;`
       : `SELECT * FROM policy_vault_items ORDER BY filed_at DESC;`;
     const params = consumerId ? [consumerId] : [];
-    const res = await this.pglite!.query<any>(query, params);
+    const res = await this.sql!.query<any>(query, params);
     return res.rows.map(r => ({
       id: r.id,
       consumerId: r.consumer_id,
@@ -1551,7 +1644,7 @@ export class PostgresStore {
 
   public async getPolicyVaultItem(id: string): Promise<PolicyVaultItem | undefined> {
     await this.ensureReady();
-    const res = await this.pglite!.query<any>(
+    const res = await this.sql!.query<any>(
       `SELECT * FROM policy_vault_items WHERE id = $1;`,
       [id]
     );
@@ -1613,7 +1706,7 @@ export class PostgresStore {
     const counts: Record<string, number> = {};
     for (const tbl of tables) {
       try {
-        const res = await this.pglite!.query<{ cnt: string }>(`SELECT COUNT(*) as cnt FROM ${tbl};`);
+        const res = await this.sql!.query<{ cnt: string }>(`SELECT COUNT(*) as cnt FROM ${tbl};`);
         counts[tbl] = parseInt(res.rows[0]?.cnt || '0', 10);
       } catch {
         counts[tbl] = 0;

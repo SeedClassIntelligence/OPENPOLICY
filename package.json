@@ -12,8 +12,8 @@
     "lint": "tsc --noEmit",
     "validate": "tsx scripts/run-validators.ts",
     "pr0b:capture": "NODE_USE_ENV_PROXY=1 tsx scripts/pr0b/capture-source.ts",
-    "test:onboarding": "node --import tsx --test src/auth/roleAccess.test.ts src/server/auth/requestIdentity.test.ts src/server/auth/routeAuthorization.test.ts",
-    "test:authorization": "node --import tsx --test src/server/auth/requestIdentity.test.ts src/server/auth/routeAuthorization.test.ts src/server/auth/notificationAuthorization.test.ts src/services/apiClient.test.ts src/services/firestoreSecurity.test.ts",
+    "test:onboarding": "node --import tsx --test src/auth/roleAccess.test.ts src/server/auth/requestIdentity.test.ts src/server/auth/routeAuthorization.test.ts src/server/db/postgresStore.test.ts",
+    "test:authorization": "node --import tsx --test src/server/auth/requestIdentity.test.ts src/server/auth/routeAuthorization.test.ts src/server/auth/notificationAuthorization.test.ts src/server/db/postgresStore.test.ts src/services/apiClient.test.ts src/services/firestoreSecurity.test.ts",
     "test:security-http": "tsx scripts/security-http-probes.ts"
   },
   "dependencies": {
@@ -29,6 +29,7 @@
     "firebase-admin": "^13.10.0",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
+    "pg": "^8.16.3",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "vite": "^8.3.0"
@@ -36,6 +37,7 @@
   "devDependencies": {
     "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
+    "@types/pg": "^8.15.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "autoprefixer": "^10.4.21",

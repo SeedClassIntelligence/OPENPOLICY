@@ -3,7 +3,7 @@
 Date: 2026-10-04  
 Starting SHA: `fc1028a`  
 Final implementation candidate SHA: `5b096c7`  
-Recommendation: **NOT READY — EXTERNAL ACCEPTANCE REQUIRED**
+Recommendation: **NOT READY — PERSISTENCE AUTHORITY REMAINS**
 
 ## Executive result
 
@@ -42,8 +42,8 @@ The repository-wide review is recorded in `docs/security/fixed-identity-disposit
 
 ## Authentication, authorization, and session tests
 
-- Authorization/security: **29/29 passed**.
-- Identity/onboarding: **18/18 passed**.
+- Authorization/security: **31/31 passed**.
+- Identity/onboarding: **20/20 passed**.
 - Covered malformed, expired, and revoked tokens; unknown Firebase profile; spoofed legacy headers; missing provider mapping; wrong actor type; consumer ownership; same-organization and cross-organization provider access; notification recipient classes; production fixture prohibition; Firestore rule invariants; and durable notification constraints.
 - Client lifecycle tests prove normal token use, exactly one forced refresh after 401, successful retry, rejected refreshed token, failed refresh, sign-out failure handling, controlled reauthentication, and no retry loop.
 - Production startup with missing `FIREBASE_PROJECT_ID` was executed against the built server and failed before listening, as required.
@@ -126,13 +126,13 @@ Production-hardening debt: upgrade Firebase Admin and its Google Cloud dependenc
 
 Production requires `NODE_ENV=production`, `OPENPOLICY_AUTH_MODE=firebase`, `FIREBASE_PROJECT_ID`, and one explicit Admin credential mechanism: uncommitted service-account JSON, `GOOGLE_APPLICATION_CREDENTIALS`, or intentionally declared platform ADC. Missing configuration fails startup; there is no fixture fallback. The browser uses the tracked Firebase web configuration, whose API key is public client configuration and still requires GCP restriction to the intended Firebase APIs and authorized origins.
 
-Firestore direct browser access is limited to the signed-in user's own `users/{uid}`, `challenges`, `orders`, and `vault` records. User creation cannot assign ADMIN or canonical provider mapping fields, self-update cannot alter role/provider status, collection-wide user listing is denied, record IDs/owners cannot be changed, and all unlisted collections default deny. Server-side provider organizations, offers, competition, commercial data, and notifications receive no browser rule grant. `firebase.json` tracks `firestore.rules` for deployment. Local static acceptance passed, but deployment and emulator/real-project validation remain external prerequisites. Firebase documents that tracked rules must be deployed before client access and that CLI deployment overwrites console rules: <https://firebase.google.com/docs/firestore/security/get-started>.
+Firestore direct browser access is limited to the signed-in user's own `users/{uid}`, `challenges`, `orders`, and `vault` records. User creation cannot assign ADMIN or canonical provider mapping fields, self-update cannot alter role/provider status, collection-wide user listing is denied, record IDs/owners cannot be changed, and all unlisted collections default deny. Server-side provider organizations, offers, competition, commercial data, and notifications receive no browser rule grant. `firebase.json` tracks `firestore.rules` for deployment. The tracked rules were deployed and exercised against the real project as recorded below. Firebase documents that tracked rules must be deployed before client access and that CLI deployment overwrites console rules: <https://firebase.google.com/docs/firestore/security/get-started>.
 
 ## App Check decision
 
 **APP CHECK DEFERRED.**
 
-Reason: no real Firebase project, registered web-app attestation provider, reCAPTCHA Enterprise key, or request metrics are available in this environment. Risk: valid Firebase configuration can be exercised by an untrusted client, leaving Security Rules and authenticated server authorization as the primary controls. Production disposition: configure App Check for the web app, observe metrics, then enforce Firestore (and Authentication where selected) before public launch. Firebase recommends early enforcement for unreleased applications: <https://firebase.google.com/docs/app-check/monitor-metrics>.
+Reason: the real Firebase project exists, but no web-app attestation provider or reCAPTCHA Enterprise key has been approved and configured. Risk: valid Firebase configuration can be exercised by an untrusted client, leaving Security Rules and authenticated server authorization as the primary controls. Production disposition: configure App Check for the web app, observe metrics, then enforce Firestore (and Authentication where selected) before public launch. Firebase recommends early enforcement for unreleased applications: <https://firebase.google.com/docs/app-check/monitor-metrics>.
 
 ## Real external acceptance
 
@@ -146,17 +146,23 @@ The Firebase browser key is restricted to the two Cloud Run service hostnames an
 
 Deployment exposed and resolved two environment defects: revoked-token verification required the runtime's read-only Firebase Authentication Viewer role, and the tracked web configuration required an explicit `firestoreDatabaseId: "(default)"` for TypeScript reproducibility. The final Cloud Run revision uses production Firebase mode, one vCPU, a 2 GiB memory ceiling, zero minimum instances, and one maximum instance. A project-scoped USD 5 alert budget is configured at 50%, 90%, and 100%; budget alerts are not hard spending caps.
 
-Firebase acceptance is **PASS for authentication, authorization boundaries, Rules behavior, and deployed HTTPS integration**. App Check remains deferred under the previously recorded decision. Production durability remains unresolved: PGlite runs on Cloud Run's ephemeral filesystem and showed a variable startup footprint above 1 GiB. This service is suitable as an external acceptance preview, but not as a durable production marketplace datastore. That storage decision requires founder authorization and is not silently treated as complete.
+Firebase acceptance is **PASS for authentication, authorization boundaries, Rules behavior, and deployed HTTPS integration**. App Check remains deferred under the previously recorded decision.
 
-### GitHub Milestone 3 — blocked by configuration
+### Cloud SQL — durable server persistence executed
 
-The GitHub harness is in the sibling `Custody-Core` repository on `milestone-3-code-home`, not in Open Policy. The checkout is clean. Two existing local recovery commits (`1c7bcdc`, `7791b2a`) were pushed to `origin/milestone-3-code-home`; local and remote now resolve to `7791b2a`. Each required command was invoked:
+The canonical `openpolicy-35f82` project now contains a PostgreSQL 16 Cloud SQL instance named `openpolicy-db` in `us-central1`. It uses the smallest shared-core `db-f1-micro` tier, 10 GB SSD storage with automatic growth, zonal availability, automated backups, and deletion protection. The application password was generated locally, stored only in Secret Manager as `openpolicy-db-password`, and granted only to the `openpolicy-runtime` service identity. The runtime also has Cloud SQL Client permission. No database password, root password, bearer token, or service-account key was printed or committed.
 
-- `npm run github-e2e`
-- `npm run github-e2e -- --connect`
-- `npm run github-e2e -- --cleanup`
+Production selects Cloud SQL through `CLOUD_SQL_INSTANCE`; local validators retain PGlite through explicit isolated data directories. `OPENPOLICY_REQUIRE_DURABLE_STORAGE=true` makes Cloud Run fail startup rather than silently falling back to an ephemeral database. The storage-selection tests pass in both onboarding and authorization suites.
 
-All stopped before external mutation because `GITHUB_APP_ID` is not a numeric configured App ID. Therefore no GitHub organization/repository was created or changed, and installation, lockdown, upload, token revocation, webhook/replay, recovery, rename, uninstall, and dashboard read-back remain unverified. Required input: the dedicated GitHub test organization/App and valid GitHub App credentials/configuration.
+The zero-traffic candidate completed all nine schema migrations, seeded canonical provider records, and returned HTTP 200. A replacement container then connected to the same database and reported the provider records already present, proving persistence across Cloud Run revision replacement. Real Firebase identity tests against the Cloud SQL revision passed **6/6**: consumer access, canonical provider mapping, participating-provider access, cross-organization denial, operator access, and revoked-token denial. All temporary identities were removed. The final fail-closed revision `openpolicy-acceptance-00009-yiy` serves 100% of the existing public URL's traffic.
+
+Post-change reproducibility completed a clean `npm ci` of 371 packages, TypeScript, 20/20 onboarding tests, 31/31 authorization tests, production client/server builds, 19/19 direct HTTP probes, and all 11 canonical validator runs. The dependency audit remains 8 moderate and 4 high Firebase-family findings under the existing dispositions; the PostgreSQL driver introduced no additional advisory.
+
+This closes ephemeral storage for entities already routed through `PostgresStore` and `CommercialStore`. It does **not** convert every in-memory map into an authoritative database read. The existing PR-0A reconciliation already records that several marketplace routes still treat the in-memory `db` as authoritative and use asynchronous write-through. Full production durability therefore still requires the bounded PR-1 persistence-authority conversion; this report does not mislabel the Cloud SQL connection as completion of that separate data-authority work.
+
+### Custody-Core GitHub Milestone 3 — separate product, not an Open Policy gate
+
+The GitHub App harness belongs to the sibling `Custody-Core` repository. It is not part of Open Policy, was not duplicated here, and does not gate the Open Policy recommendation.
 
 ## Secret and bundle scan
 
@@ -172,7 +178,7 @@ Findings:
 
 - BLOCKER: none in local implementation.
 - HIGH: none in local implementation. The four npm HIGH package findings are unreachable/temporarily accepted as individually described above.
-- MEDIUM: real Firebase acceptance absent; Firestore Rules not deployed/tested against a real project; App Check deferred; real GitHub acceptance absent; Firebase Admin upgrade debt. These are external/production-hardening gates, not hidden as local passes.
+- MEDIUM: App Check remains deferred; Firebase Admin upgrade debt remains; and several marketplace routes still use the in-memory domain store as read authority with asynchronous database write-through. Firebase and Cloud SQL external acceptance are complete, but full PR-1 persistence authority is not.
 - LOW: production browser bundle exceeds 500 kB and Vite reports an ineffective dynamic import. This is performance/build debt, not an authorization defect.
 - INFORMATIONAL: Milestone 3 GitHub work and its E2E harness belong to the separate `Custody-Core` repository; they were not duplicated into Open Policy. PR-0A remains shadow mode. No marketplace, commercial, offer, consumer-selection, binding, or jurisdiction outcome semantics changed.
 
@@ -182,6 +188,6 @@ The implementation candidate diff against `main` changes 45 tracked paths: `.env
 
 ## Final recommendation
 
-**NOT READY — EXTERNAL ACCEPTANCE REQUIRED**
+**NOT READY — PERSISTENCE AUTHORITY REMAINS**
 
-The local candidate is merge-ready from an implementation/regression perspective, but the directive explicitly requires real Firebase and real GitHub acceptance before merge. Supply the consolidated external prerequisites above, run those gates, update this report with real evidence, and only then reconsider `READY FOR MERGE`. Do not merge yet.
+Firebase/GCP and Cloud SQL external acceptance are green, and the public acceptance service now uses a durable PostgreSQL backend for the existing persistent stores. Merge is not yet recommended because connecting Cloud SQL does not make the remaining in-memory maps authoritative or restart-safe. Complete the bounded PR-1 persistence-authority conversion, rerun the same gates, and only then reconsider `READY FOR MERGE`. Custody-Core GitHub acceptance is a separate product concern and is not part of this decision. Do not merge yet.

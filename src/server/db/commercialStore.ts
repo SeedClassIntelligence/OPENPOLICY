@@ -1,6 +1,5 @@
 import crypto from 'crypto';
-import { PGlite } from '@electric-sql/pglite';
-import { postgresStore, PostgresStore } from './postgresStore';
+import { postgresStore, PostgresStore, type SqlClient } from './postgresStore';
 import {
   CommercialAccount,
   CommercialPlan,
@@ -60,7 +59,7 @@ export class CommercialStore {
     this.store = store;
   }
 
-  public async getClient(): Promise<PGlite> {
+  public async getClient(): Promise<SqlClient> {
     return this.store.getPgClient();
   }
 
