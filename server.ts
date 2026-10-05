@@ -1298,7 +1298,10 @@ app.get('/api/marketplace/challenges/:id/information-requests', async (req, res)
     if (req.openPolicyIdentity?.role === 'PROVIDER') {
       orgId = await getAuthenticatedProviderOrgId(req);
     }
-    const requests = db.getInformationRequests(req.params.id, orgId);
+    const durableRequests = await postgresStore.getInformationRequests(req.params.id);
+    const requests = orgId
+      ? durableRequests.filter(request => request.providerOrganizationId === orgId || request.status === 'ANSWERED')
+      : durableRequests;
     res.json({ requests });
   } catch (e: any) {
     res.status(e.statusCode || 400).json({ error: e.message });
@@ -1367,7 +1370,10 @@ app.get('/api/marketplace/challenges/:id/supplemental-facts', async (req, res) =
     if (req.openPolicyIdentity?.role === 'PROVIDER') {
       orgId = await getAuthenticatedProviderOrgId(req);
     }
-    const facts = db.getSupplementalFacts(req.params.id, orgId);
+    const durableFacts = await postgresStore.getVerifiedSupplementalFacts(req.params.id);
+    const facts = orgId
+      ? durableFacts.filter(fact => fact.sharedWithOrganizationIds.includes(orgId))
+      : durableFacts;
     res.json({ facts });
   } catch (e: any) {
     res.status(e.statusCode || 400).json({ error: e.message });
@@ -1376,10 +1382,10 @@ app.get('/api/marketplace/challenges/:id/supplemental-facts', async (req, res) =
 
 app.get('/api/marketplace/offers/:id/versions', async (req, res) => {
   try {
-    const offer = db.getOffer(req.params.id);
+    const offer = await postgresStore.getOffer(req.params.id);
     if (!offer) return res.status(404).json({ error: 'Offer not found' });
     await authorizeChallengeResource(req, offer.challengeId);
-    const versions = db.getOfferVersions(req.params.id);
+    const versions = await postgresStore.getOfferVersions(req.params.id);
     res.json({ versions });
   } catch (e: any) {
     res.status(400).json({ error: e.message });
