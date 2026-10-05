@@ -357,8 +357,16 @@ app.post('/api/documents/upload-sample', async (req, res) => {
     sourceDocumentName: sample.name
   };
 
-  db.savePolicy(policy);
-  db.recordAudit('DOCUMENT_PROCESSED', 'SYSTEM', 'doc_intel_service', `Extracted ${policy.coverages.length} terms from ${sample.name}`);
+  await postgresStore.commitPolicyWithAudit(policy, [
+    {
+      eventType: 'POLICY_UPLOADED', actorRole: 'ADMIN', actorId: req.openPolicyIdentity!.uid,
+      details: `Policy ${policy.id} stored in private vault`
+    },
+    {
+      eventType: 'DOCUMENT_PROCESSED', actorRole: 'SYSTEM', actorId: 'doc_intel_service',
+      details: `Extracted ${policy.coverages.length} terms from ${sample.name}`
+    }
+  ]);
 
   res.json({
     success: true,
@@ -374,7 +382,10 @@ app.post('/api/policies/:id/verify', async (req, res) => {
   updatedPolicy.id = id;
   updatedPolicy.status = 'VERIFIED';
   
-  db.updatePolicy(updatedPolicy);
+  await postgresStore.commitPolicyWithAudit(updatedPolicy, [{
+    eventType: 'CONSUMER_CORRECTED_FIELD', actorRole: 'ADMIN', actorId: req.openPolicyIdentity!.uid,
+    details: `Consumer corrected/verified policy fields for ${updatedPolicy.carrier}`
+  }]);
   res.json({ success: true, policy: updatedPolicy });
 });
 
@@ -383,7 +394,7 @@ app.post('/api/policies/:id/verify', async (req, res) => {
 // ==========================================
 app.post('/api/baselines/create', async (req, res) => {
   const { policyId, verifiedBy } = req.body;
-  const policy = db.getPolicy(policyId);
+  const policy = await postgresStore.getPolicy(policyId);
   if (!policy) {
     return res.status(404).json({ error: 'Policy not found' });
   }
@@ -405,7 +416,10 @@ app.post('/api/baselines/create', async (req, res) => {
     verifiedBy: verifiedBy || 'Consumer'
   };
 
-  db.createBaseline(baseline);
+  await postgresStore.commitCoverageBaselineWithAudit(baseline, {
+    eventType: 'BASELINE_CREATED', actorRole: 'SYSTEM', actorId: 'baseline_engine',
+    details: `Coverage baseline version ${baseline.version} created`
+  });
   res.json({ success: true, baseline });
 });
 
@@ -420,7 +434,7 @@ app.post('/api/challenges/create', async (req, res) => {
     return res.status(e.statusCode || 401).json({ error: e.message });
   }
   const { baselineId, requirements } = req.body;
-  const baseline = db.getBaseline(baselineId);
+  const baseline = await postgresStore.getCoverageBaseline(baselineId);
   if (!baseline) {
     return res.status(404).json({ error: 'Coverage baseline not found' });
   }
@@ -431,7 +445,7 @@ app.post('/api/challenges/create', async (req, res) => {
   // PR-0A: the governing jurisdiction comes from evidence, never a default or a ZIP prefix.
   // The policy's stated state is the evidence; the baseline's copy is a cross-check, so a
   // disagreement surfaces as CONFLICT.
-  const sourcePolicy = db.getPolicy(baseline.policyId);
+  const sourcePolicy = await postgresStore.getPolicy(baseline.policyId);
   const signals: JurisdictionSignal[] = [];
   if (sourcePolicy?.jurisdiction) {
     signals.push({ signal: 'POLICY_STATED_STATE', value: sourcePolicy.jurisdiction, evidenceRef: `policy:${sourcePolicy.id}` });

@@ -991,6 +991,16 @@ CREATE TABLE IF NOT EXISTS review_queue_items (
 CREATE INDEX IF NOT EXISTS idx_review_queue_status_created
   ON review_queue_items (status, created_at);
 
+CREATE TABLE IF NOT EXISTS audit_chain_head (
+  singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton),
+  latest_hash TEXT NOT NULL,
+  latest_event_id TEXT,
+  version BIGINT NOT NULL DEFAULT 0
+);
+INSERT INTO audit_chain_head (singleton, latest_hash, latest_event_id, version)
+VALUES (TRUE, 'GENESIS_BLOCK_000000', NULL, 0)
+ON CONFLICT (singleton) DO NOTHING;
+
 CREATE INDEX IF NOT EXISTS idx_notifications_recipient_consumer
   ON platform_notifications (recipient_consumer_id, timestamp);
 CREATE INDEX IF NOT EXISTS idx_notifications_recipient_provider_user

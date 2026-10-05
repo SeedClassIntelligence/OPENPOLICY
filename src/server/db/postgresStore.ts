@@ -237,6 +237,41 @@ export class PostgresStore {
     }
   }
 
+  private generateAuditHash(value: string): string {
+    let hash = 0;
+    for (let index = 0; index < value.length; index += 1) {
+      hash = (hash << 5) - hash + value.charCodeAt(index);
+      hash |= 0;
+    }
+    return Math.abs(hash).toString(16).padStart(12, '0');
+  }
+
+  private async appendAuditInTransaction(
+    client: SqlClient,
+    input: Pick<AuditEvent, 'eventType' | 'actorRole' | 'actorId' | 'details'>
+  ): Promise<AuditEvent> {
+    const head = await client.query<{ latest_hash: string; version: string }>(
+      `SELECT latest_hash, version FROM audit_chain_head WHERE singleton = TRUE FOR UPDATE;`
+    );
+    const previousHash = head.rows[0]?.latest_hash || 'GENESIS_BLOCK_000000';
+    const timestamp = new Date().toISOString();
+    const id = `AUD-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const event: AuditEvent = {
+      id, timestamp, ...input,
+      hash: this.generateAuditHash(`${timestamp}|${input.eventType}|${input.actorId}|${input.details}|${previousHash}`)
+    };
+    await client.query(
+      `INSERT INTO audit_events (id, timestamp, event_type, actor_role, actor_id, details, hash)
+       VALUES ($1, $2, $3, $4, $5, $6, $7);`,
+      [event.id, event.timestamp, event.eventType, event.actorRole, event.actorId, event.details, event.hash]
+    );
+    await client.query(
+      `UPDATE audit_chain_head SET latest_hash = $1, latest_event_id = $2, version = version + 1
+       WHERE singleton = TRUE;`, [event.hash, event.id]
+    );
+    return event;
+  }
+
   // ===========================================================================
   // READ METHODS — PM-1 Authoritative Reads from PGlite
   // ===========================================================================
@@ -961,6 +996,35 @@ export class PostgresStore {
     );
   }
 
+  public async commitPolicyWithAudit(
+    policy: Policy,
+    audits: Array<Pick<AuditEvent, 'eventType' | 'actorRole' | 'actorId' | 'details'>>
+  ): Promise<AuditEvent[]> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      await client.query(
+        `INSERT INTO policies (id, policy_number, carrier, jurisdiction, named_insured, effective_date, expiration_date, annual_premium, status, payload)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         ON CONFLICT (id) DO UPDATE SET
+           policy_number = EXCLUDED.policy_number,
+           carrier = EXCLUDED.carrier,
+           jurisdiction = EXCLUDED.jurisdiction,
+           named_insured = EXCLUDED.named_insured,
+           effective_date = EXCLUDED.effective_date,
+           expiration_date = EXCLUDED.expiration_date,
+           annual_premium = EXCLUDED.annual_premium,
+           status = EXCLUDED.status,
+           payload = EXCLUDED.payload;`,
+        [policy.id, policy.policyNumber, policy.carrier, policy.jurisdiction, policy.namedInsured,
+         policy.effectiveDate, policy.expirationDate, policy.annualPremium, policy.status,
+         JSON.stringify(policy)]
+      );
+      const events: AuditEvent[] = [];
+      for (const audit of audits) events.push(await this.appendAuditInTransaction(client, audit));
+      return events;
+    });
+  }
+
   public async getPolicies(): Promise<Policy[]> {
     await this.ensureReady();
     const res = await this.sql!.query<{ payload: string }>(
@@ -991,6 +1055,28 @@ export class PostgresStore {
       [baseline.id, baseline.policyId, baseline.version, baseline.jurisdiction || null,
        baseline.verifiedAt, JSON.stringify(baseline)]
     );
+  }
+
+  public async commitCoverageBaselineWithAudit(
+    baseline: CoverageBaseline,
+    audit: Pick<AuditEvent, 'eventType' | 'actorRole' | 'actorId' | 'details'>
+  ): Promise<AuditEvent> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      await client.query(
+        `INSERT INTO coverage_baselines (id, policy_id, version, jurisdiction, verified_at, payload)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (id) DO UPDATE SET
+           policy_id = EXCLUDED.policy_id,
+           version = EXCLUDED.version,
+           jurisdiction = EXCLUDED.jurisdiction,
+           verified_at = EXCLUDED.verified_at,
+           payload = EXCLUDED.payload;`,
+        [baseline.id, baseline.policyId, baseline.version, baseline.jurisdiction || null,
+         baseline.verifiedAt, JSON.stringify(baseline)]
+      );
+      return this.appendAuditInTransaction(client, audit);
+    });
   }
 
   public async getCoverageBaselines(policyId?: string): Promise<CoverageBaseline[]> {

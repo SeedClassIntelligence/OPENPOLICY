@@ -67,8 +67,12 @@ test('foundation records survive an empty-process restart and continue mutating 
     createdAt: '2026-01-01T00:00:00.000Z'
   };
   try {
-    await first.savePolicy(policy);
-    await first.saveCoverageBaseline(baseline);
+    await first.commitPolicyWithAudit(policy, [{
+      eventType: 'POLICY_UPLOADED', actorRole: 'CONSUMER', actorId: 'consumer_restart', details: 'test policy'
+    }]);
+    await first.commitCoverageBaselineWithAudit(baseline, {
+      eventType: 'BASELINE_CREATED', actorRole: 'SYSTEM', actorId: 'test', details: 'test baseline'
+    });
     await first.saveConsumerRequirements(requirements);
     await first.saveReviewQueueItem(review);
     await first.saveNotification({
@@ -92,6 +96,16 @@ test('foundation records survive an empty-process restart and continue mutating 
     assert.equal(await second.resolveReviewQueueItem(review, resolved), true);
     assert.equal(await second.resolveReviewQueueItem(review, resolved), false,
       'a second instance cannot resolve the already-resolved item as first');
+    const auditBeforeFailure = (await second.getAuditEvents()).length;
+    await assert.rejects(
+      () => second.commitCoverageBaselineWithAudit(
+        { ...baseline, id: 'BL-INVALID-FK', policyId: 'POL-DOES-NOT-EXIST' },
+        { eventType: 'BASELINE_CREATED', actorRole: 'SYSTEM', actorId: 'test', details: 'must roll back' }
+      )
+    );
+    assert.equal(await second.getCoverageBaseline('BL-INVALID-FK'), undefined);
+    assert.equal((await second.getAuditEvents()).length, auditBeforeFailure,
+      'failed business mutation cannot leave audit or business state partially committed');
     await second.close();
   } finally {
     fs.rmSync(dataDir, { recursive: true, force: true });
