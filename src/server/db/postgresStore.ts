@@ -272,6 +272,13 @@ export class PostgresStore {
     return event;
   }
 
+  public async appendAuditEvent(
+    input: Pick<AuditEvent, 'eventType' | 'actorRole' | 'actorId' | 'details'>
+  ): Promise<AuditEvent> {
+    await this.ensureReady();
+    return this.sql!.transaction(client => this.appendAuditInTransaction(client, input));
+  }
+
   // ===========================================================================
   // READ METHODS — PM-1 Authoritative Reads from PGlite
   // ===========================================================================

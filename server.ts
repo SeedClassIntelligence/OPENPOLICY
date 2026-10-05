@@ -2707,6 +2707,10 @@ app.post('/api/admin/audit-chain/generate-proof', async (req, res) => {
       challengeReference: challengeReference || 'CHAL-NV-49281',
       auditorName: auditorName || 'Marcus Vance, CIC'
     });
+    await postgresStore.appendAuditEvent({
+      eventType: 'POLICY_VERIFIED', actorRole: 'ADMIN', actorId: req.openPolicyIdentity!.uid,
+      details: `Certified Regulatory Audit Proof #${proof.proofId} for ${jurisdiction || 'NV'}. Merkle Root: ${proof.merkleRoot}`
+    });
     res.json({ success: true, proof });
   } catch (e: any) {
     res.status(400).json({ error: e.message });
