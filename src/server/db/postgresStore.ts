@@ -613,6 +613,23 @@ export class PostgresStore {
     return this._mapChallenge(res.rows[0]);
   }
 
+  public async getOffers(challengeId?: string): Promise<Offer[]> {
+    await this.ensureReady();
+    const res = challengeId
+      ? await this.sql!.query<{ payload: string }>(
+          `SELECT payload FROM offers WHERE challenge_id = $1 ORDER BY id;`, [challengeId])
+      : await this.sql!.query<{ payload: string }>(`SELECT payload FROM offers ORDER BY id;`);
+    return res.rows.map(row => JSON.parse(row.payload) as Offer);
+  }
+
+  public async getOffer(id: string): Promise<Offer | undefined> {
+    await this.ensureReady();
+    const res = await this.sql!.query<{ payload: string }>(
+      `SELECT payload FROM offers WHERE id = $1;`, [id]
+    );
+    return res.rows[0] ? JSON.parse(res.rows[0].payload) as Offer : undefined;
+  }
+
   private _mapChallenge(row: {
     id: string; user_id: string; reference_number: string; jurisdiction: string;
     status: string; created_at: string; baseline_data: string | null; requirements_data: string | null; payload?: string | null;
@@ -988,6 +1005,84 @@ export class PostgresStore {
         JSON.stringify(chal)
       ]
     );
+  }
+
+  public async commitChallengeOpening(input: {
+    challenge: Challenge;
+    competition: Competition;
+    invitations: ChallengeInvitation[];
+    notifications: PlatformNotification[];
+    activity: CompetitionActivityEvent;
+    audits: Array<Pick<AuditEvent, 'eventType' | 'actorRole' | 'actorId' | 'details'>>;
+  }): Promise<void> {
+    await this.ensureReady();
+    const { challenge, competition, invitations, notifications, activity, audits } = input;
+    await this.sql!.transaction(async client => {
+      await client.query(
+        `INSERT INTO consumer_requirements (id, payload) VALUES ($1, $2)
+         ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload;`,
+        [challenge.requirements.id, JSON.stringify(challenge.requirements)]
+      );
+      await client.query(
+        `INSERT INTO challenges (id, user_id, reference_number, jurisdiction, status, created_at,
+           baseline_data, requirements_data, jurisdiction_determination_id, rule_set_id,
+           rule_set_content_sha256, regulatory_evaluation_date, payload)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+         ON CONFLICT (id) DO NOTHING;`,
+        [challenge.id, challenge.consumerId, challenge.referenceNumber, challenge.jurisdiction,
+         challenge.status, challenge.openingTimestamp, JSON.stringify(challenge.baseline),
+         JSON.stringify(challenge.requirements), challenge.jurisdictionDeterminationId || null,
+         challenge.ruleSetId || null, challenge.ruleSetContentSha256 || null,
+         challenge.regulatoryEvaluationDate || null, JSON.stringify(challenge)]
+      );
+      await client.query(
+        `INSERT INTO competitions (id, challenge_id, jurisdiction, line_of_business, status,
+           current_round, participant_count, opened_at, closes_at, rules, payload)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+         ON CONFLICT (id) DO NOTHING;`,
+        [competition.id, competition.challengeId, challenge.jurisdiction, 'PERSONAL_AUTO',
+         competition.status, competition.currentRound, competition.participantCount,
+         competition.openedAt, competition.closesAt, '{}', JSON.stringify(competition)]
+      );
+      for (const invitation of invitations) {
+        await client.query(
+          `INSERT INTO challenge_invitations (id, challenge_id, competition_id,
+             provider_organization_id, status, invited_at, viewed_at, accepted_at,
+             declined_at, decline_reason, decline_notes, payload)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+           ON CONFLICT (id) DO NOTHING;`,
+          [invitation.id, invitation.challengeId, invitation.competitionId,
+           invitation.providerOrganizationId, invitation.status, invitation.invitedAt,
+           invitation.viewedAt || null, invitation.acceptedAt || null,
+           invitation.declinedAt || null, invitation.declineReason || null,
+           invitation.declineNotes || null, JSON.stringify(invitation)]
+        );
+      }
+      await client.query(
+        `INSERT INTO competition_activity_events
+         (id, competition_id, challenge_id, occurred_at, event_type, provider_organization_id, payload)
+         VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO NOTHING;`,
+        [activity.id, activity.competitionId, activity.challengeId, activity.timestamp,
+         activity.type, activity.providerOrganizationId || null, JSON.stringify(activity)]
+      );
+      for (const notification of notifications) {
+        await client.query(
+          `INSERT INTO platform_notifications (id, type, title, message, timestamp, is_read,
+             read_at, recipient_type, recipient_consumer_id, recipient_provider_user_id,
+             recipient_provider_organization_id, recipient_operator_id, created_from_event, action_target)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+           ON CONFLICT (id) DO NOTHING;`,
+          [notification.id, notification.type, notification.title, notification.message,
+           notification.timestamp, notification.read, notification.readAt || null,
+           notification.recipientType, notification.recipientConsumerId || null,
+           notification.recipientProviderUserId || null,
+           notification.recipientProviderOrganizationId || null,
+           notification.recipientOperatorId || null, notification.createdFromEvent,
+           notification.actionTarget || null]
+        );
+      }
+      for (const audit of audits) await this.appendAuditInTransaction(client, audit);
+    });
   }
 
   public async savePolicy(policy: Policy) {

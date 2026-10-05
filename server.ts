@@ -10,7 +10,9 @@ import { postgresStore } from './src/server/db/postgresStore';
 import { SAMPLE_DECLARATIONS_PAGES, detectQuoteDiscrepancies } from './src/domain/policyIntelligence';
 import { compareOfferAgainstBaseline } from './src/domain/comparisonEngine';
 import { explainCoverageComparison, generateDeterministicExplanation } from './src/server/geminiService';
-import { Offer, CoverageBaseline, ConsumerRequirements, Challenge } from './src/types/insurance';
+import { Offer, CoverageBaseline, ConsumerRequirements, Challenge, Competition, ChallengeInvitation,
+  PlatformNotification, CompetitionActivityEvent, AuditEvent } from './src/types/insurance';
+import { evaluateProviderEligibility, type EligibilityEvaluation } from './src/domain/eligibilityEngine';
 import { assertProductionAuthConfiguration, attachRequestIdentity } from './src/server/auth/requestIdentity';
 import { assertBindingRelationship, assertChallengeRelationship, enforceApiAuthorization } from './src/server/auth/routeAuthorization';
 
@@ -511,20 +513,83 @@ app.post('/api/challenges/create', async (req, res) => {
     challenge.regulatoryEvaluationDate = anchor.evaluationDate;
   }
 
-  db.createChallenge(challenge);
+  const competition: Competition = {
+    id: `COMP-${challengeId.replace('CHAL-', '')}`,
+    challengeId,
+    status: 'OPEN',
+    currentRound: 'ROUND_1_OPEN',
+    openedAt: openingTimestamp,
+    closesAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+    participantCount: 0,
+    improvementRoundEnabled: true,
+    finalRoundEnabled: true
+  };
+  const evaluations: EligibilityEvaluation[] = [];
+  const createdInvitations: ChallengeInvitation[] = [];
+  const openingNotifications: PlatformNotification[] = [];
+  const openingAudits: Array<Pick<AuditEvent, 'eventType' | 'actorRole' | 'actorId' | 'details'>> = [
+    { eventType: 'CHALLENGE_OPENED', actorRole: 'CONSUMER', actorId: consumerId,
+      details: `Challenge ${challenge.referenceNumber} opened in marketplace` },
+    { eventType: 'COMPETITION_CREATED', actorRole: 'SYSTEM', actorId: 'competition_engine',
+      details: `Competition ${competition.id} created for challenge ${challenge.referenceNumber}` },
+    { eventType: 'COMPETITION_OPENED', actorRole: 'SYSTEM', actorId: 'competition_engine',
+      details: `Competition ${competition.id} opened for 48h initial round` }
+  ];
+  for (const org of await postgresStore.getProviderOrganizations()) {
+    const evaluation = evaluateProviderEligibility(
+      challenge, org, await postgresStore.getProviderLicenses(org.id),
+      await postgresStore.getProviderAppetite(org.id)
+    );
+    evaluations.push(evaluation);
+    openingAudits.push({
+      eventType: 'PROVIDER_MATCH_EVALUATED', actorRole: 'SYSTEM', actorId: 'eligibility_engine',
+      details: `Evaluated ${org.displayName} (${org.id}) for challenge ${challenge.referenceNumber}: ${evaluation.isEligible ? 'ELIGIBLE' : 'INELIGIBLE'} [${evaluation.reasons.join(', ')}]`
+    });
+    if (!evaluation.isEligible) continue;
+    const invitation: ChallengeInvitation = {
+      id: `INV-${challengeId.replace('CHAL-', '')}-${org.id}`,
+      challengeId, competitionId: competition.id, providerOrganizationId: org.id,
+      eligibilityResult: 'ELIGIBLE', eligibilityReasons: evaluation.reasons,
+      status: 'INVITED', invitedAt: openingTimestamp, expiresAt: competition.closesAt
+    };
+    createdInvitations.push(invitation);
+    openingAudits.push({
+      eventType: 'INVITATION_CREATED', actorRole: 'SYSTEM', actorId: 'invitation_service',
+      details: `Created challenge invitation ${invitation.id} for ${org.displayName}`
+    });
+    openingNotifications.push({
+      id: `NOTIF-${challenge.id}-${org.id}`, type: 'OPPORTUNITY_RECEIVED',
+      title: 'New Policy Challenge Opportunity',
+      message: `New verified ${challenge.jurisdiction} Personal Auto opportunity: ${challenge.referenceNumber}. Current premium: $${challenge.baseline.baselineAnnualPremium}/yr.`,
+      timestamp: openingTimestamp, read: false, recipientType: 'PROVIDER_ORGANIZATION',
+      recipientProviderOrganizationId: org.id, createdFromEvent: `INVITATION:${invitation.id}`,
+      actionTarget: 'OPPORTUNITIES'
+    });
+  }
+  const openingActivity: CompetitionActivityEvent = {
+    id: `ACT-${competition.id}-OPENED`, competitionId: competition.id, challengeId,
+    timestamp: openingTimestamp, type: 'COMPETITION_OPENED', actorRole: 'SYSTEM',
+    actorName: 'competition_engine', summary: `Competition ${competition.id} opened`,
+    round: competition.currentRound
+  };
+  await postgresStore.commitChallengeOpening({
+    challenge, competition, invitations: createdInvitations,
+    notifications: openingNotifications, activity: openingActivity, audits: openingAudits
+  });
 
-  // CE-3: Instrument VPO_AVAILABLE for every eligible invitation successfully created
-  const createdInvitations = db.getInvitationsForChallenge(challenge.id);
+  // CE-3: Instrument VPO_AVAILABLE for every eligible invitation successfully committed
   for (const inv of createdInvitations) {
     // PR-0A shadow: provider jurisdictional authority for each invited provider.
-    const invitedOrg = db.getProviderOrganization(inv.providerOrganizationId);
+    const invitedOrg = await postgresStore.getProviderOrganization(inv.providerOrganizationId);
     if (invitedOrg) {
+      const invitedLicenses = await postgresStore.getProviderLicenses(invitedOrg.id);
+      const invitedCarrierRelationships = await postgresStore.getCarrierRelationships(invitedOrg.id);
       await inShadow('authority-invitation', () => shadowProviderAuthority({
         invitation: inv,
         challenge,
         org: invitedOrg,
-        licenses: db.getProviderLicenses(invitedOrg.id),
-        carrierRelationships: db.getCarrierRelationships(invitedOrg.id),
+        licenses: invitedLicenses,
+        carrierRelationships: invitedCarrierRelationships,
         legacyEligible: inv.eligibilityResult === 'ELIGIBLE',
         evaluationDate: transactionDateOf(inv.invitedAt),
         stage: 'INVITATION'
@@ -548,7 +613,7 @@ app.post('/api/challenges/create', async (req, res) => {
 app.get('/api/challenges', async (req, res) => {
   try {
     const consumerId = getAuthenticatedConsumerId(req);
-    res.json(db.getChallenges().filter(challenge => challenge.consumerId === consumerId));
+    res.json((await postgresStore.getChallenges()).filter(challenge => challenge.consumerId === consumerId));
   } catch (e: any) {
     res.status(e.statusCode || 403).json({ error: e.message });
   }
@@ -560,11 +625,11 @@ app.get('/api/challenges/:id', async (req, res) => {
   } catch (e: any) {
     return res.status(e.statusCode || 403).json({ error: e.message });
   }
-  const challenge = db.getChallenge(req.params.id);
+  const challenge = await postgresStore.getChallenge(req.params.id);
   if (!challenge) {
     return res.status(404).json({ error: 'Challenge not found' });
   }
-  const offers = db.getOffers(challenge.id);
+  const offers = await postgresStore.getOffers(challenge.id);
   
   // Calculate comparisons for each offer
   const comparisons = offers.map(offer => 

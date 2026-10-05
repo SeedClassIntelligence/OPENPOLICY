@@ -74,6 +74,36 @@ test('foundation records survive an empty-process restart and continue mutating 
       eventType: 'BASELINE_CREATED', actorRole: 'SYSTEM', actorId: 'test', details: 'test baseline'
     });
     await first.saveConsumerRequirements(requirements);
+    await first.seedCanonicalProviderData();
+    const challenge = {
+      id: 'CHAL-RESTART-1', referenceNumber: 'CHALLENGE #X1-RESTART',
+      consumerId: 'consumer_restart', coverageBaselineId: baseline.id, baseline, requirements,
+      jurisdiction: 'X1', openingTimestamp: '2026-01-01T00:00:00.000Z',
+      closingTimestamp: '2026-02-01T00:00:00.000Z', status: 'OPEN' as const,
+      disclosureLevel: 'MARKETPLACE_ANONYMOUS' as const, offersCount: 0
+    };
+    const competition = {
+      id: 'COMP-RESTART-1', challengeId: challenge.id, status: 'OPEN' as const,
+      currentRound: 'ROUND_1_OPEN' as const, openedAt: challenge.openingTimestamp,
+      closesAt: '2026-01-03T00:00:00.000Z', participantCount: 0,
+      improvementRoundEnabled: true, finalRoundEnabled: true
+    };
+    const invitation = {
+      id: 'INV-RESTART-1', challengeId: challenge.id, competitionId: competition.id,
+      providerOrganizationId: 'org_sierra', eligibilityResult: 'ELIGIBLE' as const,
+      eligibilityReasons: ['restart fixture'], status: 'INVITED' as const,
+      invitedAt: challenge.openingTimestamp, expiresAt: competition.closesAt
+    };
+    await first.commitChallengeOpening({
+      challenge, competition, invitations: [invitation], notifications: [],
+      activity: {
+        id: 'ACT-RESTART-1', competitionId: competition.id, challengeId: challenge.id,
+        timestamp: challenge.openingTimestamp, type: 'COMPETITION_OPENED', actorRole: 'SYSTEM',
+        summary: 'opened', round: competition.currentRound
+      },
+      audits: [{ eventType: 'CHALLENGE_OPENED', actorRole: 'CONSUMER',
+        actorId: challenge.consumerId, details: 'restart challenge' }]
+    });
     await first.saveReviewQueueItem(review);
     await first.saveNotification({
       id: 'NOTIF-RESTART-1', type: 'COMPETITION_UPDATE', title: 'Test', message: 'Persisted',
@@ -86,6 +116,13 @@ test('foundation records survive an empty-process restart and continue mutating 
     assert.deepEqual(await second.getPolicy(policy.id), policy);
     assert.deepEqual(await second.getCoverageBaseline(baseline.id), baseline);
     assert.deepEqual(await second.getConsumerRequirements(requirements.id), requirements);
+    assert.deepEqual(await second.getChallenge(challenge.id), challenge);
+    assert.deepEqual(await second.getCompetition(competition.id), competition);
+    assert.deepEqual(await second.getInvitation(invitation.id), invitation);
+    assert.equal((await second.getCompetitionActivity(challenge.id))[0]?.id, 'ACT-RESTART-1');
+    await second.saveChallenge({ ...challenge, status: 'FINAL_ROUND' });
+    assert.equal((await second.getChallenge(challenge.id))?.status, 'FINAL_ROUND',
+      'the lifecycle continues after restart using durable state');
     assert.equal((await second.getReviewQueue('PENDING_REVIEW'))[0]?.id, review.id);
     assert.equal((await second.getNotificationsForRecipient({
       recipientType: 'CONSUMER', recipientId: 'consumer_restart'
