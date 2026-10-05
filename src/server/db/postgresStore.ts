@@ -1417,16 +1417,36 @@ export class PostgresStore {
 
   public async resolveReviewQueueItem(
     expected: ReviewQueueItem,
-    updated: ReviewQueueItem
+    updated: ReviewQueueItem,
+    audit?: Pick<AuditEvent, 'eventType' | 'actorRole' | 'actorId' | 'details'>
   ): Promise<boolean> {
     await this.ensureReady();
-    const result = await this.sql!.query(
-      `UPDATE review_queue_items
-       SET status = $2, resolved_at = $3, version = version + 1, payload = $4
-       WHERE id = $1 AND status = $5;`,
-      [updated.id, updated.status, updated.resolvedAt || null, JSON.stringify(updated), expected.status]
-    );
-    return result.rowCount === 1;
+    return this.sql!.transaction(async client => {
+      const result = await client.query(
+        `UPDATE review_queue_items
+         SET status = $2, resolved_at = $3, version = version + 1, payload = $4
+         WHERE id = $1 AND status = $5;`,
+        [updated.id, updated.status, updated.resolvedAt || null, JSON.stringify(updated), expected.status]
+      );
+      if (result.rowCount !== 1) return false;
+      if (audit) await this.appendAuditInTransaction(client, audit);
+      return true;
+    });
+  }
+
+  public async enqueueReviewQueueItem(
+    item: ReviewQueueItem,
+    audit: Pick<AuditEvent, 'eventType' | 'actorRole' | 'actorId' | 'details'>
+  ): Promise<void> {
+    await this.ensureReady();
+    await this.sql!.transaction(async client => {
+      await client.query(
+        `INSERT INTO review_queue_items (id, status, severity, created_at, resolved_at, payload)
+         VALUES ($1,$2,$3,$4,$5,$6);`,
+        [item.id, item.status, item.severity, item.createdAt, item.resolvedAt || null, JSON.stringify(item)]
+      );
+      await this.appendAuditInTransaction(client, audit);
+    });
   }
 
   public async saveOffer(offer: Offer) {

@@ -14,6 +14,8 @@ import { Offer, OfferVersion, CoverageBaseline, ConsumerRequirements, Challenge,
   PlatformNotification, CompetitionActivityEvent, AuditEvent } from './src/types/insurance';
 import { evaluateProviderEligibility, type EligibilityEvaluation } from './src/domain/eligibilityEngine';
 import { evaluateOfferQualification } from './src/domain/qualificationEngine';
+import { verifyCryptographicAuditChain, processReviewQueueResolution,
+  generateRegulatoryAuditProof } from './src/domain/governanceAuditEngine';
 import { assertProductionAuthConfiguration, attachRequestIdentity } from './src/server/auth/requestIdentity';
 import { assertBindingRelationship, assertChallengeRelationship, enforceApiAuthorization } from './src/server/auth/routeAuthorization';
 
@@ -2646,12 +2648,12 @@ app.post('/api/notifications/:id/read', async (req, res) => {
 // ==========================================
 app.get('/api/admin/review-queue', async (req, res) => {
   const status = req.query.status as any;
-  const items = db.getReviewQueue(status);
+  const items = await postgresStore.getReviewQueue(status);
   res.json(items);
 });
 
 app.get('/api/admin/review-queue/:id', async (req, res) => {
-  const item = db.getReviewQueueItem(req.params.id);
+  const item = (await postgresStore.getReviewQueue()).find(candidate => candidate.id === req.params.id);
   if (!item) return res.status(404).json({ error: 'Review queue ticket not found' });
   res.json(item);
 });
@@ -2662,12 +2664,13 @@ app.post('/api/admin/review-queue/:id/resolve', async (req, res) => {
     return res.status(400).json({ error: 'Invalid action. Must be OVERRIDE or REJECT.' });
   }
   try {
-    const updated = db.resolveReviewQueueItem({
-      id: req.params.id,
-      action,
-      resolvedBy: req.openPolicyIdentity!.uid,
-      notes: notes || 'Reviewed and adjudicated under Section 32 protocol.'
-    });
+    const item = (await postgresStore.getReviewQueue()).find(candidate => candidate.id === req.params.id);
+    if (!item) return res.status(404).json({ error: 'Review queue ticket not found' });
+    const result = processReviewQueueResolution(item, action, req.openPolicyIdentity!.uid,
+      notes || 'Reviewed and adjudicated under Section 32 protocol.');
+    const committed = await postgresStore.resolveReviewQueueItem(item, result.updatedItem, result.auditPayload);
+    if (!committed) return res.status(409).json({ error: 'Review queue ticket was already resolved' });
+    const updated = result.updatedItem;
     res.json({ success: true, item: updated });
   } catch (e: any) {
     res.status(400).json({ error: e.message });
@@ -2676,7 +2679,11 @@ app.post('/api/admin/review-queue/:id/resolve', async (req, res) => {
 
 app.post('/api/admin/review-queue/enqueue', async (req, res) => {
   try {
-    const item = db.enqueueReviewItem(req.body);
+    const item = { ...req.body, id: `REV-${Date.now()}`, createdAt: new Date().toISOString(), status: 'PENDING_REVIEW' };
+    await postgresStore.enqueueReviewQueueItem(item, {
+      eventType: 'QUOTE_DISCREPANCY_DETECTED', actorRole: 'SYSTEM', actorId: 'review_escalation_service',
+      details: `Escalated ${item.type} to Human Review Queue [#${item.id}] with severity ${item.severity}: ${item.summary}`
+    });
     res.json({ success: true, item });
   } catch (e: any) {
     res.status(400).json({ error: e.message });
@@ -2685,7 +2692,7 @@ app.post('/api/admin/review-queue/enqueue', async (req, res) => {
 
 app.get('/api/admin/audit-chain/verify', async (req, res) => {
   try {
-    const verification = db.verifyAuditChainIntegrity();
+    const verification = verifyCryptographicAuditChain(await postgresStore.getAuditEvents());
     res.json(verification);
   } catch (e: any) {
     res.status(500).json({ error: e.message });
@@ -2695,7 +2702,7 @@ app.get('/api/admin/audit-chain/verify', async (req, res) => {
 app.post('/api/admin/audit-chain/generate-proof', async (req, res) => {
   const { jurisdiction, challengeReference, auditorName } = req.body;
   try {
-    const proof = db.generateRegulatoryAuditProof({
+    const proof = generateRegulatoryAuditProof(await postgresStore.getAuditEvents(), {
       jurisdiction: jurisdiction || 'NV',
       challengeReference: challengeReference || 'CHAL-NV-49281',
       auditorName: auditorName || 'Marcus Vance, CIC'
