@@ -121,37 +121,78 @@ test('foundation records survive an empty-process restart and continue mutating 
     assert.deepEqual(await second.getInvitation(invitation.id), invitation);
     assert.equal((await second.getCompetitionActivity(challenge.id))[0]?.id, 'ACT-RESTART-1');
     const accepted = await second.acceptInvitation(invitation.id, 'org_sierra');
+    await second.close();
     const concurrentProcess = new PostgresStore(dataDir);
     const retried = await concurrentProcess.acceptInvitation(invitation.id, 'org_sierra');
     assert.equal(retried.participation.id, accepted.participation.id,
       'a retry from another process returns the one durable participation');
     assert.equal((await concurrentProcess.getParticipationsForChallenge(challenge.id)).length, 1,
       'cross-process retry cannot duplicate participation');
+    const offer = {
+      id: 'OFFER-RESTART-1', challengeId: challenge.id, providerId: 'org_sierra',
+      providerName: 'Sierra Brokerage Group', providerLicense: 'NV-LIC-902188',
+      carrier: 'Test Carrier', quoteNumber: 'QUOTE-1', annualPremium: 1000,
+      monthlyPremium: 83, termMonths: 12, effectiveDate: '2026-01-01',
+      expirationDate: '2027-01-01', coverages: [], supportingQuoteDocName: 'quote.pdf',
+      submittedAt: '2026-01-02T00:00:00.000Z', discrepanciesDetected: false,
+      status: 'VALIDATED' as const, round: 'ROUND_1_OPEN' as const, version: 1,
+      isLatestRevision: true
+    };
+    const offerVersion = {
+      id: 'VER-OFFER-RESTART-1-v1', offerId: offer.id, versionNumber: 1,
+      round: 'ROUND_1_OPEN' as const, carrier: offer.carrier,
+      annualPremium: offer.annualPremium, monthlyPremium: offer.monthlyPremium,
+      coverages: [], supportingQuoteDocName: offer.supportingQuoteDocName,
+      revisionReason: 'Initial offer submission', submittedAt: offer.submittedAt
+    };
+    await concurrentProcess.commitOfferSubmission({
+      offer, version: offerVersion,
+      activity: { id: 'ACT-OFFER-RESTART-1', competitionId: competition.id,
+        challengeId: challenge.id, timestamp: offer.submittedAt, type: 'OFFER_SUBMITTED',
+        actorRole: 'PROVIDER', providerOrganizationId: 'org_sierra', summary: 'submitted',
+        round: 'ROUND_1_OPEN' },
+      audits: [{ eventType: 'OFFER_SUBMITTED', actorRole: 'PROVIDER', actorId: 'org_sierra',
+        details: 'restart offer' }]
+    });
+    assert.deepEqual(await concurrentProcess.getOffer(offer.id), offer);
+    await assert.rejects(() => concurrentProcess.commitOfferSubmission({
+      offer: { ...offer, id: 'OFFER-NONPARTICIPANT', providerId: 'org_buckeye' },
+      version: { ...offerVersion, id: 'VER-NONPARTICIPANT-v1', offerId: 'OFFER-NONPARTICIPANT' },
+      activity: { id: 'ACT-NONPARTICIPANT', competitionId: competition.id,
+        challengeId: challenge.id, timestamp: offer.submittedAt, type: 'OFFER_SUBMITTED',
+        actorRole: 'PROVIDER', providerOrganizationId: 'org_buckeye', summary: 'invalid',
+        round: 'ROUND_1_OPEN' },
+      audits: []
+    }), /not an active participant/);
+    assert.equal(await concurrentProcess.getOffer('OFFER-NONPARTICIPANT'), undefined);
     await concurrentProcess.close();
-    await second.saveChallenge({ ...challenge, status: 'FINAL_ROUND' });
-    assert.equal((await second.getChallenge(challenge.id))?.status, 'FINAL_ROUND',
+    const restarted = new PostgresStore(dataDir);
+    assert.deepEqual(await restarted.getOffer(offer.id), offer,
+      'a new process reconstructs the committed offer');
+    await restarted.saveChallenge({ ...challenge, status: 'FINAL_ROUND' });
+    assert.equal((await restarted.getChallenge(challenge.id))?.status, 'FINAL_ROUND',
       'the lifecycle continues after restart using durable state');
-    assert.equal((await second.getReviewQueue('PENDING_REVIEW'))[0]?.id, review.id);
-    assert.equal((await second.getNotificationsForRecipient({
+    assert.equal((await restarted.getReviewQueue('PENDING_REVIEW'))[0]?.id, review.id);
+    assert.equal((await restarted.getNotificationsForRecipient({
       recipientType: 'CONSUMER', recipientId: 'consumer_restart'
     }))[0]?.id, 'NOTIF-RESTART-1');
     const resolved = { ...review, status: 'RESOLVED_OVERRIDE' as const,
       resolvedAt: '2026-01-02T00:00:00.000Z', resolvedBy: 'operator',
       resolutionNotes: 'accepted', decision: 'OVERRIDE' as const };
-    assert.equal(await second.resolveReviewQueueItem(review, resolved), true);
-    assert.equal(await second.resolveReviewQueueItem(review, resolved), false,
+    assert.equal(await restarted.resolveReviewQueueItem(review, resolved), true);
+    assert.equal(await restarted.resolveReviewQueueItem(review, resolved), false,
       'a second instance cannot resolve the already-resolved item as first');
-    const auditBeforeFailure = (await second.getAuditEvents()).length;
+    const auditBeforeFailure = (await restarted.getAuditEvents()).length;
     await assert.rejects(
-      () => second.commitCoverageBaselineWithAudit(
+      () => restarted.commitCoverageBaselineWithAudit(
         { ...baseline, id: 'BL-INVALID-FK', policyId: 'POL-DOES-NOT-EXIST' },
         { eventType: 'BASELINE_CREATED', actorRole: 'SYSTEM', actorId: 'test', details: 'must roll back' }
       )
     );
-    assert.equal(await second.getCoverageBaseline('BL-INVALID-FK'), undefined);
-    assert.equal((await second.getAuditEvents()).length, auditBeforeFailure,
+    assert.equal(await restarted.getCoverageBaseline('BL-INVALID-FK'), undefined);
+    assert.equal((await restarted.getAuditEvents()).length, auditBeforeFailure,
       'failed business mutation cannot leave audit or business state partially committed');
-    await second.close();
+    await restarted.close();
   } finally {
     fs.rmSync(dataDir, { recursive: true, force: true });
   }

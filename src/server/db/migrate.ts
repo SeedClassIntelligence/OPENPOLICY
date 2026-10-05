@@ -964,6 +964,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_invitation_challenge_org
   ON challenge_invitations (challenge_id, provider_organization_id);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_participation_challenge_org
   ON challenge_participations (challenge_id, provider_organization_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_offer_version_number
+  ON offer_versions (offer_id, version_number);
 
 CREATE TABLE IF NOT EXISTS coverage_baselines (
   id TEXT PRIMARY KEY,

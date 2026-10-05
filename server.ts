@@ -10,9 +10,10 @@ import { postgresStore } from './src/server/db/postgresStore';
 import { SAMPLE_DECLARATIONS_PAGES, detectQuoteDiscrepancies } from './src/domain/policyIntelligence';
 import { compareOfferAgainstBaseline } from './src/domain/comparisonEngine';
 import { explainCoverageComparison, generateDeterministicExplanation } from './src/server/geminiService';
-import { Offer, CoverageBaseline, ConsumerRequirements, Challenge, Competition, ChallengeInvitation,
+import { Offer, OfferVersion, CoverageBaseline, ConsumerRequirements, Challenge, Competition, ChallengeInvitation,
   PlatformNotification, CompetitionActivityEvent, AuditEvent } from './src/types/insurance';
 import { evaluateProviderEligibility, type EligibilityEvaluation } from './src/domain/eligibilityEngine';
+import { evaluateOfferQualification } from './src/domain/qualificationEngine';
 import { assertProductionAuthConfiguration, attachRequestIdentity } from './src/server/auth/requestIdentity';
 import { assertBindingRelationship, assertChallengeRelationship, enforceApiAuthorization } from './src/server/auth/routeAuthorization';
 
@@ -657,7 +658,7 @@ app.post('/api/offers/submit', async (req, res) => {
   try {
     const authOrgId = await getAuthenticatedProviderOrgId(req);
     offerData.providerId = authOrgId;
-    const org = db.getProviderOrganization(authOrgId);
+    const org = await postgresStore.getProviderOrganization(authOrgId);
     if (org) {
       offerData.providerName = org.displayName;
     }
@@ -672,13 +673,59 @@ app.post('/api/offers/submit', async (req, res) => {
   offerData.version = offerData.version || 1;
   offerData.isLatestRevision = offerData.isLatestRevision ?? true;
 
-  const savedOffer = db.submitOffer(offerData);
+  const challengeForOffer = await postgresStore.getChallenge(offerData.challengeId);
+  if (!challengeForOffer) return res.status(404).json({ error: 'Challenge not found' });
+  const competitionForOffer = await postgresStore.getCompetitionForChallenge(offerData.challengeId);
+  if (!competitionForOffer) return res.status(404).json({ error: 'Competition not found' });
+  const providerForOffer = await postgresStore.getProviderOrganization(offerData.providerId);
+  const qualification = evaluateOfferQualification(
+    offerData, challengeForOffer.baseline, challengeForOffer.requirements,
+    providerForOffer, await postgresStore.getCarrierRelationships(offerData.providerId),
+    await postgresStore.getOfferVerification(offerData.id)
+  );
+  offerData.isQualified = qualification.isQualified;
+  offerData.qualifiedAt = qualification.evaluatedAt;
+  offerData.qualificationReasons = qualification.qualificationReasons;
+  offerData.disqualificationReasons = qualification.disqualificationReasons;
+  const initialVersion: OfferVersion = {
+    id: `VER-${offerData.id}-v${offerData.version || 1}`, offerId: offerData.id,
+    versionNumber: offerData.version || 1, round: offerData.round || 'ROUND_1_OPEN',
+    carrier: offerData.carrier, annualPremium: offerData.annualPremium,
+    monthlyPremium: offerData.monthlyPremium, coverages: JSON.parse(JSON.stringify(offerData.coverages)),
+    supportingQuoteDocName: offerData.supportingQuoteDocName,
+    revisionReason: 'Initial offer submission', submittedAt: offerData.submittedAt
+  };
+  const offerActivity: CompetitionActivityEvent = {
+    id: `ACT-${offerData.id}-SUBMITTED`, competitionId: competitionForOffer.id,
+    challengeId: offerData.challengeId, timestamp: offerData.submittedAt,
+    type: 'OFFER_SUBMITTED', actorRole: 'PROVIDER', actorName: offerData.providerName,
+    providerOrganizationId: offerData.providerId,
+    summary: `${offerData.providerName} submitted an offer for ${offerData.carrier}`,
+    round: offerData.round || competitionForOffer.currentRound,
+    metadata: { offerId: offerData.id, carrier: offerData.carrier, annualPremium: offerData.annualPremium }
+  };
+  const offerAudits: Array<Pick<AuditEvent, 'eventType' | 'actorRole' | 'actorId' | 'details'>> = [{
+    eventType: 'OFFER_SUBMITTED', actorRole: 'PROVIDER', actorId: offerData.providerId,
+    details: `Provider ${offerData.providerName} submitted quote #${offerData.quoteNumber} for ${offerData.carrier}`
+  }];
+  if (offerData.discrepanciesDetected) offerAudits.push({
+    eventType: 'QUOTE_DISCREPANCY_DETECTED', actorRole: 'SYSTEM', actorId: 'quote_validator',
+    details: `Discrepancy detected in offer ${offerData.id}: ${offerData.discrepancyDetails?.join('; ')}`
+  });
+  try {
+    await postgresStore.commitOfferSubmission({
+      offer: offerData, version: initialVersion, activity: offerActivity, audits: offerAudits
+    });
+  } catch (error: any) {
+    return res.status(error.statusCode || 400).json({ error: error.message });
+  }
+  const savedOffer = (await postgresStore.getOffer(offerData.id))!;
 
   // PR-0A shadow: jurisdiction coverage evaluation compared with the frozen qualification (D4).
-  await inShadow('offer-qualification', () => shadowOfferQualification(savedOffer, db.getChallenge(savedOffer.challengeId)));
+  await inShadow('offer-qualification', () => shadowOfferQualification(savedOffer, challengeForOffer));
 
   // CE-3: Instrument PROPOSITION_SUBMITTED for valid OfferVersion
-  const offerVersions = db.getOfferVersions(savedOffer.id);
+  const offerVersions = await postgresStore.getOfferVersions(savedOffer.id);
   const latestVersion = offerVersions[offerVersions.length - 1];
   const versionId = latestVersion?.id || `VER-${savedOffer.id}-v${savedOffer.version || 1}`;
   await commercialStore.projectMarketplaceEvent({

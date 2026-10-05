@@ -1456,6 +1456,76 @@ export class PostgresStore {
     );
   }
 
+  public async commitOfferSubmission(input: {
+    offer: Offer;
+    version: OfferVersion;
+    activity: CompetitionActivityEvent;
+    audits: Array<Pick<AuditEvent, 'eventType' | 'actorRole' | 'actorId' | 'details'>>;
+  }): Promise<void> {
+    await this.ensureReady();
+    const { offer, version, activity, audits } = input;
+    await this.sql!.transaction(async client => {
+      const participation = await client.query<{ id: string }>(
+        `SELECT id FROM challenge_participations
+         WHERE challenge_id = $1 AND provider_organization_id = $2 AND status <> 'WITHDRAWN';`,
+        [offer.challengeId, offer.providerId]
+      );
+      if (!participation.rows[0]) {
+        throw Object.assign(new Error('Provider is not an active participant in this challenge'), { statusCode: 403 });
+      }
+      const challengeResult = await client.query<{ payload: string }>(
+        `SELECT payload FROM challenges WHERE id = $1 FOR UPDATE;`, [offer.challengeId]
+      );
+      if (!challengeResult.rows[0]) {
+        throw Object.assign(new Error('Challenge not found'), { statusCode: 404 });
+      }
+      const challenge = JSON.parse(challengeResult.rows[0].payload) as Challenge;
+      const existingOffer = await client.query<{ provider_id: string; payload: string }>(
+        `SELECT provider_id, payload FROM offers WHERE id = $1;`, [offer.id]
+      );
+      if (existingOffer.rows[0]) {
+        if (existingOffer.rows[0].provider_id !== offer.providerId) {
+          throw Object.assign(new Error('Offer identifier belongs to another provider'), { statusCode: 403 });
+        }
+        return;
+      }
+      await client.query(
+        `INSERT INTO offers (id, challenge_id, provider_id, provider_name, carrier,
+           annual_premium, monthly_premium, status, round, version, previous_offer_id,
+           is_latest_revision, payload)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13);`,
+        [offer.id, offer.challengeId, offer.providerId, offer.providerName, offer.carrier,
+         offer.annualPremium, offer.monthlyPremium, offer.status, offer.round || 'ROUND_1_OPEN',
+         offer.version || 1, offer.previousOfferId || null, offer.isLatestRevision ?? true,
+         JSON.stringify(offer)]
+      );
+      await client.query(
+        `INSERT INTO offer_versions (id, offer_id, version_number, round, carrier,
+           annual_premium, monthly_premium, coverages, supporting_quote_doc_name,
+           revision_reason, submitted_at, superseded_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12);`,
+        [version.id, version.offerId, version.versionNumber, version.round, version.carrier,
+         version.annualPremium, version.monthlyPremium, JSON.stringify(version.coverages || []),
+         version.supportingQuoteDocName || '', version.revisionReason, version.submittedAt,
+         version.supersededAt || null]
+      );
+      challenge.offersCount = Number(challenge.offersCount || 0) + 1;
+      challenge.status = 'OFFERS_RECEIVED';
+      await client.query(
+        `UPDATE challenges SET status = $2, payload = $3, version = version + 1 WHERE id = $1;`,
+        [challenge.id, challenge.status, JSON.stringify(challenge)]
+      );
+      await client.query(
+        `INSERT INTO competition_activity_events
+         (id, competition_id, challenge_id, occurred_at, event_type, provider_organization_id, payload)
+         VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO NOTHING;`,
+        [activity.id, activity.competitionId, activity.challengeId, activity.timestamp,
+         activity.type, activity.providerOrganizationId || null, JSON.stringify(activity)]
+      );
+      for (const audit of audits) await this.appendAuditInTransaction(client, audit);
+    });
+  }
+
   public async saveAuditEvent(event: AuditEvent) {
     await this.ensureReady();
     await this.sql!.query(
