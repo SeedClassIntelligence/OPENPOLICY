@@ -1,0 +1,17 @@
+# Cloud Run source deployments must use the canonical npm lockfile.
+# Keeping bun.lock out of the upload prevents Buildpacks from selecting Bun.
+bun.lock
+
+# Historical artifacts are not runtime inputs.
+archive/
+
+# Local configuration and generated state must never be uploaded.
+.env
+.env.*
+!.env.example
+node_modules/
+dist/
+data/
+.git/
+.gitignore
+
