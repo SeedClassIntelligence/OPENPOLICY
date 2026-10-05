@@ -58,7 +58,7 @@ app.use('/api', enforceApiAuthorization);
 
 // Provider and consumer identity is attached by verified Firebase ID token.
 // Legacy identity headers exist only inside explicit non-production fixture mode.
-function getAuthenticatedProviderOrgId(req: express.Request): string {
+async function getAuthenticatedProviderOrgId(req: express.Request): Promise<string> {
   const identity = req.openPolicyIdentity;
   if (!identity || identity.role !== 'PROVIDER') {
     const err: any = new Error('Unauthorized: verified provider identity required');
@@ -79,7 +79,7 @@ function getAuthenticatedProviderOrgId(req: express.Request): string {
     throw err;
   }
 
-  const user = db.getProviderUser(providerUserId);
+  const user = await postgresStore.getProviderUser(providerUserId);
   if (!user) {
     const err: any = new Error(`Unauthorized: Provider user '${providerUserId}' is not registered`);
     err.statusCode = 401;
@@ -92,7 +92,7 @@ function getAuthenticatedProviderOrgId(req: express.Request): string {
     throw err;
   }
 
-  const org = db.getProviderOrganization(user.organizationId);
+  const org = await postgresStore.getProviderOrganization(user.organizationId);
   if (!org) {
     const err: any = new Error(`Forbidden: Provider organization '${user.organizationId}' is not recognized or authorized`);
     err.statusCode = 403;
@@ -128,14 +128,14 @@ function getAuthenticatedProviderOrgId(req: express.Request): string {
   return user.organizationId;
 }
 
-function getAuthenticatedProviderUserId(req: express.Request): string {
+async function getAuthenticatedProviderUserId(req: express.Request): Promise<string> {
   const identity = req.openPolicyIdentity;
   if (!identity || identity.role !== 'PROVIDER' || !identity.providerUserId) {
     const err: any = new Error('Unauthorized: verified provider identity required');
     err.statusCode = 401;
     throw err;
   }
-  const user = db.getProviderUser(identity.providerUserId);
+  const user = await postgresStore.getProviderUser(identity.providerUserId);
   if (!user) {
     const err: any = new Error(`Forbidden: Provider user '${identity.providerUserId}' is not registered`);
     err.statusCode = 403;
@@ -154,16 +154,16 @@ function getAuthenticatedConsumerId(req: express.Request): string {
   return identity.uid;
 }
 
-function authorizeChallengeResource(req: express.Request, challengeId: string): void {
-  const challenge = db.getChallenge(challengeId);
+async function authorizeChallengeResource(req: express.Request, challengeId: string): Promise<void> {
+  const challenge = await postgresStore.getChallenge(challengeId);
   if (!challenge) {
     const err: any = new Error('Challenge not found');
     err.statusCode = 404;
     throw err;
   }
   const identity = req.openPolicyIdentity!;
-  const providerOrganizationId = identity.role === 'PROVIDER' ? getAuthenticatedProviderOrgId(req) : undefined;
-  const participatingOrganizationIds = db.getAllParticipations()
+  const providerOrganizationId = identity.role === 'PROVIDER' ? await getAuthenticatedProviderOrgId(req) : undefined;
+  const participatingOrganizationIds = (await postgresStore.getAllParticipations())
     .filter(p => p.challengeId === challengeId && p.status !== 'WITHDRAWN')
     .map(p => p.providerOrganizationId);
   assertChallengeRelationship({
@@ -172,15 +172,15 @@ function authorizeChallengeResource(req: express.Request, challengeId: string): 
   });
 }
 
-function authorizeBindingResource(req: express.Request, handoffId: string): void {
-  const handoff = db.getBindingHandoff(handoffId);
+async function authorizeBindingResource(req: express.Request, handoffId: string): Promise<void> {
+  const handoff = (await postgresStore.getBindingHandoffs()).find(candidate => candidate.id === handoffId);
   if (!handoff) {
     const err: any = new Error('Binding handoff not found');
     err.statusCode = 404;
     throw err;
   }
   const identity = req.openPolicyIdentity!;
-  const providerOrganizationId = identity.role === 'PROVIDER' ? getAuthenticatedProviderOrgId(req) : undefined;
+  const providerOrganizationId = identity.role === 'PROVIDER' ? await getAuthenticatedProviderOrgId(req) : undefined;
   assertBindingRelationship({
     identity, handoffConsumerId: handoff.consumerId,
     handoffProviderOrganizationId: handoff.providerOrganizationId,
@@ -197,20 +197,20 @@ function requireHandoffProviderOrganization(handoff: { providerOrganizationId?: 
   return handoff.providerOrganizationId;
 }
 
-function notificationRecipientForRequest(req: express.Request) {
+async function notificationRecipientForRequest(req: express.Request) {
   const identity = req.openPolicyIdentity;
   if (!identity) throw Object.assign(new Error('Verified identity required'), { statusCode: 401 });
   if (identity.role === 'CONSUMER') return { consumerId: identity.uid };
   if (identity.role === 'ADMIN') return { operatorId: identity.uid };
-  const providerOrganizationId = getAuthenticatedProviderOrgId(req);
-  const providerUserId = getAuthenticatedProviderUserId(req);
+  const providerOrganizationId = await getAuthenticatedProviderOrgId(req);
+  const providerUserId = await getAuthenticatedProviderUserId(req);
   return { providerUserId, providerOrganizationId };
 }
 
 // ==========================================
 // 1. Core Health & System Telemetry API
 // ==========================================
-app.get('/api/health', (req, res) => {
+app.get('/api/health', async (req, res) => {
   res.json({
     status: 'ok',
     version: '1.0.0',
@@ -220,7 +220,7 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-app.get('/api/tests/run', (req, res) => {
+app.get('/api/tests/run', async (req, res) => {
   const comparisonResults = runComparisonEngineTestSuite();
   const eligibilityResults = runEligibilityEngineTestSuite();
   const competitionResults = runCompetitionEngineTestSuite();
@@ -256,7 +256,7 @@ app.get('/api/tests/run', (req, res) => {
   res.json({ passed, failed, total, results });
 });
 
-app.get('/api/metrics', (req, res) => {
+app.get('/api/metrics', async (req, res) => {
   res.json(db.getMetrics());
 });
 
@@ -317,11 +317,11 @@ app.get('/api/jurisdiction-evaluations', async (req, res) => {
   }
 });
 
-app.get('/api/audit-events', (req, res) => {
+app.get('/api/audit-events', async (req, res) => {
   res.json(db.getAuditEvents());
 });
 
-app.post('/api/reset', (req, res) => {
+app.post('/api/reset', async (req, res) => {
   db.seedCanonicalDataset();
   res.json({ success: true, message: 'Database reset to canonical initial state' });
 });
@@ -329,11 +329,11 @@ app.post('/api/reset', (req, res) => {
 // ==========================================
 // 2. Documents & Policy Intelligence API
 // ==========================================
-app.get('/api/documents/samples', (req, res) => {
+app.get('/api/documents/samples', async (req, res) => {
   res.json(SAMPLE_DECLARATIONS_PAGES);
 });
 
-app.post('/api/documents/upload-sample', (req, res) => {
+app.post('/api/documents/upload-sample', async (req, res) => {
   const { sampleId } = req.body;
   const sample = SAMPLE_DECLARATIONS_PAGES.find(s => s.id === sampleId) || SAMPLE_DECLARATIONS_PAGES[0];
 
@@ -368,7 +368,7 @@ app.post('/api/documents/upload-sample', (req, res) => {
 });
 
 // Update / verify policy terms
-app.post('/api/policies/:id/verify', (req, res) => {
+app.post('/api/policies/:id/verify', async (req, res) => {
   const { id } = req.params;
   const updatedPolicy = req.body;
   updatedPolicy.id = id;
@@ -381,7 +381,7 @@ app.post('/api/policies/:id/verify', (req, res) => {
 // ==========================================
 // 3. Coverage Baseline API
 // ==========================================
-app.post('/api/baselines/create', (req, res) => {
+app.post('/api/baselines/create', async (req, res) => {
   const { policyId, verifiedBy } = req.body;
   const policy = db.getPolicy(policyId);
   if (!policy) {
@@ -531,7 +531,7 @@ app.post('/api/challenges/create', async (req, res) => {
   res.json({ success: true, challenge });
 });
 
-app.get('/api/challenges', (req, res) => {
+app.get('/api/challenges', async (req, res) => {
   try {
     const consumerId = getAuthenticatedConsumerId(req);
     res.json(db.getChallenges().filter(challenge => challenge.consumerId === consumerId));
@@ -540,9 +540,9 @@ app.get('/api/challenges', (req, res) => {
   }
 });
 
-app.get('/api/challenges/:id', (req, res) => {
+app.get('/api/challenges/:id', async (req, res) => {
   try {
-    authorizeChallengeResource(req, req.params.id);
+    await authorizeChallengeResource(req, req.params.id);
   } catch (e: any) {
     return res.status(e.statusCode || 403).json({ error: e.message });
   }
@@ -567,7 +567,7 @@ app.get('/api/challenges/:id', (req, res) => {
 // ==========================================
 // 5. Offers & Quote Discrepancy Validation
 // ==========================================
-app.post('/api/offers/validate-quote', (req, res) => {
+app.post('/api/offers/validate-quote', async (req, res) => {
   const { enteredData, docData } = req.body;
   const discrepancyCheck = detectQuoteDiscrepancies(enteredData, docData);
   res.json(discrepancyCheck);
@@ -576,7 +576,7 @@ app.post('/api/offers/validate-quote', (req, res) => {
 app.post('/api/offers/submit', async (req, res) => {
   const offerData: Offer = req.body;
   try {
-    const authOrgId = getAuthenticatedProviderOrgId(req);
+    const authOrgId = await getAuthenticatedProviderOrgId(req);
     offerData.providerId = authOrgId;
     const org = db.getProviderOrganization(authOrgId);
     if (org) {
@@ -641,10 +641,10 @@ app.post('/api/explain-comparison', async (req, res) => {
 // ==========================================
 // 7. Consumer Selection & Binding Handoff (PM-3)
 // ==========================================
-app.post('/api/selection/handoff', (req, res) => {
+app.post('/api/selection/handoff', async (req, res) => {
   const { challengeId, offerId, consumerContact, consumerConsentGiven, acknowledgedReductions } = req.body;
   try {
-    authorizeChallengeResource(req, challengeId);
+    await authorizeChallengeResource(req, challengeId);
     if (!consumerContact?.name || !consumerContact?.email || !consumerContact?.phone) {
       return res.status(400).json({ error: 'consumerContact name, email, and phone are required' });
     }
@@ -661,16 +661,16 @@ app.post('/api/selection/handoff', (req, res) => {
   }
 });
 
-app.get('/api/selection/dossier/:id', (req, res) => {
+app.get('/api/selection/dossier/:id', async (req, res) => {
   const dossier = db.getBindingDossier(req.params.id);
   if (!dossier) return res.status(404).json({ error: 'Binding dossier not found' });
-  try { authorizeChallengeResource(req, dossier.challengeId); }
+  try { await authorizeChallengeResource(req, dossier.challengeId); }
   catch (e: any) { return res.status(e.statusCode || 403).json({ error: e.message }); }
   res.json(dossier);
 });
 
-app.get('/api/selection/dossier-by-challenge/:challengeId', (req, res) => {
-  try { authorizeChallengeResource(req, req.params.challengeId); }
+app.get('/api/selection/dossier-by-challenge/:challengeId', async (req, res) => {
+  try { await authorizeChallengeResource(req, req.params.challengeId); }
   catch (e: any) { return res.status(e.statusCode || 403).json({ error: e.message }); }
   const dossier = db.getDossierByChallenge(req.params.challengeId);
   if (!dossier) return res.status(404).json({ error: 'No binding dossier found for challenge' });
@@ -680,14 +680,14 @@ app.get('/api/selection/dossier-by-challenge/:challengeId', (req, res) => {
 // ==========================================
 // 8. Issued Policy Reconciliation API (PM-3)
 // ==========================================
-app.post('/api/reconciliation/verify', (req, res) => {
+app.post('/api/reconciliation/verify', async (req, res) => {
   const { handoffId, dossierId, issuedData } = req.body;
   try {
-    if (handoffId) authorizeBindingResource(req, handoffId);
+    if (handoffId) await authorizeBindingResource(req, handoffId);
     if (dossierId && issuedData?.coverages) {
       const dossier = db.getBindingDossier(dossierId);
       if (!dossier) return res.status(404).json({ error: 'Binding dossier not found' });
-      authorizeChallengeResource(req, dossier.challengeId);
+      await authorizeChallengeResource(req, dossier.challengeId);
       const detailedRec = db.performDetailedReconciliation({
         dossierId,
         issuedData
@@ -703,10 +703,10 @@ app.post('/api/reconciliation/verify', (req, res) => {
   }
 });
 
-app.get('/api/reconciliation/dossier/:dossierId', (req, res) => {
+app.get('/api/reconciliation/dossier/:dossierId', async (req, res) => {
   const dossier = db.getBindingDossier(req.params.dossierId);
   if (!dossier) return res.status(404).json({ error: 'Binding dossier not found' });
-  try { authorizeChallengeResource(req, dossier.challengeId); }
+  try { await authorizeChallengeResource(req, dossier.challengeId); }
   catch (e: any) { return res.status(e.statusCode || 403).json({ error: e.message }); }
   const report = db.getDetailedReconciliationByDossier(req.params.dossierId);
   if (!report) return res.status(404).json({ error: 'No reconciliation report found for dossier' });
@@ -716,7 +716,7 @@ app.get('/api/reconciliation/dossier/:dossierId', (req, res) => {
 // ==========================================
 // 9. Private Policy Vault API (Section 4)
 // ==========================================
-app.get('/api/vault/documents', (req, res) => {
+app.get('/api/vault/documents', async (req, res) => {
   try {
     const consumerId = getAuthenticatedConsumerId(req);
     res.json(db.getVaultDocuments().filter(document => document.ownerId === consumerId));
@@ -725,7 +725,7 @@ app.get('/api/vault/documents', (req, res) => {
   }
 });
 
-app.post('/api/vault/upload', (req, res) => {
+app.post('/api/vault/upload', async (req, res) => {
   try {
     const consumerId = getAuthenticatedConsumerId(req);
     const doc = db.uploadVaultDocument({ ...req.body, ownerId: consumerId });
@@ -738,7 +738,7 @@ app.post('/api/vault/upload', (req, res) => {
 // ==========================================
 // 10. Competition Engine: Final Round & Incumbent Defense
 // ==========================================
-app.post('/api/challenges/:id/final-round', (req, res) => {
+app.post('/api/challenges/:id/final-round', async (req, res) => {
   try {
     const challenge = db.initiateFinalRound(req.params.id);
     res.json({ success: true, challenge });
@@ -747,7 +747,7 @@ app.post('/api/challenges/:id/final-round', (req, res) => {
   }
 });
 
-app.post('/api/challenges/:id/incumbent-defense', (req, res) => {
+app.post('/api/challenges/:id/incumbent-defense', async (req, res) => {
   try {
     const offer = db.requestIncumbentDefense(req.params.id);
     res.json({ success: true, offer });
@@ -792,14 +792,7 @@ app.get('/api/marketplace/providers', async (req, res) => {
         linesOfBusiness: org.linesOfBusiness
       })) });
   } catch (e: any) {
-    res.json({ orgs: db.getProviderOrganizations()
-      .filter(org => org.marketplaceStatus === 'ACTIVE' && ['ACTIVE', 'MARKETPLACE_APPROVED'].includes(org.verificationStatus))
-      .map(org => ({
-        displayName: org.displayName,
-        organizationType: org.organizationType,
-        states: org.states,
-        linesOfBusiness: org.linesOfBusiness
-      })) });
+    res.status(503).json({ error: 'Provider directory is temporarily unavailable' });
   }
 });
 
@@ -807,10 +800,10 @@ app.get('/api/marketplace/providers', async (req, res) => {
 // BLOCKER 2/3 FIX: Server resolves authenticated provider context. Client does not select its own org.
 app.get('/api/marketplace/my-provider', async (req, res) => {
   try {
-    const orgId = getAuthenticatedProviderOrgId(req);
-    const org = (await postgresStore.getProviderOrganization(orgId)) || db.getProviderOrganization(orgId);
+    const orgId = await getAuthenticatedProviderOrgId(req);
+    const org = await postgresStore.getProviderOrganization(orgId);
     const licenses = await postgresStore.getProviderLicenses(orgId);
-    const appetite = (await postgresStore.getProviderAppetite(orgId)) || db.getProviderAppetite(orgId);
+    const appetite = await postgresStore.getProviderAppetite(orgId);
     const carriers = await postgresStore.getCarrierRelationships(orgId);
     res.json({ org, activeOrgId: orgId, licenses, appetite, carriers });
   } catch (e: any) {
@@ -821,10 +814,10 @@ app.get('/api/marketplace/my-provider', async (req, res) => {
 // Legacy route alias for compatibility — resolves from session, not from client param
 app.get('/api/marketplace/active-provider', async (req, res) => {
   try {
-    const orgId = getAuthenticatedProviderOrgId(req);
-    const org = (await postgresStore.getProviderOrganization(orgId)) || db.getProviderOrganization(orgId);
+    const orgId = await getAuthenticatedProviderOrgId(req);
+    const org = await postgresStore.getProviderOrganization(orgId);
     const licenses = await postgresStore.getProviderLicenses(orgId);
-    const appetite = (await postgresStore.getProviderAppetite(orgId)) || db.getProviderAppetite(orgId);
+    const appetite = await postgresStore.getProviderAppetite(orgId);
     const carriers = await postgresStore.getCarrierRelationships(orgId);
     res.json({ org, activeOrgId: orgId, licenses, appetite, carriers });
   } catch (e: any) {
@@ -832,9 +825,9 @@ app.get('/api/marketplace/active-provider', async (req, res) => {
   }
 });
 
-app.get('/api/marketplace/opportunities', (req, res) => {
+app.get('/api/marketplace/opportunities', async (req, res) => {
   try {
-    const orgId = getAuthenticatedProviderOrgId(req);
+    const orgId = await getAuthenticatedProviderOrgId(req);
     const opportunities = db.getProviderOpportunities(orgId);
     res.json(opportunities);
   } catch (e: any) {
@@ -844,7 +837,7 @@ app.get('/api/marketplace/opportunities', (req, res) => {
 
 app.post('/api/marketplace/invitations/:id/view', async (req, res) => {
   try {
-    const orgId = getAuthenticatedProviderOrgId(req);
+    const orgId = await getAuthenticatedProviderOrgId(req);
     const invitation = db.viewInvitation(req.params.id, orgId);
 
     // CE-3: Instrument VPO_VIEWED for first canonical view of opportunity
@@ -866,7 +859,7 @@ app.post('/api/marketplace/invitations/:id/view', async (req, res) => {
 
 app.post('/api/marketplace/invitations/:id/accept', async (req, res) => {
   try {
-    const orgId = getAuthenticatedProviderOrgId(req);
+    const orgId = await getAuthenticatedProviderOrgId(req);
     const invitationId = req.params.id;
 
     // 1. Regulatory / Marketplace check: verify invitation exists and belongs to this organization
@@ -962,9 +955,9 @@ app.post('/api/marketplace/invitations/:id/accept', async (req, res) => {
   }
 });
 
-app.post('/api/marketplace/invitations/:id/decline', (req, res) => {
+app.post('/api/marketplace/invitations/:id/decline', async (req, res) => {
   try {
-    const orgId = getAuthenticatedProviderOrgId(req);
+    const orgId = await getAuthenticatedProviderOrgId(req);
     const { reason, notes } = req.body;
     const invitation = db.declineInvitation(req.params.id, orgId, reason, notes);
     res.json({ success: true, invitation });
@@ -973,9 +966,9 @@ app.post('/api/marketplace/invitations/:id/decline', (req, res) => {
   }
 });
 
-app.get('/api/marketplace/competitions', (req, res) => {
+app.get('/api/marketplace/competitions', async (req, res) => {
   try {
-    const orgId = getAuthenticatedProviderOrgId(req);
+    const orgId = await getAuthenticatedProviderOrgId(req);
     const competitions = db.getProviderCompetitions(orgId);
     res.json(competitions);
   } catch (e: any) {
@@ -983,9 +976,9 @@ app.get('/api/marketplace/competitions', (req, res) => {
   }
 });
 
-app.get('/api/marketplace/workspace/:challengeId', (req, res) => {
+app.get('/api/marketplace/workspace/:challengeId', async (req, res) => {
   try {
-    const orgId = getAuthenticatedProviderOrgId(req);
+    const orgId = await getAuthenticatedProviderOrgId(req);
     const workspace = db.getChallengeWorkspace(req.params.challengeId, orgId);
     res.json(workspace);
   } catch (e: any) {
@@ -993,7 +986,7 @@ app.get('/api/marketplace/workspace/:challengeId', (req, res) => {
   }
 });
 
-app.post('/api/challenges/:id/compete', (req, res) => {
+app.post('/api/challenges/:id/compete', async (req, res) => {
   try {
     const result = db.openCompetitionForChallenge(req.params.id);
     res.json({ success: true, ...result });
@@ -1005,9 +998,9 @@ app.post('/api/challenges/:id/compete', (req, res) => {
 // ==========================================
 // PM-2: Competition Engine & Multi-Round Lifecycle API
 // ==========================================
-app.get('/api/marketplace/competition/:challengeId/status', (req, res) => {
+app.get('/api/marketplace/competition/:challengeId/status', async (req, res) => {
   try {
-    authorizeChallengeResource(req, req.params.challengeId);
+    await authorizeChallengeResource(req, req.params.challengeId);
     const summary = db.getCompetitionEvaluation(req.params.challengeId);
     res.json(summary);
   } catch (e: any) {
@@ -1015,9 +1008,9 @@ app.get('/api/marketplace/competition/:challengeId/status', (req, res) => {
   }
 });
 
-app.get('/api/marketplace/competition/:challengeId/signals', (req, res) => {
+app.get('/api/marketplace/competition/:challengeId/signals', async (req, res) => {
   try {
-    const orgId = getAuthenticatedProviderOrgId(req);
+    const orgId = await getAuthenticatedProviderOrgId(req);
     const signals = db.getCompetitionMarketSignals(req.params.challengeId, orgId);
     res.json(signals);
   } catch (e: any) {
@@ -1025,7 +1018,7 @@ app.get('/api/marketplace/competition/:challengeId/signals', (req, res) => {
   }
 });
 
-app.post('/api/marketplace/competition/:challengeId/advance-round', (req, res) => {
+app.post('/api/marketplace/competition/:challengeId/advance-round', async (req, res) => {
   const { targetRound, reason, customDurationHours } = req.body;
   try {
     const updatedComp = db.advanceCompetition(
@@ -1041,9 +1034,9 @@ app.post('/api/marketplace/competition/:challengeId/advance-round', (req, res) =
   }
 });
 
-app.post('/api/marketplace/competition/:challengeId/keep-current-offer/:offerId', (req, res) => {
+app.post('/api/marketplace/competition/:challengeId/keep-current-offer/:offerId', async (req, res) => {
   try {
-    const orgId = getAuthenticatedProviderOrgId(req);
+    const orgId = await getAuthenticatedProviderOrgId(req);
     const offer = db.confirmKeepCurrentOffer(
       req.params.challengeId,
       req.params.offerId,
@@ -1055,9 +1048,9 @@ app.post('/api/marketplace/competition/:challengeId/keep-current-offer/:offerId'
   }
 });
 
-app.post('/api/marketplace/competition/:challengeId/withdraw', (req, res) => {
+app.post('/api/marketplace/competition/:challengeId/withdraw', async (req, res) => {
   try {
-    const orgId = getAuthenticatedProviderOrgId(req);
+    const orgId = await getAuthenticatedProviderOrgId(req);
     const { reason, notes } = req.body;
     if (!reason) {
       return res.status(400).json({ error: 'Withdrawal reason is required' });
@@ -1074,7 +1067,7 @@ app.post('/api/marketplace/competition/:challengeId/withdraw', (req, res) => {
   }
 });
 
-app.post('/api/marketplace/competition/:challengeId/keep-current-policy', (req, res) => {
+app.post('/api/marketplace/competition/:challengeId/keep-current-policy', async (req, res) => {
   try {
     const { reason } = req.body;
     const consumerId = getAuthenticatedConsumerId(req);
@@ -1089,12 +1082,12 @@ app.post('/api/marketplace/competition/:challengeId/keep-current-policy', (req, 
   }
 });
 
-app.get('/api/marketplace/competition/:challengeId/activity-feed', (req, res) => {
+app.get('/api/marketplace/competition/:challengeId/activity-feed', async (req, res) => {
   try {
-    authorizeChallengeResource(req, req.params.challengeId);
+    await authorizeChallengeResource(req, req.params.challengeId);
     let orgId: string | undefined = undefined;
     if (req.openPolicyIdentity?.role === 'PROVIDER') {
-      orgId = getAuthenticatedProviderOrgId(req);
+      orgId = await getAuthenticatedProviderOrgId(req);
     }
     const events = db.getCompetitionActivityFeed(req.params.challengeId, orgId);
     res.json({ success: true, events });
@@ -1103,9 +1096,9 @@ app.get('/api/marketplace/competition/:challengeId/activity-feed', (req, res) =>
   }
 });
 
-app.get('/api/marketplace/competition/:challengeId/deadline-status', (req, res) => {
+app.get('/api/marketplace/competition/:challengeId/deadline-status', async (req, res) => {
   try {
-    authorizeChallengeResource(req, req.params.challengeId);
+    await authorizeChallengeResource(req, req.params.challengeId);
     const status = db.getCompetitionDeadlineStatus(req.params.challengeId);
     res.json({ success: true, status });
   } catch (e: any) {
@@ -1115,7 +1108,7 @@ app.get('/api/marketplace/competition/:challengeId/deadline-status', (req, res) 
 
 app.post('/api/marketplace/competition/:challengeId/revise-offer/:offerId', async (req, res) => {
   try {
-    const orgId = getAuthenticatedProviderOrgId(req);
+    const orgId = await getAuthenticatedProviderOrgId(req);
     const revisedOffer = db.reviseOfferInCompetition(
       req.params.challengeId,
       req.params.offerId,
@@ -1150,7 +1143,7 @@ app.post('/api/marketplace/competition/:challengeId/revise-offer/:offerId', asyn
   }
 });
 
-app.post('/api/marketplace/competition/:challengeId/seed-competitors', (req, res) => {
+app.post('/api/marketplace/competition/:challengeId/seed-competitors', async (req, res) => {
   try {
     db.seedCompetitorOffers(req.params.challengeId);
     const summary = db.getCompetitionEvaluation(req.params.challengeId);
@@ -1164,12 +1157,12 @@ app.post('/api/marketplace/competition/:challengeId/seed-competitors', (req, res
 // PM-2: Information Requests, Supplemental Facts & Offer Integrity API (Sections 17, 18, 25, 26, 28, 30, 34)
 // ==========================================
 
-app.get('/api/marketplace/challenges/:id/information-requests', (req, res) => {
+app.get('/api/marketplace/challenges/:id/information-requests', async (req, res) => {
   try {
-    if (req.openPolicyIdentity?.role === 'CONSUMER') authorizeChallengeResource(req, req.params.id);
+    if (req.openPolicyIdentity?.role === 'CONSUMER') await authorizeChallengeResource(req, req.params.id);
     let orgId: string | undefined = undefined;
     if (req.openPolicyIdentity?.role === 'PROVIDER') {
-      orgId = getAuthenticatedProviderOrgId(req);
+      orgId = await getAuthenticatedProviderOrgId(req);
     }
     const requests = db.getInformationRequests(req.params.id, orgId);
     res.json({ requests });
@@ -1178,9 +1171,9 @@ app.get('/api/marketplace/challenges/:id/information-requests', (req, res) => {
   }
 });
 
-app.post('/api/marketplace/challenges/:id/information-requests', (req, res) => {
+app.post('/api/marketplace/challenges/:id/information-requests', async (req, res) => {
   try {
-    const orgId = getAuthenticatedProviderOrgId(req);
+    const orgId = await getAuthenticatedProviderOrgId(req);
     const { requestedField, customFieldName, purpose, purposeExplanation } = req.body;
     if (!requestedField || !purpose || !purposeExplanation) {
       return res.status(400).json({ error: 'Missing required fields: requestedField, purpose, purposeExplanation' });
@@ -1199,7 +1192,7 @@ app.post('/api/marketplace/challenges/:id/information-requests', (req, res) => {
   }
 });
 
-app.post('/api/marketplace/information-requests/:id/answer', (req, res) => {
+app.post('/api/marketplace/information-requests/:id/answer', async (req, res) => {
   try {
     const { answerValue, consentScope, authorizedOrgIds } = req.body;
     const consumerId = getAuthenticatedConsumerId(req);
@@ -1219,7 +1212,7 @@ app.post('/api/marketplace/information-requests/:id/answer', (req, res) => {
   }
 });
 
-app.post('/api/marketplace/supplemental-facts/:id/consent', (req, res) => {
+app.post('/api/marketplace/supplemental-facts/:id/consent', async (req, res) => {
   try {
     const { organizationIds } = req.body;
     const consumerId = getAuthenticatedConsumerId(req);
@@ -1233,12 +1226,12 @@ app.post('/api/marketplace/supplemental-facts/:id/consent', (req, res) => {
   }
 });
 
-app.get('/api/marketplace/challenges/:id/supplemental-facts', (req, res) => {
+app.get('/api/marketplace/challenges/:id/supplemental-facts', async (req, res) => {
   try {
-    if (req.openPolicyIdentity?.role === 'CONSUMER') authorizeChallengeResource(req, req.params.id);
+    if (req.openPolicyIdentity?.role === 'CONSUMER') await authorizeChallengeResource(req, req.params.id);
     let orgId: string | undefined = undefined;
     if (req.openPolicyIdentity?.role === 'PROVIDER') {
-      orgId = getAuthenticatedProviderOrgId(req);
+      orgId = await getAuthenticatedProviderOrgId(req);
     }
     const facts = db.getSupplementalFacts(req.params.id, orgId);
     res.json({ facts });
@@ -1247,11 +1240,11 @@ app.get('/api/marketplace/challenges/:id/supplemental-facts', (req, res) => {
   }
 });
 
-app.get('/api/marketplace/offers/:id/versions', (req, res) => {
+app.get('/api/marketplace/offers/:id/versions', async (req, res) => {
   try {
     const offer = db.getOffer(req.params.id);
     if (!offer) return res.status(404).json({ error: 'Offer not found' });
-    authorizeChallengeResource(req, offer.challengeId);
+    await authorizeChallengeResource(req, offer.challengeId);
     const versions = db.getOfferVersions(req.params.id);
     res.json({ versions });
   } catch (e: any) {
@@ -1259,7 +1252,7 @@ app.get('/api/marketplace/offers/:id/versions', (req, res) => {
   }
 });
 
-app.post('/api/marketplace/offers/:id/verify-document', (req, res) => {
+app.post('/api/marketplace/offers/:id/verify-document', async (req, res) => {
   try {
     const verification = db.verifyOfferDocument(req.params.id, req.body.docData);
     res.json({ success: true, verification });
@@ -1268,7 +1261,7 @@ app.post('/api/marketplace/offers/:id/verify-document', (req, res) => {
   }
 });
 
-app.get('/api/marketplace/offers/:id/qualification', (req, res) => {
+app.get('/api/marketplace/offers/:id/qualification', async (req, res) => {
   try {
     const offer = db.qualifyOffer(req.params.id);
     res.json({ success: true, offer, isQualified: offer.isQualified });
@@ -1322,7 +1315,7 @@ app.post('/api/marketplace/challenges/:id/select-version', async (req, res) => {
 });
 
 // 2. Grant Binding Consent (purpose/recipient/field-extensible, consumer-owned)
-app.post('/api/marketplace/binding/:handoffId/grant-consent', (req, res) => {
+app.post('/api/marketplace/binding/:handoffId/grant-consent', async (req, res) => {
   try {
     const handoffId = req.params.handoffId;
     const consumerId = getAuthenticatedConsumerId(req);
@@ -1364,7 +1357,7 @@ app.post('/api/marketplace/binding/:handoffId/grant-consent', (req, res) => {
 });
 
 // 3. Revoke Binding Consent (blocks future disclosures, preserves historical records)
-app.post('/api/marketplace/binding/:handoffId/revoke-consent', (req, res) => {
+app.post('/api/marketplace/binding/:handoffId/revoke-consent', async (req, res) => {
   try {
     const consentId = req.body.consentGrantId || req.body.consentId;
     const consumerId = getAuthenticatedConsumerId(req);
@@ -1390,8 +1383,8 @@ app.post('/api/marketplace/binding/:handoffId/execute-disclosure', async (req, r
       return res.status(400).json({ error: 'consentGrantId is required' });
     }
 
-    const providerOrgId = getAuthenticatedProviderOrgId(req);
-    const providerUserId = getAuthenticatedProviderUserId(req);
+    const providerOrgId = await getAuthenticatedProviderOrgId(req);
+    const providerUserId = await getAuthenticatedProviderUserId(req);
 
     const result = db.executeControlledDisclosure({
       handoffId,
@@ -1429,7 +1422,7 @@ app.post('/api/marketplace/binding/:handoffId/execute-disclosure', async (req, r
 });
 
 // 5. Propose Underwriting Modification (carrier changes terms; selected OfferVersion remains immutable)
-app.post('/api/marketplace/binding/:handoffId/propose-modification', (req, res) => {
+app.post('/api/marketplace/binding/:handoffId/propose-modification', async (req, res) => {
   try {
     const handoffId = req.params.handoffId;
     const {
@@ -1448,8 +1441,8 @@ app.post('/api/marketplace/binding/:handoffId/propose-modification', (req, res) 
       return res.status(400).json({ error: 'underwritingReason is required' });
     }
 
-    const providerOrgId = getAuthenticatedProviderOrgId(req);
-    const providerUserId = getAuthenticatedProviderUserId(req);
+    const providerOrgId = await getAuthenticatedProviderOrgId(req);
+    const providerUserId = await getAuthenticatedProviderUserId(req);
 
     const result = db.proposeUnderwritingModification({
       handoffId,
@@ -1469,7 +1462,7 @@ app.post('/api/marketplace/binding/:handoffId/propose-modification', (req, res) 
 });
 
 // 6. Resolve Underwriting Modification (ACCEPT / REJECT by consumer)
-app.post('/api/marketplace/binding/:handoffId/resolve-modification', (req, res) => {
+app.post('/api/marketplace/binding/:handoffId/resolve-modification', async (req, res) => {
   try {
     const { modificationId, decision, rejectionReason } = req.body;
     const consumerId = getAuthenticatedConsumerId(req);
@@ -1496,7 +1489,7 @@ app.post('/api/marketplace/binding/:handoffId/resolve-modification', (req, res) 
 });
 
 // Route aliases for explicit accept / reject actions
-app.post('/api/marketplace/binding/:handoffId/accept-modification', (req, res) => {
+app.post('/api/marketplace/binding/:handoffId/accept-modification', async (req, res) => {
   try {
     const { modificationId } = req.body;
     const consumerId = getAuthenticatedConsumerId(req);
@@ -1517,7 +1510,7 @@ app.post('/api/marketplace/binding/:handoffId/accept-modification', (req, res) =
   }
 });
 
-app.post('/api/marketplace/binding/:handoffId/reject-modification', (req, res) => {
+app.post('/api/marketplace/binding/:handoffId/reject-modification', async (req, res) => {
   try {
     const { modificationId, rejectionReason } = req.body;
     const consumerId = getAuthenticatedConsumerId(req);
@@ -1549,7 +1542,7 @@ app.post('/api/marketplace/binding/:handoffId/update-status', async (req, res) =
       return res.status(400).json({ error: 'newStatus is required' });
     }
 
-    const providerOrgId = getAuthenticatedProviderOrgId(req);
+    const providerOrgId = await getAuthenticatedProviderOrgId(req);
 
     const updatedHandoff = db.updateBindingStatus({
       handoffId,
@@ -1583,9 +1576,9 @@ app.post('/api/marketplace/binding/:handoffId/update-status', async (req, res) =
 });
 
 // 8. Query Binding Handoff Details
-app.get('/api/marketplace/binding/:handoffId', (req, res) => {
+app.get('/api/marketplace/binding/:handoffId', async (req, res) => {
   try {
-    authorizeBindingResource(req, req.params.handoffId);
+    await authorizeBindingResource(req, req.params.handoffId);
   } catch (e: any) {
     return res.status(e.statusCode || 403).json({ error: e.message });
   }
@@ -1610,9 +1603,9 @@ app.get('/api/marketplace/binding/:handoffId', (req, res) => {
 });
 
 // 9. Query Challenge Selection & Binding State
-app.get('/api/marketplace/challenges/:id/selection-binding', (req, res) => {
+app.get('/api/marketplace/challenges/:id/selection-binding', async (req, res) => {
   try {
-    authorizeChallengeResource(req, req.params.id);
+    await authorizeChallengeResource(req, req.params.id);
   } catch (e: any) {
     return res.status(e.statusCode || 403).json({ error: e.message });
   }
@@ -1638,10 +1631,10 @@ app.get('/api/marketplace/challenges/:id/selection-binding', (req, res) => {
 // ==========================================
 
 // 1. Upload Issued Policy Document & Ingest Snapshot (Provider Only)
-app.post('/api/marketplace/binding/:handoffId/upload-issued-policy', (req, res) => {
+app.post('/api/marketplace/binding/:handoffId/upload-issued-policy', async (req, res) => {
   try {
     const handoffId = req.params.handoffId;
-    const providerUserId = getAuthenticatedProviderUserId(req);
+    const providerUserId = await getAuthenticatedProviderUserId(req);
     const { fileName, fileSizeBytes, mimeType, rawContent, extractedTerms } = req.body;
 
     if (!fileName || !rawContent || !extractedTerms) {
@@ -1669,7 +1662,7 @@ app.post('/api/marketplace/binding/:handoffId/upload-issued-policy', (req, res) 
 app.post('/api/marketplace/binding/:handoffId/reconcile', async (req, res) => {
   try {
     const handoffId = req.params.handoffId;
-    const providerUserId = getAuthenticatedProviderUserId(req);
+    const providerUserId = await getAuthenticatedProviderUserId(req);
 
     const result = db.reconcileIssuedPolicyForHandoff({
       bindingHandoffId: handoffId,
@@ -1725,10 +1718,10 @@ app.post('/api/marketplace/binding/:handoffId/reconcile', async (req, res) => {
 });
 
 // 3. Query Reconciliation Reports for Handoff
-app.get('/api/marketplace/binding/:handoffId/reconciliation', (req, res) => {
+app.get('/api/marketplace/binding/:handoffId/reconciliation', async (req, res) => {
   try {
     const handoffId = req.params.handoffId;
-    authorizeBindingResource(req, handoffId);
+    await authorizeBindingResource(req, handoffId);
     const reports = db.getReconciliationReportsForHandoff(handoffId);
     const documents = db.getIssuedPolicyDocumentsForHandoff(handoffId);
     const snapshots = db.getIssuedPolicySnapshotsForHandoff(handoffId);
@@ -1821,7 +1814,7 @@ app.post('/api/marketplace/binding/:handoffId/consumer-verify', async (req, res)
 });
 
 // 5. Query Private Policy Vault Items (Consumer Only)
-app.get('/api/marketplace/vault/policies', (req, res) => {
+app.get('/api/marketplace/vault/policies', async (req, res) => {
   try {
     const consumerId = getAuthenticatedConsumerId(req);
     const vaultItems = db.getPolicyVaultItemsForConsumer(consumerId);
@@ -1832,7 +1825,7 @@ app.get('/api/marketplace/vault/policies', (req, res) => {
 });
 
 // 6. Query Specific Vault Policy Item
-app.get('/api/marketplace/vault/policies/:id', (req, res) => {
+app.get('/api/marketplace/vault/policies/:id', async (req, res) => {
   try {
     const item = db.getPolicyVaultItem(req.params.id);
     if (!item) {
@@ -1856,7 +1849,7 @@ app.get('/api/marketplace/vault/policies/:id', (req, res) => {
 // 1. Get Commercial Account for Authenticated Provider Organization (Read-Only)
 app.get('/api/commercial/account', async (req, res) => {
   try {
-    const orgId = getAuthenticatedProviderOrgId(req);
+    const orgId = await getAuthenticatedProviderOrgId(req);
     const account = await commercialStore.getCommercialAccountByOrgId(orgId);
     res.json({
       success: true,
@@ -1872,7 +1865,7 @@ app.get('/api/commercial/account', async (req, res) => {
 // 2. Get Active Commercial Agreement & Plan Version (Read-Only)
 app.get('/api/commercial/agreement', async (req, res) => {
   try {
-    const orgId = getAuthenticatedProviderOrgId(req);
+    const orgId = await getAuthenticatedProviderOrgId(req);
     const agreement = await commercialStore.getActiveAgreementForOrg(orgId);
     if (!agreement) {
       return res.json({
@@ -1911,7 +1904,7 @@ app.get('/api/commercial/plans', async (req, res) => {
 // 4. Get Provider Entitlements (Read-Only with durable usage counts)
 app.get('/api/commercial/entitlements', async (req, res) => {
   try {
-    const orgId = getAuthenticatedProviderOrgId(req);
+    const orgId = await getAuthenticatedProviderOrgId(req);
     const entitlements = await commercialStore.getEntitlementsForOrg(orgId);
     const enriched = await Promise.all(
       entitlements.map(async (ent) => {
@@ -1932,7 +1925,7 @@ app.get('/api/commercial/entitlements', async (req, res) => {
 // 5. Explicit Commercial Enrollment Command (CE-2)
 app.post('/api/commercial/agreements/enroll', async (req, res) => {
   try {
-    const orgId = getAuthenticatedProviderOrgId(req);
+    const orgId = await getAuthenticatedProviderOrgId(req);
     const { planId, planCode, planVersionId, customTerms, enforcementPolicy } = req.body;
 
     let targetPlanId = planId;
@@ -1971,7 +1964,7 @@ app.post('/api/commercial/agreements/enroll', async (req, res) => {
 // 6. Explicit Commercial Agreement Lifecycle Transition Command (CE-2)
 app.post('/api/commercial/agreements/:id/transition', async (req, res) => {
   try {
-    const orgId = getAuthenticatedProviderOrgId(req);
+    const orgId = await getAuthenticatedProviderOrgId(req);
     const agreement = await commercialStore.getCommercialAgreementById(req.params.id);
     if (!agreement) {
       return res.status(404).json({ error: 'Commercial agreement not found' });
@@ -2002,7 +1995,7 @@ app.post('/api/commercial/agreements/:id/transition', async (req, res) => {
 // 7. Get Auditable Usage Records (CE-2)
 app.get('/api/commercial/usage', async (req, res) => {
   try {
-    const orgId = getAuthenticatedProviderOrgId(req);
+    const orgId = await getAuthenticatedProviderOrgId(req);
     const limit = Number(req.query.limit) || 100;
     const usageRecords = await commercialStore.getUsageRecordsForOrg(orgId, limit);
     res.json({ success: true, usageRecords });
@@ -2015,7 +2008,7 @@ app.get('/api/commercial/usage', async (req, res) => {
 // 5. Get Commercial Events Ledger for Provider Organization
 app.get('/api/commercial/events', async (req, res) => {
   try {
-    const orgId = getAuthenticatedProviderOrgId(req);
+    const orgId = await getAuthenticatedProviderOrgId(req);
     const limit = Number(req.query.limit) || 100;
     const events = await commercialStore.getCommercialEventsForOrg(orgId, limit);
     res.json({ success: true, events });
@@ -2032,7 +2025,7 @@ app.get('/api/commercial/events', async (req, res) => {
 // 1. Get Billable Events with Filtering & Tenant Isolation
 app.get('/api/commercial/billable-events', async (req, res) => {
   try {
-    const orgId = getAuthenticatedProviderOrgId(req);
+    const orgId = await getAuthenticatedProviderOrgId(req);
     const status = req.query.status as any;
     const chargeCode = req.query.chargeCode as string;
     const limit = Number(req.query.limit) || 100;
@@ -2052,7 +2045,7 @@ app.get('/api/commercial/billable-events', async (req, res) => {
 // 2. Get Rated Commercial Activity Summary
 app.get('/api/commercial/billable-events/summary', async (req, res) => {
   try {
-    const orgId = getAuthenticatedProviderOrgId(req);
+    const orgId = await getAuthenticatedProviderOrgId(req);
     const summary = await commercialStore.getCommercialActivitySummary(orgId);
     res.json({ success: true, summary });
   } catch (e: any) {
@@ -2064,7 +2057,7 @@ app.get('/api/commercial/billable-events/summary', async (req, res) => {
 // 3. Get Single Billable Event with Adjustments
 app.get('/api/commercial/billable-events/:id', async (req, res) => {
   try {
-    const orgId = getAuthenticatedProviderOrgId(req);
+    const orgId = await getAuthenticatedProviderOrgId(req);
     const billableEvent = await commercialStore.getBillableEventById(req.params.id);
     if (!billableEvent) {
       return res.status(404).json({ error: 'Billable event not found' });
@@ -2083,7 +2076,7 @@ app.get('/api/commercial/billable-events/:id', async (req, res) => {
 // 4. Get Rating Adjustments for Provider Organization
 app.get('/api/commercial/adjustments', async (req, res) => {
   try {
-    const orgId = getAuthenticatedProviderOrgId(req);
+    const orgId = await getAuthenticatedProviderOrgId(req);
     const adjustments = await commercialStore.getRatingAdjustmentsForOrg(orgId);
     res.json({ success: true, adjustments });
   } catch (e: any) {
@@ -2095,7 +2088,7 @@ app.get('/api/commercial/adjustments', async (req, res) => {
 // 5. Create Rating Adjustment (Credit Memo / Reversal / Overage Forgiveness)
 app.post('/api/commercial/billable-events/:id/adjustments', async (req, res) => {
   try {
-    const orgId = getAuthenticatedProviderOrgId(req);
+    const orgId = await getAuthenticatedProviderOrgId(req);
     const billableEvent = await commercialStore.getBillableEventById(req.params.id);
     if (!billableEvent) {
       return res.status(404).json({ error: 'Billable event not found' });
@@ -2109,7 +2102,7 @@ app.post('/api/commercial/billable-events/:id/adjustments', async (req, res) => 
       return res.status(400).json({ error: 'adjustmentType and reason are required' });
     }
 
-    const authActor = getAuthenticatedProviderUserId(req);
+    const authActor = await getAuthenticatedProviderUserId(req);
     const adjustment = await commercialStore.createRatingAdjustment({
       originalBillableEventId: billableEvent.id,
       adjustmentType,
@@ -2135,7 +2128,7 @@ app.post('/api/commercial/rating/evaluate-event', async (req, res) => {
     }
 
     // Verify tenant isolation if request comes from provider context
-    const orgId = getAuthenticatedProviderOrgId(req);
+    const orgId = await getAuthenticatedProviderOrgId(req);
     const event = await commercialStore.getCommercialEventById(eventId);
     if (event && event.providerOrganizationId !== orgId) {
       return res.status(403).json({ error: 'Forbidden: Commercial event belongs to another provider organization' });
@@ -2190,7 +2183,7 @@ app.get('/api/commercial/rating/runs/:id', async (req, res) => {
 // 7. Get Factual Value Summary & Conversion Funnel
 app.get('/api/commercial/value-summary', async (req, res) => {
   try {
-    const orgId = getAuthenticatedProviderOrgId(req);
+    const orgId = await getAuthenticatedProviderOrgId(req);
     const counts = await commercialStore.getEventCountsByType(orgId);
     const from = (req.query.from as string) || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
     const to = (req.query.to as string) || new Date().toISOString();
@@ -2210,7 +2203,7 @@ app.get('/api/commercial/value-summary', async (req, res) => {
 // Alias for /api/commercial/events/summary
 app.get('/api/commercial/events/summary', async (req, res) => {
   try {
-    const orgId = getAuthenticatedProviderOrgId(req);
+    const orgId = await getAuthenticatedProviderOrgId(req);
     const counts = await commercialStore.getEventCountsByType(orgId);
     const from = (req.query.from as string) || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
     const to = (req.query.to as string) || new Date().toISOString();
@@ -2245,7 +2238,7 @@ app.post('/api/commercial/events/reconcile', async (req, res) => {
 // 1. List Billing Periods
 app.get('/api/commercial/billing-periods', async (req, res) => {
   try {
-    const orgId = getAuthenticatedProviderOrgId(req);
+    const orgId = await getAuthenticatedProviderOrgId(req);
     const periods = await commercialStore.getBillingPeriodsForOrg(orgId);
     res.json({ success: true, billingPeriods: periods });
   } catch (e: any) {
@@ -2256,7 +2249,7 @@ app.get('/api/commercial/billing-periods', async (req, res) => {
 // 2. Create Billing Period
 app.post('/api/commercial/billing-periods', async (req, res) => {
   try {
-    const orgId = getAuthenticatedProviderOrgId(req);
+    const orgId = await getAuthenticatedProviderOrgId(req);
     const { commercialAgreementId, commercialPlanVersionId, periodStart, periodEnd } = req.body;
     if (!commercialAgreementId || !commercialPlanVersionId || !periodStart || !periodEnd) {
       return res.status(400).json({ error: 'commercialAgreementId, commercialPlanVersionId, periodStart, and periodEnd are required' });
@@ -2286,7 +2279,7 @@ app.post('/api/commercial/billing-periods', async (req, res) => {
 // 3. Close Billing Period
 app.post('/api/commercial/billing-periods/:id/close', async (req, res) => {
   try {
-    const orgId = getAuthenticatedProviderOrgId(req);
+    const orgId = await getAuthenticatedProviderOrgId(req);
     const period = await commercialStore.getBillingPeriodById(req.params.id);
     if (!period) return res.status(404).json({ error: 'BillingPeriod not found' });
     if (period.providerOrganizationId !== orgId) {
@@ -2302,7 +2295,7 @@ app.post('/api/commercial/billing-periods/:id/close', async (req, res) => {
 // 4. List Invoices
 app.get('/api/commercial/invoices', async (req, res) => {
   try {
-    const orgId = getAuthenticatedProviderOrgId(req);
+    const orgId = await getAuthenticatedProviderOrgId(req);
     const invoices = await commercialStore.getInvoicesForOrg(orgId);
     res.json({ success: true, invoices });
   } catch (e: any) {
@@ -2313,7 +2306,7 @@ app.get('/api/commercial/invoices', async (req, res) => {
 // 5. Get Invoice by ID
 app.get('/api/commercial/invoices/:id', async (req, res) => {
   try {
-    const orgId = getAuthenticatedProviderOrgId(req);
+    const orgId = await getAuthenticatedProviderOrgId(req);
     const invoice = await commercialStore.getInvoiceById(req.params.id);
     if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
     if (invoice.providerOrganizationId !== orgId) {
@@ -2328,7 +2321,7 @@ app.get('/api/commercial/invoices/:id', async (req, res) => {
 // 6. Generate Draft Invoice
 app.post('/api/commercial/invoices/generate-draft', async (req, res) => {
   try {
-    const orgId = getAuthenticatedProviderOrgId(req);
+    const orgId = await getAuthenticatedProviderOrgId(req);
     const { billingPeriodId, idempotencyKey } = req.body;
     if (!billingPeriodId) {
       return res.status(400).json({ error: 'billingPeriodId is required' });
@@ -2354,7 +2347,7 @@ app.post('/api/commercial/invoices/generate-draft', async (req, res) => {
 // 7. Finalize Invoice
 app.post('/api/commercial/invoices/:id/finalize', async (req, res) => {
   try {
-    const orgId = getAuthenticatedProviderOrgId(req);
+    const orgId = await getAuthenticatedProviderOrgId(req);
     const invoice = await commercialStore.getInvoiceById(req.params.id);
     if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
     if (invoice.providerOrganizationId !== orgId) {
@@ -2371,7 +2364,7 @@ app.post('/api/commercial/invoices/:id/finalize', async (req, res) => {
 // 8. Record Payment
 app.post('/api/commercial/payments', async (req, res) => {
   try {
-    const orgId = getAuthenticatedProviderOrgId(req);
+    const orgId = await getAuthenticatedProviderOrgId(req);
     const { amountCents, paymentMethod, invoiceId, externalReference, idempotencyKey } = req.body;
     if (!amountCents || !paymentMethod) {
       return res.status(400).json({ error: 'amountCents and paymentMethod are required' });
@@ -2407,7 +2400,7 @@ app.post('/api/commercial/payments', async (req, res) => {
 // 9. Record Refund
 app.post('/api/commercial/refunds', async (req, res) => {
   try {
-    const orgId = getAuthenticatedProviderOrgId(req);
+    const orgId = await getAuthenticatedProviderOrgId(req);
     const { paymentId, amountCents, reason, idempotencyKey } = req.body;
     if (!paymentId || !amountCents || !reason) {
       return res.status(400).json({ error: 'paymentId, amountCents, and reason are required' });
@@ -2439,7 +2432,7 @@ app.post('/api/commercial/refunds', async (req, res) => {
 // 10. Provider Account Balance & Statement
 app.get(['/api/commercial/statements/balance', '/api/commercial/account-balance'], async (req, res) => {
   try {
-    const orgId = getAuthenticatedProviderOrgId(req);
+    const orgId = await getAuthenticatedProviderOrgId(req);
     const balance = await commercialStore.getAuthoritativeAccountBalance(orgId);
     res.json({ success: true, balance });
   } catch (e: any) {
@@ -2450,7 +2443,7 @@ app.get(['/api/commercial/statements/balance', '/api/commercial/account-balance'
 // 11. Current Commercial Statement (Overview)
 app.get('/api/commercial/statements/current', async (req, res) => {
   try {
-    const orgId = getAuthenticatedProviderOrgId(req);
+    const orgId = await getAuthenticatedProviderOrgId(req);
     const balance = await commercialStore.getAuthoritativeAccountBalance(orgId);
     const invoices = await commercialStore.getInvoicesForOrg(orgId);
     const periods = await commercialStore.getBillingPeriodsForOrg(orgId);
@@ -2475,17 +2468,17 @@ app.get('/api/commercial/statements/current', async (req, res) => {
 // ==========================================
 // 11. Notification Stream API (Section 28)
 // ==========================================
-app.get('/api/notifications', (req, res) => {
+app.get('/api/notifications', async (req, res) => {
   try {
-    res.json(db.getNotificationsForRecipient(notificationRecipientForRequest(req)));
+    res.json(db.getNotificationsForRecipient(await notificationRecipientForRequest(req)));
   } catch (e: any) {
     res.status(e.statusCode || 403).json({ error: e.message });
   }
 });
 
-app.post('/api/notifications/:id/read', (req, res) => {
+app.post('/api/notifications/:id/read', async (req, res) => {
   try {
-    db.markNotificationRead(req.params.id, notificationRecipientForRequest(req));
+    db.markNotificationRead(req.params.id, await notificationRecipientForRequest(req));
     res.json({ success: true });
   } catch (e: any) {
     res.status(e.statusCode || 403).json({ error: e.message });
@@ -2495,19 +2488,19 @@ app.post('/api/notifications/:id/read', (req, res) => {
 // ==========================================
 // PM-4: Governance, Review Queue & Cryptographic Audit API (Sections 32-34)
 // ==========================================
-app.get('/api/admin/review-queue', (req, res) => {
+app.get('/api/admin/review-queue', async (req, res) => {
   const status = req.query.status as any;
   const items = db.getReviewQueue(status);
   res.json(items);
 });
 
-app.get('/api/admin/review-queue/:id', (req, res) => {
+app.get('/api/admin/review-queue/:id', async (req, res) => {
   const item = db.getReviewQueueItem(req.params.id);
   if (!item) return res.status(404).json({ error: 'Review queue ticket not found' });
   res.json(item);
 });
 
-app.post('/api/admin/review-queue/:id/resolve', (req, res) => {
+app.post('/api/admin/review-queue/:id/resolve', async (req, res) => {
   const { action, notes } = req.body;
   if (!action || !['OVERRIDE', 'REJECT'].includes(action)) {
     return res.status(400).json({ error: 'Invalid action. Must be OVERRIDE or REJECT.' });
@@ -2525,7 +2518,7 @@ app.post('/api/admin/review-queue/:id/resolve', (req, res) => {
   }
 });
 
-app.post('/api/admin/review-queue/enqueue', (req, res) => {
+app.post('/api/admin/review-queue/enqueue', async (req, res) => {
   try {
     const item = db.enqueueReviewItem(req.body);
     res.json({ success: true, item });
@@ -2534,7 +2527,7 @@ app.post('/api/admin/review-queue/enqueue', (req, res) => {
   }
 });
 
-app.get('/api/admin/audit-chain/verify', (req, res) => {
+app.get('/api/admin/audit-chain/verify', async (req, res) => {
   try {
     const verification = db.verifyAuditChainIntegrity();
     res.json(verification);
@@ -2543,7 +2536,7 @@ app.get('/api/admin/audit-chain/verify', (req, res) => {
   }
 });
 
-app.post('/api/admin/audit-chain/generate-proof', (req, res) => {
+app.post('/api/admin/audit-chain/generate-proof', async (req, res) => {
   const { jurisdiction, challengeReference, auditorName } = req.body;
   try {
     const proof = db.generateRegulatoryAuditProof({
@@ -2560,7 +2553,7 @@ app.post('/api/admin/audit-chain/generate-proof', (req, res) => {
 // ==========================================
 // 9. Interactive API Documentation & Specs
 // ==========================================
-app.get('/api/docs/spec', (req, res) => {
+app.get('/api/docs/spec', async (req, res) => {
   res.json({
     name: 'Policy Challenge High-Performance Engine API',
     version: '1.0.0',
@@ -2585,7 +2578,7 @@ app.get('/api/docs/spec', (req, res) => {
 });
 
 // Direct Codebase Zip Download Route
-app.get(['/download/codebase.zip', '/download/OPENPOLICY_2026-10-02.zip'], (req, res) => {
+app.get(['/download/codebase.zip', '/download/OPENPOLICY_2026-10-02.zip'], async (req, res) => {
   const candidatePaths = [
     path.resolve('c:/Users/SEEDN/Downloads/OPENPOLICY_2026-10-02.zip'),
     path.resolve(process.cwd(), 'OPENPOLICY_2026-10-02.zip'),
@@ -2626,7 +2619,7 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    app.get('*', (req, res) => {
+    app.get('*', async (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }

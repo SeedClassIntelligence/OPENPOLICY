@@ -5,6 +5,12 @@ delete process.env.OPENPOLICY_FIXTURE_AUTHORIZATION_BYPASS;
 
 const { app } = await import('../server');
 const { postgresStore } = await import('../src/server/db/postgresStore');
+const { db } = await import('../src/server/db');
+await postgresStore.init();
+await postgresStore.seedCanonicalProviderData();
+const canonicalChallenge = db.getChallenge('CHAL-NV-49281');
+if (!canonicalChallenge) throw new Error('Canonical security fixture challenge is missing.');
+await postgresStore.saveChallenge(canonicalChallenge);
 const server = app.listen(0, '127.0.0.1');
 await new Promise<void>(resolve => server.once('listening', resolve));
 const address = server.address();
@@ -26,6 +32,7 @@ try {
   await probe('anonymous competition status', '/api/marketplace/competition/CHAL-NV-49281/status', [401]);
   await probe('anonymous commercial rating history', '/api/commercial/rating/runs', [401]);
 
+  process.env.NODE_ENV = 'test';
   process.env.OPENPOLICY_AUTH_MODE = 'fixture';
   const consumer = { 'x-consumer-id': 'user_consumer_1' };
   const otherConsumer = { 'x-consumer-id': 'other-consumer' };
