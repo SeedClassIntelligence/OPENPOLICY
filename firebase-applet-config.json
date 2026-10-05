@@ -3,6 +3,7 @@
   "appId": "1:224607016614:web:0277a875f9ea2d06590667",
   "apiKey": "AIzaSyBSye0t71kK5HOjEv2P1c5sYHhsWCkMmH4",
   "authDomain": "openpolicy-35f82.firebaseapp.com",
+  "firestoreDatabaseId": "(default)",
   "storageBucket": "openpolicy-35f82.firebasestorage.app",
   "messagingSenderId": "224607016614"
 }

@@ -136,11 +136,17 @@ Reason: no real Firebase project, registered web-app attestation provider, reCAP
 
 ## Real external acceptance
 
-### Firebase — not executed
+### Firebase — external acceptance executed
 
-The supplied `C:\Users\SEEDN\Downloads\OPENPOLICY\.env` contains only `GEMINI_API_KEY` (empty), `APP_URL`, and `PORT`. No Firebase project ID, Admin credential mechanism, real consumer/provider/operator accounts, canonical `users/{uid}` mappings, authorized HTTPS domain, deployed Rules evidence, or App Check configuration is available. No credentials were fabricated.
+External acceptance ran against Firebase/GCP project `openpolicy-35f82` and the public Cloud Run acceptance service at `https://openpolicy-acceptance-224607016614.us-central1.run.app`. Email/password Authentication, the `(default)` Firestore database in `nam5`, deployed Firestore Rules, platform ADC, the dedicated `openpolicy-runtime` service identity, and the HTTPS authorized domain were exercised. The runtime identity has `roles/datastore.user` plus read-only `roles/firebaseauth.viewer`; no service-account key was created or downloaded.
 
-Required consolidated input: Firebase/GCP project; securely supplied Admin credentials or platform ADC; enabled sign-in provider; authorized HTTPS domain; real consumer, provider, and operator accounts; canonical user/provider organization mappings; deployed Firestore Rules; web API-key restrictions; and the App Check production decision/configuration.
+Six temporary, isolated Firebase accounts covered two consumers, two providers in different canonical organizations, one platform operator, and one deliberately unmapped user. The real-project suite passed **18/18**: public HTTPS; anonymous denial; spoofed consumer/provider header denial; malformed token denial; unknown-profile denial; consumer admission and operator denial; provider mapping; participating-provider admission; cross-organization denial; operator admission; owner-only profile read; cross-user read denial; user-directory denial; role-escalation denial; provider-mapping injection denial; and revoked-token denial. All six Authentication users and profile documents were deleted after the run.
+
+The Firebase browser key is restricted to the two Cloud Run service hostnames and local development origins. Firebase's automatically managed Firebase-only API target allowlist remains in place and does not include the Generative Language API. A post-restriction signup from the deployed HTTPS origin succeeded, the unmapped identity failed closed with 403, and the account was deleted. Final live smoke checks returned 200 for the public root and 401 for anonymous and spoofed-provider protected requests.
+
+Deployment exposed and resolved two environment defects: revoked-token verification required the runtime's read-only Firebase Authentication Viewer role, and the tracked web configuration required an explicit `firestoreDatabaseId: "(default)"` for TypeScript reproducibility. The final Cloud Run revision uses production Firebase mode, one vCPU, a 2 GiB memory ceiling, zero minimum instances, and one maximum instance. A project-scoped USD 5 alert budget is configured at 50%, 90%, and 100%; budget alerts are not hard spending caps.
+
+Firebase acceptance is **PASS for authentication, authorization boundaries, Rules behavior, and deployed HTTPS integration**. App Check remains deferred under the previously recorded decision. Production durability remains unresolved: PGlite runs on Cloud Run's ephemeral filesystem and showed a variable startup footprint above 1 GiB. This service is suitable as an external acceptance preview, but not as a durable production marketplace datastore. That storage decision requires founder authorization and is not silently treated as complete.
 
 ### GitHub Milestone 3 — blocked by configuration
 
