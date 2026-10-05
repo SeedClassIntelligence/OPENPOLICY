@@ -2187,6 +2187,26 @@ export class PostgresStore {
     })) as PlatformNotification[];
   }
 
+  public async markNotificationReadForRecipient(
+    id: string,
+    selector: { recipientType: PlatformNotification['recipientType']; recipientId: string },
+    readAt: string
+  ): Promise<boolean> {
+    await this.ensureReady();
+    const column = {
+      CONSUMER: 'recipient_consumer_id',
+      PROVIDER_USER: 'recipient_provider_user_id',
+      PROVIDER_ORGANIZATION: 'recipient_provider_organization_id',
+      PLATFORM_OPERATOR: 'recipient_operator_id'
+    }[selector.recipientType];
+    const result = await this.sql!.query(
+      `UPDATE platform_notifications SET is_read = TRUE, read_at = $3
+       WHERE id = $1 AND recipient_type = $2 AND ${column} = $4;`,
+      [id, selector.recipientType, readAt, selector.recipientId]
+    );
+    return result.rowCount === 1;
+  }
+
   public async getPolicyVaultItems(consumerId?: string): Promise<PolicyVaultItem[]> {
     await this.ensureReady();
     const query = consumerId

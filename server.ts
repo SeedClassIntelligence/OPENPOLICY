@@ -2602,7 +2602,17 @@ app.get('/api/commercial/statements/current', async (req, res) => {
 // ==========================================
 app.get('/api/notifications', async (req, res) => {
   try {
-    res.json(db.getNotificationsForRecipient(await notificationRecipientForRequest(req)));
+    const recipient = await notificationRecipientForRequest(req);
+    const selectors = 'consumerId' in recipient && recipient.consumerId
+      ? [{ recipientType: 'CONSUMER' as const, recipientId: recipient.consumerId }]
+      : 'operatorId' in recipient && recipient.operatorId
+        ? [{ recipientType: 'PLATFORM_OPERATOR' as const, recipientId: recipient.operatorId }]
+        : [
+            { recipientType: 'PROVIDER_USER' as const, recipientId: recipient.providerUserId! },
+            { recipientType: 'PROVIDER_ORGANIZATION' as const, recipientId: recipient.providerOrganizationId! }
+          ];
+    const lists = await Promise.all(selectors.map(selector => postgresStore.getNotificationsForRecipient(selector)));
+    res.json(lists.flat().sort((a, b) => b.timestamp.localeCompare(a.timestamp)));
   } catch (e: any) {
     res.status(e.statusCode || 403).json({ error: e.message });
   }
@@ -2610,7 +2620,21 @@ app.get('/api/notifications', async (req, res) => {
 
 app.post('/api/notifications/:id/read', async (req, res) => {
   try {
-    db.markNotificationRead(req.params.id, await notificationRecipientForRequest(req));
+    const recipient = await notificationRecipientForRequest(req);
+    const selectors = 'consumerId' in recipient && recipient.consumerId
+      ? [{ recipientType: 'CONSUMER' as const, recipientId: recipient.consumerId }]
+      : 'operatorId' in recipient && recipient.operatorId
+        ? [{ recipientType: 'PLATFORM_OPERATOR' as const, recipientId: recipient.operatorId }]
+        : [
+            { recipientType: 'PROVIDER_USER' as const, recipientId: recipient.providerUserId! },
+            { recipientType: 'PROVIDER_ORGANIZATION' as const, recipientId: recipient.providerOrganizationId! }
+          ];
+    let updated = false;
+    const readAt = new Date().toISOString();
+    for (const selector of selectors) {
+      updated = (await postgresStore.markNotificationReadForRecipient(req.params.id, selector, readAt)) || updated;
+    }
+    if (!updated) return res.status(403).json({ error: 'Notification is not owned by this identity' });
     res.json({ success: true });
   } catch (e: any) {
     res.status(e.statusCode || 403).json({ error: e.message });

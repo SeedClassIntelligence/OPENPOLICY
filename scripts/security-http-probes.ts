@@ -11,6 +11,14 @@ await postgresStore.seedCanonicalProviderData();
 const canonicalChallenge = db.getChallenge('CHAL-NV-49281');
 if (!canonicalChallenge) throw new Error('Canonical security fixture challenge is missing.');
 await postgresStore.saveChallenge(canonicalChallenge);
+for (const notification of db.getNotificationsForRecipient({ consumerId: 'user_consumer_1' })) {
+  await postgresStore.saveNotification(notification);
+}
+for (const notification of db.getNotificationsForRecipient({
+  providerUserId: 'user_sierra_1', providerOrganizationId: 'org_sierra'
+})) {
+  await postgresStore.saveNotification(notification);
+}
 const server = app.listen(0, '127.0.0.1');
 await new Promise<void>(resolve => server.once('listening', resolve));
 const address = server.address();
