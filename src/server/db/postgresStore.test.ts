@@ -37,3 +37,63 @@ test('explicit local validator storage remains available when durability is not 
     else process.env.OPENPOLICY_REQUIRE_DURABLE_STORAGE = before;
   }
 });
+
+test('foundation records survive an empty-process restart and continue mutating durably', async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openpolicy-foundation-restart-'));
+  const first = new PostgresStore(dataDir);
+  const policy = {
+    id: 'POL-RESTART-1', policyNumber: 'RESTART-1', carrier: 'Test Carrier',
+    jurisdiction: 'X1', effectiveDate: '2026-01-01', expirationDate: '2027-01-01',
+    termMonths: 12, annualPremium: 1200, monthlyPremium: 100, status: 'VERIFIED' as const,
+    namedInsured: 'Test Consumer', drivers: [], vehicles: [], coverages: [],
+    sourceDocumentId: 'DOC-1', sourceDocumentName: 'fixture.pdf'
+  };
+  const baseline = {
+    id: 'BL-RESTART-1', policyId: policy.id, version: 1, carrier: policy.carrier,
+    effectiveDate: policy.effectiveDate, expirationDate: policy.expirationDate,
+    baselineAnnualPremium: 1200, baselineMonthlyPremium: 100, jurisdiction: 'X1',
+    vehicle: { year: 2024, make: 'Test', model: 'Car', vin: 'TESTVIN',
+      usage: 'PLEASURE' as const, annualMileage: 1000, garagingZip: '00000', ownership: 'OWNED' as const },
+    coverages: [], verifiedAt: '2026-01-01T00:00:00.000Z', verifiedBy: 'test'
+  };
+  const requirements = {
+    id: 'REQ-RESTART-1', ruleSummary: 'Preserve protection', minAnnualSavings: 100,
+    maxCollisionDeductible: 500, maxCompDeductible: 250,
+    mustIncludeRental: true, mustIncludeRoadside: true
+  };
+  const review = {
+    id: 'REV-RESTART-1', type: 'QUOTE_DISCREPANCY' as const, source: 'test',
+    summary: 'restart test', severity: 'HIGH' as const, status: 'PENDING_REVIEW' as const,
+    createdAt: '2026-01-01T00:00:00.000Z'
+  };
+  try {
+    await first.savePolicy(policy);
+    await first.saveCoverageBaseline(baseline);
+    await first.saveConsumerRequirements(requirements);
+    await first.saveReviewQueueItem(review);
+    await first.saveNotification({
+      id: 'NOTIF-RESTART-1', type: 'COMPETITION_UPDATE', title: 'Test', message: 'Persisted',
+      timestamp: '2026-01-01T00:00:00.000Z', read: false, recipientType: 'CONSUMER',
+      recipientConsumerId: 'consumer_restart', createdFromEvent: 'TEST'
+    });
+    await first.close();
+
+    const second = new PostgresStore(dataDir);
+    assert.deepEqual(await second.getPolicy(policy.id), policy);
+    assert.deepEqual(await second.getCoverageBaseline(baseline.id), baseline);
+    assert.deepEqual(await second.getConsumerRequirements(requirements.id), requirements);
+    assert.equal((await second.getReviewQueue('PENDING_REVIEW'))[0]?.id, review.id);
+    assert.equal((await second.getNotificationsForRecipient({
+      recipientType: 'CONSUMER', recipientId: 'consumer_restart'
+    }))[0]?.id, 'NOTIF-RESTART-1');
+    const resolved = { ...review, status: 'RESOLVED_OVERRIDE' as const,
+      resolvedAt: '2026-01-02T00:00:00.000Z', resolvedBy: 'operator',
+      resolutionNotes: 'accepted', decision: 'OVERRIDE' as const };
+    assert.equal(await second.resolveReviewQueueItem(review, resolved), true);
+    assert.equal(await second.resolveReviewQueueItem(review, resolved), false,
+      'a second instance cannot resolve the already-resolved item as first');
+    await second.close();
+  } finally {
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});

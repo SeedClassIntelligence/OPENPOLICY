@@ -947,6 +947,60 @@ CREATE TABLE IF NOT EXISTS platform_notifications (
 );
 `;
 
+export const SQL_MIGRATION_V10 = `
+-- Open Policy persistence authority foundation Migration 0010
+-- These tables represent business objects that previously existed only in the
+-- process-local PolicyChallengeDatabase. Existing challenge snapshot columns remain
+-- immutable historical evidence; they are not replaced by mutable joins.
+CREATE TABLE IF NOT EXISTS coverage_baselines (
+  id TEXT PRIMARY KEY,
+  policy_id TEXT NOT NULL REFERENCES policies(id),
+  version INTEGER NOT NULL CHECK (version > 0),
+  jurisdiction TEXT,
+  verified_at TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  UNIQUE (policy_id, version)
+);
+
+CREATE TABLE IF NOT EXISTS consumer_requirements (
+  id TEXT PRIMARY KEY,
+  payload TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS competition_activity_events (
+  id TEXT PRIMARY KEY,
+  competition_id TEXT NOT NULL REFERENCES competitions(id) ON DELETE CASCADE,
+  challenge_id TEXT NOT NULL,
+  occurred_at TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  provider_organization_id TEXT,
+  payload TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_competition_activity_order
+  ON competition_activity_events (challenge_id, occurred_at, id);
+
+CREATE TABLE IF NOT EXISTS review_queue_items (
+  id TEXT PRIMARY KEY,
+  status TEXT NOT NULL,
+  severity TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  resolved_at TEXT,
+  version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
+  payload TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_review_queue_status_created
+  ON review_queue_items (status, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_notifications_recipient_consumer
+  ON platform_notifications (recipient_consumer_id, timestamp);
+CREATE INDEX IF NOT EXISTS idx_notifications_recipient_provider_user
+  ON platform_notifications (recipient_provider_user_id, timestamp);
+CREATE INDEX IF NOT EXISTS idx_notifications_recipient_provider_org
+  ON platform_notifications (recipient_provider_organization_id, timestamp);
+CREATE INDEX IF NOT EXISTS idx_notifications_recipient_operator
+  ON platform_notifications (recipient_operator_id, timestamp);
+`;
+
 export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR || './data/openpolicy_pg') {
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
@@ -991,7 +1045,11 @@ export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR ||
     await pglite.query(
       `INSERT INTO _migrations (name) VALUES ('0009_notification_recipient_ownership') ON CONFLICT (name) DO NOTHING;`
     );
-    console.log(`[Open Policy DB] Migrations 0001 through 0009 applied successfully.`);
+    await pglite.exec(SQL_MIGRATION_V10);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0010_persistence_authority_foundation') ON CONFLICT (name) DO NOTHING;`
+    );
+    console.log(`[Open Policy DB] Migrations 0001 through 0010 applied successfully.`);
     return pglite;
   } catch (error) {
     console.error(`[Open Policy DB] Migration error:`, error);

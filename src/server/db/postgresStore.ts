@@ -1,7 +1,7 @@
 import { PGlite } from '@electric-sql/pglite';
 import fs from 'fs';
 import pg from 'pg';
-import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8, SQL_MIGRATION_V9 } from './migrate';
+import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8, SQL_MIGRATION_V9, SQL_MIGRATION_V10 } from './migrate';
 import {
   ProviderOrganization,
   ProviderUser,
@@ -28,7 +28,12 @@ import {
   IssuedPolicySnapshot,
   ReconciliationReport,
   PolicyVaultItem,
-  PlatformNotification
+  PlatformNotification,
+  CoverageBaseline,
+  ConsumerRequirements,
+  CompetitionActivityEvent,
+  ReviewQueueItem,
+  ReviewQueueStatus
 } from '../../types/insurance';
 
 export interface SqlClient {
@@ -192,6 +197,10 @@ export class PostgresStore {
         await this.sql.exec(SQL_MIGRATION_V9);
         await this.sql.query(
           `INSERT INTO _migrations (name) VALUES ('0009_notification_recipient_ownership') ON CONFLICT (name) DO NOTHING;`
+        );
+        await this.sql.exec(SQL_MIGRATION_V10);
+        await this.sql.query(
+          `INSERT INTO _migrations (name) VALUES ('0010_persistence_authority_foundation') ON CONFLICT (name) DO NOTHING;`
         );
         this.isReady = true;
         console.log(
@@ -952,6 +961,135 @@ export class PostgresStore {
     );
   }
 
+  public async getPolicies(): Promise<Policy[]> {
+    await this.ensureReady();
+    const res = await this.sql!.query<{ payload: string }>(
+      `SELECT payload FROM policies ORDER BY id;`
+    );
+    return res.rows.map(row => JSON.parse(row.payload) as Policy);
+  }
+
+  public async getPolicy(id: string): Promise<Policy | undefined> {
+    await this.ensureReady();
+    const res = await this.sql!.query<{ payload: string }>(
+      `SELECT payload FROM policies WHERE id = $1;`, [id]
+    );
+    return res.rows[0] ? JSON.parse(res.rows[0].payload) as Policy : undefined;
+  }
+
+  public async saveCoverageBaseline(baseline: CoverageBaseline): Promise<void> {
+    await this.ensureReady();
+    await this.sql!.query(
+      `INSERT INTO coverage_baselines (id, policy_id, version, jurisdiction, verified_at, payload)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (id) DO UPDATE SET
+         policy_id = EXCLUDED.policy_id,
+         version = EXCLUDED.version,
+         jurisdiction = EXCLUDED.jurisdiction,
+         verified_at = EXCLUDED.verified_at,
+         payload = EXCLUDED.payload;`,
+      [baseline.id, baseline.policyId, baseline.version, baseline.jurisdiction || null,
+       baseline.verifiedAt, JSON.stringify(baseline)]
+    );
+  }
+
+  public async getCoverageBaselines(policyId?: string): Promise<CoverageBaseline[]> {
+    await this.ensureReady();
+    const res = policyId
+      ? await this.sql!.query<{ payload: string }>(
+          `SELECT payload FROM coverage_baselines WHERE policy_id = $1 ORDER BY version;`, [policyId])
+      : await this.sql!.query<{ payload: string }>(
+          `SELECT payload FROM coverage_baselines ORDER BY policy_id, version;`);
+    return res.rows.map(row => JSON.parse(row.payload) as CoverageBaseline);
+  }
+
+  public async getCoverageBaseline(id: string): Promise<CoverageBaseline | undefined> {
+    await this.ensureReady();
+    const res = await this.sql!.query<{ payload: string }>(
+      `SELECT payload FROM coverage_baselines WHERE id = $1;`, [id]
+    );
+    return res.rows[0] ? JSON.parse(res.rows[0].payload) as CoverageBaseline : undefined;
+  }
+
+  public async saveConsumerRequirements(requirements: ConsumerRequirements): Promise<void> {
+    await this.ensureReady();
+    await this.sql!.query(
+      `INSERT INTO consumer_requirements (id, payload) VALUES ($1, $2)
+       ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload;`,
+      [requirements.id, JSON.stringify(requirements)]
+    );
+  }
+
+  public async getConsumerRequirements(id: string): Promise<ConsumerRequirements | undefined> {
+    await this.ensureReady();
+    const res = await this.sql!.query<{ payload: string }>(
+      `SELECT payload FROM consumer_requirements WHERE id = $1;`, [id]
+    );
+    return res.rows[0] ? JSON.parse(res.rows[0].payload) as ConsumerRequirements : undefined;
+  }
+
+  public async saveCompetitionActivity(event: CompetitionActivityEvent): Promise<boolean> {
+    await this.ensureReady();
+    const result = await this.sql!.query(
+      `INSERT INTO competition_activity_events
+       (id, competition_id, challenge_id, occurred_at, event_type, provider_organization_id, payload)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (id) DO NOTHING;`,
+      [event.id, event.competitionId, event.challengeId, event.timestamp, event.type,
+       event.providerOrganizationId || null, JSON.stringify(event)]
+    );
+    return result.rowCount === 1;
+  }
+
+  public async getCompetitionActivity(challengeId: string): Promise<CompetitionActivityEvent[]> {
+    await this.ensureReady();
+    const res = await this.sql!.query<{ payload: string }>(
+      `SELECT payload FROM competition_activity_events
+       WHERE challenge_id = $1 ORDER BY occurred_at, id;`, [challengeId]
+    );
+    return res.rows.map(row => JSON.parse(row.payload) as CompetitionActivityEvent);
+  }
+
+  public async saveReviewQueueItem(item: ReviewQueueItem): Promise<void> {
+    await this.ensureReady();
+    await this.sql!.query(
+      `INSERT INTO review_queue_items (id, status, severity, created_at, resolved_at, payload)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (id) DO UPDATE SET
+         status = EXCLUDED.status,
+         severity = EXCLUDED.severity,
+         resolved_at = EXCLUDED.resolved_at,
+         version = review_queue_items.version + 1,
+         payload = EXCLUDED.payload;`,
+      [item.id, item.status, item.severity, item.createdAt, item.resolvedAt || null,
+       JSON.stringify(item)]
+    );
+  }
+
+  public async getReviewQueue(status?: ReviewQueueStatus): Promise<ReviewQueueItem[]> {
+    await this.ensureReady();
+    const res = status
+      ? await this.sql!.query<{ payload: string }>(
+          `SELECT payload FROM review_queue_items WHERE status = $1 ORDER BY created_at DESC;`, [status])
+      : await this.sql!.query<{ payload: string }>(
+          `SELECT payload FROM review_queue_items ORDER BY created_at DESC;`);
+    return res.rows.map(row => JSON.parse(row.payload) as ReviewQueueItem);
+  }
+
+  public async resolveReviewQueueItem(
+    expected: ReviewQueueItem,
+    updated: ReviewQueueItem
+  ): Promise<boolean> {
+    await this.ensureReady();
+    const result = await this.sql!.query(
+      `UPDATE review_queue_items
+       SET status = $2, resolved_at = $3, version = version + 1, payload = $4
+       WHERE id = $1 AND status = $5;`,
+      [updated.id, updated.status, updated.resolvedAt || null, JSON.stringify(updated), expected.status]
+    );
+    return result.rowCount === 1;
+  }
+
   public async saveOffer(offer: Offer) {
     await this.ensureReady();
     await this.sql!.query(
@@ -1609,6 +1747,35 @@ export class PostgresStore {
       `UPDATE platform_notifications SET is_read = TRUE, read_at = $2 WHERE id = $1;`,
       [id, readAt]
     );
+  }
+
+  public async getNotificationsForRecipient(selector: {
+    recipientType: PlatformNotification['recipientType'];
+    recipientId: string;
+  }): Promise<PlatformNotification[]> {
+    await this.ensureReady();
+    const column = {
+      CONSUMER: 'recipient_consumer_id',
+      PROVIDER_USER: 'recipient_provider_user_id',
+      PROVIDER_ORGANIZATION: 'recipient_provider_organization_id',
+      PLATFORM_OPERATOR: 'recipient_operator_id'
+    }[selector.recipientType];
+    const res = await this.sql!.query<any>(
+      `SELECT * FROM platform_notifications
+       WHERE recipient_type = $1 AND ${column} = $2
+       ORDER BY timestamp DESC, id;`,
+      [selector.recipientType, selector.recipientId]
+    );
+    return res.rows.map(r => ({
+      id: r.id, type: r.type, title: r.title, message: r.message,
+      timestamp: r.timestamp, read: r.is_read, readAt: r.read_at || undefined,
+      recipientType: r.recipient_type,
+      recipientConsumerId: r.recipient_consumer_id || undefined,
+      recipientProviderUserId: r.recipient_provider_user_id || undefined,
+      recipientProviderOrganizationId: r.recipient_provider_organization_id || undefined,
+      recipientOperatorId: r.recipient_operator_id || undefined,
+      createdFromEvent: r.created_from_event, actionTarget: r.action_target || undefined
+    })) as PlatformNotification[];
   }
 
   public async getPolicyVaultItems(consumerId?: string): Promise<PolicyVaultItem[]> {
