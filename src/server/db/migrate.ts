@@ -960,6 +960,10 @@ ALTER TABLE challenge_invitations ADD COLUMN IF NOT EXISTS payload TEXT;
 ALTER TABLE challenge_invitations ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 1;
 ALTER TABLE challenge_participations ADD COLUMN IF NOT EXISTS payload TEXT;
 ALTER TABLE challenge_participations ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 1;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_invitation_challenge_org
+  ON challenge_invitations (challenge_id, provider_organization_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_participation_challenge_org
+  ON challenge_participations (challenge_id, provider_organization_id);
 
 CREATE TABLE IF NOT EXISTS coverage_baselines (
   id TEXT PRIMARY KEY,

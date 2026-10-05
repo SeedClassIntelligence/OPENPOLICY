@@ -120,6 +120,14 @@ test('foundation records survive an empty-process restart and continue mutating 
     assert.deepEqual(await second.getCompetition(competition.id), competition);
     assert.deepEqual(await second.getInvitation(invitation.id), invitation);
     assert.equal((await second.getCompetitionActivity(challenge.id))[0]?.id, 'ACT-RESTART-1');
+    const accepted = await second.acceptInvitation(invitation.id, 'org_sierra');
+    const concurrentProcess = new PostgresStore(dataDir);
+    const retried = await concurrentProcess.acceptInvitation(invitation.id, 'org_sierra');
+    assert.equal(retried.participation.id, accepted.participation.id,
+      'a retry from another process returns the one durable participation');
+    assert.equal((await concurrentProcess.getParticipationsForChallenge(challenge.id)).length, 1,
+      'cross-process retry cannot duplicate participation');
+    await concurrentProcess.close();
     await second.saveChallenge({ ...challenge, status: 'FINAL_ROUND' });
     assert.equal((await second.getChallenge(challenge.id))?.status, 'FINAL_ROUND',
       'the lifecycle continues after restart using durable state');

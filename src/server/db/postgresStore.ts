@@ -954,6 +954,149 @@ export class PostgresStore {
     );
   }
 
+  public async viewInvitation(id: string, organizationId: string): Promise<ChallengeInvitation> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const result = await client.query<any>(
+        `SELECT * FROM challenge_invitations WHERE id = $1 FOR UPDATE;`, [id]
+      );
+      if (!result.rows[0]) throw Object.assign(new Error('Invitation not found'), { statusCode: 404 });
+      const invitation = this._mapInvitation(result.rows[0]);
+      if (invitation.providerOrganizationId !== organizationId) {
+        throw Object.assign(new Error('Invitation does not belong to this organization'), { statusCode: 403 });
+      }
+      if (invitation.status === 'INVITED') {
+        invitation.status = 'VIEWED';
+        invitation.viewedAt = new Date().toISOString();
+        await client.query(
+          `UPDATE challenge_invitations SET status = 'VIEWED', viewed_at = $2,
+             payload = $3, version = version + 1 WHERE id = $1 AND status = 'INVITED';`,
+          [id, invitation.viewedAt, JSON.stringify(invitation)]
+        );
+        await this.appendAuditInTransaction(client, {
+          eventType: 'INVITATION_VIEWED', actorRole: 'PROVIDER', actorId: organizationId,
+          details: `Provider organization ${organizationId} viewed invitation ${id}`
+        });
+      }
+      return invitation;
+    });
+  }
+
+  public async acceptInvitation(id: string, organizationId: string): Promise<{
+    invitation: ChallengeInvitation; participation: ChallengeParticipation;
+  }> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const result = await client.query<any>(
+        `SELECT * FROM challenge_invitations WHERE id = $1 FOR UPDATE;`, [id]
+      );
+      if (!result.rows[0]) throw Object.assign(new Error('Invitation not found'), { statusCode: 404 });
+      const invitation = this._mapInvitation(result.rows[0]);
+      if (invitation.providerOrganizationId !== organizationId) {
+        throw Object.assign(new Error('Invitation does not belong to this organization'), { statusCode: 403 });
+      }
+      const existing = await client.query<any>(
+        `SELECT * FROM challenge_participations
+         WHERE challenge_id = $1 AND provider_organization_id = $2;`,
+        [invitation.challengeId, organizationId]
+      );
+      if (invitation.status === 'ACCEPTED' && existing.rows[0]) {
+        return { invitation, participation: this._mapParticipation(existing.rows[0]) };
+      }
+      if (!['INVITED', 'VIEWED'].includes(invitation.status)) {
+        throw Object.assign(new Error(`Invitation cannot be accepted from ${invitation.status}`), { statusCode: 409 });
+      }
+      const now = new Date().toISOString();
+      invitation.status = 'ACCEPTED';
+      invitation.acceptedAt = now;
+      const participation: ChallengeParticipation = {
+        id: `PART-${invitation.challengeId.replace('CHAL-', '')}-${organizationId}`,
+        challengeId: invitation.challengeId, competitionId: invitation.competitionId,
+        providerOrganizationId: organizationId, acceptedAt: now,
+        status: 'ACTIVE', lastActivityAt: now
+      };
+      await client.query(
+        `UPDATE challenge_invitations SET status = 'ACCEPTED', accepted_at = $2,
+           payload = $3, version = version + 1
+         WHERE id = $1 AND status IN ('INVITED','VIEWED');`,
+        [id, now, JSON.stringify(invitation)]
+      );
+      await client.query(
+        `INSERT INTO challenge_participations
+         (id, challenge_id, competition_id, provider_organization_id, accepted_at, status, last_activity_at, payload)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+         ON CONFLICT (challenge_id, provider_organization_id) DO NOTHING;`,
+        [participation.id, participation.challengeId, participation.competitionId,
+         participation.providerOrganizationId, participation.acceptedAt,
+         participation.status, participation.lastActivityAt, JSON.stringify(participation)]
+      );
+      const count = await client.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM challenge_participations
+         WHERE competition_id = $1 AND status <> 'WITHDRAWN';`, [invitation.competitionId]
+      );
+      await client.query(
+        `UPDATE competitions SET participant_count = $2, version = version + 1
+         WHERE id = $1;`, [invitation.competitionId, Number(count.rows[0]?.count || 0)]
+      );
+      const activity: CompetitionActivityEvent = {
+        id: `ACT-${participation.id}-JOINED`, competitionId: invitation.competitionId,
+        challengeId: invitation.challengeId, timestamp: now, type: 'PROVIDER_JOINED',
+        actorRole: 'PROVIDER', providerOrganizationId: organizationId,
+        summary: `Provider organization ${organizationId} joined competition`, round: 'ROUND_1_OPEN'
+      };
+      await client.query(
+        `INSERT INTO competition_activity_events
+         (id, competition_id, challenge_id, occurred_at, event_type, provider_organization_id, payload)
+         VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO NOTHING;`,
+        [activity.id, activity.competitionId, activity.challengeId, activity.timestamp,
+         activity.type, organizationId, JSON.stringify(activity)]
+      );
+      await this.appendAuditInTransaction(client, {
+        eventType: 'INVITATION_ACCEPTED', actorRole: 'PROVIDER', actorId: organizationId,
+        details: `Provider organization ${organizationId} accepted invitation ${id}`
+      });
+      await this.appendAuditInTransaction(client, {
+        eventType: 'PARTICIPATION_CREATED', actorRole: 'SYSTEM', actorId: 'competition_engine',
+        details: `Participation ${participation.id} created for invitation ${id}`
+      });
+      return { invitation, participation };
+    });
+  }
+
+  public async declineInvitation(
+    id: string, organizationId: string, reason: ChallengeInvitation['declineReason'], notes?: string
+  ): Promise<ChallengeInvitation> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const result = await client.query<any>(
+        `SELECT * FROM challenge_invitations WHERE id = $1 FOR UPDATE;`, [id]
+      );
+      if (!result.rows[0]) throw Object.assign(new Error('Invitation not found'), { statusCode: 404 });
+      const invitation = this._mapInvitation(result.rows[0]);
+      if (invitation.providerOrganizationId !== organizationId) {
+        throw Object.assign(new Error('Invitation does not belong to this organization'), { statusCode: 403 });
+      }
+      if (!['INVITED', 'VIEWED'].includes(invitation.status)) {
+        throw Object.assign(new Error(`Invitation cannot be declined from ${invitation.status}`), { statusCode: 409 });
+      }
+      invitation.status = 'DECLINED';
+      invitation.declinedAt = new Date().toISOString();
+      invitation.declineReason = reason;
+      invitation.declineNotes = notes;
+      await client.query(
+        `UPDATE challenge_invitations SET status = 'DECLINED', declined_at = $2,
+           decline_reason = $3, decline_notes = $4, payload = $5, version = version + 1
+         WHERE id = $1 AND status IN ('INVITED','VIEWED');`,
+        [id, invitation.declinedAt, reason || null, notes || null, JSON.stringify(invitation)]
+      );
+      await this.appendAuditInTransaction(client, {
+        eventType: 'INVITATION_DECLINED', actorRole: 'PROVIDER', actorId: organizationId,
+        details: `Provider organization ${organizationId} declined invitation ${id}`
+      });
+      return invitation;
+    });
+  }
+
   public async saveParticipation(part: ChallengeParticipation) {
     await this.ensureReady();
     await this.sql!.query(

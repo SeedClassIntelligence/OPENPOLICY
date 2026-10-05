@@ -917,7 +917,7 @@ app.get('/api/marketplace/opportunities', async (req, res) => {
 app.post('/api/marketplace/invitations/:id/view', async (req, res) => {
   try {
     const orgId = await getAuthenticatedProviderOrgId(req);
-    const invitation = db.viewInvitation(req.params.id, orgId);
+    const invitation = await postgresStore.viewInvitation(req.params.id, orgId);
 
     // CE-3: Instrument VPO_VIEWED for first canonical view of opportunity
     await commercialStore.projectMarketplaceEvent({
@@ -942,27 +942,33 @@ app.post('/api/marketplace/invitations/:id/accept', async (req, res) => {
     const invitationId = req.params.id;
 
     // 1. Regulatory / Marketplace check: verify invitation exists and belongs to this organization
-    const invitation = db.getInvitation(invitationId, orgId);
+    const invitation = await postgresStore.getInvitation(invitationId);
     if (!invitation) {
       return res.status(404).json({ error: 'Invitation not found' });
+    }
+    if (invitation.providerOrganizationId !== orgId) {
+      return res.status(403).json({ error: 'Invitation does not belong to this organization' });
     }
 
     // Idempotency: if invitation is already accepted, return existing participation without re-consuming capacity
     if (invitation.status === 'ACCEPTED') {
-      const result = db.acceptInvitation(invitationId, orgId);
+      const result = await postgresStore.acceptInvitation(invitationId, orgId);
       return res.json({ success: true, ...result });
     }
 
     // PR-0A ordering invariant: provider jurisdictional authority is evaluated before any
     // commercial capacity is consumed. SHADOW mode records the result and never blocks (D4).
-    const acceptingOrg = db.getProviderOrganization(orgId);
+    const acceptingOrg = await postgresStore.getProviderOrganization(orgId);
     if (acceptingOrg) {
+      const acceptanceChallenge = await postgresStore.getChallenge(invitation.challengeId);
+      const acceptanceLicenses = await postgresStore.getProviderLicenses(orgId);
+      const acceptanceRelationships = await postgresStore.getCarrierRelationships(orgId);
       await inShadow('authority-acceptance', () => shadowProviderAuthority({
         invitation,
-        challenge: db.getChallenge(invitation.challengeId),
+        challenge: acceptanceChallenge,
         org: acceptingOrg,
-        licenses: db.getProviderLicenses(orgId),
-        carrierRelationships: db.getCarrierRelationships(orgId),
+        licenses: acceptanceLicenses,
+        carrierRelationships: acceptanceRelationships,
         legacyEligible: true,
         evaluationDate: transactionDateOf(new Date().toISOString()),
         stage: 'ACCEPTANCE'
@@ -997,7 +1003,7 @@ app.post('/api/marketplace/invitations/:id/accept', async (req, res) => {
     // 3. Execute Marketplace Participation
     let result;
     try {
-      result = db.acceptInvitation(invitationId, orgId);
+      result = await postgresStore.acceptInvitation(invitationId, orgId);
       if (capacityResult.usageRecord && result.participation) {
         await commercialStore.linkParticipationToUsage(capacityResult.usageRecord.id, result.participation.id);
       }
@@ -1038,7 +1044,7 @@ app.post('/api/marketplace/invitations/:id/decline', async (req, res) => {
   try {
     const orgId = await getAuthenticatedProviderOrgId(req);
     const { reason, notes } = req.body;
-    const invitation = db.declineInvitation(req.params.id, orgId, reason, notes);
+    const invitation = await postgresStore.declineInvitation(req.params.id, orgId, reason, notes);
     res.json({ success: true, invitation });
   } catch (e: any) {
     res.status(e.statusCode || 400).json({ error: e.message });
