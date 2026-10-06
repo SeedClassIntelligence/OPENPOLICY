@@ -1055,6 +1055,51 @@ export class PostgresStore {
     );
   }
 
+  public async commitCompetitionAdvance(input:{competition:Competition;challenge:Challenge;activity:CompetitionActivityEvent;actorId:string}):Promise<Competition>{
+    await this.ensureReady();
+    return this.sql!.transaction(async client=>{
+      const current=await client.query<any>(`SELECT * FROM competitions WHERE id=$1 FOR UPDATE;`,[input.competition.id]);
+      if(!current.rows[0])throw Object.assign(new Error('Competition not found'),{statusCode:404});
+      const durable=this._mapCompetition(current.rows[0]);
+      if(durable.currentRound===input.competition.currentRound)return durable;
+      await client.query(`UPDATE competitions SET status=$2,current_round=$3,closes_at=$4,payload=$5,version=version+1 WHERE id=$1;`,
+        [input.competition.id,input.competition.status,input.competition.currentRound,input.competition.closesAt,JSON.stringify(input.competition)]);
+      await client.query(`UPDATE challenges SET status=$2,payload=$3,version=version+1 WHERE id=$1;`,[input.challenge.id,input.challenge.status,JSON.stringify(input.challenge)]);
+      const e=input.activity;
+      await client.query(`INSERT INTO competition_activity_events (id,competition_id,challenge_id,timestamp,type,actor_role,actor_name,provider_organization_id,summary,round,metadata) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT(id) DO NOTHING;`,
+        [e.id,e.competitionId,e.challengeId,e.timestamp,e.type,e.actorRole,e.actorName||null,e.providerOrganizationId||null,e.summary,e.round||null,e.metadata?JSON.stringify(e.metadata):null]);
+      await this.appendAuditInTransaction(client,{eventType:'COMPETITION_ROUND_ADVANCED',actorRole:'ADMIN',actorId:input.actorId,details:e.summary});
+      return input.competition;
+    });
+  }
+
+  public async commitProviderWithdrawal(input:{challengeId:string;organizationId:string;reason:string;notes?:string}):Promise<ChallengeParticipation>{
+    await this.ensureReady();return this.sql!.transaction(async client=>{
+      const result=await client.query<any>(`SELECT * FROM challenge_participations WHERE challenge_id=$1 AND provider_organization_id=$2 FOR UPDATE;`,[input.challengeId,input.organizationId]);
+      if(!result.rows[0])throw Object.assign(new Error('Active participation not found'),{statusCode:404});
+      const participation=this._mapParticipation(result.rows[0]);if(participation.status==='WITHDRAWN')return participation;
+      const withdrawn={...participation,status:'WITHDRAWN',withdrawnAt:new Date().toISOString(),withdrawalReason:input.reason,withdrawalNotes:input.notes} as ChallengeParticipation;
+      await client.query(`UPDATE challenge_participations SET status='WITHDRAWN',payload=$2,version=version+1 WHERE id=$1;`,[withdrawn.id,JSON.stringify(withdrawn)]);
+      const offers=await client.query<any>(`SELECT id,payload FROM offers WHERE challenge_id=$1 AND provider_id=$2 AND status<>'SELECTED';`,[input.challengeId,input.organizationId]);
+      for(const row of offers.rows){const offer={...JSON.parse(row.payload||'{}'),status:'WITHDRAWN'};await client.query(`UPDATE offers SET status='WITHDRAWN',payload=$2 WHERE id=$1;`,[row.id,JSON.stringify(offer)]);}
+      await client.query(`UPDATE competitions SET participant_count=GREATEST(0,participant_count-1),version=version+1 WHERE challenge_id=$1;`,[input.challengeId]);
+      await this.appendAuditInTransaction(client,{eventType:'PROVIDER_WITHDREW',actorRole:'PROVIDER',actorId:input.organizationId,details:`Provider withdrew from ${input.challengeId}: ${input.reason}`});
+      return withdrawn;
+    });
+  }
+
+  public async commitKeepCurrentPolicy(input:{challengeId:string;consumerId:string;reason?:string}):Promise<Challenge>{
+    await this.ensureReady();return this.sql!.transaction(async client=>{
+      const result=await client.query<any>(`SELECT * FROM challenges WHERE id=$1 FOR UPDATE;`,[input.challengeId]);if(!result.rows[0])throw Object.assign(new Error('Challenge not found'),{statusCode:404});
+      const challenge=this._mapChallenge(result.rows[0]);if(challenge.consumerId!==input.consumerId)throw Object.assign(new Error('Only the challenge owner can keep the current policy'),{statusCode:403});
+      if(challenge.status==='INCUMBENT_DEFENDED')return challenge;
+      const updated={...challenge,status:'INCUMBENT_DEFENDED',incumbentDefended:true} as Challenge;
+      await client.query(`UPDATE challenges SET status=$2,payload=$3,version=version+1 WHERE id=$1;`,[challenge.id,updated.status,JSON.stringify(updated)]);
+      await client.query(`UPDATE competitions SET status='COMPLETED',completed_at=$2,version=version+1 WHERE challenge_id=$1;`,[challenge.id,new Date().toISOString()]);
+      await this.appendAuditInTransaction(client,{eventType:'INCUMBENT_POLICY_DEFENDED',actorRole:'CONSUMER',actorId:input.consumerId,details:`Consumer kept incumbent policy for ${challenge.id}${input.reason?`: ${input.reason}`:''}`});return updated;
+    });
+  }
+
   public async saveInvitation(inv: ChallengeInvitation) {
     await this.ensureReady();
     await this.sql!.query(
@@ -1677,6 +1722,26 @@ export class PostgresStore {
          activity.type, activity.providerOrganizationId || null, JSON.stringify(activity)]
       );
       for (const audit of audits) await this.appendAuditInTransaction(client, audit);
+    });
+  }
+
+  public async commitOfferRevision(input:{original:Offer;revised:Offer;version:OfferVersion;activity:CompetitionActivityEvent;actorId:string}):Promise<Offer>{
+    await this.ensureReady();
+    return this.sql!.transaction(async client=>{
+      const locked=await client.query<any>(`SELECT * FROM offers WHERE id=$1 FOR UPDATE;`,[input.original.id]);
+      if(!locked.rows[0])throw Object.assign(new Error('Original offer not found'),{statusCode:404});
+      const durable=JSON.parse(locked.rows[0].payload||'{}') as Offer;
+      if(durable.providerId!==input.actorId)throw Object.assign(new Error('Provider cannot revise another organization offer'),{statusCode:403});
+      const existing=await client.query<any>(`SELECT * FROM offer_versions WHERE offer_id=$1 AND version_number=$2;`,[input.original.id,input.version.versionNumber]);
+      if(existing.rows[0]){const offer=await client.query<any>(`SELECT payload FROM offers WHERE previous_offer_id=$1 AND version=$2;`,[input.original.id,input.version.versionNumber]);return offer.rows[0]?JSON.parse(offer.rows[0].payload):input.revised;}
+      await client.query(`UPDATE offers SET is_latest_revision=FALSE,payload=$2 WHERE id=$1;`,[input.original.id,JSON.stringify({...durable,isLatestRevision:false})]);
+      const o=input.revised;
+      await client.query(`INSERT INTO offers (id,challenge_id,provider_id,provider_name,carrier,annual_premium,monthly_premium,status,round,version,previous_offer_id,is_latest_revision,payload) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,TRUE,$12);`,[o.id,o.challengeId,o.providerId,o.providerName,o.carrier,o.annualPremium,o.monthlyPremium,o.status,o.round,o.version,o.previousOfferId,JSON.stringify(o)]);
+      const v=input.version;
+      await client.query(`INSERT INTO offer_versions (id,offer_id,version_number,round,carrier,annual_premium,monthly_premium,coverages,supporting_quote_doc_name,revision_reason,submitted_at,superseded_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12);`,[v.id,v.offerId,v.versionNumber,v.round,v.carrier,v.annualPremium,v.monthlyPremium,JSON.stringify(v.coverages),v.supportingQuoteDocName,v.revisionReason,v.submittedAt,v.supersededAt||null]);
+      const e=input.activity;await client.query(`INSERT INTO competition_activity_events (id,competition_id,challenge_id,timestamp,type,actor_role,actor_name,provider_organization_id,summary,round,metadata) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT(id) DO NOTHING;`,[e.id,e.competitionId,e.challengeId,e.timestamp,e.type,e.actorRole,e.actorName||null,e.providerOrganizationId||null,e.summary,e.round||null,e.metadata?JSON.stringify(e.metadata):null]);
+      await this.appendAuditInTransaction(client,{eventType:'OFFER_SUBMITTED',actorRole:'PROVIDER',actorId:input.actorId,details:`Provider revised offer ${input.original.id} to version ${v.versionNumber}`});
+      return o;
     });
   }
 

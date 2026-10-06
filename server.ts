@@ -14,7 +14,15 @@ import { Offer, OfferVersion, CoverageBaseline, ConsumerRequirements, Challenge,
   PlatformNotification, CompetitionActivityEvent, AuditEvent, InformationRequest, OfferVerification,
   IssuedPolicyDocument, IssuedPolicySnapshot, ReconciliationReport, PolicyVaultItem } from './src/types/insurance';
 import { evaluateProviderEligibility, type EligibilityEvaluation } from './src/domain/eligibilityEngine';
-import { evaluateOfferQualification } from './src/domain/qualificationEngine';
+import { evaluateOfferQualification, createOfferVersionSnapshot } from './src/domain/qualificationEngine';
+import {
+  evaluateCompetitionRoundState,
+  calculateProviderMarketSignals,
+  advanceCompetitionRound,
+  checkRoundDeadlineStatus,
+  filterCompetitionActivityFeedForProvider,
+  validateOfferRevision
+} from './src/domain/competitionEngine';
 import {
   createSelection,
   initiateBindingHandoff,
@@ -1122,7 +1130,9 @@ app.post('/api/marketplace/invitations/:id/decline', async (req, res) => {
 app.get('/api/marketplace/competitions', async (req, res) => {
   try {
     const orgId = await getAuthenticatedProviderOrgId(req);
-    const competitions = db.getProviderCompetitions(orgId);
+    const participations=(await postgresStore.getAllParticipations()).filter(p=>p.providerOrganizationId===orgId&&p.status!=='WITHDRAWN');
+    const competitions=[];
+    for(const participation of participations){const [challenge,competition,offers]=await Promise.all([postgresStore.getChallenge(participation.challengeId),postgresStore.getCompetition(participation.competitionId),postgresStore.getOffers(participation.challengeId)]);if(challenge&&competition)competitions.push({participation,challenge,competition,offersCount:offers.filter(o=>o.providerId===orgId).length});}
     res.json(competitions);
   } catch (e: any) {
     res.status(e.statusCode || 400).json({ error: e.message });
@@ -1154,7 +1164,9 @@ app.post('/api/challenges/:id/compete', async (req, res) => {
 app.get('/api/marketplace/competition/:challengeId/status', async (req, res) => {
   try {
     await authorizeChallengeResource(req, req.params.challengeId);
-    const summary = db.getCompetitionEvaluation(req.params.challengeId);
+    const challenge=await postgresStore.getChallenge(req.params.challengeId);const competition=await postgresStore.getCompetitionForChallenge(req.params.challengeId);
+    if(!challenge||!competition)return res.status(404).json({error:'Challenge or competition not found'});
+    const summary=evaluateCompetitionRoundState(competition,await postgresStore.getOffers(req.params.challengeId),challenge.baseline,challenge.requirements);
     res.json(summary);
   } catch (e: any) {
     res.status(e.statusCode || 400).json({ error: e.message });
@@ -1164,7 +1176,10 @@ app.get('/api/marketplace/competition/:challengeId/status', async (req, res) => 
 app.get('/api/marketplace/competition/:challengeId/signals', async (req, res) => {
   try {
     const orgId = await getAuthenticatedProviderOrgId(req);
-    const signals = db.getCompetitionMarketSignals(req.params.challengeId, orgId);
+    const [challenge,competition,offers,invitations,participations]=await Promise.all([postgresStore.getChallenge(req.params.challengeId),postgresStore.getCompetitionForChallenge(req.params.challengeId),postgresStore.getOffers(req.params.challengeId),postgresStore.getAllInvitations(),postgresStore.getAllParticipations()]);
+    if(!challenge||!competition)return res.status(404).json({error:'Challenge or competition not found'});
+    if(!participations.some(p=>p.challengeId===challenge.id&&p.providerOrganizationId===orgId&&p.status!=='WITHDRAWN'))return res.status(403).json({error:'Access Denied: Provider is not an authorized participant'});
+    const signals=calculateProviderMarketSignals(competition,orgId,offers,challenge.baseline,challenge.requirements,invitations.filter(i=>i.challengeId===challenge.id).length);
     res.json(signals);
   } catch (e: any) {
     res.status(e.statusCode || 400).json({ error: e.message });
@@ -1174,13 +1189,14 @@ app.get('/api/marketplace/competition/:challengeId/signals', async (req, res) =>
 app.post('/api/marketplace/competition/:challengeId/advance-round', async (req, res) => {
   const { targetRound, reason, customDurationHours } = req.body;
   try {
-    const updatedComp = db.advanceCompetition(
-      req.params.challengeId, 
-      targetRound, 
-      reason || `Advanced to ${targetRound} by operator`,
-      customDurationHours
-    );
-    const summary = db.getCompetitionEvaluation(req.params.challengeId);
+    const challenge=await postgresStore.getChallenge(req.params.challengeId);const competition=await postgresStore.getCompetitionForChallenge(req.params.challengeId);
+    if(!challenge||!competition)return res.status(404).json({error:'Challenge or competition not found'});
+    const triggerReason=reason||`Advanced to ${targetRound} by operator`;
+    const candidate=advanceCompetitionRound(competition,targetRound,triggerReason,customDurationHours);
+    const updatedChallenge={...challenge,status:(targetRound==='BEST_AND_FINAL'||targetRound==='ROUND_3_BAFO')?'FINAL_ROUND':(targetRound==='CONSUMER_REVIEW'||targetRound==='CLOSED_PENDING_SELECTION')?'CONSUMER_REVIEW':'OPEN',isFinalRound:targetRound==='BEST_AND_FINAL'||targetRound==='ROUND_3_BAFO'} as Challenge;
+    const timestamp=new Date().toISOString();
+    const updatedComp=await postgresStore.commitCompetitionAdvance({competition:candidate,challenge:updatedChallenge,actorId:req.openPolicyIdentity?.uid||'operator',activity:{id:`ACT-ROUND-${competition.id}-${candidate.currentRound}`,competitionId:competition.id,challengeId:challenge.id,timestamp,type:'ROUND_ADVANCED',actorRole:'ADMIN',summary:triggerReason,round:candidate.currentRound}});
+    const summary=evaluateCompetitionRoundState(updatedComp,await postgresStore.getOffers(challenge.id),updatedChallenge.baseline,updatedChallenge.requirements);
     res.json({ success: true, competition: updatedComp, summary });
   } catch (e: any) {
     res.status(400).json({ error: e.message });
@@ -1208,12 +1224,7 @@ app.post('/api/marketplace/competition/:challengeId/withdraw', async (req, res) 
     if (!reason) {
       return res.status(400).json({ error: 'Withdrawal reason is required' });
     }
-    const participation = db.withdrawProviderParticipation(
-      req.params.challengeId,
-      orgId,
-      reason,
-      notes
-    );
+    const participation=await postgresStore.commitProviderWithdrawal({challengeId:req.params.challengeId,organizationId:orgId,reason,notes});
     res.json({ success: true, participation });
   } catch (e: any) {
     res.status(e.statusCode || 400).json({ error: e.message });
@@ -1224,11 +1235,7 @@ app.post('/api/marketplace/competition/:challengeId/keep-current-policy', async 
   try {
     const { reason } = req.body;
     const consumerId = getAuthenticatedConsumerId(req);
-    const challenge = db.keepCurrentPolicy(
-      req.params.challengeId,
-      consumerId,
-      reason
-    );
+    const challenge=await postgresStore.commitKeepCurrentPolicy({challengeId:req.params.challengeId,consumerId,reason});
     res.json({ success: true, challenge });
   } catch (e: any) {
     res.status(e.statusCode || 400).json({ error: e.message });
@@ -1242,7 +1249,8 @@ app.get('/api/marketplace/competition/:challengeId/activity-feed', async (req, r
     if (req.openPolicyIdentity?.role === 'PROVIDER') {
       orgId = await getAuthenticatedProviderOrgId(req);
     }
-    const events = db.getCompetitionActivityFeed(req.params.challengeId, orgId);
+    const durableEvents=await postgresStore.getCompetitionActivity(req.params.challengeId);
+    const events=orgId?filterCompetitionActivityFeedForProvider(durableEvents,orgId):durableEvents;
     res.json({ success: true, events });
   } catch (e: any) {
     res.status(e.statusCode || 400).json({ error: e.message });
@@ -1252,7 +1260,9 @@ app.get('/api/marketplace/competition/:challengeId/activity-feed', async (req, r
 app.get('/api/marketplace/competition/:challengeId/deadline-status', async (req, res) => {
   try {
     await authorizeChallengeResource(req, req.params.challengeId);
-    const status = db.getCompetitionDeadlineStatus(req.params.challengeId);
+    const competition=await postgresStore.getCompetitionForChallenge(req.params.challengeId);
+    if(!competition)return res.status(404).json({error:'Competition not found'});
+    const status=checkRoundDeadlineStatus(competition);
     res.json({ success: true, status });
   } catch (e: any) {
     res.status(e.statusCode || 400).json({ error: e.message });
@@ -1262,15 +1272,22 @@ app.get('/api/marketplace/competition/:challengeId/deadline-status', async (req,
 app.post('/api/marketplace/competition/:challengeId/revise-offer/:offerId', async (req, res) => {
   try {
     const orgId = await getAuthenticatedProviderOrgId(req);
-    const revisedOffer = db.reviseOfferInCompetition(
-      req.params.challengeId,
-      req.params.offerId,
-      req.body.revisedData,
-      orgId
-    );
+    const [originalOffer,competition,challenge]=await Promise.all([postgresStore.getOffer(req.params.offerId),postgresStore.getCompetitionForChallenge(req.params.challengeId),postgresStore.getChallenge(req.params.challengeId)]);
+    if(!originalOffer||!competition||!challenge)return res.status(404).json({error:'Offer, competition, or challenge not found'});
+    if(originalOffer.challengeId!==challenge.id)return res.status(400).json({error:'Offer does not belong to challenge'});
+    if(originalOffer.providerId!==orgId)return res.status(403).json({error:'Provider cannot revise another organization offer'});
+    const validation=validateOfferRevision(originalOffer,req.body.revisedData,competition.currentRound);
+    if(!validation.valid)return res.status(400).json({error:validation.errors.join('; ')});
+    const version=(originalOffer.version||1)+1;const submittedAt=new Date().toISOString();
+    const revisedOffer:Offer={...originalOffer,...req.body.revisedData,id:`OFFER-REV-${Date.now()}`,previousOfferId:originalOffer.id,version,isLatestRevision:true,round:competition.currentRound,submittedAt};
+    const [provider,relationships]=await Promise.all([postgresStore.getProviderOrganization(orgId),postgresStore.getCarrierRelationships(orgId)]);
+    const qualification=evaluateOfferQualification(revisedOffer,challenge.baseline,challenge.requirements,provider,relationships);
+    revisedOffer.isQualified=qualification.isQualified;revisedOffer.qualifiedAt=qualification.evaluatedAt;revisedOffer.qualificationReasons=qualification.qualificationReasons;revisedOffer.disqualificationReasons=qualification.disqualificationReasons;
+    const versionSnapshot=createOfferVersionSnapshot(revisedOffer,req.body.revisedData.revisionReason||`Revised during ${competition.currentRound}`);versionSnapshot.offerId=originalOffer.id;versionSnapshot.versionNumber=version;
+    const revisedOfferCommitted=await postgresStore.commitOfferRevision({original:originalOffer,revised:revisedOffer,version:versionSnapshot,actorId:orgId,activity:{id:`ACT-REV-${originalOffer.id}-v${version}`,competitionId:competition.id,challengeId:challenge.id,timestamp:submittedAt,type:'OFFER_REVISED',actorRole:'PROVIDER',providerOrganizationId:orgId,summary:`Provider revised ${revisedOffer.carrier} offer`,round:competition.currentRound,metadata:{offerId:revisedOffer.id,version}}});
 
     // PR-0A shadow: re-evaluate jurisdiction coverage requirements for the revision (D4).
-    await inShadow('offer-qualification', () => shadowOfferQualification(revisedOffer, db.getChallenge(req.params.challengeId)));
+    await inShadow('offer-qualification', () => shadowOfferQualification(revisedOfferCommitted, challenge));
 
     // CE-3: Instrument PROPOSITION_SUBMITTED for revised OfferVersion
     const versionId = `VER-${revisedOffer.id}-v${revisedOffer.version || 2}`;
@@ -1290,7 +1307,7 @@ app.post('/api/marketplace/competition/:challengeId/revise-offer/:offerId', asyn
       }
     }).catch(err => console.warn('[CommercialEvent Error]', err));
 
-    res.json({ success: true, offer: revisedOffer });
+    res.json({ success: true, offer: revisedOfferCommitted });
   } catch (e: any) {
     res.status(e.statusCode || 400).json({ error: e.message });
   }
