@@ -1058,6 +1058,60 @@ CREATE INDEX IF NOT EXISTS idx_notifications_recipient_operator
   ON platform_notifications (recipient_operator_id, timestamp);
 `;
 
+export const SQL_MIGRATION_V11 = `
+-- Production document intelligence foundation Migration 0011
+CREATE TABLE IF NOT EXISTS policy_documents (
+  id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  original_file_name TEXT NOT NULL,
+  mime_type TEXT NOT NULL CHECK (mime_type = 'application/pdf'),
+  byte_length BIGINT NOT NULL CHECK (byte_length > 0),
+  sha256 TEXT NOT NULL CHECK (length(sha256) = 64),
+  storage_bucket TEXT NOT NULL,
+  object_name TEXT NOT NULL,
+  object_generation TEXT NOT NULL,
+  status TEXT NOT NULL,
+  malware_status TEXT NOT NULL,
+  rejection_code TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  UNIQUE (owner_id, idempotency_key),
+  UNIQUE (storage_bucket, object_name, object_generation)
+);
+CREATE INDEX IF NOT EXISTS idx_policy_documents_owner_created
+  ON policy_documents (owner_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS policy_extraction_runs (
+  id TEXT PRIMARY KEY,
+  document_id TEXT NOT NULL REFERENCES policy_documents(id) ON DELETE RESTRICT,
+  document_generation TEXT NOT NULL,
+  extractor TEXT NOT NULL,
+  extractor_version TEXT NOT NULL,
+  status TEXT NOT NULL,
+  critical_issues TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL,
+  completed_at TEXT,
+  payload TEXT NOT NULL,
+  UNIQUE (document_id, document_generation, extractor, extractor_version)
+);
+
+CREATE TABLE IF NOT EXISTS policy_field_corrections (
+  id TEXT PRIMARY KEY,
+  document_id TEXT NOT NULL REFERENCES policy_documents(id) ON DELETE RESTRICT,
+  extraction_run_id TEXT NOT NULL REFERENCES policy_extraction_runs(id) ON DELETE RESTRICT,
+  owner_id TEXT NOT NULL,
+  field_path TEXT NOT NULL,
+  before_value TEXT NOT NULL,
+  after_value TEXT NOT NULL,
+  source TEXT NOT NULL CHECK (source = 'CONSUMER'),
+  corrected_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_policy_corrections_document
+  ON policy_field_corrections (document_id, corrected_at, id);
+`;
+
 export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR || './data/openpolicy_pg') {
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
@@ -1106,7 +1160,11 @@ export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR ||
     await pglite.query(
       `INSERT INTO _migrations (name) VALUES ('0010_persistence_authority_foundation') ON CONFLICT (name) DO NOTHING;`
     );
-    console.log(`[Open Policy DB] Migrations 0001 through 0010 applied successfully.`);
+    await pglite.exec(SQL_MIGRATION_V11);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0011_production_document_intelligence') ON CONFLICT (name) DO NOTHING;`
+    );
+    console.log(`[Open Policy DB] Migrations 0001 through 0011 applied successfully.`);
     return pglite;
   } catch (error) {
     console.error(`[Open Policy DB] Migration error:`, error);

@@ -36,6 +36,62 @@ export interface ExtractedField<T> {
   isModifiedByUser?: boolean;
 }
 
+export type PolicyDocumentStatus =
+  | 'UPLOAD_PENDING'
+  | 'UPLOADED'
+  | 'VALIDATING'
+  | 'REJECTED'
+  | 'EXTRACTION_PENDING'
+  | 'EXTRACTING'
+  | 'REVIEW_REQUIRED'
+  | 'READY_FOR_CONSUMER'
+  | 'CONSUMER_CORRECTED'
+  | 'CONSUMER_VERIFIED'
+  | 'BASELINE_CREATED';
+
+export interface PolicyDocumentRecord {
+  id: string;
+  ownerId: string;
+  idempotencyKey: string;
+  originalFileName: string;
+  mimeType: 'application/pdf';
+  byteLength: number;
+  sha256: string;
+  storageBucket: string;
+  objectName: string;
+  objectGeneration: string;
+  status: PolicyDocumentStatus;
+  malwareStatus: 'PENDING' | 'CLEAN' | 'INFECTED' | 'SCAN_FAILED';
+  createdAt: string;
+  updatedAt: string;
+  rejectionCode?: string;
+}
+
+export interface PolicyExtractionRun {
+  id: string;
+  documentId: string;
+  documentGeneration: string;
+  extractor: string;
+  extractorVersion: string;
+  status: 'PENDING' | 'RUNNING' | 'REVIEW_REQUIRED' | 'READY_FOR_CONSUMER' | 'FAILED';
+  normalizedPolicy?: Policy;
+  criticalIssues: string[];
+  createdAt: string;
+  completedAt?: string;
+}
+
+export interface PolicyFieldCorrection {
+  id: string;
+  documentId: string;
+  extractionRunId: string;
+  ownerId: string;
+  fieldPath: string;
+  beforeValue: unknown;
+  afterValue: unknown;
+  source: 'CONSUMER';
+  correctedAt: string;
+}
+
 export interface Vehicle {
   vin: string;
   year: number;

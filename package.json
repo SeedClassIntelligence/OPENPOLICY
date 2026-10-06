@@ -14,7 +14,8 @@
     "pr0b:capture": "NODE_USE_ENV_PROXY=1 tsx scripts/pr0b/capture-source.ts",
     "test:onboarding": "node --import tsx --test src/auth/roleAccess.test.ts src/server/auth/requestIdentity.test.ts src/server/auth/routeAuthorization.test.ts src/server/db/postgresStore.test.ts",
     "test:authorization": "node --import tsx --test src/server/auth/requestIdentity.test.ts src/server/auth/routeAuthorization.test.ts src/server/auth/notificationAuthorization.test.ts src/server/db/postgresStore.test.ts src/services/apiClient.test.ts src/services/firestoreSecurity.test.ts",
-    "test:security-http": "tsx scripts/security-http-probes.ts"
+    "test:security-http": "tsx scripts/security-http-probes.ts",
+    "test:document-intelligence": "node --import tsx --test src/domain/documentIntelligence.test.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.8",
