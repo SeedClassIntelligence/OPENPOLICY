@@ -81,6 +81,8 @@ import {
   buildCommercialEvent,
   calculateValueSummary
 } from './src/domain/commercialEconomicsEngine';
+import { CloudPolicyDocumentStore } from './src/server/documentObjectStore';
+import { ingestPolicyDocument } from './src/server/policyDocumentIngestion';
 
 export const app = express();
 const DEFAULT_PORT = Number(process.env.PORT) || 3000;
@@ -91,6 +93,7 @@ const fixturePersistenceReady = process.env.OPENPOLICY_AUTH_MODE === 'fixture'
       .then(() => synchronizeFixturePersistence())
   : Promise.resolve();
 
+app.use('/api/policy-documents/ingest', express.raw({ type: () => true, limit: '10mb' }));
 app.use(express.json({ limit: '10mb' }));
 app.use('/api', async (_req, res, next) => {
   try {
@@ -102,6 +105,12 @@ app.use('/api', async (_req, res, next) => {
 });
 app.use('/api', attachRequestIdentity);
 app.use('/api', enforceApiAuthorization);
+
+let policyDocumentObjectStore: CloudPolicyDocumentStore | undefined;
+function getPolicyDocumentObjectStore(): CloudPolicyDocumentStore {
+  policyDocumentObjectStore ||= new CloudPolicyDocumentStore();
+  return policyDocumentObjectStore;
+}
 
 // Provider and consumer identity is attached by verified Firebase ID token.
 // Legacy identity headers exist only inside explicit non-production fixture mode.
@@ -381,6 +390,52 @@ app.post('/api/reset', async (req, res) => {
 // ==========================================
 // 2. Documents & Policy Intelligence API
 // ==========================================
+app.post('/api/policy-documents/ingest', async (req, res) => {
+  try {
+    const ownerId = getAuthenticatedConsumerId(req);
+    const bytes = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    const document = await ingestPolicyDocument({
+      ownerId,
+      idempotencyKey: String(req.header('Idempotency-Key') || ''),
+      fileName: req.header('X-Document-Filename') || undefined,
+      contentType: req.header('Content-Type') || undefined,
+      bytes,
+      repository: postgresStore,
+      objectStore: getPolicyDocumentObjectStore()
+    });
+    res.status(document.status === 'UPLOADED' ? 201 : 202).json({
+      success: document.status === 'UPLOADED',
+      document: {
+        id: document.id,
+        fileName: document.originalFileName,
+        byteLength: document.byteLength,
+        sha256: document.sha256,
+        status: document.status,
+        malwareStatus: document.malwareStatus,
+        createdAt: document.createdAt,
+        updatedAt: document.updatedAt
+      }
+    });
+  } catch (error: any) {
+    res.status(error.statusCode || 503).json({ error: error.code || 'DOCUMENT_INGESTION_FAILED', message: error.message });
+  }
+});
+
+app.get('/api/policy-documents/:documentId', async (req, res) => {
+  try {
+    const ownerId = getAuthenticatedConsumerId(req);
+    const document = await postgresStore.getPolicyDocument(ownerId, req.params.documentId);
+    if (!document) return res.status(404).json({ error: 'Policy document not found' });
+    res.json({
+      id: document.id, fileName: document.originalFileName, byteLength: document.byteLength,
+      sha256: document.sha256, status: document.status, malwareStatus: document.malwareStatus,
+      createdAt: document.createdAt, updatedAt: document.updatedAt
+    });
+  } catch (error: any) {
+    res.status(error.statusCode || 403).json({ error: error.message });
+  }
+});
+
 app.get('/api/documents/samples', async (req, res) => {
   res.json(SAMPLE_DECLARATIONS_PAGES);
 });

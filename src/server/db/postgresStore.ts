@@ -35,7 +35,8 @@ import {
   CompetitionActivityEvent,
   ReviewQueueItem,
   ReviewQueueStatus,
-  VaultDocument
+  VaultDocument,
+  PolicyDocumentRecord
 } from '../../types/insurance';
 
 export interface SqlClient {
@@ -254,6 +255,73 @@ export class PostgresStore {
       this.sql = null;
       this.isReady = false;
     }
+  }
+
+  public async beginPolicyDocumentIngestion(record: PolicyDocumentRecord): Promise<PolicyDocumentRecord> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const existing = await client.query<{ payload: string }>(
+        `SELECT payload FROM policy_documents WHERE owner_id = $1 AND idempotency_key = $2 FOR UPDATE;`,
+        [record.ownerId, record.idempotencyKey]
+      );
+      if (existing.rows[0]) return JSON.parse(existing.rows[0].payload) as PolicyDocumentRecord;
+      await client.query(
+        `INSERT INTO policy_documents (
+           id, owner_id, idempotency_key, original_file_name, mime_type, byte_length, sha256,
+           storage_bucket, object_name, object_generation, status, malware_status,
+           rejection_code, created_at, updated_at, payload
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16);`,
+        [record.id, record.ownerId, record.idempotencyKey, record.originalFileName, record.mimeType,
+          record.byteLength, record.sha256, record.storageBucket, record.objectName,
+          record.objectGeneration, record.status, record.malwareStatus, record.rejectionCode || null,
+          record.createdAt, record.updatedAt, JSON.stringify(record)]
+      );
+      await this.appendAuditInTransaction(client, {
+        eventType: 'POLICY_DOCUMENT_INGESTION_STARTED', actorRole: 'CONSUMER', actorId: record.ownerId,
+        details: `Started immutable evidence ingestion for ${record.id}`
+      });
+      return record;
+    });
+  }
+
+  public async completePolicyDocumentUpload(params: {
+    ownerId: string; documentId: string; objectGeneration: string;
+  }): Promise<PolicyDocumentRecord> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const result = await client.query<{ payload: string }>(
+        `SELECT payload FROM policy_documents WHERE id = $1 AND owner_id = $2 FOR UPDATE;`,
+        [params.documentId, params.ownerId]
+      );
+      if (!result.rows[0]) throw Object.assign(new Error('Policy document not found'), { statusCode: 404 });
+      const current = JSON.parse(result.rows[0].payload) as PolicyDocumentRecord;
+      if (current.status !== 'UPLOAD_PENDING') {
+        if (current.objectGeneration === params.objectGeneration) return current;
+        throw new Error(`Document ${params.documentId} cannot be completed from status ${current.status}`);
+      }
+      const completed: PolicyDocumentRecord = {
+        ...current, objectGeneration: params.objectGeneration, status: 'UPLOADED', updatedAt: new Date().toISOString()
+      };
+      await client.query(
+        `UPDATE policy_documents SET object_generation=$1,status=$2,updated_at=$3,payload=$4
+         WHERE id=$5 AND owner_id=$6 AND status='UPLOAD_PENDING';`,
+        [completed.objectGeneration, completed.status, completed.updatedAt, JSON.stringify(completed),
+          completed.id, completed.ownerId]
+      );
+      await this.appendAuditInTransaction(client, {
+        eventType: 'POLICY_DOCUMENT_UPLOADED', actorRole: 'CONSUMER', actorId: completed.ownerId,
+        details: `Committed immutable evidence object for ${completed.id}`
+      });
+      return completed;
+    });
+  }
+
+  public async getPolicyDocument(ownerId: string, documentId: string): Promise<PolicyDocumentRecord | undefined> {
+    await this.ensureReady();
+    const result = await this.sql!.query<{ payload: string }>(
+      `SELECT payload FROM policy_documents WHERE id=$1 AND owner_id=$2;`, [documentId, ownerId]
+    );
+    return result.rows[0] ? JSON.parse(result.rows[0].payload) as PolicyDocumentRecord : undefined;
   }
 
   private generateAuditHash(value: string): string {

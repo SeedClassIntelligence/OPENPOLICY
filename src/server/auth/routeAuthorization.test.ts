@@ -62,6 +62,15 @@ test('wrong actor type is forbidden while intended actor is admitted to domain c
   assert.equal(invoke('POST', '/marketplace/competition/c/advance-round', admin).next, true);
 });
 
+test('real policy-document ingestion is consumer-only and never public or provider-controlled', () => {
+  assert.equal(invoke('POST', '/policy-documents/ingest').status, 401);
+  assert.equal(invoke('POST', '/policy-documents/ingest', provider).status, 403);
+  assert.equal(invoke('POST', '/policy-documents/ingest', admin).status, 403);
+  assert.equal(invoke('POST', '/policy-documents/ingest', consumer).next, true);
+  assert.equal(invoke('GET', '/policy-documents/DOC-1', provider).status, 403);
+  assert.equal(invoke('GET', '/policy-documents/DOC-1', consumer).next, true);
+});
+
 test('founder-approved directory, notification, and fixture-only route policies are enforced', () => {
   assert.equal(invoke('GET', '/marketplace/users', provider).status, 403);
   assert.equal(invoke('GET', '/marketplace/users', admin).next, true);

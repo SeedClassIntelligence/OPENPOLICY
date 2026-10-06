@@ -567,6 +567,8 @@ export interface AuditEvent {
   timestamp: string;
   eventType: 
     | 'POLICY_UPLOADED'
+    | 'POLICY_DOCUMENT_INGESTION_STARTED'
+    | 'POLICY_DOCUMENT_UPLOADED'
     | 'DOCUMENT_PROCESSED'
     | 'FIELD_EXTRACTED'
     | 'CONSUMER_CORRECTED_FIELD'
