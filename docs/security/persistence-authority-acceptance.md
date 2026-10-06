@@ -7,7 +7,8 @@
 - Canonical GCP project: `openpolicy-35f82`
 - Explicitly excluded project: `openpolicy-510702`
 - Starting live revision: `openpolicy-acceptance-00009-yiy`
-- Current disposition: **NOT READY — PERSISTENCE AUTHORITY REMAINS**
+- Current local candidate: `415f8e2` plus the documented Cloud SQL client timeout hardening
+- Current disposition: **NOT READY — IMPLEMENTATION/SECURITY DEFECT**
 - Merge status: not authorized
 
 This is a living acceptance record. A row is not complete until its production read
@@ -56,7 +57,7 @@ groupings rather than business authorities.
 | Audit events | operator read/proof/chain | `db.auditEvents` | memory first, unawaited save | `audit_events` | No | No | MIGRATION_REQUIRED | append durably before dependent success; define chain serialization | chain integrity, concurrent append, restart |
 | Review queue | list/resolve/enqueue | `db.reviewQueue` | memory only | no authoritative table identified | No | No | MIGRATION_REQUIRED | durable queue with conditional resolution | concurrent resolution and restart |
 
-## Implementation status through `fd0c276`
+## Implementation status through `415f8e2`
 
 The table above is the discovery baseline, not the current implementation state. The
 following families have since crossed to PostgreSQL authority with commit-first writes,
@@ -79,10 +80,13 @@ HTTP 410 instead of creating new process-local business truth. Its in-memory str
 may remain only until callers and tests are confirmed migrated; they are not a production
 authority.
 
-Remaining rescan work is limited to still-routed legacy/general Vault operations,
-fixture/demo mutation routes, commercial-event fire-and-forget projections, and final
-proof that every remaining `PolicyChallengeDatabase` map is unreachable as production
-authority.
+The repository-wide rescan now finds no production HTTP business operation that uses
+`PolicyChallengeDatabase` as its read or mutation authority. Remaining `db` references
+in `server.ts` are limited to metrics, the explicitly fixture-only reset and synthetic
+competitor routes, and the ordered fixture-to-PGlite synchronizer used by validators.
+The singleton maps remain test/fixture compatibility state and are not reachable as
+production marketplace authority. Commercial-event reconciliation now scans durable
+PostgreSQL state rather than the singleton.
 | Redis-named cache | internal TTL values | `db.redisCache` | process-local | none required if never business truth | Yes* | Yes* | CACHE_ONLY | prove all misses rebuild from durable source; rename/document if retained | empty-cache tests |
 | Commercial economics | enrollment, usage, rating, invoicing, payment and settlement | `CommercialStore` SQL queries | transaction-backed SQL | commercial tables | Yes | Yes | DURABLE_AUTHORITATIVE | regression and connection/failure verification only | CE suites plus cross-process representative case |
 | Jurisdiction/PR-0A | registry, rules, activation and evaluations | `JurisdictionStore` SQL queries | awaited SQL/transactions | jurisdiction tables | Yes | Yes | DURABLE_AUTHORITATIVE | preserve shadow behavior; no PR-0B promotion | PR-0A and semantic corrections |
@@ -107,6 +111,37 @@ cache miss is proven to resolve from PostgreSQL. It is not yet accepted.
 
 ## Evidence status
 
-No completion claim is made by this initial inventory. The canonical production
-database has not been reset or destructively changed, and no deployment has occurred
-as part of this persistence-authority phase yet.
+### Local acceptance evidence — 2026-10-06
+
+- canonical validators: **11/11 suites pass**;
+- authorization regression: **32/32 pass**;
+- adversarial HTTP security probes: **19/19 pass**;
+- clean detached checkout at `415f8e2`: clean `npm ci`, TypeScript, production client
+  and server builds, and all 11 canonical validators pass;
+- restart evidence covers provider/competition/invitation/participation/audit, PM-2,
+  PM-4 foundation state, PM-5 issued evidence/reconciliation/vault, and the foundation
+  lifecycle continuation from an empty process;
+- commercial concurrent-capacity acceptance proves one final unit cannot be consumed
+  twice; retry and phantom-consumption tests pass;
+- no deployment or merge was performed by this acceptance pass.
+
+### Cloud SQL hardening review — stop condition
+
+The authorized project was verified as `openpolicy-35f82`; `openpolicy-510702` was not
+accessed. `openpolicy-db` is PostgreSQL 16, zonal `db-f1-micro`, 10 GB SSD with automatic
+growth, seven retained automated backups, and deletion protection. Cloud Run uses the
+dedicated `openpolicy-runtime` service account, Secret Manager password injection,
+durable-storage fail-closed configuration, and a five-connection application pool.
+
+The instance still reports a public IPv4 address, `connectorEnforcement=NOT_REQUIRED`,
+and `sslMode=ALLOW_UNENCRYPTED_AND_ENCRYPTED`. Cloud Run currently connects through the
+Cloud SQL Unix socket, but the instance-level policy still permits connection paths
+outside the connector and does not require encryption. Tightening connector enforcement
+and SSL is a production access-control change and may interrupt non-connector clients;
+it requires founder authorization and an inventory of legitimate database clients
+before mutation. The client candidate adds bounded connection, idle, statement, and
+query timeouts, but no new revision has been deployed.
+
+Accordingly, local persistence authority is closed, but deployment/live durability and
+the independent final review must wait on the Cloud SQL hardening decision. Current
+phase result: **NOT READY — IMPLEMENTATION/SECURITY DEFECT**.

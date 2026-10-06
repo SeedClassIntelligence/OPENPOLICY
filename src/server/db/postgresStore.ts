@@ -34,8 +34,8 @@ import {
   ConsumerRequirements,
   CompetitionActivityEvent,
   ReviewQueueItem,
-  ReviewQueueStatus
-  ,VaultDocument
+  ReviewQueueStatus,
+  VaultDocument
 } from '../../types/insurance';
 
 export interface SqlClient {
@@ -51,7 +51,15 @@ class CloudSqlClient implements SqlClient {
   constructor() {
     const connectionString = process.env.DATABASE_URL?.trim();
     if (connectionString) {
-      this.pool = new pg.Pool({ connectionString, max: 5 });
+      this.pool = new pg.Pool({
+        connectionString,
+        max: 5,
+        connectionTimeoutMillis: 10_000,
+        idleTimeoutMillis: 30_000,
+        statement_timeout: 30_000,
+        query_timeout: 30_000,
+        application_name: 'openpolicy-runtime'
+      });
       return;
     }
 
@@ -69,7 +77,12 @@ class CloudSqlClient implements SqlClient {
       user,
       password,
       database,
-      max: 5
+      max: 5,
+      connectionTimeoutMillis: 10_000,
+      idleTimeoutMillis: 30_000,
+      statement_timeout: 30_000,
+      query_timeout: 30_000,
+      application_name: 'openpolicy-runtime'
     });
   }
 
