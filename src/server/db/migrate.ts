@@ -984,6 +984,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_reconciliation_snapshot
   ON reconciliation_reports (issued_policy_snapshot_id);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_vault_reconciliation
   ON policy_vault_items (reconciliation_report_id);
+CREATE TABLE IF NOT EXISTS consumer_vault_documents (
+  document_id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL,
+  document_hash TEXT NOT NULL,
+  uploaded_at TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  UNIQUE(owner_id, document_hash)
+);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_invitation_challenge_org
   ON challenge_invitations (challenge_id, provider_organization_id);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_participation_challenge_org

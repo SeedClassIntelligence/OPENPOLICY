@@ -35,6 +35,7 @@ import {
   CompetitionActivityEvent,
   ReviewQueueItem,
   ReviewQueueStatus
+  ,VaultDocument
 } from '../../types/insurance';
 
 export interface SqlClient {
@@ -1066,8 +1067,8 @@ export class PostgresStore {
         [input.competition.id,input.competition.status,input.competition.currentRound,input.competition.closesAt,JSON.stringify(input.competition)]);
       await client.query(`UPDATE challenges SET status=$2,payload=$3,version=version+1 WHERE id=$1;`,[input.challenge.id,input.challenge.status,JSON.stringify(input.challenge)]);
       const e=input.activity;
-      await client.query(`INSERT INTO competition_activity_events (id,competition_id,challenge_id,timestamp,type,actor_role,actor_name,provider_organization_id,summary,round,metadata) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT(id) DO NOTHING;`,
-        [e.id,e.competitionId,e.challengeId,e.timestamp,e.type,e.actorRole,e.actorName||null,e.providerOrganizationId||null,e.summary,e.round||null,e.metadata?JSON.stringify(e.metadata):null]);
+      await client.query(`INSERT INTO competition_activity_events (id,competition_id,challenge_id,occurred_at,event_type,provider_organization_id,payload) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(id) DO NOTHING;`,
+        [e.id,e.competitionId,e.challengeId,e.timestamp,e.type,e.providerOrganizationId||null,JSON.stringify(e)]);
       await this.appendAuditInTransaction(client,{eventType:'COMPETITION_ROUND_ADVANCED',actorRole:'ADMIN',actorId:input.actorId,details:e.summary});
       return input.competition;
     });
@@ -1097,6 +1098,26 @@ export class PostgresStore {
       await client.query(`UPDATE challenges SET status=$2,payload=$3,version=version+1 WHERE id=$1;`,[challenge.id,updated.status,JSON.stringify(updated)]);
       await client.query(`UPDATE competitions SET status='COMPLETED',completed_at=$2,version=version+1 WHERE challenge_id=$1;`,[challenge.id,new Date().toISOString()]);
       await this.appendAuditInTransaction(client,{eventType:'INCUMBENT_POLICY_DEFENDED',actorRole:'CONSUMER',actorId:input.consumerId,details:`Consumer kept incumbent policy for ${challenge.id}${input.reason?`: ${input.reason}`:''}`});return updated;
+    });
+  }
+
+  public async commitKeepCurrentOffer(input:{challengeId:string;offerId:string;organizationId:string}):Promise<Offer>{
+    await this.ensureReady();return this.sql!.transaction(async client=>{
+      const [offerResult,competitionResult,organizationResult]=await Promise.all([
+        client.query<any>(`SELECT payload FROM offers WHERE id=$1 AND challenge_id=$2 FOR UPDATE;`,[input.offerId,input.challengeId]),
+        client.query<any>(`SELECT * FROM competitions WHERE challenge_id=$1;`,[input.challengeId]),
+        client.query<any>(`SELECT display_name FROM provider_organizations WHERE id=$1;`,[input.organizationId])
+      ]);
+      if(!offerResult.rows[0])throw Object.assign(new Error('Offer not found'),{statusCode:404});
+      const offer=JSON.parse(offerResult.rows[0].payload) as Offer;
+      if(offer.providerId!==input.organizationId)throw Object.assign(new Error('Provider is not authorized for this offer'),{statusCode:403});
+      if(!competitionResult.rows[0])throw Object.assign(new Error('Competition not found'),{statusCode:404});
+      const competition=this._mapCompetition(competitionResult.rows[0]);
+      const organizationName=organizationResult.rows[0]?.display_name||input.organizationId;
+      const activity:CompetitionActivityEvent={id:`ACT-KEEP-${input.offerId}-${competition.currentRound}`,competitionId:competition.id,challengeId:input.challengeId,timestamp:new Date().toISOString(),type:'PROVIDER_KEPT_CURRENT_OFFER',actorRole:'PROVIDER',actorName:organizationName,providerOrganizationId:input.organizationId,summary:`${organizationName} confirmed current terms for ${offer.carrier} ($${offer.annualPremium}/yr) in ${competition.currentRound}.`,round:competition.currentRound,metadata:{offerId:offer.id,carrier:offer.carrier,annualPremium:offer.annualPremium}};
+      await client.query(`INSERT INTO competition_activity_events (id,competition_id,challenge_id,occurred_at,event_type,provider_organization_id,payload) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(id) DO NOTHING;`,[activity.id,activity.competitionId,activity.challengeId,activity.timestamp,activity.type,activity.providerOrganizationId,JSON.stringify(activity)]);
+      await this.appendAuditInTransaction(client,{eventType:'OFFER_CONFIRMED_CURRENT',actorRole:'PROVIDER',actorId:input.organizationId,details:activity.summary});
+      return offer;
     });
   }
 
@@ -1739,7 +1760,7 @@ export class PostgresStore {
       await client.query(`INSERT INTO offers (id,challenge_id,provider_id,provider_name,carrier,annual_premium,monthly_premium,status,round,version,previous_offer_id,is_latest_revision,payload) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,TRUE,$12);`,[o.id,o.challengeId,o.providerId,o.providerName,o.carrier,o.annualPremium,o.monthlyPremium,o.status,o.round,o.version,o.previousOfferId,JSON.stringify(o)]);
       const v=input.version;
       await client.query(`INSERT INTO offer_versions (id,offer_id,version_number,round,carrier,annual_premium,monthly_premium,coverages,supporting_quote_doc_name,revision_reason,submitted_at,superseded_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12);`,[v.id,v.offerId,v.versionNumber,v.round,v.carrier,v.annualPremium,v.monthlyPremium,JSON.stringify(v.coverages),v.supportingQuoteDocName,v.revisionReason,v.submittedAt,v.supersededAt||null]);
-      const e=input.activity;await client.query(`INSERT INTO competition_activity_events (id,competition_id,challenge_id,timestamp,type,actor_role,actor_name,provider_organization_id,summary,round,metadata) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT(id) DO NOTHING;`,[e.id,e.competitionId,e.challengeId,e.timestamp,e.type,e.actorRole,e.actorName||null,e.providerOrganizationId||null,e.summary,e.round||null,e.metadata?JSON.stringify(e.metadata):null]);
+      const e=input.activity;await client.query(`INSERT INTO competition_activity_events (id,competition_id,challenge_id,occurred_at,event_type,provider_organization_id,payload) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(id) DO NOTHING;`,[e.id,e.competitionId,e.challengeId,e.timestamp,e.type,e.providerOrganizationId||null,JSON.stringify(e)]);
       await this.appendAuditInTransaction(client,{eventType:'OFFER_SUBMITTED',actorRole:'PROVIDER',actorId:input.actorId,details:`Provider revised offer ${input.original.id} to version ${v.versionNumber}`});
       return o;
     });
@@ -2240,7 +2261,12 @@ export class PostgresStore {
       }
       if (durable.activeModificationId) {
         const existing = await client.query<any>(`SELECT * FROM binding_modifications WHERE id=$1;`, [durable.activeModificationId]);
-        if (existing.rows[0]) return { modification:this.mapBindingModification(existing.rows[0]), handoff:durable };
+        if (existing.rows[0]) {
+          const existingModification = this.mapBindingModification(existing.rows[0]);
+          if (existingModification.status === 'PENDING_CONSUMER_REVIEW') {
+            return { modification: existingModification, handoff: durable };
+          }
+        }
       }
       const mod=input.modification;
       await client.query(
@@ -3046,6 +3072,10 @@ export class PostgresStore {
       filedAt: r.filed_at
     };
   }
+
+  public async getConsumerVaultDocuments(ownerId:string):Promise<VaultDocument[]>{await this.ensureReady();const result=await this.sql!.query<{payload:string}>(`SELECT payload FROM consumer_vault_documents WHERE owner_id=$1 ORDER BY uploaded_at DESC;`,[ownerId]);return result.rows.map(row=>JSON.parse(row.payload) as VaultDocument);}
+
+  public async commitConsumerVaultDocument(document:VaultDocument):Promise<VaultDocument>{await this.ensureReady();return this.sql!.transaction(async client=>{const existing=await client.query<{payload:string}>(`SELECT payload FROM consumer_vault_documents WHERE owner_id=$1 AND document_hash=$2;`,[document.ownerId,document.documentHash]);if(existing.rows[0])return JSON.parse(existing.rows[0].payload) as VaultDocument;await client.query(`INSERT INTO consumer_vault_documents (document_id,owner_id,document_hash,uploaded_at,payload) VALUES ($1,$2,$3,$4,$5);`,[document.documentId,document.ownerId,document.documentHash,document.uploadTimestamp,JSON.stringify(document)]);await this.appendAuditInTransaction(client,{eventType:'VAULT_DOCUMENT_ADDED',actorRole:'CONSUMER',actorId:document.ownerId,details:`Added document ${document.fileName} (${document.documentType}) to Policy Vault`});return document;});}
 
   public async getTableCounts(): Promise<Record<string, number>> {
     await this.ensureReady();

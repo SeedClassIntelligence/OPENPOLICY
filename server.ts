@@ -4,6 +4,7 @@ dotenv.config();
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 import { createServer as createViteServer } from 'vite';
 import { db } from './src/server/db';
 import { postgresStore } from './src/server/db/postgresStore';
@@ -12,7 +13,7 @@ import { compareOfferAgainstBaseline } from './src/domain/comparisonEngine';
 import { explainCoverageComparison, generateDeterministicExplanation } from './src/server/geminiService';
 import { Offer, OfferVersion, CoverageBaseline, ConsumerRequirements, Challenge, Competition, ChallengeInvitation,
   PlatformNotification, CompetitionActivityEvent, AuditEvent, InformationRequest, OfferVerification,
-  IssuedPolicyDocument, IssuedPolicySnapshot, ReconciliationReport, PolicyVaultItem } from './src/types/insurance';
+  IssuedPolicyDocument, IssuedPolicySnapshot, ReconciliationReport, PolicyVaultItem, VaultDocument } from './src/types/insurance';
 import { evaluateProviderEligibility, type EligibilityEvaluation } from './src/domain/eligibilityEngine';
 import { evaluateOfferQualification, createOfferVersionSnapshot } from './src/domain/qualificationEngine';
 import {
@@ -84,7 +85,21 @@ import {
 export const app = express();
 const DEFAULT_PORT = Number(process.env.PORT) || 3000;
 
+const fixturePersistenceReady = process.env.OPENPOLICY_AUTH_MODE === 'fixture'
+  ? postgresStore.init()
+      .then(() => postgresStore.seedCanonicalProviderData())
+      .then(() => synchronizeFixturePersistence())
+  : Promise.resolve();
+
 app.use(express.json({ limit: '10mb' }));
+app.use('/api', async (_req, res, next) => {
+  try {
+    await fixturePersistenceReady;
+    next();
+  } catch (error: any) {
+    res.status(503).json({ error: `Fixture persistence initialization failed: ${error.message}` });
+  }
+});
 app.use('/api', attachRequestIdentity);
 app.use('/api', enforceApiAuthorization);
 
@@ -350,12 +365,17 @@ app.get('/api/jurisdiction-evaluations', async (req, res) => {
 });
 
 app.get('/api/audit-events', async (req, res) => {
-  res.json(db.getAuditEvents());
+  res.json(await postgresStore.getAuditEvents());
 });
 
 app.post('/api/reset', async (req, res) => {
-  db.seedCanonicalDataset();
-  res.json({ success: true, message: 'Database reset to canonical initial state' });
+  try {
+    db.seedCanonicalDataset();
+    await synchronizeFixturePersistence();
+    res.json({ success: true, message: 'Database reset to canonical initial state' });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ==========================================
@@ -825,7 +845,7 @@ app.get('/api/reconciliation/dossier/:dossierId', async (req, res) => {
 app.get('/api/vault/documents', async (req, res) => {
   try {
     const consumerId = getAuthenticatedConsumerId(req);
-    res.json(db.getVaultDocuments().filter(document => document.ownerId === consumerId));
+    res.json(await postgresStore.getConsumerVaultDocuments(consumerId));
   } catch (e: any) {
     res.status(e.statusCode || 403).json({ error: e.message });
   }
@@ -834,8 +854,10 @@ app.get('/api/vault/documents', async (req, res) => {
 app.post('/api/vault/upload', async (req, res) => {
   try {
     const consumerId = getAuthenticatedConsumerId(req);
-    const doc = db.uploadVaultDocument({ ...req.body, ownerId: consumerId });
-    res.json({ success: true, document: doc });
+    const uploadTimestamp=new Date().toISOString();const documentId=req.body.documentId||`DOC-USER-${Date.now()}`;
+    const doc:VaultDocument={documentId,ownerId:consumerId,documentType:req.body.documentType||'ENDORSEMENT',source:req.body.source||'UPLOAD',uploadTimestamp,effectiveDate:req.body.effectiveDate||'',expirationDate:req.body.expirationDate||'',processingStatus:'VERIFIED',extractionVersion:'v2.4-canonical',documentHash:req.body.documentHash||crypto.createHash('sha256').update(JSON.stringify({ownerId:consumerId,fileName:req.body.fileName,content:req.body.content||req.body.rawContent||''})).digest('hex'),fileName:req.body.fileName||'Uploaded_Document.pdf',fileSize:req.body.fileSize||'unknown',carrier:req.body.carrier,policyNumber:req.body.policyNumber,notes:req.body.notes,isImmutable:true};
+    const committed=await postgresStore.commitConsumerVaultDocument(doc);
+    res.json({ success: true, document: committed });
   } catch (e: any) {
     res.status(e.statusCode || 403).json({ error: e.message });
   }
@@ -845,21 +867,11 @@ app.post('/api/vault/upload', async (req, res) => {
 // 10. Competition Engine: Final Round & Incumbent Defense
 // ==========================================
 app.post('/api/challenges/:id/final-round', async (req, res) => {
-  try {
-    const challenge = db.initiateFinalRound(req.params.id);
-    res.json({ success: true, challenge });
-  } catch (e: any) {
-    res.status(400).json({ error: e.message });
-  }
+  res.status(410).json({ error: 'Legacy final-round route retired; use the canonical competition advance-round transition.' });
 });
 
 app.post('/api/challenges/:id/incumbent-defense', async (req, res) => {
-  try {
-    const offer = db.requestIncumbentDefense(req.params.id);
-    res.json({ success: true, offer });
-  } catch (e: any) {
-    res.status(400).json({ error: e.message });
-  }
+  res.status(410).json({ error: 'Legacy incumbent-defense simulation retired; incumbent providers must use the canonical invitation and offer lifecycle.' });
 });
 
 // ==========================================
@@ -934,7 +946,35 @@ app.get('/api/marketplace/active-provider', async (req, res) => {
 app.get('/api/marketplace/opportunities', async (req, res) => {
   try {
     const orgId = await getAuthenticatedProviderOrgId(req);
-    const opportunities = db.getProviderOpportunities(orgId);
+    const invitations = (await postgresStore.getInvitationsForOrg(orgId))
+      .filter(invitation => invitation.status === 'INVITED' || invitation.status === 'VIEWED');
+    const opportunities = [];
+    for (const invitation of invitations) {
+      const [challenge, competition, challengeInvitations, participations] = await Promise.all([
+        postgresStore.getChallenge(invitation.challengeId),
+        postgresStore.getCompetition(invitation.competitionId),
+        postgresStore.getInvitationsForChallenge(invitation.challengeId),
+        postgresStore.getParticipationsForChallenge(invitation.challengeId)
+      ]);
+      if (!challenge || !competition) continue;
+      const renewalDays = challenge.baseline?.expirationDate
+        ? Math.max(1, Math.ceil((new Date(challenge.baseline.expirationDate).getTime() - Date.now()) / 86400000))
+        : 30;
+      opportunities.push({
+        invitationId: invitation.id, challengeId: challenge.id, competitionId: competition.id,
+        referenceNumber: challenge.referenceNumber,
+        market: `${challenge.jurisdiction === 'NV' ? 'Nevada' : challenge.jurisdiction} Personal Auto`,
+        jurisdiction: challenge.jurisdiction, lineOfBusiness: 'PERSONAL_AUTO',
+        vehicleSummary: challenge.baseline?.vehicle ? `${challenge.baseline.vehicle.year} ${challenge.baseline.vehicle.make} ${challenge.baseline.vehicle.model}` : 'Personal Vehicle',
+        currentAnnualPremium: challenge.baseline?.baselineAnnualPremium || 0,
+        currentMonthlyPremium: challenge.baseline?.baselineMonthlyPremium || 0,
+        coverageBaselineStatus: 'VERIFIED', renewalDaysRemaining: renewalDays,
+        consumerRequirementsSummary: challenge.requirements?.ruleSummary || 'Beat current baseline price with equal or better coverage.',
+        competitionClosesAt: competition.closesAt, invitedProvidersCount: challengeInvitations.length,
+        participatingProvidersCount: participations.filter(participation => participation.status !== 'WITHDRAWN').length,
+        invitationStatus: invitation.status, viewedAt: invitation.viewedAt
+      });
+    }
     res.json(opportunities);
   } catch (e: any) {
     res.status(e.statusCode || 400).json({ error: e.message });
@@ -1093,7 +1133,28 @@ app.get('/api/marketplace/competitions', async (req, res) => {
 app.get('/api/marketplace/workspace/:challengeId', async (req, res) => {
   try {
     const orgId = await getAuthenticatedProviderOrgId(req);
-    const workspace = db.getChallengeWorkspace(req.params.challengeId, orgId);
+    const challengeId = req.params.challengeId;
+    const [challenge, competition, participations, invitations, offers, informationRequests, supplementalFacts] = await Promise.all([
+      postgresStore.getChallenge(challengeId), postgresStore.getCompetitionForChallenge(challengeId),
+      postgresStore.getParticipationsForChallenge(challengeId), postgresStore.getInvitationsForChallenge(challengeId),
+      postgresStore.getOffers(challengeId), postgresStore.getInformationRequests(challengeId), postgresStore.getVerifiedSupplementalFacts(challengeId)
+    ]);
+    const participation = participations.find(item => item.providerOrganizationId === orgId && item.status !== 'WITHDRAWN');
+    if (!participation) return res.status(403).json({ error: `Access Denied: Provider organization ${orgId} is not an authorized participant in challenge ${challengeId}` });
+    if (!challenge) return res.status(404).json({ error: `Challenge ${challengeId} not found` });
+    if (!competition) return res.status(404).json({ error: `Competition not found for challenge ${challengeId}` });
+    const baseline = { ...challenge.baseline, verifiedBy: 'Verified Policyholder', vehicle: challenge.baseline.vehicle ? { ...challenge.baseline.vehicle, vin: challenge.baseline.vehicle.vin ? `***${challenge.baseline.vehicle.vin.slice(-4)}` : '***MASKED***' } : undefined };
+    const workspace = {
+      challenge: { id: challenge.id, referenceNumber: challenge.referenceNumber, jurisdiction: challenge.jurisdiction, status: challenge.status, openingTimestamp: challenge.openingTimestamp, closingTimestamp: challenge.closingTimestamp },
+      competition: { id: competition.id, currentRound: competition.currentRound, status: competition.status, openedAt: competition.openedAt, closesAt: competition.closesAt, participantCount: participations.filter(item => item.status !== 'WITHDRAWN').length, invitedCount: invitations.length },
+      consumerObjective: `Beat $${challenge.baseline.baselineAnnualPremium}/year ($${challenge.baseline.baselineMonthlyPremium}/month) while maintaining equivalent or superior coverage terms.`,
+      baseline, requirements: challenge.requirements,
+      authorizedRatingInfo: { vehicle: challenge.baseline.vehicle ? { year: challenge.baseline.vehicle.year, make: challenge.baseline.vehicle.make, model: challenge.baseline.vehicle.model, usage: challenge.baseline.vehicle.usage, annualMileage: challenge.baseline.vehicle.annualMileage, garagingZip: challenge.baseline.vehicle.garagingZip, ownership: challenge.baseline.vehicle.ownership } : undefined, driverInfo: { primaryDriverAgeBracket: '35-49', licenseState: challenge.jurisdiction, yearsLicensed: '15+' }, currentPolicyTerm: { effectiveDate: challenge.baseline.effectiveDate, expirationDate: challenge.baseline.expirationDate, termMonths: 12 } },
+      participation, myOffers: offers.filter(offer => offer.providerId === orgId),
+      informationRequests: informationRequests.filter(request => request.providerOrganizationId === orgId || request.status === 'ANSWERED'),
+      supplementalFacts: supplementalFacts.filter(fact => fact.sharedWithOrganizationIds.includes(orgId) || fact.sharedWithOrganizationIds.includes('*')),
+      appointedCarriers: await postgresStore.getCarrierRelationships(orgId)
+    };
     res.json(workspace);
   } catch (e: any) {
     res.status(e.statusCode || 400).json({ error: e.message });
@@ -1101,12 +1162,7 @@ app.get('/api/marketplace/workspace/:challengeId', async (req, res) => {
 });
 
 app.post('/api/challenges/:id/compete', async (req, res) => {
-  try {
-    const result = db.openCompetitionForChallenge(req.params.id);
-    res.json({ success: true, ...result });
-  } catch (e: any) {
-    res.status(400).json({ error: e.message });
-  }
+  res.status(410).json({ error: 'Legacy competition-opening route retired; challenges open through the canonical transactional challenge lifecycle.' });
 });
 
 // ==========================================
@@ -1157,11 +1213,7 @@ app.post('/api/marketplace/competition/:challengeId/advance-round', async (req, 
 app.post('/api/marketplace/competition/:challengeId/keep-current-offer/:offerId', async (req, res) => {
   try {
     const orgId = await getAuthenticatedProviderOrgId(req);
-    const offer = db.confirmKeepCurrentOffer(
-      req.params.challengeId,
-      req.params.offerId,
-      orgId
-    );
+    const offer = await postgresStore.commitKeepCurrentOffer({ challengeId: req.params.challengeId, offerId: req.params.offerId, organizationId: orgId });
     res.json({ success: true, offer });
   } catch (e: any) {
     res.status(e.statusCode || 400).json({ error: e.message });
@@ -2968,6 +3020,72 @@ app.get(['/download/codebase.zip', '/download/OPENPOLICY_2026-10-02.zip'], async
 });
 
 // Vite Middleware for SPA Frontend
+export async function synchronizeFixturePersistence(): Promise<void> {
+  // This dataset exists only for the explicit fixture/test identity boundary.
+  // Persist parents before children so a fresh process never serves a memory-only
+  // fixture while durable routes still observe an empty or partially seeded DB.
+  for (const organization of db.getProviderOrganizations()) {
+    await postgresStore.saveProviderOrganization(organization);
+    for (const user of db.getProviderUsers(organization.id)) await postgresStore.saveProviderUser(user);
+    for (const license of db.getProviderLicenses(organization.id)) await postgresStore.saveProviderLicense(license);
+    for (const relationship of db.getCarrierRelationships(organization.id)) await postgresStore.saveCarrierRelationship(relationship);
+    const appetite = db.getProviderAppetite(organization.id);
+    if (appetite) await postgresStore.saveProviderAppetite(appetite);
+  }
+  const policies = db.getPolicies();
+  const policyIds = new Set(policies.map(policy => policy.id));
+  for (const policy of policies) await postgresStore.savePolicy(policy);
+  for (const baseline of db.getBaselines()) {
+    // Ad-hoc validator challenges carry an embedded baseline without creating a
+    // standalone Policy aggregate. The challenge row is authoritative for it.
+    if (policyIds.has(baseline.policyId)) await postgresStore.saveCoverageBaseline(baseline);
+  }
+  for (const challenge of db.getChallenges()) {
+    if (challenge.requirements) await postgresStore.saveConsumerRequirements(challenge.requirements);
+    await postgresStore.saveChallenge(challenge);
+  }
+  const competitions = db.getAllCompetitions();
+  const competitionIds = new Set(competitions.map(competition => competition.id));
+  const competitionReferences = [
+    ...db.getAllParticipations().map(participation => ({ competitionId: participation.competitionId, challengeId: participation.challengeId })),
+    ...db.getAllInvitations().map(invitation => ({ competitionId: invitation.competitionId, challengeId: invitation.challengeId }))
+  ];
+  for (const reference of competitionReferences) {
+    if (competitionIds.has(reference.competitionId)) continue;
+    const challenge = db.getChallenge(reference.challengeId);
+    if (!challenge) continue;
+    const openedAt = challenge.openingTimestamp || (challenge as Challenge & { createdAt?: string }).createdAt || new Date().toISOString();
+    competitions.push({
+      id: reference.competitionId,
+      challengeId: reference.challengeId,
+      status: 'OPEN',
+      currentRound: 'ROUND_1_OPEN',
+      openedAt,
+      closesAt: new Date(new Date(openedAt).getTime() + 48 * 3600 * 1000).toISOString(),
+      participantCount: 1,
+      improvementRoundEnabled: true,
+      finalRoundEnabled: true
+    });
+    competitionIds.add(reference.competitionId);
+  }
+  for (const competition of competitions) await postgresStore.saveCompetition(competition);
+  for (const invitation of db.getAllInvitations()) await postgresStore.saveInvitation(invitation);
+  for (const participation of db.getAllParticipations()) await postgresStore.saveParticipation(participation);
+  const offers = db.getAllOffers();
+  for (const offer of offers) await postgresStore.saveOffer(offer);
+  const versions = db.getAllOfferVersionsFlat();
+  const versionKeys = new Set(versions.map(version => `${version.offerId}:${version.versionNumber}`));
+  for (const offer of offers) {
+    const key = `${offer.id}:${offer.version || 1}`;
+    if (!versionKeys.has(key)) {
+      versions.push(createOfferVersionSnapshot(offer, 'Initial offer submission'));
+      versionKeys.add(key);
+    }
+  }
+  for (const version of versions) await postgresStore.saveOfferVersion(version);
+  for (const item of db.getReviewQueue()) await postgresStore.saveReviewQueueItem(item);
+}
+
 async function startServer() {
   // Production must never boot with an implicit fixture mode or an unusable
   // Firebase Admin configuration. This checks configuration presence only;
@@ -2977,6 +3095,9 @@ async function startServer() {
   try {
     await postgresStore.init();
     await postgresStore.seedCanonicalProviderData();
+    if (process.env.OPENPOLICY_AUTH_MODE === 'fixture') {
+      await synchronizeFixturePersistence();
+    }
     await commercialStore.seedCanonicalPlans();
     await ensureJurisdictionFramework();
   } catch (err: any) {

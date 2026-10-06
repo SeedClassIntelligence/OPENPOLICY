@@ -59,7 +59,15 @@ for (const [n, suite] of runList.entries()) {
   const result = spawnSync(process.execPath, ['--import', 'tsx', script], {
     encoding: 'utf8',
     timeout: TIMEOUT_MS,
-    maxBuffer: 64 * 1024 * 1024
+    maxBuffer: 64 * 1024 * 1024,
+    // Validators exercise the explicit local fixture identities carried in their
+    // request headers. Production startup rejects this mode, so keep the test
+    // boundary explicit rather than allowing suites to depend on ambient auth.
+    env: {
+      ...process.env,
+      NODE_ENV: 'test',
+      OPENPOLICY_AUTH_MODE: 'fixture'
+    }
   });
   const output = `${result.stdout || ''}${result.stderr || ''}`;
   fs.writeFileSync(path.join(logDir, `${String(n + 1).padStart(2, '0')}-${suite}.log`), output);

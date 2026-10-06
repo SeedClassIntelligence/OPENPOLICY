@@ -281,10 +281,10 @@ export async function runCE3ValidationSuite() {
     // 1.5 Improvement Round Revision -> PROPOSITION_SUBMITTED
     console.log('\n[1.5] Testing PROPOSITION_SUBMITTED on revised offer submission...');
     // Advance competition to IMPROVEMENT
-    const comp = db.getCompetitionForChallenge(createdChal.id);
-    if (comp) {
-      comp.currentRound = 'IMPROVEMENT';
-    }
+    await request(server, 'POST', `/api/marketplace/competition/${createdChal.id}/advance-round`, {
+      targetRound: 'IMPROVEMENT',
+      reason: 'CE-3 improvement-round validation'
+    });
 
     const reviseRes = await request(
       server,
@@ -519,7 +519,7 @@ export async function runCE3ValidationSuite() {
     console.log('\n[2.3] Testing authoritative state reconciliation backfill...');
     const reconcileRun = await commercialStore.reconcileCommercialEvents(db);
     assert(reconcileRun.scanned > 0, `Authoritative scan examined ${reconcileRun.scanned} records`);
-    assert(reconcileRun.errors.length === 0, 'Reconciliation finished with zero errors');
+    assert(reconcileRun.errors.length === 0, `Reconciliation finished with zero errors (${reconcileRun.errors.join('; ')})`);
     assert(reconcileRun.alreadyExisted > 0, 'Pre-existing events correctly identified and preserved');
 
     // -------------------------------------------------------------------------

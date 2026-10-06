@@ -116,6 +116,10 @@ export async function resolveFirebaseIdentity(token: string): Promise<RequestIde
 }
 
 function resolveFixtureIdentity(req: Request): RequestIdentity {
+  const fixtureRole = String(req.headers['x-openpolicy-fixture-role'] || '').toUpperCase();
+  if (fixtureRole === 'ADMIN') {
+    return { uid: 'fixture_admin', role: 'ADMIN', source: 'FIXTURE' };
+  }
   const providerUserId = String(req.headers['x-provider-user-id'] || req.body?.providerUserId || '').trim();
   if (providerUserId) {
     return { uid: providerUserId, providerUserId, role: 'PROVIDER', providerStatus: 'ACTIVE', source: 'FIXTURE' };

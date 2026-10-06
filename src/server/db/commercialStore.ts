@@ -44,7 +44,6 @@ import {
   calculateAuthoritativeAccountBalance,
   buildRefundRecord
 } from '../../domain/commercialEconomicsEngine';
-import { db } from '../db';
 
 /**
  * CommercialStore — Persistence layer for Open Policy Commercial Economics (CE-1 through CE-5).
@@ -776,7 +775,7 @@ export class CommercialStore {
    * using the canonical deterministic idempotency keys.
    * Completely safe to rerun repeatedly (idempotent ON CONFLICT DO NOTHING).
    */
-  public async reconcileCommercialEvents(targetDb = db): Promise<{
+  public async reconcileCommercialEvents(_legacyMemorySource?: unknown): Promise<{
     scanned: number;
     projected: number;
     alreadyExisted: number;
@@ -837,7 +836,7 @@ export class CommercialStore {
     };
 
     // 1. Scan Invitations -> VPO_AVAILABLE & VPO_VIEWED
-    const invitations = targetDb.getAllInvitations();
+    const invitations = await postgresStore.getAllInvitations();
     for (const inv of invitations) {
       await projectOne({
         eventType: 'VPO_AVAILABLE',
@@ -863,7 +862,7 @@ export class CommercialStore {
     }
 
     // 2. Scan Participations -> VPO_ENGAGED
-    const participations = targetDb.getAllParticipations();
+    const participations = await postgresStore.getAllParticipations();
     for (const part of participations) {
       await projectOne({
         eventType: 'VPO_ENGAGED',
@@ -877,13 +876,16 @@ export class CommercialStore {
     }
 
     // 3. Scan OfferVersions -> PROPOSITION_SUBMITTED
-    const offerVersions = targetDb.getAllOfferVersionsFlat();
+    const offers = await postgresStore.getOffers();
+    const offersById = new Map(offers.map(offer => [offer.id, offer]));
+    const offerVersions = (await Promise.all(offers.map(offer => postgresStore.getOfferVersions(offer.id)))).flat();
     for (const ver of offerVersions) {
-      const offer = targetDb.getOffer(ver.offerId);
+      const offer = offersById.get(ver.offerId);
       const providerOrgId = offer?.providerId;
       if (!providerOrgId) {
         throw new Error(`Cannot project offer version ${ver.id}: offer has no authoritative provider organization`);
       }
+      if (!(await postgresStore.getProviderOrganization(providerOrgId))) continue;
       await projectOne({
         eventType: 'PROPOSITION_SUBMITTED',
         sourceEntityType: 'OFFER_VERSION',
@@ -900,7 +902,7 @@ export class CommercialStore {
     }
 
     // 4. Scan Selections -> CONSUMER_SELECTED
-    const selections = targetDb.getAllSelections();
+    const selections = await postgresStore.getSelections();
     for (const sel of selections) {
       await projectOne({
         eventType: 'CONSUMER_SELECTED',
@@ -918,7 +920,7 @@ export class CommercialStore {
     }
 
     // 5. Scan DisclosureEvents -> AUTHORIZED_CONNECTION
-    const disclosures = targetDb.getAllDisclosureEvents();
+    const disclosures = await postgresStore.getDisclosureEvents();
     for (const disc of disclosures) {
       if (disc.recipientProviderOrganizationId) {
         await projectOne({
@@ -937,7 +939,8 @@ export class CommercialStore {
     }
 
     // 6. Scan BindingHandoffs -> BOUND_ACQUISITION (only when status is BOUND)
-    const handoffs = targetDb.getAllBindingHandoffs();
+    const handoffs = await postgresStore.getBindingHandoffs();
+    const handoffsById = new Map(handoffs.map(handoff => [handoff.id, handoff]));
     for (const handoff of handoffs) {
       if (handoff.status === 'BOUND' && handoff.providerOrganizationId) {
         await projectOne({
@@ -956,11 +959,11 @@ export class CommercialStore {
     }
 
     // 7. Scan ReconciliationReports -> VERIFIED_BOUND_OUTCOME (only verified verdicts)
-    const reports = targetDb.getAllReconciliationReports();
+    const reports = await postgresStore.getReconciliationReports();
     for (const rep of reports) {
       const isVerified = rep.verdict === 'MATCH' || rep.verdict === 'AUTHORIZED_VARIANCE' || rep.status === 'CONSUMER_ACCEPTED_VARIANCE';
       if (isVerified && rep.bindingHandoffId) {
-        const handoff = targetDb.getBindingHandoff(rep.bindingHandoffId);
+        const handoff = handoffsById.get(rep.bindingHandoffId);
         if (handoff && handoff.providerOrganizationId) {
           await projectOne({
             eventType: 'VERIFIED_BOUND_OUTCOME',
@@ -980,11 +983,11 @@ export class CommercialStore {
     }
 
     // 8. Scan Policy Vault Items -> BASELINE_ACTIVATED
-    const vaultItems = targetDb.getAllPolicyVaultItems();
+    const vaultItems = await postgresStore.getPolicyVaultItems();
     for (const item of vaultItems) {
       if (item.futureCoverageBaselineId && item.bindingHandoffId) {
-        const baseline = targetDb.getBaseline(item.futureCoverageBaselineId);
-        const handoff = targetDb.getBindingHandoff(item.bindingHandoffId);
+        const baseline = await postgresStore.getCoverageBaseline(item.futureCoverageBaselineId);
+        const handoff = handoffsById.get(item.bindingHandoffId);
         if (baseline && handoff && handoff.providerOrganizationId) {
           await projectOne({
             eventType: 'BASELINE_ACTIVATED',

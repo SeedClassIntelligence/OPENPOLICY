@@ -23,7 +23,8 @@ const rules: RouteRule[] = [
   { methods: ['POST'], pattern: /^\/(?:documents\/upload-sample|policies\/[^/]+\/verify|baselines\/create)$/, roles: ['ADMIN'] },
   { methods: ['POST'], pattern: /^\/challenges\/[^/]+\/(?:compete|final-round|incumbent-defense)$/, roles: ['ADMIN'] },
   { methods: ['POST'], pattern: /^\/marketplace\/competition\/[^/]+\/advance-round$/, roles: ['ADMIN'] },
-  { pattern: /^\/marketplace\/offers\/[^/]+\/(?:verify-document|qualification)$/, roles: ['ADMIN'] },
+  { methods: ['POST'], pattern: /^\/marketplace\/offers\/[^/]+\/verify-document$/, roles: ['PROVIDER'] },
+  { methods: ['GET'], pattern: /^\/marketplace\/offers\/[^/]+\/qualification$/, roles: ['CONSUMER', 'PROVIDER', 'ADMIN'] },
   { pattern: /^\/commercial\/(?:rating\/(?:run|reconcile|runs(?:\/[^/]+)?)|events\/reconcile)$/, roles: ['ADMIN'] },
   { pattern: /^\/admin\//, roles: ['ADMIN'] },
 

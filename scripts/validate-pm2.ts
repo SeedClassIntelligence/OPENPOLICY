@@ -417,19 +417,20 @@ async function runPM2Validation() {
 
     // 2.8 Section 30: Document Verification & Discrepancy Detection
     // Test document with conflicting premium
+    const verificationOffer = db.getOffer('OFFER-B')!;
     const discrepancyCheckRes = await makeRequest(
       port,
       'POST',
-      '/api/marketplace/offers/OFFER-A/verify-document',
-      {},
+      '/api/marketplace/offers/OFFER-B/verify-document',
+      { 'x-provider-user-id': 'user_sierra_1' },
       {
         docData: {
-          extractedAnnualPremium: originalPremium + 500, // Deliberate mismatch
+          extractedAnnualPremium: verificationOffer.annualPremium + 500, // Deliberate mismatch
           extractedCollisionDeductible: 500
         }
       }
     );
-    assert(discrepancyCheckRes.status === 200, 'Document verification endpoint executed');
+    assert(discrepancyCheckRes.status === 200, 'Document verification endpoint executed', `${discrepancyCheckRes.status} ${JSON.stringify(discrepancyCheckRes.body)}`);
     assert(
       discrepancyCheckRes.body.verification?.status === 'DISCREPANCIES_FLAGGED',
       'Document discrepancy accurately flagged'
