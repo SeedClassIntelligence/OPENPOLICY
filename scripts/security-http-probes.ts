@@ -58,10 +58,10 @@ try {
   await probe('consumer vault', '/api/vault/documents', [200], { headers: consumer });
   await probe('provider organization', '/api/marketplace/my-provider', [200], { headers: sierra });
   await probe('commercial organization scope', '/api/commercial/account', [200, 404], { headers: sierra });
-  await probe('binding surface wrong consumer', '/api/selection/dossier-by-challenge/CHAL-NV-49281', [403], {
+  await probe('retired legacy binding surface unavailable', '/api/selection/dossier-by-challenge/CHAL-NV-49281', [410], {
     headers: otherConsumer
   });
-  await probe('reconciliation surface wrong consumer', '/api/reconciliation/dossier/nonexistent', [403, 404], { headers: otherConsumer });
+  await probe('retired legacy reconciliation surface unavailable', '/api/reconciliation/dossier/nonexistent', [410], { headers: otherConsumer });
 
   const consumerNotifications = await probe('consumer notification listing', '/api/notifications', [200], { headers: consumer });
   const consumerBody = await consumerNotifications.json() as Array<{ id: string }>;
