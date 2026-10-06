@@ -2472,6 +2472,141 @@ export class PostgresStore {
   // PM-5: Issued Policy Documents, Snapshots, Reconciliation & Vault
   // ========================================================
 
+  public async commitIssuedPolicyEvidence(input: {
+    document: IssuedPolicyDocument;
+    snapshot: IssuedPolicySnapshot;
+    providerUserId: string;
+  }): Promise<{ document: IssuedPolicyDocument; snapshot: IssuedPolicySnapshot }> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const handoffResult = await client.query<any>(
+        `SELECT * FROM binding_handoffs WHERE id=$1 FOR UPDATE;`, [input.document.bindingHandoffId]
+      );
+      if (!handoffResult.rows[0]) throw Object.assign(new Error(`Binding handoff ${input.document.bindingHandoffId} not found`), { statusCode: 404 });
+      const handoff = this.mapBindingHandoff(handoffResult.rows[0]);
+      if (handoff.status !== 'BOUND') throw Object.assign(new Error(`Issued policy can only be uploaded for a BOUND handoff (current: ${handoff.status})`), { statusCode: 409 });
+      const userResult = await client.query<{ organization_id:string; is_active:boolean }>(
+        `SELECT organization_id,is_active FROM provider_users WHERE id=$1;`, [input.providerUserId]
+      );
+      const user = userResult.rows[0];
+      if (!user || !user.is_active || user.organization_id !== handoff.providerOrganizationId) {
+        throw Object.assign(new Error('Forbidden: Provider is not authorized for this binding handoff'), { statusCode: 403 });
+      }
+      const existing = await client.query<any>(
+        `SELECT * FROM issued_policy_documents WHERE binding_handoff_id=$1 AND document_sha256=$2;`,
+        [handoff.id,input.document.documentSha256]
+      );
+      if (existing.rows[0]) {
+        const row=existing.rows[0];
+        const document:IssuedPolicyDocument={id:row.id,bindingHandoffId:row.binding_handoff_id,challengeId:row.challenge_id,
+          providerOrganizationId:row.provider_organization_id,fileName:row.file_name,fileSizeBytes:row.file_size_bytes,
+          mimeType:row.mime_type,documentSha256:row.document_sha256,storageRef:row.storage_ref,uploadedAt:row.uploaded_at};
+        const snapshotResult=await client.query<any>(`SELECT * FROM issued_policy_snapshots WHERE issued_policy_document_id=$1;`,[document.id]);
+        const s=snapshotResult.rows[0];
+        if (!s) throw new Error('Durable issued-policy document is missing its snapshot');
+        const snapshot:IssuedPolicySnapshot={id:s.id,issuedPolicyDocumentId:s.issued_policy_document_id,bindingHandoffId:s.binding_handoff_id,
+          carrier:s.carrier,policyNumber:s.policy_number,annualPremium:s.annual_premium,monthlyPremium:s.monthly_premium??undefined,
+          effectiveDate:s.effective_date,expirationDate:s.expiration_date,coverages:JSON.parse(s.coverages||'[]'),
+          extractionConfidence:Number(s.extraction_confidence),isAmbiguous:Boolean(s.is_ambiguous),snapshotSha256:s.snapshot_sha256,extractedAt:s.extracted_at};
+        return { document, snapshot };
+      }
+      const doc=input.document;
+      await client.query(
+        `INSERT INTO issued_policy_documents
+          (id,binding_handoff_id,challenge_id,provider_organization_id,file_name,file_size_bytes,mime_type,document_sha256,storage_ref,uploaded_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10);`,
+        [doc.id,doc.bindingHandoffId,doc.challengeId,doc.providerOrganizationId,doc.fileName,doc.fileSizeBytes,
+          doc.mimeType,doc.documentSha256,doc.storageRef,doc.uploadedAt]
+      );
+      const snapshot=input.snapshot;
+      await client.query(
+        `INSERT INTO issued_policy_snapshots
+          (id,issued_policy_document_id,binding_handoff_id,carrier,policy_number,annual_premium,monthly_premium,effective_date,expiration_date,coverages,extraction_confidence,is_ambiguous,snapshot_sha256,extracted_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14);`,
+        [snapshot.id,snapshot.issuedPolicyDocumentId,snapshot.bindingHandoffId,snapshot.carrier,snapshot.policyNumber,
+          snapshot.annualPremium,snapshot.monthlyPremium??null,snapshot.effectiveDate,snapshot.expirationDate,
+          JSON.stringify(snapshot.coverages||[]),snapshot.extractionConfidence,snapshot.isAmbiguous,
+          snapshot.snapshotSha256,snapshot.extractedAt]
+      );
+      await this.appendAuditInTransaction(client,{eventType:'ISSUED_POLICY_UPLOADED',actorRole:'PROVIDER',actorId:input.providerUserId,
+        details:`Issued policy document ${doc.fileName} (${doc.documentSha256}) uploaded for handoff ${handoff.id}`});
+      return input;
+    });
+  }
+
+  public async commitReconciliation(input: {
+    report: ReconciliationReport;
+    vaultItem?: PolicyVaultItem;
+    newBaseline?: CoverageBaseline;
+    actorRole: AuditEvent['actorRole'];
+    actorId: string;
+  }): Promise<{ report: ReconciliationReport; vaultItem?: PolicyVaultItem; newBaseline?: CoverageBaseline }> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const existing=await client.query<any>(`SELECT * FROM reconciliation_reports WHERE issued_policy_snapshot_id=$1;`,[input.report.issuedPolicySnapshotId]);
+      if(existing.rows[0])return {report:this.mapReconciliationReport(existing.rows[0]),vaultItem:input.vaultItem,newBaseline:input.newBaseline};
+      const report=input.report;
+      await client.query(
+        `INSERT INTO reconciliation_reports
+          (id,binding_handoff_id,challenge_id,issued_policy_document_id,issued_policy_snapshot_id,verdict,status,discrepancies,total_annual_premium_variance,expected_terms_summary,issued_terms_summary,reconciled_at,reconciled_by,consumer_reviewed_at,consumer_decision,consumer_dispute_notes)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16);`,
+        [report.id,report.bindingHandoffId,report.challengeId,report.issuedPolicyDocumentId,report.issuedPolicySnapshotId,
+          report.verdict,report.status,JSON.stringify(report.discrepancies||[]),report.totalAnnualPremiumVariance,
+          JSON.stringify(report.expectedTermsSummary),JSON.stringify(report.issuedTermsSummary),report.reconciledAt,
+          report.reconciledBy,report.consumerReviewedAt||null,report.consumerDecision||null,report.consumerDisputeNotes||null]
+      );
+      await this.appendAuditInTransaction(client,{eventType:'ISSUED_POLICY_RECONCILED',actorRole:input.actorRole,actorId:input.actorId,
+        details:`Issued policy reconciliation ${report.id}: ${report.verdict}`});
+      if(input.vaultItem)await this.insertVaultItemInTransaction(client,input.vaultItem);
+      if(input.newBaseline){
+        const b=input.newBaseline;
+        const vault=input.vaultItem!;
+        const policy={id:b.policyId,policyNumber:vault.policyNumber,carrier:vault.carrier,jurisdiction:b.jurisdiction||'',
+          effectiveDate:vault.effectiveDate,expirationDate:vault.expirationDate,termMonths:12,annualPremium:vault.annualPremium,
+          monthlyPremium:Math.round(vault.annualPremium/12),status:'VERIFIED',namedInsured:vault.consumerId,drivers:[],vehicles:[],
+          coverages:vault.coverages,sourceDocumentId:vault.issuedPolicyDocumentId,sourceDocumentName:'issued-policy'};
+        await client.query(`INSERT INTO policies (id,policy_number,carrier,jurisdiction,named_insured,effective_date,expiration_date,annual_premium,status,payload) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT(id) DO NOTHING;`,
+          [policy.id,policy.policyNumber,policy.carrier,policy.jurisdiction,policy.namedInsured,policy.effectiveDate,policy.expirationDate,policy.annualPremium,policy.status,JSON.stringify(policy)]);
+        await client.query(`INSERT INTO coverage_baselines (id,policy_id,version,jurisdiction,verified_at,payload) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT(id) DO NOTHING;`,
+          [b.id,b.policyId,b.version,b.jurisdiction||null,b.verifiedAt,JSON.stringify(b)]);
+      }
+      if(input.vaultItem)await this.appendAuditInTransaction(client,{eventType:'POLICY_VAULT_FILED',actorRole:'SYSTEM',actorId:'system_vault_manager',details:`Policy ${input.vaultItem.policyNumber} filed into Policy Vault`});
+      if(input.newBaseline)await this.appendAuditInTransaction(client,{eventType:'FUTURE_BASELINE_ACTIVATED',actorRole:'SYSTEM',actorId:'system_baseline_manager',details:`Coverage baseline ${input.newBaseline.id} activated for future cycles`});
+      return {report,vaultItem:input.vaultItem,newBaseline:input.newBaseline};
+    });
+  }
+
+  private mapReconciliationReport(r:any):ReconciliationReport{return {id:r.id,bindingHandoffId:r.binding_handoff_id,challengeId:r.challenge_id,issuedPolicyDocumentId:r.issued_policy_document_id,issuedPolicySnapshotId:r.issued_policy_snapshot_id,verdict:r.verdict,status:r.status,discrepancies:JSON.parse(r.discrepancies||'[]'),totalAnnualPremiumVariance:r.total_annual_premium_variance,expectedTermsSummary:JSON.parse(r.expected_terms_summary),issuedTermsSummary:JSON.parse(r.issued_terms_summary),reconciledAt:r.reconciled_at,reconciledBy:r.reconciled_by,consumerReviewedAt:r.consumer_reviewed_at||undefined,consumerDecision:r.consumer_decision||undefined,consumerDisputeNotes:r.consumer_dispute_notes||undefined} as ReconciliationReport;}
+
+  private async insertVaultItemInTransaction(client:SqlClient,item:PolicyVaultItem):Promise<void>{
+    await client.query(`INSERT INTO policy_vault_items (id,consumer_id,challenge_id,selection_id,binding_handoff_id,selected_offer_version_id,accepted_binding_modification_ids,issued_policy_document_id,issued_policy_snapshot_id,reconciliation_report_id,future_coverage_baseline_id,carrier,policy_number,annual_premium,effective_date,expiration_date,coverages,provenance_hash,status,filed_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) ON CONFLICT(reconciliation_report_id) DO NOTHING;`,[item.id,item.consumerId,item.challengeId,item.selectionId,item.bindingHandoffId,item.selectedOfferVersionId,JSON.stringify(item.acceptedBindingModificationIds||[]),item.issuedPolicyDocumentId,item.issuedPolicySnapshotId,item.reconciliationReportId,item.futureCoverageBaselineId||null,item.carrier,item.policyNumber,item.annualPremium,item.effectiveDate,item.expirationDate,JSON.stringify(item.coverages||[]),item.provenanceHash,item.status,item.filedAt]);
+  }
+
+  public async commitReconciliationReview(input:{
+    report:ReconciliationReport; consumerId:string; vaultItem?:PolicyVaultItem; newBaseline?:CoverageBaseline;
+  }):Promise<{report:ReconciliationReport;vaultItem?:PolicyVaultItem;newBaseline?:CoverageBaseline}>{
+    await this.ensureReady();
+    return this.sql!.transaction(async client=>{
+      const currentResult=await client.query<any>(`SELECT * FROM reconciliation_reports WHERE id=$1 FOR UPDATE;`,[input.report.id]);
+      if(!currentResult.rows[0])throw Object.assign(new Error(`Reconciliation report ${input.report.id} not found`),{statusCode:404});
+      const current=this.mapReconciliationReport(currentResult.rows[0]);
+      const challengeResult=await client.query<any>(`SELECT * FROM challenges WHERE id=$1;`,[current.challengeId]);
+      if(!challengeResult.rows[0])throw Object.assign(new Error('Challenge not found'),{statusCode:404});
+      const challenge=this._mapChallenge(challengeResult.rows[0]);
+      if(challenge.consumerId!==input.consumerId)throw Object.assign(new Error('Unauthorized: Only the challenge consumer can review reconciliation'),{statusCode:403});
+      if(current.consumerDecision)return {report:current,vaultItem:input.vaultItem,newBaseline:input.newBaseline};
+      const report=input.report;
+      await client.query(`UPDATE reconciliation_reports SET status=$2,consumer_reviewed_at=$3,consumer_decision=$4,consumer_dispute_notes=$5 WHERE id=$1;`,
+        [report.id,report.status,report.consumerReviewedAt||null,report.consumerDecision||null,report.consumerDisputeNotes||null]);
+      await this.appendAuditInTransaction(client,{eventType:'RECONCILIATION_VARIANCE_RESOLVED',actorRole:'CONSUMER',actorId:input.consumerId,details:`Consumer reconciliation decision ${report.consumerDecision} for ${report.id}`});
+      if(input.vaultItem)await this.insertVaultItemInTransaction(client,input.vaultItem);
+      if(input.newBaseline){const b=input.newBaseline;const vault=input.vaultItem!;const policy={id:b.policyId,policyNumber:vault.policyNumber,carrier:vault.carrier,jurisdiction:b.jurisdiction||'',effectiveDate:vault.effectiveDate,expirationDate:vault.expirationDate,termMonths:12,annualPremium:vault.annualPremium,monthlyPremium:Math.round(vault.annualPremium/12),status:'VERIFIED',namedInsured:vault.consumerId,drivers:[],vehicles:[],coverages:vault.coverages,sourceDocumentId:vault.issuedPolicyDocumentId,sourceDocumentName:'issued-policy'};await client.query(`INSERT INTO policies (id,policy_number,carrier,jurisdiction,named_insured,effective_date,expiration_date,annual_premium,status,payload) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT(id) DO NOTHING;`,[policy.id,policy.policyNumber,policy.carrier,policy.jurisdiction,policy.namedInsured,policy.effectiveDate,policy.expirationDate,policy.annualPremium,policy.status,JSON.stringify(policy)]);await client.query(`INSERT INTO coverage_baselines (id,policy_id,version,jurisdiction,verified_at,payload) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT(id) DO NOTHING;`,[b.id,b.policyId,b.version,b.jurisdiction||null,b.verifiedAt,JSON.stringify(b)]);}
+      if(input.vaultItem)await this.appendAuditInTransaction(client,{eventType:'POLICY_VAULT_FILED',actorRole:'SYSTEM',actorId:'system_vault_manager',details:`Policy ${input.vaultItem.policyNumber} filed after consumer review`});
+      if(input.newBaseline)await this.appendAuditInTransaction(client,{eventType:'FUTURE_BASELINE_ACTIVATED',actorRole:'SYSTEM',actorId:'system_baseline_manager',details:`Coverage baseline ${input.newBaseline.id} activated after consumer review`});
+      return input;
+    });
+  }
+
   public async saveIssuedPolicyDocument(doc: IssuedPolicyDocument): Promise<void> {
     await this.ensureReady();
     await this.sql!.query(

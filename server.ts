@@ -11,7 +11,8 @@ import { SAMPLE_DECLARATIONS_PAGES, detectQuoteDiscrepancies } from './src/domai
 import { compareOfferAgainstBaseline } from './src/domain/comparisonEngine';
 import { explainCoverageComparison, generateDeterministicExplanation } from './src/server/geminiService';
 import { Offer, OfferVersion, CoverageBaseline, ConsumerRequirements, Challenge, Competition, ChallengeInvitation,
-  PlatformNotification, CompetitionActivityEvent, AuditEvent, InformationRequest, OfferVerification } from './src/types/insurance';
+  PlatformNotification, CompetitionActivityEvent, AuditEvent, InformationRequest, OfferVerification,
+  IssuedPolicyDocument, IssuedPolicySnapshot, ReconciliationReport, PolicyVaultItem } from './src/types/insurance';
 import { evaluateProviderEligibility, type EligibilityEvaluation } from './src/domain/eligibilityEngine';
 import { evaluateOfferQualification } from './src/domain/qualificationEngine';
 import {
@@ -24,6 +25,14 @@ import {
   resolveBindingModification,
   transitionBindingStatus
 } from './src/domain/selectionBindingEngine';
+import {
+  deriveExpectedBoundTerms,
+  createIssuedPolicyDocument,
+  createIssuedPolicySnapshot,
+  reconcileIssuedPolicy as pm5Reconcile,
+  processConsumerVarianceReview as pm5ProcessReview,
+  activateVerifiedPolicyToVault as pm5ActivateVault
+} from './src/domain/pm5ReconciliationEngine';
 import { verifyCryptographicAuditChain, processReviewQueueResolution,
   generateRegulatoryAuditProof } from './src/domain/governanceAuditEngine';
 import { assertProductionAuthConfiguration, attachRequestIdentity } from './src/server/auth/requestIdentity';
@@ -1945,15 +1954,35 @@ app.post('/api/marketplace/binding/:handoffId/upload-issued-policy', async (req,
       return res.status(400).json({ error: 'fileName, rawContent, and extractedTerms are required' });
     }
 
-    const result = db.uploadIssuedPolicyDocument({
-      bindingHandoffId: handoffId,
-      providerUserId,
+    const handoff = await postgresStore.getBindingHandoff(handoffId);
+    if (!handoff) return res.status(404).json({ error: `Binding handoff ${handoffId} not found` });
+    const providerUser = await postgresStore.getProviderUser(providerUserId);
+    if (!providerUser || providerUser.organizationId !== handoff.providerOrganizationId) {
+      return res.status(403).json({ error: 'Forbidden: Provider is not authorized for this binding handoff' });
+    }
+    const document = createIssuedPolicyDocument({
+      bindingHandoff: handoff,
+      challengeId: handoff.challengeId,
+      providerOrgId: providerUser.organizationId,
       fileName,
       fileSizeBytes: fileSizeBytes || (typeof rawContent === 'string' ? rawContent.length : 1024),
       mimeType: mimeType || 'application/pdf',
-      rawContent,
-      extractedTerms
+      rawContent
     });
+    const snapshot = createIssuedPolicySnapshot({
+      issuedDocument: document,
+      bindingHandoffId: handoff.id,
+      carrier: extractedTerms.carrier,
+      policyNumber: extractedTerms.policyNumber,
+      annualPremium: extractedTerms.annualPremium,
+      monthlyPremium: extractedTerms.monthlyPremium,
+      effectiveDate: extractedTerms.effectiveDate,
+      expirationDate: extractedTerms.expirationDate,
+      coverages: extractedTerms.coverages,
+      extractionConfidence: extractedTerms.extractionConfidence,
+      isAmbiguous: extractedTerms.isAmbiguous
+    });
+    const result = await postgresStore.commitIssuedPolicyEvidence({ document, snapshot, providerUserId });
 
     res.json({ success: true, document: result.document, snapshot: result.snapshot });
   } catch (e: any) {
@@ -1968,16 +1997,44 @@ app.post('/api/marketplace/binding/:handoffId/reconcile', async (req, res) => {
     const handoffId = req.params.handoffId;
     const providerUserId = await getAuthenticatedProviderUserId(req);
 
-    const result = db.reconcileIssuedPolicyForHandoff({
-      bindingHandoffId: handoffId,
-      providerUserId,
-      systemTriggered: req.body.systemTriggered ?? false
-    });
+    const handoff = await postgresStore.getBindingHandoff(handoffId);
+    if (!handoff) return res.status(404).json({ error: `Binding handoff ${handoffId} not found` });
+    if (handoff.status !== 'BOUND') return res.status(409).json({ error: `Handoff must be BOUND (current: ${handoff.status})` });
+    const providerUser = await postgresStore.getProviderUser(providerUserId);
+    if (!providerUser || providerUser.organizationId !== handoff.providerOrganizationId) {
+      return res.status(403).json({ error: 'Forbidden: Unauthorized provider execution' });
+    }
+    const documents = await postgresStore.getIssuedPolicyDocuments(handoffId);
+    const latestDocument = documents[0];
+    if (!latestDocument) return res.status(404).json({ error: `No issued policy document evidence found for handoff ${handoffId}` });
+    const snapshots = await postgresStore.getIssuedPolicySnapshots(handoffId);
+    const latestSnapshot = snapshots.find(snapshot => snapshot.issuedPolicyDocumentId === latestDocument.id);
+    if (!latestSnapshot) return res.status(404).json({ error: `No issued policy snapshot found for document ${latestDocument.id}` });
+    const selection = handoff.selectionId ? await postgresStore.getSelection(handoff.selectionId) : undefined;
+    if (!selection) return res.status(404).json({ error: `Selection not found for binding handoff ${handoffId}` });
+    const offerVersion = (await postgresStore.getOfferVersions(selection.offerId))
+      .find(version => version.id === selection.offerVersionId);
+    if (!offerVersion) return res.status(404).json({ error: `Offer version ${selection.offerVersionId} not found` });
+    const acceptedModifications = (await postgresStore.getBindingModifications(handoffId))
+      .filter(modification => modification.status === 'ACCEPTED');
+    const expectedTerms = deriveExpectedBoundTerms({ offerVersion, acceptedModifications });
+    const report = pm5Reconcile({ expectedTerms, issuedSnapshot:latestSnapshot,
+      issuedDocument:latestDocument, challengeId:handoff.challengeId, bindingHandoffId:handoff.id });
+    let vaultItem: PolicyVaultItem | undefined;
+    let newBaseline: CoverageBaseline | undefined;
+    if (report.verdict === 'MATCH' || report.verdict === 'AUTHORIZED_VARIANCE') {
+      const challenge = await postgresStore.getChallenge(handoff.challengeId);
+      if (!challenge) return res.status(404).json({ error: 'Challenge not found' });
+      const activated = pm5ActivateVault({ handoff,selection,offerVersion,acceptedModifications,report,
+        snapshot:latestSnapshot,document:latestDocument,currentBaseline:challenge.baseline });
+      vaultItem=activated.vaultItem; newBaseline=activated.newBaseline;
+    }
+    const result = await postgresStore.commitReconciliation({ report,vaultItem,newBaseline,
+      actorRole:req.body.systemTriggered?'SYSTEM':'PROVIDER',actorId:req.body.systemTriggered?'system_reconciliation_engine':providerUserId });
 
     // CE-3: Instrument VERIFIED_BOUND_OUTCOME when issued outcome passes PM-5 evidence/reconciliation
     const isVerified = result.report.verdict === 'MATCH' || result.report.verdict === 'AUTHORIZED_VARIANCE';
     if (isVerified) {
-      const handoff = db.getBindingHandoff(handoffId);
       await commercialStore.projectMarketplaceEvent({
         eventType: 'VERIFIED_BOUND_OUTCOME',
         sourceEntityType: 'RECONCILIATION_REPORT',
@@ -1994,7 +2051,6 @@ app.post('/api/marketplace/binding/:handoffId/reconcile', async (req, res) => {
 
     // CE-3: Instrument BASELINE_ACTIVATED when new versioned CoverageBaseline is activated
     if (result.newBaseline) {
-      const handoff = db.getBindingHandoff(handoffId);
       await commercialStore.projectMarketplaceEvent({
         eventType: 'BASELINE_ACTIVATED',
         sourceEntityType: 'COVERAGE_BASELINE',
@@ -2026,9 +2082,9 @@ app.get('/api/marketplace/binding/:handoffId/reconciliation', async (req, res) =
   try {
     const handoffId = req.params.handoffId;
     await authorizeBindingResource(req, handoffId);
-    const reports = db.getReconciliationReportsForHandoff(handoffId);
-    const documents = db.getIssuedPolicyDocumentsForHandoff(handoffId);
-    const snapshots = db.getIssuedPolicySnapshotsForHandoff(handoffId);
+    const reports = await postgresStore.getReconciliationReports(handoffId);
+    const documents = await postgresStore.getIssuedPolicyDocuments(handoffId);
+    const snapshots = await postgresStore.getIssuedPolicySnapshots(handoffId);
 
     res.json({
       success: true,
@@ -2049,7 +2105,7 @@ app.post('/api/marketplace/binding/:handoffId/consumer-verify', async (req, res)
     const consumerId = getAuthenticatedConsumerId(req);
 
     if (!reconciliationReportId) {
-      const reports = db.getReconciliationReportsForHandoff(req.params.handoffId);
+      const reports = await postgresStore.getReconciliationReports(req.params.handoffId);
       if (reports.length > 0) {
         reconciliationReportId = reports[0].id;
       }
@@ -2063,16 +2119,29 @@ app.post('/api/marketplace/binding/:handoffId/consumer-verify', async (req, res)
       return res.status(400).json({ error: 'decision must be ACCEPT_VARIANCE or DISPUTE_REMEDIATION_REQUESTED' });
     }
 
-    const result = db.consumerReviewReconciliation({
-      reconciliationReportId,
-      consumerId,
-      decision,
-      disputeNotes
-    });
+    const currentReport = await postgresStore.getReconciliationReport(reconciliationReportId);
+    if (!currentReport) return res.status(404).json({ error: `Reconciliation report ${reconciliationReportId} not found` });
+    const handoff = await postgresStore.getBindingHandoff(currentReport.bindingHandoffId!);
+    if (!handoff) return res.status(404).json({ error: 'Binding handoff not found' });
+    const challenge = await postgresStore.getChallenge(currentReport.challengeId!);
+    if (!challenge) return res.status(404).json({ error: 'Challenge not found' });
+    const updatedReport = pm5ProcessReview({ report:currentReport,consumerId,
+      challengeConsumerId:challenge.consumerId,decision,disputeNotes });
+    let vaultItem:PolicyVaultItem|undefined; let newBaseline:CoverageBaseline|undefined;
+    if(decision==='ACCEPT_VARIANCE'){
+      const selection=handoff.selectionId?await postgresStore.getSelection(handoff.selectionId):undefined;
+      const offerVersion=selection?(await postgresStore.getOfferVersions(selection.offerId)).find(version=>version.id===selection.offerVersionId):undefined;
+      const document=await postgresStore.getIssuedPolicyDocument(currentReport.issuedPolicyDocumentId!);
+      const snapshot=await postgresStore.getIssuedPolicySnapshot(currentReport.issuedPolicySnapshotId!);
+      const acceptedModifications=(await postgresStore.getBindingModifications(handoff.id)).filter(modification=>modification.status==='ACCEPTED');
+      if(!selection||!offerVersion||!document||!snapshot)return res.status(409).json({error:'Durable reconciliation evidence is incomplete'});
+      const activated=pm5ActivateVault({handoff,selection,offerVersion,acceptedModifications,report:updatedReport,snapshot,document,currentBaseline:challenge.baseline});
+      vaultItem=activated.vaultItem;newBaseline=activated.newBaseline;
+    }
+    const result=await postgresStore.commitReconciliationReview({report:updatedReport,consumerId,vaultItem,newBaseline});
 
     // CE-3: Instrument VERIFIED_BOUND_OUTCOME if consumer accepts variance
     if (result.report.status === 'CONSUMER_ACCEPTED_VARIANCE') {
-      const handoff = db.getBindingHandoff(req.params.handoffId);
       await commercialStore.projectMarketplaceEvent({
         eventType: 'VERIFIED_BOUND_OUTCOME',
         sourceEntityType: 'RECONCILIATION_REPORT',
@@ -2090,7 +2159,6 @@ app.post('/api/marketplace/binding/:handoffId/consumer-verify', async (req, res)
 
     // CE-3: Instrument BASELINE_ACTIVATED when new versioned CoverageBaseline is activated following consumer review
     if (result.newBaseline) {
-      const handoff = db.getBindingHandoff(req.params.handoffId);
       await commercialStore.projectMarketplaceEvent({
         eventType: 'BASELINE_ACTIVATED',
         sourceEntityType: 'COVERAGE_BASELINE',
@@ -2121,7 +2189,7 @@ app.post('/api/marketplace/binding/:handoffId/consumer-verify', async (req, res)
 app.get('/api/marketplace/vault/policies', async (req, res) => {
   try {
     const consumerId = getAuthenticatedConsumerId(req);
-    const vaultItems = db.getPolicyVaultItemsForConsumer(consumerId);
+    const vaultItems = await postgresStore.getPolicyVaultItems(consumerId);
     res.json({ success: true, vaultItems });
   } catch (e: any) {
     res.status(e.statusCode || 500).json({ error: e.message });
@@ -2131,7 +2199,7 @@ app.get('/api/marketplace/vault/policies', async (req, res) => {
 // 6. Query Specific Vault Policy Item
 app.get('/api/marketplace/vault/policies/:id', async (req, res) => {
   try {
-    const item = db.getPolicyVaultItem(req.params.id);
+    const item = await postgresStore.getPolicyVaultItem(req.params.id);
     if (!item) {
       return res.status(404).json({ error: 'Policy vault item not found' });
     }
@@ -2139,7 +2207,7 @@ app.get('/api/marketplace/vault/policies/:id', async (req, res) => {
     if (item.consumerId !== consumerId) {
       return res.status(403).json({ error: 'Forbidden: Policy vault item belongs to another consumer' });
     }
-    const report = db.getReconciliationReport(item.reconciliationReportId);
+    const report = await postgresStore.getReconciliationReport(item.reconciliationReportId);
     res.json({ success: true, vaultItem: item, policy: item, reconciliationReport: report });
   } catch (e: any) {
     res.status(e.statusCode || 500).json({ error: e.message });

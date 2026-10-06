@@ -976,6 +976,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_disclosure_handoff_consent
   ON disclosure_events (binding_handoff_id, consent_grant_id);
 ALTER TABLE binding_handoffs ADD COLUMN IF NOT EXISTS policy_number TEXT;
 ALTER TABLE binding_handoffs ADD COLUMN IF NOT EXISTS final_premium INTEGER;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_issued_document_handoff_hash
+  ON issued_policy_documents (binding_handoff_id, document_sha256);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_issued_snapshot_document
+  ON issued_policy_snapshots (issued_policy_document_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_reconciliation_snapshot
+  ON reconciliation_reports (issued_policy_snapshot_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_vault_reconciliation
+  ON policy_vault_items (reconciliation_report_id);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_invitation_challenge_org
   ON challenge_invitations (challenge_id, provider_organization_id);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_participation_challenge_org

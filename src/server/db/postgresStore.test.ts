@@ -10,6 +10,13 @@ import {
   createConsentGrant,
   validateAndExecuteDisclosure
 } from '../../domain/selectionBindingEngine';
+import {
+  createIssuedPolicyDocument,
+  createIssuedPolicySnapshot,
+  deriveExpectedBoundTerms,
+  reconcileIssuedPolicy,
+  activateVerifiedPolicyToVault
+} from '../../domain/pm5ReconciliationEngine';
 
 test('required durable storage fails closed instead of falling back to PGlite', () => {
   const before = { ...process.env };
@@ -304,7 +311,31 @@ test('foundation records survive an empty-process restart and continue mutating 
     assert.equal((await pm4Restart.getSelection(selection.id))?.offerVersionId, durableVersion.id);
     assert.equal((await pm4Restart.getBindingHandoff(handoff.id))?.disclosureEventId, disclosure.disclosureEvent.id);
     assert.deepEqual((await pm4Restart.getDisclosureEvents(handoff.id))[0]?.disclosedFieldNames, ['namedInsured']);
+    const disclosedHandoff = await pm4Restart.getBindingHandoff(handoff.id);
+    assert.ok(disclosedHandoff);
+    const boundHandoff = await pm4Restart.commitBindingStatus({
+      ...disclosedHandoff, status:'BOUND', boundAt:new Date().toISOString(), updatedAt:new Date().toISOString()
+    }, offer.providerId);
+    const issuedDocument=createIssuedPolicyDocument({bindingHandoff:boundHandoff,challengeId:challenge.id,
+      providerOrgId:offer.providerId,fileName:'issued.pdf',fileSizeBytes:128,mimeType:'application/pdf',rawContent:'issued-policy-evidence'});
+    const issuedSnapshot=createIssuedPolicySnapshot({issuedDocument,bindingHandoffId:boundHandoff.id,carrier:offer.carrier,
+      policyNumber:'ISSUED-1',annualPremium:offer.annualPremium,monthlyPremium:offer.monthlyPremium,
+      effectiveDate:offer.effectiveDate,expirationDate:offer.expirationDate,coverages:offer.coverages});
+    const issued=await pm4Restart.commitIssuedPolicyEvidence({document:issuedDocument,snapshot:issuedSnapshot,providerUserId:'user_sierra_1'});
+    const issuedRetry=await pm4Restart.commitIssuedPolicyEvidence({document:{...issuedDocument,id:'DOC-SHOULD-NOT-EXIST'},snapshot:{...issuedSnapshot,id:'SNAP-SHOULD-NOT-EXIST'},providerUserId:'user_sierra_1'});
+    assert.equal(issuedRetry.document.id,issued.document.id,'issued evidence retry preserves original document');
+    const expectedTerms=deriveExpectedBoundTerms({offerVersion:durableVersion,acceptedModifications:[]});
+    const report=reconcileIssuedPolicy({expectedTerms,issuedSnapshot,issuedDocument,challengeId:challenge.id,bindingHandoffId:boundHandoff.id});
+    const activated=activateVerifiedPolicyToVault({handoff:boundHandoff,selection,offerVersion:durableVersion,
+      acceptedModifications:[],report,snapshot:issuedSnapshot,document:issuedDocument,currentBaseline:durableChallenge.baseline});
+    await pm4Restart.commitReconciliation({report,vaultItem:activated.vaultItem,newBaseline:activated.newBaseline,
+      actorRole:'PROVIDER',actorId:'user_sierra_1'});
     await pm4Restart.close();
+    const pm5Restart=new PostgresStore(dataDir);
+    assert.equal((await pm5Restart.getIssuedPolicyDocuments(boundHandoff.id))[0]?.documentSha256,issuedDocument.documentSha256);
+    assert.equal((await pm5Restart.getReconciliationReports(boundHandoff.id))[0]?.id,report.id);
+    assert.equal((await pm5Restart.getPolicyVaultItems(challenge.consumerId))[0]?.reconciliationReportId,report.id);
+    await pm5Restart.close();
   } finally {
     fs.rmSync(dataDir, { recursive: true, force: true });
   }
