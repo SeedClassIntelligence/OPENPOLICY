@@ -7,8 +7,10 @@
 - Canonical GCP project: `openpolicy-35f82`
 - Explicitly excluded project: `openpolicy-510702`
 - Starting live revision: `openpolicy-acceptance-00009-yiy`
-- Current local candidate: `415f8e2` plus the documented Cloud SQL client timeout hardening
-- Current disposition: **NOT READY — IMPLEMENTATION/SECURITY DEFECT**
+- Deployed implementation candidate: `ac6d39e` (implementation through `415f8e2`,
+  Cloud SQL client timeout hardening, and acceptance documentation)
+- Current live revision: `openpolicy-acceptance-persist-ac6d39e`
+- Current disposition: **READY FOR NEXT EXTERNAL GATE**
 - Merge status: not authorized
 
 This is a living acceptance record. A row is not complete until its production read
@@ -125,7 +127,7 @@ cache miss is proven to resolve from PostgreSQL. It is not yet accepted.
   twice; retry and phantom-consumption tests pass;
 - no deployment or merge was performed by this acceptance pass.
 
-### Cloud SQL hardening review — stop condition
+### Cloud SQL hardening and exact-revision deployment — 2026-10-06
 
 The authorized project was verified as `openpolicy-35f82`; `openpolicy-510702` was not
 accessed. `openpolicy-db` is PostgreSQL 16, zonal `db-f1-micro`, 10 GB SSD with automatic
@@ -133,15 +135,44 @@ growth, seven retained automated backups, and deletion protection. Cloud Run use
 dedicated `openpolicy-runtime` service account, Secret Manager password injection,
 durable-storage fail-closed configuration, and a five-connection application pool.
 
-The instance still reports a public IPv4 address, `connectorEnforcement=NOT_REQUIRED`,
-and `sslMode=ALLOW_UNENCRYPTED_AND_ENCRYPTED`. Cloud Run currently connects through the
-Cloud SQL Unix socket, but the instance-level policy still permits connection paths
-outside the connector and does not require encryption. Tightening connector enforcement
-and SSL is a production access-control change and may interrupt non-connector clients;
-it requires founder authorization and an inventory of legitimate database clients
-before mutation. The client candidate adds bounded connection, idle, statement, and
-query timeouts, but no new revision has been deployed.
+Founder authorization was subsequently given for the bounded hardening and deployment
+operation. The authorized project was rechecked immediately before mutation. The Cloud
+SQL instance now reports `connectorEnforcement=REQUIRED`,
+`sslMode=ENCRYPTED_ONLY`, and `state=RUNNABLE`. The public address remains allocated,
+but connector enforcement prevents direct non-connector database sessions; Cloud Run
+continues to use the configured Cloud SQL attachment and dedicated runtime identity.
 
-Accordingly, local persistence authority is closed, but deployment/live durability and
-the independent final review must wait on the Cloud SQL hardening decision. Current
-phase result: **NOT READY — IMPLEMENTATION/SECURITY DEFECT**.
+The exact source candidate was deployed first with zero production traffic as revision
+`openpolicy-acceptance-persist-ac6d39e`, tagged `persistence-candidate`. Before traffic
+promotion, the tagged revision returned HTTP 200 from `/api/health`, rejected an
+anonymous marketplace request with HTTP 401, rejected the fixture seed route with HTTP
+404, initialized the Cloud SQL durable engine, and recognized the existing PM-1 durable
+seed rather than replacing it. This new container reading state committed by earlier
+revisions is the live cross-revision durability proof; focused local acceptance provides
+the complementary write/retry/concurrency/failure evidence without manufacturing live
+test identities or production marketplace records.
+
+After those checks, traffic was promoted explicitly to the exact revision. A fresh
+service description confirms:
+
+- `latestCreatedRevisionName` and `latestReadyRevisionName` are both
+  `openpolicy-acceptance-persist-ac6d39e`;
+- the revision is Ready and receives **100%** of service traffic;
+- the production URL returns HTTP 200 from `/api/health`;
+- anonymous marketplace access continues to fail closed with HTTP 401;
+- the production fixture seed route remains unavailable with HTTP 404;
+- the post-promotion error-log query returned no application errors.
+
+### Independent final persistence review — 2026-10-06
+
+The final review re-ran the repository-wide authority search independently of the
+domain conversion checklist. It found no production HTTP route whose business result
+depends on a `PolicyChallengeDatabase` map or set. Remaining singleton access is limited
+to operational metrics, explicit fixture reset/synthetic competitor support, and the
+fixture-to-PGlite validator synchronizer. Production fixture mode remains fail-closed.
+Commercial and jurisdiction state remain SQL authoritative; engine-local collections
+are request-local derived groupings. Obsolete legacy lifecycle endpoints fail with HTTP
+410 rather than recreating duplicate authority.
+
+No merge was performed. The persistence-authority program has reached its defined phase
+boundary. Final phase result: **READY FOR NEXT EXTERNAL GATE**.
