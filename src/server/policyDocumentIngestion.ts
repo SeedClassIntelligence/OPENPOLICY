@@ -43,7 +43,7 @@ export async function ingestPolicyDocument(input: {
     objectName: buildQuarantineObjectName(input.ownerId, documentId),
     objectGeneration: 'PENDING',
     status: 'UPLOAD_PENDING',
-    malwareStatus: 'PENDING',
+    malwareStatus: 'PENDING_SCAN',
     createdAt: now,
     updatedAt: now
   };

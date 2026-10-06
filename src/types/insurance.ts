@@ -61,10 +61,36 @@ export interface PolicyDocumentRecord {
   objectName: string;
   objectGeneration: string;
   status: PolicyDocumentStatus;
-  malwareStatus: 'PENDING' | 'CLEAN' | 'INFECTED' | 'SCAN_FAILED';
+  malwareStatus: 'PENDING_SCAN' | 'CLEAN' | 'REJECTED_MALICIOUS' | 'SCAN_FAILED';
+  malwareScanner?: string;
+  malwareScannerVersion?: string;
+  malwareScannedAt?: string;
   createdAt: string;
   updatedAt: string;
   rejectionCode?: string;
+}
+
+export type InsuranceDocumentClassification =
+  | 'DECLARATIONS_PAGE'
+  | 'FULL_POLICY'
+  | 'INSURANCE_CARD'
+  | 'ENDORSEMENT'
+  | 'UNSUPPORTED_NON_POLICY'
+  | 'UNCERTAIN';
+
+export interface PolicyDocumentClassificationResult {
+  id: string;
+  documentId: string;
+  documentGeneration: string;
+  sourceSha256: string;
+  classification: InsuranceDocumentClassification;
+  confidence: number;
+  classifier: string;
+  classifierVersion: string;
+  evidencePageNumbers: number[];
+  evidenceReferences: string[];
+  requiresReview: boolean;
+  classifiedAt: string;
 }
 
 export interface PolicyExtractionRun {
@@ -569,6 +595,10 @@ export interface AuditEvent {
     | 'POLICY_UPLOADED'
     | 'POLICY_DOCUMENT_INGESTION_STARTED'
     | 'POLICY_DOCUMENT_UPLOADED'
+    | 'POLICY_DOCUMENT_SCAN_CLEAN'
+    | 'POLICY_DOCUMENT_REJECTED_MALICIOUS'
+    | 'POLICY_DOCUMENT_SCAN_FAILED'
+    | 'POLICY_DOCUMENT_CLASSIFIED'
     | 'DOCUMENT_PROCESSED'
     | 'FIELD_EXTRACTED'
     | 'CONSUMER_CORRECTED_FIELD'

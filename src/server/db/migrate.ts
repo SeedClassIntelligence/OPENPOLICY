@@ -1110,6 +1110,21 @@ CREATE TABLE IF NOT EXISTS policy_field_corrections (
 );
 CREATE INDEX IF NOT EXISTS idx_policy_corrections_document
   ON policy_field_corrections (document_id, corrected_at, id);
+
+CREATE TABLE IF NOT EXISTS policy_document_classifications (
+  id TEXT PRIMARY KEY,
+  document_id TEXT NOT NULL REFERENCES policy_documents(id) ON DELETE RESTRICT,
+  document_generation TEXT NOT NULL,
+  source_sha256 TEXT NOT NULL,
+  classification TEXT NOT NULL,
+  confidence DOUBLE PRECISION NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
+  classifier TEXT NOT NULL,
+  classifier_version TEXT NOT NULL,
+  requires_review BOOLEAN NOT NULL,
+  classified_at TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  UNIQUE (document_id, document_generation, classifier, classifier_version)
+);
 `;
 
 export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR || './data/openpolicy_pg') {

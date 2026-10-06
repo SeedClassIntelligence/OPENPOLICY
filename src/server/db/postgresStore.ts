@@ -36,7 +36,8 @@ import {
   ReviewQueueItem,
   ReviewQueueStatus,
   VaultDocument,
-  PolicyDocumentRecord
+  PolicyDocumentRecord,
+  PolicyDocumentClassificationResult
 } from '../../types/insurance';
 
 export interface SqlClient {
@@ -322,6 +323,78 @@ export class PostgresStore {
       `SELECT payload FROM policy_documents WHERE id=$1 AND owner_id=$2;`, [documentId, ownerId]
     );
     return result.rows[0] ? JSON.parse(result.rows[0].payload) as PolicyDocumentRecord : undefined;
+  }
+
+  public async recordPolicyDocumentMalwareDisposition(input: {
+    documentId: string; objectGeneration: string; sourceSha256: string;
+    status: 'CLEAN' | 'REJECTED_MALICIOUS' | 'SCAN_FAILED'; scanner: string; scannerVersion: string;
+  }): Promise<PolicyDocumentRecord> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const result = await client.query<{ payload: string }>(
+        `SELECT payload FROM policy_documents WHERE id=$1 FOR UPDATE;`, [input.documentId]
+      );
+      if (!result.rows[0]) throw new Error('Policy document not found');
+      const current = JSON.parse(result.rows[0].payload) as PolicyDocumentRecord;
+      if (current.status !== 'UPLOADED' || current.objectGeneration !== input.objectGeneration || current.sha256 !== input.sourceSha256) {
+        throw new Error('Malware disposition evidence identity does not match the committed document.');
+      }
+      if (current.malwareStatus === 'CLEAN' || current.malwareStatus === 'REJECTED_MALICIOUS') return current;
+      const updated: PolicyDocumentRecord = {
+        ...current, malwareStatus: input.status, malwareScanner: input.scanner,
+        malwareScannerVersion: input.scannerVersion, malwareScannedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      await client.query(
+        `UPDATE policy_documents SET malware_status=$1,updated_at=$2,payload=$3 WHERE id=$4;`,
+        [updated.malwareStatus, updated.updatedAt, JSON.stringify(updated), updated.id]
+      );
+      await this.appendAuditInTransaction(client, {
+        eventType: input.status === 'CLEAN' ? 'POLICY_DOCUMENT_SCAN_CLEAN' :
+          input.status === 'REJECTED_MALICIOUS' ? 'POLICY_DOCUMENT_REJECTED_MALICIOUS' : 'POLICY_DOCUMENT_SCAN_FAILED',
+        actorRole: 'SYSTEM', actorId: 'document-security-scanner',
+        details: `Recorded ${input.status} security disposition for ${updated.id}`
+      });
+      return updated;
+    });
+  }
+
+  public async commitPolicyDocumentClassification(
+    classification: PolicyDocumentClassificationResult
+  ): Promise<PolicyDocumentClassificationResult> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const documentResult = await client.query<{ payload: string }>(
+        `SELECT payload FROM policy_documents WHERE id=$1 FOR UPDATE;`, [classification.documentId]
+      );
+      if (!documentResult.rows[0]) throw new Error('Policy document not found');
+      const document = JSON.parse(documentResult.rows[0].payload) as PolicyDocumentRecord;
+      if (document.malwareStatus !== 'CLEAN' || document.objectGeneration !== classification.documentGeneration ||
+          document.sha256 !== classification.sourceSha256) {
+        throw new Error('Classification requires matching immutable evidence with a CLEAN security disposition.');
+      }
+      const existing = await client.query<{ payload: string }>(
+        `SELECT payload FROM policy_document_classifications
+         WHERE document_id=$1 AND document_generation=$2 AND classifier=$3 AND classifier_version=$4;`,
+        [classification.documentId, classification.documentGeneration, classification.classifier, classification.classifierVersion]
+      );
+      if (existing.rows[0]) return JSON.parse(existing.rows[0].payload) as PolicyDocumentClassificationResult;
+      await client.query(
+        `INSERT INTO policy_document_classifications (
+           id,document_id,document_generation,source_sha256,classification,confidence,classifier,
+           classifier_version,requires_review,classified_at,payload
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11);`,
+        [classification.id, classification.documentId, classification.documentGeneration,
+          classification.sourceSha256, classification.classification, classification.confidence,
+          classification.classifier, classification.classifierVersion, classification.requiresReview,
+          classification.classifiedAt, JSON.stringify(classification)]
+      );
+      await this.appendAuditInTransaction(client, {
+        eventType: 'POLICY_DOCUMENT_CLASSIFIED', actorRole: 'SYSTEM', actorId: classification.classifier,
+        details: `Classified ${classification.documentId} as ${classification.classification}`
+      });
+      return classification;
+    });
   }
 
   private generateAuditHash(value: string): string {
