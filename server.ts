@@ -797,75 +797,26 @@ app.post('/api/explain-comparison', async (req, res) => {
 // 7. Consumer Selection & Binding Handoff (PM-3)
 // ==========================================
 app.post('/api/selection/handoff', async (req, res) => {
-  const { challengeId, offerId, consumerContact, consumerConsentGiven, acknowledgedReductions } = req.body;
-  try {
-    await authorizeChallengeResource(req, challengeId);
-    if (!consumerContact?.name || !consumerContact?.email || !consumerContact?.phone) {
-      return res.status(400).json({ error: 'consumerContact name, email, and phone are required' });
-    }
-    const result = db.createBindingDossier({
-      challengeId,
-      offerId,
-      consumerContact,
-      consumerConsentGiven: consumerConsentGiven !== undefined ? consumerConsentGiven : true,
-      acknowledgedReductions: acknowledgedReductions || []
-    });
-    res.json({ success: true, handoff: result.handoff, dossier: result.dossier });
-  } catch (e: any) {
-    res.status(e.statusCode || 400).json({ error: e.message });
-  }
+  res.status(410).json({ error: 'Legacy dossier handoff is retired; use /api/marketplace/challenges/:id/select-version and the canonical PM-4 consent/disclosure flow.' });
 });
 
 app.get('/api/selection/dossier/:id', async (req, res) => {
-  const dossier = db.getBindingDossier(req.params.id);
-  if (!dossier) return res.status(404).json({ error: 'Binding dossier not found' });
-  try { await authorizeChallengeResource(req, dossier.challengeId); }
-  catch (e: any) { return res.status(e.statusCode || 403).json({ error: e.message }); }
-  res.json(dossier);
+  res.status(410).json({ error: 'Legacy binding dossiers are retired; query the canonical PM-4 binding handoff.' });
 });
 
 app.get('/api/selection/dossier-by-challenge/:challengeId', async (req, res) => {
-  try { await authorizeChallengeResource(req, req.params.challengeId); }
-  catch (e: any) { return res.status(e.statusCode || 403).json({ error: e.message }); }
-  const dossier = db.getDossierByChallenge(req.params.challengeId);
-  if (!dossier) return res.status(404).json({ error: 'No binding dossier found for challenge' });
-  res.json(dossier);
+  res.status(410).json({ error: 'Legacy binding dossiers are retired; use /api/marketplace/challenges/:id/selection-binding.' });
 });
 
 // ==========================================
 // 8. Issued Policy Reconciliation API (PM-3)
 // ==========================================
 app.post('/api/reconciliation/verify', async (req, res) => {
-  const { handoffId, dossierId, issuedData } = req.body;
-  try {
-    if (handoffId) await authorizeBindingResource(req, handoffId);
-    if (dossierId && issuedData?.coverages) {
-      const dossier = db.getBindingDossier(dossierId);
-      if (!dossier) return res.status(404).json({ error: 'Binding dossier not found' });
-      await authorizeChallengeResource(req, dossier.challengeId);
-      const detailedRec = db.performDetailedReconciliation({
-        dossierId,
-        issuedData
-      });
-      return res.json({ success: true, report: detailedRec, isDetailed: true });
-    }
-
-    // Legacy fallback
-    const report = db.reconcileIssuedPolicy(handoffId, issuedData);
-    res.json({ success: true, report });
-  } catch (e: any) {
-    res.status(400).json({ error: e.message });
-  }
+  res.status(410).json({ error: 'Legacy reconciliation is retired; use the canonical PM-5 issued-policy and reconciliation endpoints.' });
 });
 
 app.get('/api/reconciliation/dossier/:dossierId', async (req, res) => {
-  const dossier = db.getBindingDossier(req.params.dossierId);
-  if (!dossier) return res.status(404).json({ error: 'Binding dossier not found' });
-  try { await authorizeChallengeResource(req, dossier.challengeId); }
-  catch (e: any) { return res.status(e.statusCode || 403).json({ error: e.message }); }
-  const report = db.getDetailedReconciliationByDossier(req.params.dossierId);
-  if (!report) return res.status(404).json({ error: 'No reconciliation report found for dossier' });
-  res.json(report);
+  res.status(410).json({ error: 'Legacy dossier reconciliation is retired; query the canonical PM-5 reconciliation report.' });
 });
 
 // ==========================================

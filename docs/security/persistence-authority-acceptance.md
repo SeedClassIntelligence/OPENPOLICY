@@ -55,6 +55,34 @@ groupings rather than business authorities.
 | Notifications | recipient list/read | `db.notifications` | memory first plus unawaited durable synchronization | `platform_notifications` has writes, no canonical read method | No | No | MIGRATION_REQUIRED | recipient-scoped durable reads and awaited read-state mutation | consumer/provider/operator ownership |
 | Audit events | operator read/proof/chain | `db.auditEvents` | memory first, unawaited save | `audit_events` | No | No | MIGRATION_REQUIRED | append durably before dependent success; define chain serialization | chain integrity, concurrent append, restart |
 | Review queue | list/resolve/enqueue | `db.reviewQueue` | memory only | no authoritative table identified | No | No | MIGRATION_REQUIRED | durable queue with conditional resolution | concurrent resolution and restart |
+
+## Implementation status through `fd0c276`
+
+The table above is the discovery baseline, not the current implementation state. The
+following families have since crossed to PostgreSQL authority with commit-first writes,
+durable reads, audit coupling, and focused restart/idempotency evidence:
+
+- policies, coverage baselines, consumer requirements, challenges, and provider identity;
+- invitations, participation, offers, immutable offer versions, and offer verification;
+- information requests, supplemental facts, and fact-consent history;
+- notifications, audit-chain state, review queue, and governance reads;
+- PM-4 selection, consent/revocation, controlled disclosure, binding modifications,
+  binding status, and handoff reads;
+- PM-5 issued evidence, normalized snapshots, reconciliation, consumer review,
+  Policy Vault filing, canonical issued policy, and future baseline activation;
+- competition reads, sealed signals, activity, deadlines, round advancement, offer
+  revision, provider withdrawal, and incumbent-policy retention.
+
+The old dossier and detailed-reconciliation route family duplicates the canonical PM-4
+and PM-5 model. It is classified as obsolete compatibility authority and now fails with
+HTTP 410 instead of creating new process-local business truth. Its in-memory structures
+may remain only until callers and tests are confirmed migrated; they are not a production
+authority.
+
+Remaining rescan work is limited to still-routed legacy/general Vault operations,
+fixture/demo mutation routes, commercial-event fire-and-forget projections, and final
+proof that every remaining `PolicyChallengeDatabase` map is unreachable as production
+authority.
 | Redis-named cache | internal TTL values | `db.redisCache` | process-local | none required if never business truth | Yes* | Yes* | CACHE_ONLY | prove all misses rebuild from durable source; rename/document if retained | empty-cache tests |
 | Commercial economics | enrollment, usage, rating, invoicing, payment and settlement | `CommercialStore` SQL queries | transaction-backed SQL | commercial tables | Yes | Yes | DURABLE_AUTHORITATIVE | regression and connection/failure verification only | CE suites plus cross-process representative case |
 | Jurisdiction/PR-0A | registry, rules, activation and evaluations | `JurisdictionStore` SQL queries | awaited SQL/transactions | jurisdiction tables | Yes | Yes | DURABLE_AUTHORITATIVE | preserve shadow behavior; no PR-0B promotion | PR-0A and semantic corrections |
