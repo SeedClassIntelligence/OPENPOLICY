@@ -11,7 +11,7 @@ import { SAMPLE_DECLARATIONS_PAGES, detectQuoteDiscrepancies } from './src/domai
 import { compareOfferAgainstBaseline } from './src/domain/comparisonEngine';
 import { explainCoverageComparison, generateDeterministicExplanation } from './src/server/geminiService';
 import { Offer, OfferVersion, CoverageBaseline, ConsumerRequirements, Challenge, Competition, ChallengeInvitation,
-  PlatformNotification, CompetitionActivityEvent, AuditEvent } from './src/types/insurance';
+  PlatformNotification, CompetitionActivityEvent, AuditEvent, InformationRequest, OfferVerification } from './src/types/insurance';
 import { evaluateProviderEligibility, type EligibilityEvaluation } from './src/domain/eligibilityEngine';
 import { evaluateOfferQualification } from './src/domain/qualificationEngine';
 import { verifyCryptographicAuditChain, processReviewQueueResolution,
@@ -1315,15 +1315,13 @@ app.post('/api/marketplace/challenges/:id/information-requests', async (req, res
     if (!requestedField || !purpose || !purposeExplanation) {
       return res.status(400).json({ error: 'Missing required fields: requestedField, purpose, purposeExplanation' });
     }
-    const request = db.createInformationRequest({
-      challengeId: req.params.id,
-      providerOrganizationId: orgId,
-      requestedField,
-      customFieldName,
-      purpose,
-      purposeExplanation
-    });
-    res.json({ success: true, request });
+    const competition=await postgresStore.getCompetitionForChallenge(req.params.id);
+    if(!competition)return res.status(404).json({error:'Competition not found'});
+    const now=new Date().toISOString();
+    const request:InformationRequest={id:`INFOREQ-${Date.now()}-${Math.floor(Math.random()*1000)}`,challengeId:req.params.id,competitionId:competition.id,providerOrganizationId:orgId,requestedField,customFieldName,purpose,purposeExplanation,status:'PENDING',requestedAt:now};
+    const key=String(req.headers['idempotency-key']||`INFOREQ:${req.params.id}:${orgId}:${requestedField}:${customFieldName||''}:${purpose}`);
+    const committed=await postgresStore.createInformationRequestAtomic(request,key);
+    res.json({ success: true, request:committed });
   } catch (e: any) {
     res.status(e.statusCode || 400).json({ error: e.message });
   }
@@ -1336,7 +1334,7 @@ app.post('/api/marketplace/information-requests/:id/answer', async (req, res) =>
     if (answerValue === undefined) {
       return res.status(400).json({ error: 'Missing required field: answerValue' });
     }
-    const result = db.answerInformationRequest({
+    const result = await postgresStore.answerInformationRequestAtomic({
       requestId: req.params.id,
       answerValue,
       consumerId,
@@ -1356,7 +1354,11 @@ app.post('/api/marketplace/supplemental-facts/:id/consent', async (req, res) => 
     if (!organizationIds || !Array.isArray(organizationIds)) {
       return res.status(400).json({ error: 'organizationIds array is required' });
     }
-    const updatedFact = db.grantFactConsent(req.params.id, organizationIds, consumerId);
+    const updatedFact = await postgresStore.grantSupplementalFactConsentAtomic({
+      factId: req.params.id,
+      organizationIds,
+      consumerId
+    });
     res.json({ success: true, fact: updatedFact });
   } catch (e: any) {
     res.status(e.statusCode || 400).json({ error: e.message });
@@ -1394,8 +1396,51 @@ app.get('/api/marketplace/offers/:id/versions', async (req, res) => {
 
 app.post('/api/marketplace/offers/:id/verify-document', async (req, res) => {
   try {
-    const verification = db.verifyOfferDocument(req.params.id, req.body.docData);
-    res.json({ success: true, verification });
+    const offer = await postgresStore.getOffer(req.params.id);
+    if (!offer) return res.status(404).json({ error: `Offer ${req.params.id} not found` });
+    await authorizeChallengeResource(req, offer.challengeId);
+    const providerOrgId = await getAuthenticatedProviderOrgId(req);
+    if (offer.providerId !== providerOrgId) {
+      return res.status(403).json({ error: 'Provider cannot verify another organization\'s offer' });
+    }
+    const collision = offer.coverages?.find(coverage => coverage.code === 'COLLISION');
+    const comprehensive = offer.coverages?.find(coverage => coverage.code === 'COMPREHENSIVE');
+    const rental = offer.coverages?.find(coverage => coverage.code === 'RENTAL_REIMBURSEMENT');
+    const entered = {
+      carrier: offer.carrier,
+      annualPremium: offer.annualPremium,
+      collisionDeductible: collision?.deductible,
+      compDeductible: comprehensive?.deductible,
+      rentalIncluded: rental?.isIncluded ?? false
+    };
+    const extracted = req.body.docData || {
+      extractedAnnualPremium: offer.annualPremium,
+      extractedCollisionDeductible: collision?.deductible,
+      extractedCompDeductible: comprehensive?.deductible,
+      extractedRentalIncluded: rental?.isIncluded ?? false
+    };
+    const check = detectQuoteDiscrepancies(entered, extracted);
+    const verification: OfferVerification = {
+      id: `VERIFY-${offer.id}`,
+      offerId: offer.id,
+      documentName: offer.supportingQuoteDocName || 'Supporting_Quote_Document.pdf',
+      status: check.hasDiscrepancy ? 'DISCREPANCIES_FLAGGED' : 'VERIFIED',
+      verifiedAt: new Date().toISOString(),
+      discrepancyCount: check.discrepancies.length,
+      discrepancies: check.discrepancies,
+      extractedPremium: extracted.extractedAnnualPremium ?? offer.annualPremium,
+      enteredPremium: offer.annualPremium
+    };
+    offer.discrepanciesDetected = check.hasDiscrepancy;
+    offer.discrepancyDetails = verification.discrepancies;
+    offer.status = check.hasDiscrepancy ? 'DISCREPANCY_FLAGGED' : 'VALIDATED';
+    offer.verificationId = verification.id;
+    const committed = await postgresStore.commitOfferVerification({
+      verification,
+      offer,
+      actorId: providerOrgId
+    });
+    res.json({ success: true, verification: committed });
   } catch (e: any) {
     res.status(e.statusCode || 400).json({ error: e.message });
   }
@@ -1403,8 +1448,30 @@ app.post('/api/marketplace/offers/:id/verify-document', async (req, res) => {
 
 app.get('/api/marketplace/offers/:id/qualification', async (req, res) => {
   try {
-    const offer = db.qualifyOffer(req.params.id);
-    res.json({ success: true, offer, isQualified: offer.isQualified });
+    const offer = await postgresStore.getOffer(req.params.id);
+    if (!offer) return res.status(404).json({ error: `Offer ${req.params.id} not found` });
+    await authorizeChallengeResource(req, offer.challengeId);
+    const challenge = await postgresStore.getChallenge(offer.challengeId);
+    if (!challenge) return res.status(404).json({ error: `Challenge ${offer.challengeId} not found` });
+    const [provider, relationships, verification] = await Promise.all([
+      postgresStore.getProviderOrganization(offer.providerId),
+      postgresStore.getCarrierRelationships(offer.providerId),
+      postgresStore.getOfferVerification(offer.id)
+    ]);
+    const evaluation = evaluateOfferQualification(
+      offer,
+      challenge.baseline,
+      challenge.requirements,
+      provider,
+      relationships,
+      verification
+    );
+    offer.isQualified = evaluation.isQualified;
+    offer.qualifiedAt = evaluation.evaluatedAt;
+    offer.qualificationReasons = evaluation.qualificationReasons;
+    offer.disqualificationReasons = evaluation.disqualificationReasons;
+    const committed = await postgresStore.commitOfferQualification(offer, 'qualification-engine');
+    res.json({ success: true, offer: committed, isQualified: committed.isQualified });
   } catch (e: any) {
     res.status(e.statusCode || 400).json({ error: e.message });
   }

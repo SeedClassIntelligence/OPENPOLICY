@@ -960,6 +960,13 @@ ALTER TABLE challenge_invitations ADD COLUMN IF NOT EXISTS payload TEXT;
 ALTER TABLE challenge_invitations ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 1;
 ALTER TABLE challenge_participations ADD COLUMN IF NOT EXISTS payload TEXT;
 ALTER TABLE challenge_participations ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 1;
+ALTER TABLE information_requests ADD COLUMN IF NOT EXISTS idempotency_key TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_information_request_idempotency
+  ON information_requests (idempotency_key) WHERE idempotency_key IS NOT NULL;
+ALTER TABLE verified_supplemental_facts ADD COLUMN IF NOT EXISTS consent_scope TEXT NOT NULL DEFAULT 'REQUESTING_PROVIDER_ONLY';
+ALTER TABLE verified_supplemental_facts ADD COLUMN IF NOT EXISTS consent_history TEXT NOT NULL DEFAULT '[]';
+CREATE UNIQUE INDEX IF NOT EXISTS uq_offer_verification_offer
+  ON offer_verifications (offer_id);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_invitation_challenge_org
   ON challenge_invitations (challenge_id, provider_organization_id);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_participation_challenge_org

@@ -182,6 +182,63 @@ test('foundation records survive an empty-process restart and continue mutating 
     assert.equal(await restarted.resolveReviewQueueItem(review, resolved), true);
     assert.equal(await restarted.resolveReviewQueueItem(review, resolved), false,
       'a second instance cannot resolve the already-resolved item as first');
+    const informationRequest = {
+      id: 'INFOREQ-RESTART-1', challengeId: challenge.id, competitionId: competition.id,
+      providerOrganizationId: 'org_sierra', requestedField: 'ANNUAL_MILEAGE' as const,
+      purpose: 'DISCOUNT_ELIGIBILITY' as const, purposeExplanation: 'Confirm mileage discount',
+      status: 'PENDING' as const, requestedAt: '2026-01-02T01:00:00.000Z'
+    };
+    const createdRequest = await restarted.createInformationRequestAtomic(
+      informationRequest,
+      'pm2-restart-idempotency-key'
+    );
+    const retriedRequest = await restarted.createInformationRequestAtomic(
+      { ...informationRequest, id: 'INFOREQ-SHOULD-NOT-EXIST' },
+      'pm2-restart-idempotency-key'
+    );
+    assert.equal(retriedRequest.id, createdRequest.id,
+      'information-request retry returns the committed request');
+    const answered = await restarted.answerInformationRequestAtomic({
+      requestId: createdRequest.id,
+      answerValue: 5000,
+      consumerId: challenge.consumerId
+    });
+    const answeredRetry = await restarted.answerInformationRequestAtomic({
+      requestId: createdRequest.id,
+      answerValue: 5000,
+      consumerId: challenge.consumerId
+    });
+    assert.equal(answeredRetry.fact.id, answered.fact.id,
+      'answer retry cannot manufacture a second supplemental fact');
+    await assert.rejects(
+      () => restarted.grantSupplementalFactConsentAtomic({
+        factId: answered.fact.id,
+        consumerId: 'different-consumer',
+        organizationIds: ['org_buckeye']
+      }),
+      /Only the consumer/
+    );
+    const consented = await restarted.grantSupplementalFactConsentAtomic({
+      factId: answered.fact.id,
+      consumerId: challenge.consumerId,
+      organizationIds: ['org_buckeye']
+    });
+    assert.deepEqual(consented.sharedWithOrganizationIds.sort(), ['org_buckeye', 'org_sierra']);
+    const verification = {
+      id: `VERIFY-${offer.id}`, offerId: offer.id, documentName: offer.supportingQuoteDocName,
+      status: 'VERIFIED' as const, verifiedAt: '2026-01-02T02:00:00.000Z',
+      discrepancyCount: 0, discrepancies: [], extractedPremium: offer.annualPremium,
+      enteredPremium: offer.annualPremium
+    };
+    const verified = await restarted.commitOfferVerification({
+      verification, offer: { ...offer, verificationId: verification.id }, actorId: 'org_sierra'
+    });
+    const verifiedRetry = await restarted.commitOfferVerification({
+      verification: { ...verification, id: 'VERIFY-SHOULD-NOT-EXIST' },
+      offer: { ...offer, verificationId: verification.id }, actorId: 'org_sierra'
+    });
+    assert.equal(verifiedRetry.id, verified.id,
+      'offer-verification retry returns the one durable verification');
     const auditBeforeFailure = (await restarted.getAuditEvents()).length;
     await assert.rejects(
       () => restarted.commitCoverageBaselineWithAudit(
@@ -193,6 +250,16 @@ test('foundation records survive an empty-process restart and continue mutating 
     assert.equal((await restarted.getAuditEvents()).length, auditBeforeFailure,
       'failed business mutation cannot leave audit or business state partially committed');
     await restarted.close();
+    const pm2Restart = new PostgresStore(dataDir);
+    assert.equal((await pm2Restart.getInformationRequest(informationRequest.id))?.status, 'ANSWERED');
+    assert.deepEqual(
+      (await pm2Restart.getVerifiedSupplementalFact(`FACT-${informationRequest.id}`))?.sharedWithOrganizationIds.sort(),
+      ['org_buckeye', 'org_sierra'],
+      'supplemental fact and consent survive an empty-process restart'
+    );
+    assert.equal((await pm2Restart.getOfferVerification(offer.id))?.id, verification.id,
+      'offer verification survives an empty-process restart');
+    await pm2Restart.close();
   } finally {
     fs.rmSync(dataDir, { recursive: true, force: true });
   }

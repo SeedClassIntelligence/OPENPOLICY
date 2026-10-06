@@ -17,6 +17,7 @@ import {
   AuditEvent,
   InformationRequest,
   VerifiedSupplementalFact,
+  FactConsentScope,
   OfferVersion,
   OfferVerification,
   Selection,
@@ -687,6 +688,9 @@ export class PostgresStore {
     }));
   }
 
+  private _mapInformationRequest(row:any):InformationRequest{return {id:row.id,challengeId:row.challenge_id,competitionId:row.competition_id,providerOrganizationId:row.provider_organization_id,requestedField:row.requested_field,customFieldName:row.custom_field_name||undefined,purpose:row.purpose,purposeExplanation:row.purpose_explanation,status:row.status,requestedAt:row.requested_at,answeredAt:row.answered_at||undefined,answerValue:row.answer_value?JSON.parse(row.answer_value):undefined,reusableFactId:row.reusable_fact_id||undefined};}
+  private _mapSupplementalFact(row:any):VerifiedSupplementalFact{return {id:row.id,consumerId:row.consumer_id,challengeId:row.challenge_id,fieldType:row.field_type,fieldName:row.field_name,value:JSON.parse(row.value),formattedValue:row.formatted_value,verificationState:row.verification_state,source:row.source,createdAt:row.created_at,consentScope:row.consent_scope||'REQUESTING_PROVIDER_ONLY',sharedWithOrganizationIds:JSON.parse(row.shared_with_organization_ids||'[]')};}
+
   public async getInformationRequest(id: string): Promise<InformationRequest | undefined> {
     await this.ensureReady();
     const res = await this.sql!.query<{
@@ -714,13 +718,72 @@ export class PostgresStore {
     };
   }
 
+  public async createInformationRequestAtomic(req: InformationRequest, idempotencyKey: string): Promise<InformationRequest> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const existing = await client.query<any>(`SELECT * FROM information_requests WHERE idempotency_key = $1;`, [idempotencyKey]);
+      if (existing.rows[0]) return this._mapInformationRequest(existing.rows[0]);
+      const participant = await client.query<{ id: string }>(
+        `SELECT id FROM challenge_participations WHERE challenge_id=$1 AND provider_organization_id=$2 AND status <> 'WITHDRAWN';`,
+        [req.challengeId, req.providerOrganizationId]);
+      if (!participant.rows[0]) throw Object.assign(new Error('Provider is not an active participant'), { statusCode: 403 });
+      const challenge = await client.query<{ user_id: string }>(`SELECT user_id FROM challenges WHERE id=$1;`, [req.challengeId]);
+      if (!challenge.rows[0]) throw Object.assign(new Error('Challenge not found'), { statusCode: 404 });
+      await client.query(
+        `INSERT INTO information_requests (id,challenge_id,competition_id,provider_organization_id,requested_field,custom_field_name,purpose,purpose_explanation,status,requested_at,idempotency_key)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11);`,
+        [req.id,req.challengeId,req.competitionId,req.providerOrganizationId,req.requestedField,req.customFieldName||null,req.purpose,req.purposeExplanation,req.status,req.requestedAt,idempotencyKey]);
+      const notification: PlatformNotification = { id:`NOTIF-${req.id}`, type:'COMPETITION_UPDATE', title:'Underwriting Information Requested',
+        message:`A participating provider requested: ${req.customFieldName||req.requestedField} for rating discounts.`, timestamp:req.requestedAt, read:false,
+        recipientType:'CONSUMER', recipientConsumerId:challenge.rows[0].user_id, createdFromEvent:`INFORMATION_REQUEST:${req.id}` };
+      await client.query(`INSERT INTO platform_notifications (id,type,title,message,timestamp,is_read,recipient_type,recipient_consumer_id,created_from_event)
+        VALUES ($1,$2,$3,$4,$5,FALSE,$6,$7,$8) ON CONFLICT(id) DO NOTHING;`,
+        [notification.id,notification.type,notification.title,notification.message,notification.timestamp,notification.recipientType,notification.recipientConsumerId,notification.createdFromEvent]);
+      await this.appendAuditInTransaction(client,{eventType:'POLICY_UPLOADED',actorRole:'PROVIDER',actorId:req.providerOrganizationId,details:`Information request ${req.id} created for ${req.requestedField}`});
+      return req;
+    });
+  }
+
+  public async answerInformationRequestAtomic(params:{requestId:string;answerValue:any;consumerId:string;consentScope?:FactConsentScope;authorizedOrgIds?:string[]}):Promise<{request:InformationRequest;fact:VerifiedSupplementalFact}>{
+    await this.ensureReady();
+    return this.sql!.transaction(async client=>{
+      const row=await client.query<any>(`SELECT * FROM information_requests WHERE id=$1 FOR UPDATE;`,[params.requestId]);
+      if(!row.rows[0]) throw Object.assign(new Error('Information request not found'),{statusCode:404});
+      const request=this._mapInformationRequest(row.rows[0]);
+      const owner=await client.query<{user_id:string}>(`SELECT user_id FROM challenges WHERE id=$1;`,[request.challengeId]);
+      if(owner.rows[0]?.user_id!==params.consumerId) throw Object.assign(new Error('Consumer does not own this challenge'),{statusCode:403});
+      const existing=await client.query<any>(`SELECT * FROM verified_supplemental_facts WHERE id=$1;`,[`FACT-${request.id}`]);
+      if(request.status==='ANSWERED'&&existing.rows[0]) return {request,fact:this._mapSupplementalFact(existing.rows[0])};
+      const scope=params.consentScope||'REQUESTING_PROVIDER_ONLY';
+      let shared=[request.providerOrganizationId];
+      if(scope==='ALL_ACTIVE_PARTICIPANTS'){const p=await client.query<{provider_organization_id:string}>(`SELECT provider_organization_id FROM challenge_participations WHERE challenge_id=$1 AND status<>'WITHDRAWN';`,[request.challengeId]);shared=p.rows.map(x=>x.provider_organization_id);}
+      if(scope==='EXPLICIT_PROVIDER_SELECTION') shared=[...new Set([request.providerOrganizationId,...(params.authorizedOrgIds||[])])];
+      const now=new Date().toISOString(); const fact:VerifiedSupplementalFact={id:`FACT-${request.id}`,consumerId:params.consumerId,challengeId:request.challengeId,fieldType:request.requestedField,fieldName:request.customFieldName||request.requestedField,value:params.answerValue,formattedValue:typeof params.answerValue==='object'?JSON.stringify(params.answerValue):String(params.answerValue),verificationState:'CONSUMER_ATTESTED',source:'CONSUMER_PORTAL',createdAt:now,consentScope:scope,sharedWithOrganizationIds:shared};
+      request.status='ANSWERED';request.answeredAt=now;request.answerValue=params.answerValue;request.reusableFactId=fact.id;
+      await client.query(`UPDATE information_requests SET status='ANSWERED',answered_at=$2,answer_value=$3,reusable_fact_id=$4 WHERE id=$1;`,[request.id,now,JSON.stringify(params.answerValue),fact.id]);
+      await client.query(
+        `INSERT INTO verified_supplemental_facts
+          (id,consumer_id,challenge_id,field_type,field_name,value,formatted_value,verification_state,source,created_at,shared_with_organization_ids,consent_scope,consent_history)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13);`,
+        [
+          fact.id, fact.consumerId, fact.challengeId, fact.fieldType, fact.fieldName,
+          JSON.stringify(fact.value), fact.formattedValue, fact.verificationState,
+          fact.source, fact.createdAt, JSON.stringify(shared), scope,
+          JSON.stringify([{ at: now, scope, organizations: shared, actor: params.consumerId }])
+        ]
+      );
+      await this.appendAuditInTransaction(client,{eventType:'CONSUMER_CORRECTED_FIELD',actorRole:'CONSUMER',actorId:params.consumerId,details:`Consumer answered information request ${request.id}`});
+      return {request,fact};
+    });
+  }
+
   public async getVerifiedSupplementalFacts(challengeId: string): Promise<VerifiedSupplementalFact[]> {
     await this.ensureReady();
     const res = await this.sql!.query<{
       id: string; consumer_id: string; challenge_id: string; field_type: string;
       field_name: string; value: string; formatted_value: string;
       verification_state: string; source: string; created_at: string;
-      shared_with_organization_ids: string;
+      shared_with_organization_ids: string; consent_scope: string | null;
     }>(`SELECT * FROM verified_supplemental_facts WHERE challenge_id = $1 ORDER BY created_at ASC;`, [challengeId]);
     return res.rows.map(row => ({
       id: row.id,
@@ -733,6 +796,7 @@ export class PostgresStore {
       verificationState: row.verification_state as VerifiedSupplementalFact['verificationState'],
       source: row.source,
       createdAt: row.created_at,
+      consentScope: (row.consent_scope || 'REQUESTING_PROVIDER_ONLY') as FactConsentScope,
       sharedWithOrganizationIds: JSON.parse(row.shared_with_organization_ids || '[]')
     }));
   }
@@ -743,7 +807,7 @@ export class PostgresStore {
       id: string; consumer_id: string; challenge_id: string; field_type: string;
       field_name: string; value: string; formatted_value: string;
       verification_state: string; source: string; created_at: string;
-      shared_with_organization_ids: string;
+      shared_with_organization_ids: string; consent_scope: string | null;
     }>(`SELECT * FROM verified_supplemental_facts WHERE id = $1;`, [id]);
     if (res.rows.length === 0) return undefined;
     const row = res.rows[0];
@@ -758,8 +822,69 @@ export class PostgresStore {
       verificationState: row.verification_state as VerifiedSupplementalFact['verificationState'],
       source: row.source,
       createdAt: row.created_at,
+      consentScope: (row.consent_scope || 'REQUESTING_PROVIDER_ONLY') as FactConsentScope,
       sharedWithOrganizationIds: JSON.parse(row.shared_with_organization_ids || '[]')
     };
+  }
+
+  public async grantSupplementalFactConsentAtomic(params: {
+    factId: string;
+    consumerId: string;
+    organizationIds: string[];
+  }): Promise<VerifiedSupplementalFact> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const result = await client.query<any>(
+        `SELECT * FROM verified_supplemental_facts WHERE id = $1 FOR UPDATE;`,
+        [params.factId]
+      );
+      if (!result.rows[0]) {
+        throw Object.assign(new Error('Supplemental fact not found'), { statusCode: 404 });
+      }
+      const row = result.rows[0];
+      if (row.consumer_id !== params.consumerId) {
+        throw Object.assign(
+          new Error('Unauthorized: Only the consumer can grant access consent to a supplemental fact'),
+          { statusCode: 403 }
+        );
+      }
+
+      const existingOrganizations = JSON.parse(row.shared_with_organization_ids || '[]') as string[];
+      const organizations = [...new Set([...existingOrganizations, ...params.organizationIds])];
+      const existingHistory = JSON.parse(row.consent_history || '[]') as unknown[];
+      const changed = organizations.length !== existingOrganizations.length;
+      if (!changed) return this._mapSupplementalFact(row);
+
+      const now = new Date().toISOString();
+      const history = [
+        ...existingHistory,
+        {
+          at: now,
+          action: 'GRANTED',
+          organizations: params.organizationIds,
+          actor: params.consumerId
+        }
+      ];
+      const scope: FactConsentScope = 'EXPLICIT_PROVIDER_SELECTION';
+      await client.query(
+        `UPDATE verified_supplemental_facts
+         SET shared_with_organization_ids = $2, consent_scope = $3, consent_history = $4
+         WHERE id = $1;`,
+        [params.factId, JSON.stringify(organizations), scope, JSON.stringify(history)]
+      );
+      await this.appendAuditInTransaction(client, {
+        eventType: 'CONSUMER_CORRECTED_FIELD',
+        actorRole: 'CONSUMER',
+        actorId: params.consumerId,
+        details: `Consumer granted disclosure consent for fact ${params.factId} to providers: ${params.organizationIds.join(', ')}`
+      });
+      return this._mapSupplementalFact({
+        ...row,
+        shared_with_organization_ids: JSON.stringify(organizations),
+        consent_scope: scope,
+        consent_history: JSON.stringify(history)
+      });
+    });
   }
 
   public async getOfferVersions(offerId: string): Promise<OfferVersion[]> {
@@ -1462,9 +1587,11 @@ export class PostgresStore {
       `INSERT INTO offers (id, challenge_id, provider_id, provider_name, carrier, annual_premium, monthly_premium, status, round, version, previous_offer_id, is_latest_revision, payload)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
        ON CONFLICT (id) DO UPDATE SET
-         annual_premium = EXCLUDED.annual_premium,
-         status = EXCLUDED.status,
-         is_latest_revision = EXCLUDED.is_latest_revision;`,
+          annual_premium = EXCLUDED.annual_premium,
+          monthly_premium = EXCLUDED.monthly_premium,
+          status = EXCLUDED.status,
+          is_latest_revision = EXCLUDED.is_latest_revision,
+          payload = EXCLUDED.payload;`,
       [
         offer.id,
         offer.challengeId,
@@ -1678,6 +1805,85 @@ export class PostgresStore {
         ver.enteredPremium ?? null
       ]
     );
+  }
+
+  public async commitOfferVerification(input: {
+    verification: OfferVerification;
+    offer: Offer;
+    actorId: string;
+  }): Promise<OfferVerification> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const locked = await client.query<{ id: string }>(
+        `SELECT id FROM offers WHERE id = $1 FOR UPDATE;`,
+        [input.offer.id]
+      );
+      if (!locked.rows[0]) {
+        throw Object.assign(new Error(`Offer ${input.offer.id} not found`), { statusCode: 404 });
+      }
+      const existing = await client.query<any>(
+        `SELECT * FROM offer_verifications WHERE offer_id = $1;`,
+        [input.offer.id]
+      );
+      if (existing.rows[0]) {
+        const row = existing.rows[0];
+        return {
+          id: row.id,
+          offerId: row.offer_id,
+          documentName: row.document_name,
+          status: row.status,
+          verifiedAt: row.verified_at,
+          discrepancyCount: row.discrepancy_count,
+          discrepancies: JSON.parse(row.discrepancies || '[]'),
+          extractedPremium: row.extracted_premium ?? undefined,
+          enteredPremium: row.entered_premium ?? undefined
+        } as OfferVerification;
+      }
+      const verification = input.verification;
+      await client.query(
+        `INSERT INTO offer_verifications
+          (id,offer_id,document_name,status,verified_at,discrepancy_count,discrepancies,extracted_premium,entered_premium)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9);`,
+        [verification.id, verification.offerId, verification.documentName, verification.status,
+          verification.verifiedAt, verification.discrepancyCount, JSON.stringify(verification.discrepancies),
+          verification.extractedPremium ?? null, verification.enteredPremium ?? null]
+      );
+      await client.query(
+        `UPDATE offers SET status = $2, payload = $3 WHERE id = $1;`,
+        [input.offer.id, input.offer.status, JSON.stringify(input.offer)]
+      );
+      await this.appendAuditInTransaction(client, {
+        eventType: 'OFFER_SUBMITTED',
+        actorRole: 'PROVIDER',
+        actorId: input.actorId,
+        details: `Offer ${input.offer.id} document verification ${verification.status}`
+      });
+      return verification;
+    });
+  }
+
+  public async commitOfferQualification(offer: Offer, actorId: string): Promise<Offer> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const locked = await client.query<{ id: string }>(
+        `SELECT id FROM offers WHERE id = $1 FOR UPDATE;`,
+        [offer.id]
+      );
+      if (!locked.rows[0]) {
+        throw Object.assign(new Error(`Offer ${offer.id} not found`), { statusCode: 404 });
+      }
+      await client.query(
+        `UPDATE offers SET status = $2, payload = $3 WHERE id = $1;`,
+        [offer.id, offer.status, JSON.stringify(offer)]
+      );
+      await this.appendAuditInTransaction(client, {
+        eventType: 'OFFER_SUBMITTED',
+        actorRole: 'SYSTEM',
+        actorId,
+        details: `Offer ${offer.id} qualification evaluated: ${offer.isQualified ? 'QUALIFIED' : 'NOT_QUALIFIED'}`
+      });
+      return offer;
+    });
   }
 
   // ===========================================================================
