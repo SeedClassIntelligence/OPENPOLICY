@@ -14,6 +14,16 @@ import { Offer, OfferVersion, CoverageBaseline, ConsumerRequirements, Challenge,
   PlatformNotification, CompetitionActivityEvent, AuditEvent, InformationRequest, OfferVerification } from './src/types/insurance';
 import { evaluateProviderEligibility, type EligibilityEvaluation } from './src/domain/eligibilityEngine';
 import { evaluateOfferQualification } from './src/domain/qualificationEngine';
+import {
+  createSelection,
+  initiateBindingHandoff,
+  createConsentGrant,
+  revokeConsentGrant,
+  validateAndExecuteDisclosure,
+  proposeBindingModification,
+  resolveBindingModification,
+  transitionBindingStatus
+} from './src/domain/selectionBindingEngine';
 import { verifyCryptographicAuditChain, processReviewQueueResolution,
   generateRegulatoryAuditProof } from './src/domain/governanceAuditEngine';
 import { assertProductionAuthConfiguration, attachRequestIdentity } from './src/server/auth/requestIdentity';
@@ -1492,13 +1502,25 @@ app.post('/api/marketplace/challenges/:id/select-version', async (req, res) => {
       return res.status(400).json({ error: 'offerId is required to select an offer version' });
     }
 
-    const result = db.selectOfferVersion({
-      challengeId,
-      offerId,
-      versionNumber: Number(versionNumber || 1),
-      consumerId,
-      notes
-    });
+    const challenge = await postgresStore.getChallenge(challengeId);
+    if (!challenge) return res.status(404).json({ error: `Challenge not found: ${challengeId}` });
+    if (challenge.consumerId !== consumerId) {
+      return res.status(403).json({ error: 'Unauthorized: Only the challenge owner can select an offer version' });
+    }
+    const offer = await postgresStore.getOffer(offerId);
+    if (!offer) return res.status(404).json({ error: `Offer not found: ${offerId}` });
+    if (offer.challengeId !== challengeId) {
+      return res.status(400).json({ error: 'Offer does not belong to the specified challenge' });
+    }
+    const requestedVersion = Number(versionNumber || 1);
+    const offerVersion = (await postgresStore.getOfferVersions(offerId))
+      .find(version => version.versionNumber === requestedVersion);
+    if (!offerVersion) {
+      return res.status(404).json({ error: `Offer version v${requestedVersion} not found for offer ${offerId}` });
+    }
+    const selection = createSelection({ challenge, offer, offerVersion, consumerId });
+    const handoff = initiateBindingHandoff({ selection, challenge });
+    const result = await postgresStore.commitSelection({ selection, handoff });
 
     // CE-3: Instrument CONSUMER_SELECTED for explicitly selected OfferVersion
     await commercialStore.projectMarketplaceEvent({
@@ -1544,10 +1566,21 @@ app.post('/api/marketplace/binding/:handoffId/grant-consent', async (req, res) =
       return res.status(400).json({ error: 'authorizedFieldNames must be a non-empty array of field names' });
     }
 
-    const consentGrant = db.grantBindingConsent({
+    const handoff = await postgresStore.getBindingHandoff(handoffId);
+    if (!handoff) return res.status(404).json({ error: `Binding handoff not found: ${handoffId}` });
+    if (handoff.challengeId !== challengeId) {
+      return res.status(400).json({ error: 'Binding handoff does not belong to the specified challenge' });
+    }
+    if (handoff.consumerId !== consumerId) {
+      return res.status(403).json({ error: 'Unauthorized: Only the challenge owner can grant consent for this handoff' });
+    }
+    if (!handoff.providerOrganizationId) {
+      return res.status(403).json({ error: 'Forbidden: Binding handoff has no authoritative provider organization mapping' });
+    }
+    const consentGrant = createConsentGrant({
       challengeId,
-      handoffId,
       consumerId,
+      recipientOrganizationId: handoff.providerOrganizationId,
       purpose,
       purposeExplanation,
       authorizedFieldNames,
@@ -1556,8 +1589,9 @@ app.post('/api/marketplace/binding/:handoffId/grant-consent', async (req, res) =
       ipAddress: req.ip || '127.0.0.1',
       termsVersion
     });
-
-    res.json({ success: true, consentGrant });
+    const updatedHandoff = { ...handoff, consentGrantId: consentGrant.id, updatedAt: new Date().toISOString() };
+    const committed = await postgresStore.commitConsentGrant({ grant: consentGrant, handoff: updatedHandoff });
+    res.json({ success: true, consentGrant: committed });
   } catch (e: any) {
     res.status(e.statusCode || 400).json({ error: e.message });
   }
@@ -1573,7 +1607,10 @@ app.post('/api/marketplace/binding/:handoffId/revoke-consent', async (req, res) 
       return res.status(400).json({ error: 'consentGrantId is required' });
     }
 
-    const consentGrant = db.revokeBindingConsent(consentId, consumerId);
+    const existingConsent = await postgresStore.getConsentGrant(consentId);
+    if (!existingConsent) return res.status(404).json({ error: `Consent grant not found: ${consentId}` });
+    const revokedConsent = revokeConsentGrant(existingConsent, consumerId);
+    const consentGrant = await postgresStore.commitConsentRevocation(revokedConsent, consumerId);
     res.json({ success: true, consentGrant });
   } catch (e: any) {
     res.status(e.statusCode || 400).json({ error: e.message });
@@ -1593,15 +1630,38 @@ app.post('/api/marketplace/binding/:handoffId/execute-disclosure', async (req, r
     const providerOrgId = await getAuthenticatedProviderOrgId(req);
     const providerUserId = await getAuthenticatedProviderUserId(req);
 
-    const result = db.executeControlledDisclosure({
-      handoffId,
-      consentGrantId,
-      providerOrgId,
-      providerUserId,
-      recipientAgentName,
-      recipientEmail,
-      customConsumerData
+    const handoff = await postgresStore.getBindingHandoff(handoffId);
+    if (!handoff) return res.status(404).json({ error: `Binding handoff not found: ${handoffId}` });
+    const consentGrant = await postgresStore.getConsentGrant(consentGrantId);
+    if (!consentGrant) return res.status(404).json({ error: `Consent grant not found: ${consentGrantId}` });
+    const challenge = await postgresStore.getChallenge(handoff.challengeId);
+    const baseline = challenge?.baseline;
+    const fullConsumerData: Record<string, any> = {
+      namedInsured: 'Jane Doe', email: 'jane.doe@example.com', phone: '702-555-0199',
+      addressLine1: '812 Horizon Ridge Pkwy', city: 'Henderson', state: 'NV', postalCode: '89012',
+      garagingAddress: '812 Horizon Ridge Pkwy, Henderson, NV 89012',
+      vin: baseline?.vehicle?.vin || '4T1B11HK5RU123498', driverLicenseNumber: 'NV-DL-8912781',
+      driverLicenseState: 'NV', dateOfBirth: '1988-04-12',
+      drivers: [{ name:'Jane Doe', licenseState:'NV', licenseNumber:'NV-DL-8912781', age:38, isPrimary:true }],
+      vehicles: [{ year:baseline?.vehicle?.year||2022, make:baseline?.vehicle?.make||'Toyota',
+        model:baseline?.vehicle?.model||'Camry', vin:baseline?.vehicle?.vin||'4T1B11HK5RU123498',
+        annualMileage:baseline?.vehicle?.annualMileage||12000, primaryUse:baseline?.vehicle?.usage||'COMMUTE' }],
+      ...(customConsumerData || {})
+    };
+    const computed = validateAndExecuteDisclosure({
+      consentGrant, handoff, fullConsumerData, requestingProviderOrgId:providerOrgId,
+      requestingProviderUserId:providerUserId, recipientAgentName, recipientEmail
     });
+    const committed = await postgresStore.commitControlledDisclosure({
+      event: computed.disclosureEvent,
+      handoff: computed.updatedHandoff,
+      providerOrganizationId: providerOrgId
+    });
+    const result = {
+      disclosureEvent: committed.event,
+      disclosedData: computed.disclosedData,
+      updatedHandoff: committed.handoff
+    };
 
     // CE-3: Instrument AUTHORIZED_CONNECTION only upon successful controlled disclosure
     await commercialStore.projectMarketplaceEvent({
@@ -1651,18 +1711,24 @@ app.post('/api/marketplace/binding/:handoffId/propose-modification', async (req,
     const providerOrgId = await getAuthenticatedProviderOrgId(req);
     const providerUserId = await getAuthenticatedProviderUserId(req);
 
-    const result = db.proposeUnderwritingModification({
-      handoffId,
+    const handoff = await postgresStore.getBindingHandoff(handoffId);
+    if (!handoff) return res.status(404).json({ error: `Binding handoff not found: ${handoffId}` });
+    const selectedOffer = handoff.offerId ? await postgresStore.getOffer(handoff.offerId) : undefined;
+    const computed = proposeBindingModification({
+      handoff,
       providerOrgId,
       providerUserId,
-      carrier,
-      originalAnnualPremium,
+      carrier: carrier || handoff.carrier,
+      originalAnnualPremium: originalAnnualPremium ?? selectedOffer?.annualPremium ?? 0,
       modifiedAnnualPremium: Number(modifiedAnnualPremium),
       coverageChanges: coverageChanges || [],
       underwritingReason
     });
-
-    res.json({ success: true, modification: result.modification, handoff: result.updatedHandoff });
+    const committed = await postgresStore.commitBindingModificationProposal({
+      modification: computed.modification,
+      handoff: computed.updatedHandoff
+    });
+    res.json({ success: true, modification: committed.modification, handoff: committed.handoff });
   } catch (e: any) {
     res.status(e.statusCode || 400).json({ error: e.message });
   }
@@ -1682,14 +1748,23 @@ app.post('/api/marketplace/binding/:handoffId/resolve-modification', async (req,
       return res.status(400).json({ error: "decision must be 'ACCEPT' or 'REJECT'" });
     }
 
-    const result = db.resolveUnderwritingModification({
-      modificationId,
+    const modification = await postgresStore.getBindingModification(modificationId);
+    if (!modification) return res.status(404).json({ error: `Binding modification not found: ${modificationId}` });
+    const handoff = await postgresStore.getBindingHandoff(modification.bindingHandoffId);
+    if (!handoff) return res.status(404).json({ error: `Binding handoff not found: ${modification.bindingHandoffId}` });
+    const computed = resolveBindingModification({
+      modification,
+      handoff,
       consumerId,
       decision,
       rejectionReason
     });
-
-    res.json({ success: true, modification: result.resolvedModification, handoff: result.updatedHandoff });
+    const committed = await postgresStore.commitBindingModificationResolution({
+      modification: computed.resolvedModification,
+      handoff: computed.updatedHandoff,
+      consumerId
+    });
+    res.json({ success: true, modification: committed.modification, handoff: committed.handoff });
   } catch (e: any) {
     res.status(e.statusCode || 400).json({ error: e.message });
   }
@@ -1705,13 +1780,20 @@ app.post('/api/marketplace/binding/:handoffId/accept-modification', async (req, 
       return res.status(400).json({ error: 'modificationId is required' });
     }
 
-    const result = db.resolveUnderwritingModification({
-      modificationId,
+    const modification = await postgresStore.getBindingModification(modificationId);
+    if (!modification) return res.status(404).json({ error: `Binding modification not found: ${modificationId}` });
+    const handoff = await postgresStore.getBindingHandoff(modification.bindingHandoffId);
+    if (!handoff) return res.status(404).json({ error: 'Binding handoff not found' });
+    const computed = resolveBindingModification({
+      modification,
+      handoff,
       consumerId,
       decision: 'ACCEPT'
     });
-
-    res.json({ success: true, modification: result.resolvedModification, handoff: result.updatedHandoff });
+    const result = await postgresStore.commitBindingModificationResolution({
+      modification: computed.resolvedModification, handoff: computed.updatedHandoff, consumerId
+    });
+    res.json({ success: true, modification: result.modification, handoff: result.handoff });
   } catch (e: any) {
     res.status(e.statusCode || 400).json({ error: e.message });
   }
@@ -1726,14 +1808,21 @@ app.post('/api/marketplace/binding/:handoffId/reject-modification', async (req, 
       return res.status(400).json({ error: 'modificationId is required' });
     }
 
-    const result = db.resolveUnderwritingModification({
-      modificationId,
+    const modification = await postgresStore.getBindingModification(modificationId);
+    if (!modification) return res.status(404).json({ error: `Binding modification not found: ${modificationId}` });
+    const handoff = await postgresStore.getBindingHandoff(modification.bindingHandoffId);
+    if (!handoff) return res.status(404).json({ error: 'Binding handoff not found' });
+    const computed = resolveBindingModification({
+      modification,
+      handoff,
       consumerId,
       decision: 'REJECT',
       rejectionReason
     });
-
-    res.json({ success: true, modification: result.resolvedModification, handoff: result.updatedHandoff });
+    const result = await postgresStore.commitBindingModificationResolution({
+      modification: computed.resolvedModification, handoff: computed.updatedHandoff, consumerId
+    });
+    res.json({ success: true, modification: result.modification, handoff: result.handoff });
   } catch (e: any) {
     res.status(e.statusCode || 400).json({ error: e.message });
   }
@@ -1751,14 +1840,19 @@ app.post('/api/marketplace/binding/:handoffId/update-status', async (req, res) =
 
     const providerOrgId = await getAuthenticatedProviderOrgId(req);
 
-    const updatedHandoff = db.updateBindingStatus({
-      handoffId,
+    const handoff = await postgresStore.getBindingHandoff(handoffId);
+    if (!handoff) return res.status(404).json({ error: `Binding handoff not found: ${handoffId}` });
+    const modifications = await postgresStore.getBindingModifications(handoffId);
+    let updatedHandoff = transitionBindingStatus({
+      handoff,
       newStatus,
       providerOrgId,
-      declineReason,
-      policyNumber,
-      finalPremium
+      activeModifications: modifications,
+      declineReason
     });
+    updatedHandoff = { ...updatedHandoff, policyNumber: policyNumber || updatedHandoff.policyNumber,
+      finalPremium: finalPremium ?? updatedHandoff.finalPremium };
+    updatedHandoff = await postgresStore.commitBindingStatus(updatedHandoff, providerOrgId);
 
     // CE-3: Instrument BOUND_ACQUISITION only when authoritative BindingHandoff reaches BOUND
     if (updatedHandoff.status === 'BOUND') {
@@ -1789,15 +1883,18 @@ app.get('/api/marketplace/binding/:handoffId', async (req, res) => {
   } catch (e: any) {
     return res.status(e.statusCode || 403).json({ error: e.message });
   }
-  const handoff = db.getBindingHandoff(req.params.handoffId);
+  const handoff = await postgresStore.getBindingHandoff(req.params.handoffId);
   if (!handoff) {
     return res.status(404).json({ error: 'Binding handoff not found' });
   }
 
-  const selection = db.getSelection(handoff.selectionId || '') || db.getSelectionForChallenge(handoff.challengeId);
-  const consentGrants = db.getConsentGrantsForChallenge(handoff.challengeId);
-  const disclosureEvents = db.getDisclosureEventsForHandoff(handoff.id);
-  const modifications = db.getBindingModificationsForHandoff(handoff.id);
+  const selections = await postgresStore.getSelections(handoff.challengeId);
+  const selection = handoff.selectionId
+    ? await postgresStore.getSelection(handoff.selectionId)
+    : selections[0];
+  const consentGrants = await postgresStore.getConsentGrants(handoff.challengeId);
+  const disclosureEvents = await postgresStore.getDisclosureEvents(handoff.id);
+  const modifications = await postgresStore.getBindingModifications(handoff.id);
 
   res.json({
     success: true,
@@ -1817,11 +1914,11 @@ app.get('/api/marketplace/challenges/:id/selection-binding', async (req, res) =>
     return res.status(e.statusCode || 403).json({ error: e.message });
   }
   const challengeId = req.params.id;
-  const selection = db.getSelectionForChallenge(challengeId);
-  const handoff = db.getBindingHandoffForChallenge(challengeId);
-  const consentGrants = db.getConsentGrantsForChallenge(challengeId);
-  const modifications = handoff ? db.getBindingModificationsForHandoff(handoff.id) : [];
-  const disclosureEvents = handoff ? db.getDisclosureEventsForHandoff(handoff.id) : [];
+  const selection = (await postgresStore.getSelections(challengeId))[0];
+  const handoff = (await postgresStore.getBindingHandoffs(challengeId))[0];
+  const consentGrants = await postgresStore.getConsentGrants(challengeId);
+  const modifications = handoff ? await postgresStore.getBindingModifications(handoff.id) : [];
+  const disclosureEvents = handoff ? await postgresStore.getDisclosureEvents(handoff.id) : [];
 
   res.json({
     success: true,

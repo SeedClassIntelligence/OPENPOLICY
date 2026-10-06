@@ -956,6 +956,7 @@ ALTER TABLE challenges ADD COLUMN IF NOT EXISTS payload TEXT;
 ALTER TABLE challenges ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 1;
 ALTER TABLE competitions ADD COLUMN IF NOT EXISTS payload TEXT;
 ALTER TABLE competitions ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 1;
+ALTER TABLE competitions ADD COLUMN IF NOT EXISTS completed_at TEXT;
 ALTER TABLE challenge_invitations ADD COLUMN IF NOT EXISTS payload TEXT;
 ALTER TABLE challenge_invitations ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 1;
 ALTER TABLE challenge_participations ADD COLUMN IF NOT EXISTS payload TEXT;
@@ -967,6 +968,14 @@ ALTER TABLE verified_supplemental_facts ADD COLUMN IF NOT EXISTS consent_scope T
 ALTER TABLE verified_supplemental_facts ADD COLUMN IF NOT EXISTS consent_history TEXT NOT NULL DEFAULT '[]';
 CREATE UNIQUE INDEX IF NOT EXISTS uq_offer_verification_offer
   ON offer_verifications (offer_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_selection_challenge
+  ON selections (challenge_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_handoff_selection
+  ON binding_handoffs (selection_id) WHERE selection_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_disclosure_handoff_consent
+  ON disclosure_events (binding_handoff_id, consent_grant_id);
+ALTER TABLE binding_handoffs ADD COLUMN IF NOT EXISTS policy_number TEXT;
+ALTER TABLE binding_handoffs ADD COLUMN IF NOT EXISTS final_premium INTEGER;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_invitation_challenge_org
   ON challenge_invitations (challenge_id, provider_organization_id);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_participation_challenge_org

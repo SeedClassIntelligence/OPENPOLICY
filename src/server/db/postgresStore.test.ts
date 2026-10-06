@@ -4,6 +4,12 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { PostgresStore } from './postgresStore';
+import {
+  createSelection,
+  initiateBindingHandoff,
+  createConsentGrant,
+  validateAndExecuteDisclosure
+} from '../../domain/selectionBindingEngine';
 
 test('required durable storage fails closed instead of falling back to PGlite', () => {
   const before = { ...process.env };
@@ -259,7 +265,46 @@ test('foundation records survive an empty-process restart and continue mutating 
     );
     assert.equal((await pm2Restart.getOfferVerification(offer.id))?.id, verification.id,
       'offer verification survives an empty-process restart');
+    const durableOffer = await pm2Restart.getOffer(offer.id);
+    const durableChallenge = await pm2Restart.getChallenge(challenge.id);
+    const durableVersion = (await pm2Restart.getOfferVersions(offer.id))[0];
+    assert.ok(durableOffer && durableChallenge && durableVersion);
+    const selection = createSelection({
+      challenge: durableChallenge, offer: durableOffer,
+      offerVersion: durableVersion, consumerId: challenge.consumerId
+    });
+    const handoff = initiateBindingHandoff({ selection, challenge: durableChallenge });
+    const selected = await pm2Restart.commitSelection({ selection, handoff });
+    const selectedRetry = await pm2Restart.commitSelection({
+      selection: { ...selection, id: 'SELECTION-SHOULD-NOT-EXIST' },
+      handoff: { ...handoff, id: 'HANDOFF-SHOULD-NOT-EXIST' }
+    });
+    assert.equal(selectedRetry.selection.id, selected.selection.id,
+      'selection retry preserves the exact durable consumer choice');
+    const grant = createConsentGrant({
+      challengeId: challenge.id, consumerId: challenge.consumerId,
+      recipientOrganizationId: offer.providerId,
+      purpose: 'STAGE_C_BINDING_DISCLOSURE', purposeExplanation: 'binding test',
+      authorizedFieldNames: ['namedInsured'], ipAddress: '127.0.0.1'
+    });
+    const consentedHandoff = { ...selected.handoff, consentGrantId: grant.id, updatedAt: new Date().toISOString() };
+    await pm2Restart.commitConsentGrant({ grant, handoff: consentedHandoff });
+    const disclosure = validateAndExecuteDisclosure({
+      consentGrant: grant, handoff: consentedHandoff,
+      fullConsumerData: { namedInsured: 'Test Consumer', email: 'must-not-disclose@example.com' },
+      requestingProviderOrgId: offer.providerId,
+      requestingProviderUserId: 'usr_sierra_agent'
+    });
+    await pm2Restart.commitControlledDisclosure({
+      event: disclosure.disclosureEvent, handoff: disclosure.updatedHandoff,
+      providerOrganizationId: offer.providerId
+    });
     await pm2Restart.close();
+    const pm4Restart = new PostgresStore(dataDir);
+    assert.equal((await pm4Restart.getSelection(selection.id))?.offerVersionId, durableVersion.id);
+    assert.equal((await pm4Restart.getBindingHandoff(handoff.id))?.disclosureEventId, disclosure.disclosureEvent.id);
+    assert.deepEqual((await pm4Restart.getDisclosureEvents(handoff.id))[0]?.disclosedFieldNames, ['namedInsured']);
+    await pm4Restart.close();
   } finally {
     fs.rmSync(dataDir, { recursive: true, force: true });
   }

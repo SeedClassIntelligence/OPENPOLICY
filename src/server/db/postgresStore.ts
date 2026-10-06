@@ -1894,6 +1894,350 @@ export class PostgresStore {
   // PM-4: Selection, Consent, Disclosure & Binding Persistence
   // ===========================================================================
 
+  private mapSelection(row: any): Selection {
+    return {
+      id: row.id, challengeId: row.challenge_id, consumerId: row.consumer_id,
+      offerId: row.offer_id, offerVersionId: row.offer_version_id,
+      versionNumber: row.version_number, providerOrganizationId: row.provider_organization_id,
+      carrier: row.carrier, annualPremium: row.annual_premium,
+      monthlyPremium: row.monthly_premium ?? undefined, selectedAt: row.selected_at,
+      status: row.status
+    } as Selection;
+  }
+
+  private mapBindingHandoff(row: any): BindingHandoff {
+    return {
+      id: row.id, bindingReference: row.binding_reference, challengeId: row.challenge_id,
+      selectionId: row.selection_id || undefined, offerId: row.offer_id || undefined,
+      offerVersionId: row.offer_version_id || undefined, consumerId: row.consumer_id || undefined,
+      providerOrganizationId: row.provider_organization_id || undefined, carrier: row.carrier,
+      status: row.status, createdAt: row.created_at, updatedAt: row.updated_at,
+      consentGrantId: row.consent_grant_id || undefined,
+      disclosureEventId: row.disclosure_event_id || undefined,
+      activeModificationId: row.active_modification_id || undefined,
+      boundAt: row.bound_at || undefined, declinedAt: row.declined_at || undefined,
+      declineReason: row.decline_reason || undefined, consumerName: row.consumer_name || undefined,
+      consumerEmail: row.consumer_email || undefined, consumerPhone: row.consumer_phone || undefined,
+      providerName: row.provider_name || undefined
+      ,policyNumber: row.policy_number || undefined, finalPremium: row.final_premium ?? undefined
+    } as BindingHandoff;
+  }
+
+  private mapConsentGrant(row: any): ConsentGrant {
+    return {
+      id: row.id, challengeId: row.challenge_id, consumerId: row.consumer_id,
+      recipientOrganizationId: row.recipient_organization_id,
+      recipientUserId: row.recipient_user_id || undefined, purpose: row.purpose,
+      purposeExplanation: row.purpose_explanation,
+      authorizedFieldNames: JSON.parse(row.authorized_field_names),
+      acknowledgedVariations: JSON.parse(row.acknowledged_variations),
+      grantedAt: row.granted_at, expiresAt: row.expires_at || undefined,
+      revokedAt: row.revoked_at || undefined, ipAddressHash: row.ip_address_hash,
+      termsVersion: row.terms_version
+    } as ConsentGrant;
+  }
+
+  public async getSelection(id: string): Promise<Selection | undefined> {
+    await this.ensureReady();
+    const result = await this.sql!.query<any>(`SELECT * FROM selections WHERE id = $1;`, [id]);
+    return result.rows[0] ? this.mapSelection(result.rows[0]) : undefined;
+  }
+
+  public async getBindingHandoff(id: string): Promise<BindingHandoff | undefined> {
+    await this.ensureReady();
+    const result = await this.sql!.query<any>(`SELECT * FROM binding_handoffs WHERE id = $1;`, [id]);
+    return result.rows[0] ? this.mapBindingHandoff(result.rows[0]) : undefined;
+  }
+
+  public async getConsentGrant(id: string): Promise<ConsentGrant | undefined> {
+    await this.ensureReady();
+    const result = await this.sql!.query<any>(`SELECT * FROM consent_grants WHERE id = $1;`, [id]);
+    return result.rows[0] ? this.mapConsentGrant(result.rows[0]) : undefined;
+  }
+
+  public async commitSelection(input: {
+    selection: Selection;
+    handoff: BindingHandoff;
+  }): Promise<{ selection: Selection; handoff: BindingHandoff }> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const challengeResult = await client.query<any>(
+        `SELECT * FROM challenges WHERE id = $1 FOR UPDATE;`, [input.selection.challengeId]
+      );
+      if (!challengeResult.rows[0]) {
+        throw Object.assign(new Error(`Challenge not found: ${input.selection.challengeId}`), { statusCode: 404 });
+      }
+      const challenge = this._mapChallenge(challengeResult.rows[0]);
+      if (challenge.consumerId !== input.selection.consumerId) {
+        throw Object.assign(new Error('Unauthorized: Only the challenge owner can select an offer version'), { statusCode: 403 });
+      }
+      const existing = await client.query<any>(
+        `SELECT * FROM selections WHERE challenge_id = $1;`, [input.selection.challengeId]
+      );
+      if (existing.rows[0]) {
+        if (existing.rows[0].offer_version_id !== input.selection.offerVersionId) {
+          throw Object.assign(new Error('Challenge already has a different durable selection'), { statusCode: 409 });
+        }
+        const handoffResult = await client.query<any>(
+          `SELECT * FROM binding_handoffs WHERE selection_id = $1;`, [existing.rows[0].id]
+        );
+        return {
+          selection: this.mapSelection(existing.rows[0]),
+          handoff: this.mapBindingHandoff(handoffResult.rows[0])
+        };
+      }
+      const offer = await client.query<any>(
+        `SELECT * FROM offers WHERE id = $1 AND challenge_id = $2 FOR UPDATE;`,
+        [input.selection.offerId, input.selection.challengeId]
+      );
+      if (!offer.rows[0]) throw Object.assign(new Error('Offer does not belong to the specified challenge'), { statusCode: 400 });
+      const version = await client.query<{ id: string }>(
+        `SELECT id FROM offer_versions WHERE id = $1 AND offer_id = $2 AND version_number = $3;`,
+        [input.selection.offerVersionId, input.selection.offerId, input.selection.versionNumber]
+      );
+      if (!version.rows[0]) throw Object.assign(new Error('Selected offer version is not durably recorded'), { statusCode: 404 });
+      await client.query(
+        `INSERT INTO selections
+          (id,challenge_id,consumer_id,offer_id,offer_version_id,version_number,provider_organization_id,carrier,annual_premium,monthly_premium,selected_at,status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12);`,
+        [input.selection.id,input.selection.challengeId,input.selection.consumerId,input.selection.offerId,
+          input.selection.offerVersionId,input.selection.versionNumber,input.selection.providerOrganizationId,
+          input.selection.carrier,input.selection.annualPremium,input.selection.monthlyPremium ?? null,
+          input.selection.selectedAt,input.selection.status]
+      );
+      const h = input.handoff;
+      await client.query(
+        `INSERT INTO binding_handoffs
+          (id,binding_reference,challenge_id,selection_id,offer_id,offer_version_id,consumer_id,provider_organization_id,carrier,status,created_at,updated_at,consent_grant_id,disclosure_event_id,active_modification_id,bound_at,declined_at,decline_reason,consumer_name,consumer_email,consumer_phone,provider_name)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22);`,
+        [h.id,h.bindingReference,h.challengeId,h.selectionId||null,h.offerId||null,h.offerVersionId||null,
+          h.consumerId||null,h.providerOrganizationId||null,h.carrier,h.status,h.createdAt,h.updatedAt,
+          h.consentGrantId||null,h.disclosureEventId||null,h.activeModificationId||null,h.boundAt||null,
+          h.declinedAt||null,h.declineReason||null,h.consumerName||null,h.consumerEmail||null,
+          h.consumerPhone||null,h.providerName||null]
+      );
+      const selectedOffer = { ...JSON.parse(offer.rows[0].payload || '{}'), status: 'SELECTED' };
+      await client.query(`UPDATE offers SET status='SELECTED', payload=$2 WHERE id=$1;`, [input.selection.offerId, JSON.stringify(selectedOffer)]);
+      challenge.status = 'SELECTED';
+      await client.query(`UPDATE challenges SET status='SELECTED', payload=$2, version=version+1 WHERE id=$1;`, [challenge.id, JSON.stringify(challenge)]);
+      await client.query(
+        `UPDATE competitions SET status='CLOSED', completed_at=$2, version=version+1
+         WHERE challenge_id=$1 AND status<>'CLOSED';`,
+        [challenge.id, input.selection.selectedAt]
+      );
+      await this.appendAuditInTransaction(client, { eventType:'OFFER_VERSION_SELECTED', actorRole:'CONSUMER', actorId:input.selection.consumerId,
+        details:`Consumer selected offer ${input.selection.offerId} v${input.selection.versionNumber}` });
+      await this.appendAuditInTransaction(client, { eventType:'BINDING_STATUS_CHANGED', actorRole:'SYSTEM', actorId:'handoff_service',
+        details:`Binding handoff ${h.id} created in SELECTED status` });
+      return input;
+    });
+  }
+
+  public async commitConsentGrant(input: {
+    grant: ConsentGrant;
+    handoff: BindingHandoff;
+  }): Promise<ConsentGrant> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const handoffResult = await client.query<any>(
+        `SELECT * FROM binding_handoffs WHERE id = $1 FOR UPDATE;`, [input.handoff.id]
+      );
+      if (!handoffResult.rows[0]) throw Object.assign(new Error(`Binding handoff not found: ${input.handoff.id}`), { statusCode: 404 });
+      const durableHandoff = this.mapBindingHandoff(handoffResult.rows[0]);
+      if (durableHandoff.consumerId !== input.grant.consumerId) {
+        throw Object.assign(new Error('Unauthorized: Only the challenge owner can grant consent for this handoff'), { statusCode: 403 });
+      }
+      if (durableHandoff.providerOrganizationId !== input.grant.recipientOrganizationId) {
+        throw Object.assign(new Error('Consent recipient does not match binding provider'), { statusCode: 403 });
+      }
+      if (durableHandoff.consentGrantId) {
+        const existing = await client.query<any>(`SELECT * FROM consent_grants WHERE id = $1;`, [durableHandoff.consentGrantId]);
+        if (existing.rows[0]) return this.mapConsentGrant(existing.rows[0]);
+      }
+      const grant = input.grant;
+      await client.query(
+        `INSERT INTO consent_grants
+          (id,challenge_id,consumer_id,recipient_organization_id,recipient_user_id,purpose,purpose_explanation,authorized_field_names,acknowledged_variations,granted_at,expires_at,revoked_at,ip_address_hash,terms_version)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14);`,
+        [grant.id,grant.challengeId,grant.consumerId,grant.recipientOrganizationId,grant.recipientUserId||null,
+          grant.purpose,grant.purposeExplanation,JSON.stringify(grant.authorizedFieldNames),
+          JSON.stringify(grant.acknowledgedVariations),grant.grantedAt,grant.expiresAt||null,
+          grant.revokedAt||null,grant.ipAddressHash,grant.termsVersion]
+      );
+      await client.query(
+        `UPDATE binding_handoffs SET consent_grant_id=$2, updated_at=$3 WHERE id=$1;`,
+        [durableHandoff.id, grant.id, input.handoff.updatedAt]
+      );
+      await this.appendAuditInTransaction(client, { eventType:'CONSENT_GRANTED', actorRole:'CONSUMER', actorId:grant.consumerId,
+        details:`Consumer granted binding consent ${grant.id} to provider ${grant.recipientOrganizationId}` });
+      return grant;
+    });
+  }
+
+  public async commitConsentRevocation(consent: ConsentGrant, consumerId: string): Promise<ConsentGrant> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const result = await client.query<any>(`SELECT * FROM consent_grants WHERE id=$1 FOR UPDATE;`, [consent.id]);
+      if (!result.rows[0]) throw Object.assign(new Error(`Consent grant not found: ${consent.id}`), { statusCode: 404 });
+      const durable = this.mapConsentGrant(result.rows[0]);
+      if (durable.consumerId !== consumerId) throw Object.assign(new Error('Unauthorized: Only the consumer can revoke this consent'), { statusCode: 403 });
+      if (durable.revokedAt) return durable;
+      await client.query(`UPDATE consent_grants SET revoked_at=$2 WHERE id=$1;`, [consent.id, consent.revokedAt]);
+      await this.appendAuditInTransaction(client, { eventType:'CONSENT_REVOKED', actorRole:'CONSUMER', actorId:consumerId,
+        details:`Consumer revoked consent grant ${consent.id}; historical disclosure evidence remains intact` });
+      return consent;
+    });
+  }
+
+  public async commitControlledDisclosure(input: {
+    event: DisclosureEvent;
+    handoff: BindingHandoff;
+    providerOrganizationId: string;
+  }): Promise<{ event: DisclosureEvent; handoff: BindingHandoff }> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const handoffResult = await client.query<any>(`SELECT * FROM binding_handoffs WHERE id=$1 FOR UPDATE;`, [input.handoff.id]);
+      if (!handoffResult.rows[0]) throw Object.assign(new Error(`Binding handoff not found: ${input.handoff.id}`), { statusCode: 404 });
+      const durableHandoff = this.mapBindingHandoff(handoffResult.rows[0]);
+      if (durableHandoff.providerOrganizationId !== input.providerOrganizationId) {
+        throw Object.assign(new Error('Provider organization is not authorized for this binding handoff'), { statusCode: 403 });
+      }
+      const consentResult = await client.query<any>(`SELECT * FROM consent_grants WHERE id=$1 FOR UPDATE;`, [input.event.consentGrantId]);
+      if (!consentResult.rows[0]) throw Object.assign(new Error('Consent grant not found'), { statusCode: 404 });
+      const consent = this.mapConsentGrant(consentResult.rows[0]);
+      if (consent.recipientOrganizationId !== input.providerOrganizationId || consent.revokedAt || (consent.expiresAt && Date.parse(consent.expiresAt) <= Date.now())) {
+        throw Object.assign(new Error('Consent is not active for this provider organization'), { statusCode: 403 });
+      }
+      const existing = await client.query<any>(
+        `SELECT * FROM disclosure_events WHERE binding_handoff_id=$1 AND consent_grant_id=$2;`,
+        [input.handoff.id, input.event.consentGrantId]
+      );
+      if (existing.rows[0]) return { event: this.mapDisclosureEvent(existing.rows[0]), handoff: durableHandoff };
+      const event = input.event;
+      await client.query(
+        `INSERT INTO disclosure_events
+          (id,challenge_id,binding_handoff_id,consent_grant_id,recipient_provider_organization_id,recipient_provider_user_id,disclosed_at,disclosed_field_names,metadata,event_payload_hash)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10);`,
+        [event.id,event.challengeId,event.bindingHandoffId,event.consentGrantId,event.recipientProviderOrganizationId,
+          event.recipientProviderUserId||null,event.disclosedAt,JSON.stringify(event.disclosedFieldNames),
+          event.metadata?JSON.stringify(event.metadata):null,event.eventPayloadHash]
+      );
+      await client.query(
+        `UPDATE binding_handoffs SET status=$2, disclosure_event_id=$3, updated_at=$4 WHERE id=$1;`,
+        [input.handoff.id,input.handoff.status,event.id,input.handoff.updatedAt]
+      );
+      await this.appendAuditInTransaction(client, { eventType:'PII_DISCLOSED', actorRole:'SYSTEM', actorId:'disclosure_engine',
+        details:`Controlled disclosure ${event.id} executed for provider ${input.providerOrganizationId}; payload hash ${event.eventPayloadHash}` });
+      await this.appendAuditInTransaction(client, { eventType:'BINDING_STATUS_CHANGED', actorRole:'SYSTEM', actorId:'disclosure_engine',
+        details:`Handoff ${input.handoff.id} status updated to ${input.handoff.status}` });
+      return input;
+    });
+  }
+
+  private mapDisclosureEvent(row: any): DisclosureEvent {
+    return {
+      id:row.id, challengeId:row.challenge_id, bindingHandoffId:row.binding_handoff_id,
+      consentGrantId:row.consent_grant_id, recipientProviderOrganizationId:row.recipient_provider_organization_id,
+      recipientProviderUserId:row.recipient_provider_user_id||undefined, disclosedAt:row.disclosed_at,
+      disclosedFieldNames:JSON.parse(row.disclosed_field_names), metadata:row.metadata?JSON.parse(row.metadata):undefined,
+      eventPayloadHash:row.event_payload_hash
+    };
+  }
+
+  private mapBindingModification(row: any): BindingModification {
+    return {
+      id:row.id, bindingHandoffId:row.binding_handoff_id, challengeId:row.challenge_id,
+      providerOrganizationId:row.provider_organization_id, providerUserId:row.provider_user_id,
+      carrier:row.carrier, originalAnnualPremium:row.original_annual_premium,
+      modifiedAnnualPremium:row.modified_annual_premium, coverageChanges:JSON.parse(row.coverage_changes),
+      underwritingReason:row.underwriting_reason, proposedAt:row.proposed_at, status:row.status,
+      decidedAt:row.decided_at||undefined, rejectionReason:row.rejection_reason||undefined
+    } as BindingModification;
+  }
+
+  public async getBindingModification(id: string): Promise<BindingModification | undefined> {
+    await this.ensureReady();
+    const result = await this.sql!.query<any>(`SELECT * FROM binding_modifications WHERE id=$1;`, [id]);
+    return result.rows[0] ? this.mapBindingModification(result.rows[0]) : undefined;
+  }
+
+  public async commitBindingModificationProposal(input: {
+    modification: BindingModification;
+    handoff: BindingHandoff;
+  }): Promise<{ modification: BindingModification; handoff: BindingHandoff }> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const result = await client.query<any>(`SELECT * FROM binding_handoffs WHERE id=$1 FOR UPDATE;`, [input.handoff.id]);
+      if (!result.rows[0]) throw Object.assign(new Error(`Binding handoff not found: ${input.handoff.id}`), { statusCode: 404 });
+      const durable = this.mapBindingHandoff(result.rows[0]);
+      if (durable.providerOrganizationId !== input.modification.providerOrganizationId) {
+        throw Object.assign(new Error('Provider organization is not authorized for this binding handoff'), { statusCode: 403 });
+      }
+      if (durable.activeModificationId) {
+        const existing = await client.query<any>(`SELECT * FROM binding_modifications WHERE id=$1;`, [durable.activeModificationId]);
+        if (existing.rows[0]) return { modification:this.mapBindingModification(existing.rows[0]), handoff:durable };
+      }
+      const mod=input.modification;
+      await client.query(
+        `INSERT INTO binding_modifications
+          (id,binding_handoff_id,challenge_id,provider_organization_id,provider_user_id,carrier,original_annual_premium,modified_annual_premium,coverage_changes,underwriting_reason,proposed_at,status,decided_at,rejection_reason)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14);`,
+        [mod.id,mod.bindingHandoffId,mod.challengeId,mod.providerOrganizationId,mod.providerUserId,mod.carrier,
+          mod.originalAnnualPremium,mod.modifiedAnnualPremium,JSON.stringify(mod.coverageChanges),mod.underwritingReason,
+          mod.proposedAt,mod.status,mod.decidedAt||null,mod.rejectionReason||null]
+      );
+      await client.query(`UPDATE binding_handoffs SET status=$2,active_modification_id=$3,updated_at=$4 WHERE id=$1;`,
+        [input.handoff.id,input.handoff.status,mod.id,input.handoff.updatedAt]);
+      await this.appendAuditInTransaction(client,{eventType:'BINDING_MODIFICATION_PROPOSED',actorRole:'PROVIDER',actorId:mod.providerUserId,
+        details:`Provider ${mod.providerOrganizationId} proposed underwriting modification ${mod.id}`});
+      await this.appendAuditInTransaction(client,{eventType:'BINDING_STATUS_CHANGED',actorRole:'PROVIDER',actorId:mod.providerUserId,
+        details:`Handoff ${input.handoff.id} status updated to ${input.handoff.status}`});
+      return input;
+    });
+  }
+
+  public async commitBindingModificationResolution(input: {
+    modification: BindingModification;
+    handoff: BindingHandoff;
+    consumerId: string;
+  }): Promise<{ modification: BindingModification; handoff: BindingHandoff }> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const modResult=await client.query<any>(`SELECT * FROM binding_modifications WHERE id=$1 FOR UPDATE;`,[input.modification.id]);
+      if(!modResult.rows[0])throw Object.assign(new Error(`Binding modification not found: ${input.modification.id}`),{statusCode:404});
+      const durableMod=this.mapBindingModification(modResult.rows[0]);
+      const handoffResult=await client.query<any>(`SELECT * FROM binding_handoffs WHERE id=$1 FOR UPDATE;`,[durableMod.bindingHandoffId]);
+      if(!handoffResult.rows[0])throw Object.assign(new Error('Binding handoff not found'),{statusCode:404});
+      const durableHandoff=this.mapBindingHandoff(handoffResult.rows[0]);
+      if(durableHandoff.consumerId!==input.consumerId)throw Object.assign(new Error('Unauthorized: Only the consumer can resolve this modification'),{statusCode:403});
+      if(durableMod.status!=='PENDING_CONSUMER_REVIEW')return {modification:durableMod,handoff:durableHandoff};
+      const mod=input.modification;
+      await client.query(`UPDATE binding_modifications SET status=$2,decided_at=$3,rejection_reason=$4 WHERE id=$1;`,
+        [mod.id,mod.status,mod.decidedAt||null,mod.rejectionReason||null]);
+      await client.query(`UPDATE binding_handoffs SET status=$2,active_modification_id=$3,updated_at=$4 WHERE id=$1;`,
+        [input.handoff.id,input.handoff.status,input.handoff.activeModificationId||null,input.handoff.updatedAt]);
+      const eventType=mod.status==='ACCEPTED'?'BINDING_MODIFICATION_ACCEPTED':'BINDING_MODIFICATION_REJECTED';
+      await this.appendAuditInTransaction(client,{eventType,actorRole:'CONSUMER',actorId:input.consumerId,details:`Consumer resolved modification ${mod.id}: ${mod.status}`});
+      await this.appendAuditInTransaction(client,{eventType:'BINDING_STATUS_CHANGED',actorRole:'CONSUMER',actorId:input.consumerId,details:`Handoff ${input.handoff.id} status updated to ${input.handoff.status}`});
+      return input;
+    });
+  }
+
+  public async commitBindingStatus(handoff: BindingHandoff, providerOrganizationId: string): Promise<BindingHandoff> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const result=await client.query<any>(`SELECT * FROM binding_handoffs WHERE id=$1 FOR UPDATE;`,[handoff.id]);
+      if(!result.rows[0])throw Object.assign(new Error(`Binding handoff not found: ${handoff.id}`),{statusCode:404});
+      const durable=this.mapBindingHandoff(result.rows[0]);
+      if(durable.providerOrganizationId!==providerOrganizationId)throw Object.assign(new Error('Unauthorized: Only the selected provider organization can update binding status'),{statusCode:403});
+      if(durable.status===handoff.status)return durable;
+      await client.query(`UPDATE binding_handoffs SET status=$2,updated_at=$3,bound_at=$4,declined_at=$5,decline_reason=$6,policy_number=$7,final_premium=$8 WHERE id=$1;`,
+        [handoff.id,handoff.status,handoff.updatedAt,handoff.boundAt||null,handoff.declinedAt||null,handoff.declineReason||null,handoff.policyNumber||null,handoff.finalPremium??null]);
+      await this.appendAuditInTransaction(client,{eventType:'BINDING_STATUS_CHANGED',actorRole:'PROVIDER',actorId:providerOrganizationId,details:`Handoff ${handoff.id} status updated from ${durable.status} to ${handoff.status}`});
+      return handoff;
+    });
+  }
+
   public async saveSelection(sel: Selection): Promise<void> {
     await this.ensureReady();
     await this.sql!.query(
