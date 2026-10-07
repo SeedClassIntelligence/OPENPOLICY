@@ -525,6 +525,20 @@ app.post('/api/policy-documents/:documentId/corrections', async (req, res) => {
   }
 });
 
+app.post('/api/policy-documents/:documentId/verify', async (req, res) => {
+  try {
+    const ownerId = getAuthenticatedConsumerId(req);
+    if (req.body?.attested !== true) {
+      return res.status(400).json({ error:'CONSUMER_ATTESTATION_REQUIRED', message:'Explicit consumer attestation is required.' });
+    }
+    const result = await postgresStore.verifyPolicyDocumentEvidence({ ownerId, documentId:req.params.documentId });
+    res.json({ success:true, documentId:result.document.id, status:result.document.status,
+      policy:result.policy, baseline:result.baseline });
+  } catch (error:any) {
+    res.status(error.statusCode || 400).json({ error:'POLICY_VERIFICATION_FAILED', message:error.message });
+  }
+});
+
 app.get('/api/documents/samples', async (req, res) => {
   res.json(SAMPLE_DECLARATIONS_PAGES);
 });

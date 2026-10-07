@@ -85,6 +85,16 @@ test('classification, normalized facts, workflow status, and audit survive resta
       ownerId: pending.ownerId, documentId: pending.id, fieldPath: 'annualPremium', afterValue: 1195
     });
     assert.equal(correction.beforeValue, 1200);
+    for (const [fieldPath, afterValue] of [
+      ['vehicle.vin','1HGCM82633A004352'],['vehicle.year',2022],['vehicle.make','Honda'],['vehicle.model','Accord'],
+      ['vehicle.usage','COMMUTE'],['vehicle.annualMileage',10000],['vehicle.garagingZip','89101'],['vehicle.ownership','OWNED'],
+      ['coverage.bodilyInjury.perPersonLimit',100000],['coverage.bodilyInjury.perAccidentLimit',300000],
+      ['coverage.propertyDamage.propertyLimit',100000]
+    ] as const) await first.recordPolicyFieldCorrection({ ownerId:pending.ownerId,documentId:pending.id,fieldPath,afterValue });
+    const verified = await first.verifyPolicyDocumentEvidence({ ownerId:pending.ownerId,documentId:pending.id });
+    const retried = await first.verifyPolicyDocumentEvidence({ ownerId:pending.ownerId,documentId:pending.id });
+    assert.equal(retried.policy.id,verified.policy.id);
+    assert.equal(retried.baseline.id,verified.baseline.id);
     await first.close();
     const restarted = new PostgresStore(dataDir);
     const restored = await restarted.getPolicyDocumentExtraction(pending.ownerId, pending.id);
@@ -92,11 +102,14 @@ test('classification, normalized facts, workflow status, and audit survive resta
     assert.equal(restored?.extractionRunId, 'OCR-DURABLE');
     assert.equal(restored?.fields.find(field => field.fieldPath === 'annualPremium')?.value, 1200);
     const corrections = await restarted.getPolicyFieldCorrections(pending.ownerId, pending.id);
-    assert.equal(workflow?.status, 'CONSUMER_CORRECTED');
+    assert.equal(workflow?.status, 'BASELINE_CREATED');
     assert.equal(corrections[0]?.afterValue, 1195);
     assert.equal(restored?.fields.find(field => field.fieldPath === 'annualPremium')?.value, 1200);
     assert.equal(await restarted.getPolicyDocumentExtraction('other-owner', pending.id), undefined);
     assert.deepEqual(await restarted.getPolicyFieldCorrections('other-owner', pending.id), []);
+    const restoredVerified = await restarted.verifyPolicyDocumentEvidence({ ownerId:pending.ownerId,documentId:pending.id });
+    assert.equal(restoredVerified.policy.id,verified.policy.id);
+    assert.equal(restoredVerified.baseline.baselineAnnualPremium,1195);
     await restarted.close();
   } finally {
     await first.close();

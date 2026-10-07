@@ -32,6 +32,7 @@ const rules: RouteRule[] = [
   { methods: ['POST'], pattern: /^\/policy-documents\/ingest$/, roles: ['CONSUMER'] },
   { methods: ['POST'], pattern: /^\/policy-documents\/[^/]+\/(?:scan|extract)$/, roles: ['CONSUMER'] },
   { methods: ['GET', 'POST'], pattern: /^\/policy-documents\/[^/]+\/corrections$/, roles: ['CONSUMER'] },
+  { methods: ['POST'], pattern: /^\/policy-documents\/[^/]+\/verify$/, roles: ['CONSUMER'] },
   { methods: ['GET'], pattern: /^\/policy-documents\/[^/]+$/, roles: ['CONSUMER'] },
   { pattern: /^\/marketplace\/(?:vault\/|challenges\/[^/]+\/select-version|supplemental-facts\/[^/]+\/consent)/, roles: ['CONSUMER'] },
   { methods: ['POST'], pattern: /^\/marketplace\/competition\/[^/]+\/keep-current-policy$/, roles: ['CONSUMER'] },

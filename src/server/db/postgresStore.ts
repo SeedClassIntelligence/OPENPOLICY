@@ -2,6 +2,7 @@ import { PGlite } from '@electric-sql/pglite';
 import fs from 'fs';
 import pg from 'pg';
 import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8, SQL_MIGRATION_V9, SQL_MIGRATION_V10, SQL_MIGRATION_V11 } from './migrate';
+import { buildVerifiedPolicyAndBaseline } from '../../domain/policyEvidenceVerification';
 import {
   ProviderOrganization,
   ProviderUser,
@@ -551,6 +552,73 @@ export class PostgresStore {
        WHERE c.document_id=$1 AND d.owner_id=$2 ORDER BY c.corrected_at,c.id;`, [documentId, ownerId]
     );
     return result.rows.map(row => JSON.parse(row.payload) as PolicyFieldCorrection);
+  }
+
+  public async verifyPolicyDocumentEvidence(input: {
+    ownerId: string; documentId: string;
+  }): Promise<{ policy: Policy; baseline: CoverageBaseline; document: PolicyDocumentRecord }> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const documentResult = await client.query<{ payload: string }>(
+        `SELECT payload FROM policy_documents WHERE id=$1 AND owner_id=$2 FOR UPDATE;`,
+        [input.documentId, input.ownerId]
+      );
+      if (!documentResult.rows[0]) throw Object.assign(new Error('Policy document not found'), { statusCode: 404 });
+      const document = JSON.parse(documentResult.rows[0].payload) as PolicyDocumentRecord;
+      if (document.status === 'BASELINE_CREATED') {
+        const policyResult = await client.query<{ payload: string }>(
+          `SELECT payload FROM policies WHERE payload::jsonb->>'sourceDocumentId'=$1 LIMIT 1;`, [document.id]
+        );
+        if (!policyResult.rows[0]) throw new Error('Verified document is missing its durable policy.');
+        const policy = JSON.parse(policyResult.rows[0].payload) as Policy;
+        const baselineResult = await client.query<{ payload: string }>(
+          `SELECT payload FROM coverage_baselines WHERE policy_id=$1 AND version=1 LIMIT 1;`, [policy.id]
+        );
+        if (!baselineResult.rows[0]) throw new Error('Verified document is missing its durable baseline.');
+        return { policy, baseline: JSON.parse(baselineResult.rows[0].payload) as CoverageBaseline, document };
+      }
+      if (document.status !== 'READY_FOR_CONSUMER' && document.status !== 'CONSUMER_CORRECTED') {
+        throw Object.assign(new Error(`Document cannot be verified from status ${document.status}`), { statusCode: 409 });
+      }
+      const extractionResult = await client.query<{ payload: string }>(
+        `SELECT payload FROM policy_extraction_runs WHERE document_id=$1 ORDER BY completed_at DESC LIMIT 1 FOR UPDATE;`,
+        [document.id]
+      );
+      if (!extractionResult.rows[0]) throw Object.assign(new Error('Policy extraction not found'), { statusCode: 409 });
+      const normalization = JSON.parse(extractionResult.rows[0].payload) as PolicyNormalizationResult;
+      const correctionResult = await client.query<any>(
+        `SELECT * FROM policy_field_corrections WHERE document_id=$1 AND extraction_run_id=$2 ORDER BY corrected_at,id;`,
+        [document.id, normalization.extractionRunId]
+      );
+      const corrections: PolicyFieldCorrection[] = correctionResult.rows.map(row => ({
+        id:row.id,documentId:row.document_id,extractionRunId:row.extraction_run_id,ownerId:row.owner_id,
+        fieldPath:row.field_path,beforeValue:JSON.parse(row.before_value),afterValue:JSON.parse(row.after_value),
+        source:row.source,correctedAt:row.corrected_at
+      }));
+      const verifiedAt = new Date().toISOString();
+      const { policy, baseline } = buildVerifiedPolicyAndBaseline({
+        ownerId: input.ownerId, documentName: document.originalFileName, normalization, corrections, verifiedAt
+      });
+      await client.query(
+        `INSERT INTO policies (id,policy_number,carrier,jurisdiction,named_insured,effective_date,expiration_date,annual_premium,status,payload)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT(id) DO NOTHING;`,
+        [policy.id,policy.policyNumber,policy.carrier,policy.jurisdiction,policy.namedInsured,policy.effectiveDate,
+          policy.expirationDate,policy.annualPremium,policy.status,JSON.stringify(policy)]
+      );
+      await client.query(
+        `INSERT INTO coverage_baselines (id,policy_id,version,jurisdiction,verified_at,payload)
+         VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT(id) DO NOTHING;`,
+        [baseline.id,baseline.policyId,baseline.version,baseline.jurisdiction || null,baseline.verifiedAt,JSON.stringify(baseline)]
+      );
+      const updated: PolicyDocumentRecord = { ...document, status:'BASELINE_CREATED', updatedAt:verifiedAt };
+      await client.query(`UPDATE policy_documents SET status=$1,updated_at=$2,payload=$3 WHERE id=$4;`,
+        [updated.status,updated.updatedAt,JSON.stringify(updated),updated.id]);
+      await this.appendAuditInTransaction(client,{eventType:'POLICY_VERIFIED',actorRole:'CONSUMER',actorId:input.ownerId,
+        details:`Consumer verified evidence ${document.id} into policy ${policy.id}`});
+      await this.appendAuditInTransaction(client,{eventType:'BASELINE_CREATED',actorRole:'SYSTEM',actorId:'baseline_engine',
+        details:`Created immutable coverage baseline ${baseline.id} from verified evidence ${document.id}`});
+      return { policy, baseline, document:updated };
+    });
   }
 
   private generateAuditHash(value: string): string {
