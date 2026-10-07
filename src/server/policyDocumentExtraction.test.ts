@@ -80,7 +80,8 @@ test('classification, normalized facts, workflow status, and audit survive resta
         }]
       }; } }, repository: first
     });
-    assert.equal(committed.normalization.status, 'READY_FOR_CONSUMER');
+    assert.equal(committed.normalization.status, 'REVIEW_REQUIRED');
+    assert.ok(committed.normalization.criticalIssues.includes('Missing required field: vehicle.ownership'));
     const correction = await first.recordPolicyFieldCorrection({
       ownerId: pending.ownerId, documentId: pending.id, fieldPath: 'annualPremium', afterValue: 1195
     });

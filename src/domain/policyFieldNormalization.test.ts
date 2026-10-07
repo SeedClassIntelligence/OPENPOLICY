@@ -11,9 +11,14 @@ const ocr = (text: string) => ({
 test('normalizes bounded policy fields with page-level evidence and no invented values', () => {
   const result = normalizePolicyFields({ documentId: 'DOC-1', now: '2026-10-07T00:00:00Z', ocr: ocr([
     'Policy Number: ABC-12345', 'Insurance Company: Root Insurance Company', 'Named Insured: Jane Consumer',
-    'Policy State: NV', 'Effective Date: 10/05/2025', 'Expiration Date: 10/05/2026', 'Total Premium: $1,234.50'
+    'Policy State: NV', 'Effective Date: 10/05/2025', 'Expiration Date: 10/05/2026', 'Total Premium: $1,234.50',
+    'Year, Make, and Model:', '2022 Honda Accord', 'Annualized Mileage:', '10000', 'VIN:', '1HGCM82633A004352',
+    'Garaging Address ZIP Code:', '89106', 'Vehicle Usage:', 'commute',
+    'Bodily injury liability', '$100,000 each person', '$300,000 each accident',
+    'Property damage liability', '$100,000 each accident'
   ].join('\n')) });
-  assert.equal(result.status, 'READY_FOR_CONSUMER');
+  assert.equal(result.status, 'REVIEW_REQUIRED');
+  assert.ok(result.criticalIssues.includes('Missing required field: vehicle.ownership'));
   assert.equal(result.fields.find(field => field.fieldPath === 'annualPremium')?.value, 1234.5);
   assert.equal(result.fields.find(field => field.fieldPath === 'effectiveDate')?.value, '2025-10-05');
   assert.ok(result.fields.every(field => field.evidence.pageNumber === 3 && field.evidence.verifiedByConsumer === false));
@@ -61,5 +66,7 @@ test('extracts declarations and application facts from a full Root policy withou
   assert.equal(values['coverage.bodilyInjury.perPersonLimit'], 25000);
   assert.equal(values['coverage.bodilyInjury.perAccidentLimit'], 50000);
   assert.equal(values['coverage.propertyDamage.propertyLimit'], 20000);
+  assert.ok(result.criticalIssues.includes('Missing required field: vehicle.ownership'));
+  assert.equal(result.status, 'REVIEW_REQUIRED');
   assert.equal(result.fields.find(field => field.fieldPath === 'carrier')?.evidence.pageNumber, 1);
 });
