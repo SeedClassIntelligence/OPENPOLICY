@@ -57,6 +57,7 @@ import {
   CompetitionActivityEvent,
   RoundDeadlineStatus,
   CompetitionEvaluationSummary
+  ,PolicyNormalizationResult
 } from '../types/insurance';
 import { SAMPLE_DECLARATIONS_PAGES } from '../domain/policyIntelligence';
 import { compareOfferAgainstBaseline, formatClassification } from '../domain/comparisonEngine';
@@ -110,6 +111,10 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
   const [triggeringFinalRound, setTriggeringFinalRound] = useState<boolean>(false);
   const [triggeringIncumbent, setTriggeringIncumbent] = useState<boolean>(false);
   const [actionToast, setActionToast] = useState<string | null>(null);
+  const [realDocumentId, setRealDocumentId] = useState<string | null>(null);
+  const [realNormalization, setRealNormalization] = useState<PolicyNormalizationResult | null>(null);
+  const [documentProcessing, setDocumentProcessing] = useState<string | null>(null);
+  const [documentProcessingError, setDocumentProcessingError] = useState<string | null>(null);
 
   const fetchVaultDocs = async () => {
     try {
@@ -458,6 +463,36 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
     if (data.success) {
       setActivePolicy(data.policy);
       setCurrentStep('VERIFY_POLICY');
+    }
+  };
+
+  const handleRealPolicyUpload = async (file?: File) => {
+    if (!file) return;
+    setDocumentProcessingError(null);
+    setRealNormalization(null);
+    try {
+      setDocumentProcessing('Uploading immutable policy evidence…');
+      const ingest = await apiFetch('/api/policy-documents/ingest', {
+        method:'POST', headers:{'Content-Type':'application/pdf','X-Document-Filename':file.name,
+          'Idempotency-Key':crypto.randomUUID()}, body:file
+      });
+      const ingested = await ingest.json();
+      if (!ingest.ok) throw new Error(ingested.message || ingested.error || 'Upload failed');
+      const documentId = ingested.document.id;
+      setRealDocumentId(documentId);
+      setDocumentProcessing('Scanning policy evidence for malware…');
+      const scan = await apiFetch(`/api/policy-documents/${documentId}/scan`, {method:'POST'});
+      const scanned = await scan.json();
+      if (!scan.ok || scanned.malwareStatus !== 'CLEAN') throw new Error(scanned.message || 'Document did not receive a CLEAN scan disposition');
+      setDocumentProcessing('Extracting policy evidence with Document AI…');
+      const extract = await apiFetch(`/api/policy-documents/${documentId}/extract`, {method:'POST'});
+      const extracted = await extract.json();
+      if (!extract.ok) throw new Error(extracted.message || extracted.error || 'Extraction failed');
+      setRealNormalization(extracted.normalization);
+      setDocumentProcessing(null);
+    } catch (error:any) {
+      setDocumentProcessing(null);
+      setDocumentProcessingError(error?.message || 'Document processing failed');
     }
   };
 
@@ -981,11 +1016,44 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                   type="file" 
                   className="hidden" 
                   accept=".pdf,.png,.jpg,.jpeg"
-                  onChange={() => handleSelectSample('DOC-NV-49281')} 
+                  onChange={event => handleRealPolicyUpload(event.target.files?.[0])}
                 />
               </label>
             </div>
           </div>
+
+          {(documentProcessing || documentProcessingError || realNormalization) && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-5 space-y-3">
+              {documentProcessing && <p className="text-sm font-semibold text-blue-700">{documentProcessing}</p>}
+              {documentProcessingError && <p className="text-sm font-semibold text-red-700">{documentProcessingError}</p>}
+              {realNormalization && (
+                <>
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-bold text-slate-900">Real policy extraction complete</p>
+                      <p className="text-xs text-slate-500 font-mono">Evidence {realDocumentId}</p>
+                    </div>
+                    <span className={`text-xs font-bold px-2 py-1 rounded ${realNormalization.status === 'READY_FOR_CONSUMER' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>{realNormalization.status.replace(/_/g,' ')}</span>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    {realNormalization.fields.map(field => (
+                      <div key={field.fieldPath} className="bg-white border border-slate-200 rounded p-3">
+                        <p className="text-[11px] uppercase text-slate-500">{field.fieldPath}</p>
+                        <p className="text-sm font-semibold text-slate-900 break-words">{String(field.value)}</p>
+                        <p className="text-[11px] text-blue-700">Page {field.evidence.pageNumber} · {Math.round(field.confidence*100)}% confidence</p>
+                      </div>
+                    ))}
+                  </div>
+                  {realNormalization.criticalIssues.length > 0 && (
+                    <div className="bg-amber-50 border border-amber-200 rounded p-3">
+                      <p className="text-xs font-bold text-amber-900">Consumer confirmation required</p>
+                      {realNormalization.criticalIssues.map(issue => <p key={issue} className="text-xs text-amber-800">• {issue}</p>)}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
 
           {/* Sample Policies for Instant Demonstration */}
           <div className="pt-4 border-t border-slate-100">

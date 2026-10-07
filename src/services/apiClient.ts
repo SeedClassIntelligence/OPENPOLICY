@@ -53,7 +53,9 @@ export async function executeAuthenticatedFetch(
 export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
   return executeAuthenticatedFetch(input, init, {
     user: auth.currentUser,
-    fetchImpl: fetch,
+    // Window.fetch requires its Window receiver in Chromium. Passing the bare method
+    // through the injectable boundary causes an Illegal invocation in production.
+    fetchImpl: window.fetch.bind(window),
     signOutUser: () => signOut(auth),
     requireReauthentication: () => window.dispatchEvent(new CustomEvent(REAUTH_REQUIRED_EVENT))
   });
