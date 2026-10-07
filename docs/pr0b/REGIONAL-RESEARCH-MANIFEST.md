@@ -5,17 +5,17 @@
 
 Research input: `docs/pr0b/DEEP-RESEARCH-RECONCILIATION.md`.
 
-PR-0B proceeds by complete regional cohorts rather than by selecting scattered states. Nevada remains Wave 0 solely to calibrate the research, evidence-capture, reconciliation, and independent-verification method. After that approval gate, research proceeds West Coast, East Coast, South, then North.
+PR-0B proceeds by complete regional cohorts rather than by selecting scattered states. Nevada remains Wave 0 solely to calibrate the research, evidence-capture, reconciliation, and independent-verification method. After that approval gate, rollout proceeds through the West remainder, Midwest, South, then Northeast.
 
 The operational cohort names below map to the four-region membership used by the completed PR-0B research reconciliation. The names control scheduling, not legal applicability.
 
 | Order | Open Policy cohort | Membership basis | Jurisdictions | Count |
 |---:|---|---|---|---:|
 | 0 | Nevada calibration | Nevada separated from its normal Western cohort | NV | 1 |
-| 1 | West Coast | Remaining West | AK, AZ, CA, CO, HI, ID, MT, NM, OR, UT, WA, WY | 12 |
-| 2 | East Coast | Northeast | CT, ME, MA, NH, NJ, NY, PA, RI, VT | 9 |
+| 1 | West remainder | Remaining West | AK, AZ, CA, CO, HI, ID, MT, NM, OR, UT, WA, WY | 12 |
+| 2 | Midwest | Midwest | IL, IN, IA, KS, MI, MN, MO, NE, ND, OH, SD, WI | 12 |
 | 3 | South | South, including the District of Columbia | AL, AR, DE, DC, FL, GA, KY, LA, MD, MS, NC, OK, SC, TN, TX, VA, WV | 17 |
-| 4 | North | Midwest | IL, IN, IA, KS, MI, MN, MO, NE, ND, OH, SD, WI | 12 |
+| 4 | Northeast | Northeast | CT, ME, MA, NH, NJ, NY, PA, RI, VT | 9 |
 |  | **Total** | Every state and D.C. exactly once |  | **51** |
 
 ## Required manifest invariants
@@ -24,8 +24,14 @@ The operational cohort names below map to the four-region membership used by the
 - Every entry is unique and belongs to the canonical `US_JURISDICTIONS` set.
 - No canonical U.S. jurisdiction is missing.
 - Nevada occurs exactly once and is excluded from the post-calibration West Coast cohort.
-- California is part of the West Coast cohort.
-- Ohio is part of the North cohort; it is not a standalone follow-up to Nevada.
+- California is part of the West remainder cohort.
+- Ohio is part of the Midwest cohort; it is not a standalone follow-up to Nevada.
+
+## Rollout availability is not production authorization
+
+The canonical application configuration keeps every jurisdiction present at all times. Wave 0 Nevada is enabled, Wave 1 West remainder is unlocked for rollout and onboarding work, and Waves 2 through 4 are locked until an explicit configuration/governance action changes their rollout state.
+
+These rollout states do not verify law and do not authorize insurance transactions. Production authority remains jurisdiction-specific and fail-closed through the existing PR-0A regulatory readiness, provider/licensing, operational-gate, and market-activation records. An unlocked jurisdiction with no qualifying PRODUCTION activation history remains `INACTIVE`.
 
 ## Per-jurisdiction lifecycle
 

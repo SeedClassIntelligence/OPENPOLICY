@@ -41,6 +41,7 @@ import {
 } from 'lucide-react';
 import { ActivePerspective } from './Header';
 import { useAuth } from '../context/AuthContext';
+import { JurisdictionSelectOptions } from './JurisdictionSelectOptions';
 
 interface LandingPageProps {
   onNavigateConsumer: () => void;
@@ -927,12 +928,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                       onChange={(e) => setLandingConsumerState(e.target.value)}
                       className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-emerald-500"
                     >
-                      <option value="NV">Nevada (NV)</option>
-                      <option value="CA">California (CA)</option>
-                      <option value="AZ">Arizona (AZ)</option>
-                      <option value="OH">Ohio (OH)</option>
-                      <option value="TX">Texas (TX)</option>
-                      <option value="FL">Florida (FL)</option>
+                      <JurisdictionSelectOptions />
                     </select>
                   </div>
 
@@ -1097,12 +1093,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                       onChange={(e) => setLandingProviderState(e.target.value)}
                       className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-blue-500"
                     >
-                      <option value="NV">Nevada (NV)</option>
-                      <option value="CA">California (CA)</option>
-                      <option value="AZ">Arizona (AZ)</option>
-                      <option value="OH">Ohio (OH)</option>
-                      <option value="TX">Texas (TX)</option>
-                      <option value="FL">Florida (FL)</option>
+                      <JurisdictionSelectOptions />
                     </select>
                   </div>
 
