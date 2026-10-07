@@ -26,3 +26,40 @@ test('fails closed to review when critical fields are absent', () => {
   assert.ok(result.criticalIssues.includes('Missing required field: carrier'));
   assert.equal(result.fields.some(field => field.fieldPath === 'carrier'), false);
 });
+
+test('extracts declarations and application facts from a full Root policy without drifting into contract text', () => {
+  const page = (pageNumber: number, text: string) => ({
+    pageNumber, text, regions: [{ textStart: 0, textEnd: text.length, confidence: .99, normalizedVertices: [] }]
+  });
+  const result = normalizePolicyFields({ documentId: 'DOC-ROOT', ocr: {
+    ...ocr(''), pages: [
+      page(1, [
+        'Underwritten by', 'Root Property & Casualty Insurance Company', 'Named insured', 'Madelyn Rhodes',
+        '2015 Hyundai Sonata (5NPE24AF2FH197646)', 'Policy number M9M4K7',
+        'Your coverage begins on September 27, 2026 at 12:01am PDT. It expires on March 27, 2027 at 12:01am PDT.'
+      ].join('\n')),
+      page(2, 'Total premium (including fees)\n$1,630.00'),
+      page(25, 'If a carrier denies coverage; or\n1. Court costs of any suit for damages.'),
+      page(65, [
+        'Garaging State:', 'NV', 'Year, Make, and Model:', '2015 Hyundai Sonata', 'Annualized Mileage:', '11125',
+        'VIN:', '5NPE24AF2FH197646', 'Garaging Address ZIP Code:', '89106', 'Vehicle Usage:', 'commute',
+        'Bodily injury liability', '$25,000 each person', '$50,000 each accident',
+        'Property damage liability', '$20,000 each accident'
+      ].join('\n'))
+    ]
+  } });
+  const values = Object.fromEntries(result.fields.map(field => [field.fieldPath, field.value]));
+  assert.equal(values.carrier, 'Root Property & Casualty Insurance Company');
+  assert.equal(values.namedInsured, 'Madelyn Rhodes');
+  assert.equal(values.effectiveDate, '2026-09-27');
+  assert.equal(values.expirationDate, '2027-03-27');
+  assert.equal(values.annualPremium, 1630);
+  assert.equal(values['vehicle.vin'], '5NPE24AF2FH197646');
+  assert.equal(values['vehicle.make'], 'Hyundai');
+  assert.equal(values['vehicle.model'], 'Sonata');
+  assert.equal(values['vehicle.annualMileage'], 11125);
+  assert.equal(values['coverage.bodilyInjury.perPersonLimit'], 25000);
+  assert.equal(values['coverage.bodilyInjury.perAccidentLimit'], 50000);
+  assert.equal(values['coverage.propertyDamage.propertyLimit'], 20000);
+  assert.equal(result.fields.find(field => field.fieldPath === 'carrier')?.evidence.pageNumber, 1);
+});
