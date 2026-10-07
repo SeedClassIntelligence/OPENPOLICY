@@ -83,6 +83,10 @@ import {
 } from './src/domain/commercialEconomicsEngine';
 import { CloudPolicyDocumentStore } from './src/server/documentObjectStore';
 import { ingestPolicyDocument } from './src/server/policyDocumentIngestion';
+import { CloudMalwareScanProvider } from './src/server/cloudMalwareScanProvider';
+import { scanPolicyDocument } from './src/server/malwareDisposition';
+import { DocumentAiOcrProvider } from './src/server/documentAiOcrProvider';
+import { extractAndClassifyPolicyDocument } from './src/server/policyDocumentExtraction';
 
 export const app = express();
 const DEFAULT_PORT = Number(process.env.PORT) || 3000;
@@ -110,6 +114,18 @@ let policyDocumentObjectStore: CloudPolicyDocumentStore | undefined;
 function getPolicyDocumentObjectStore(): CloudPolicyDocumentStore {
   policyDocumentObjectStore ||= new CloudPolicyDocumentStore();
   return policyDocumentObjectStore;
+}
+
+let malwareScanProvider: CloudMalwareScanProvider | undefined;
+function getMalwareScanProvider(): CloudMalwareScanProvider {
+  malwareScanProvider ||= new CloudMalwareScanProvider();
+  return malwareScanProvider;
+}
+
+let documentAiOcrProvider: DocumentAiOcrProvider | undefined;
+function getDocumentAiOcrProvider(): DocumentAiOcrProvider {
+  documentAiOcrProvider ||= new DocumentAiOcrProvider();
+  return documentAiOcrProvider;
 }
 
 // Provider and consumer identity is attached by verified Firebase ID token.
@@ -433,6 +449,55 @@ app.get('/api/policy-documents/:documentId', async (req, res) => {
     });
   } catch (error: any) {
     res.status(error.statusCode || 403).json({ error: error.message });
+  }
+});
+
+app.post('/api/policy-documents/:documentId/scan', async (req, res) => {
+  try {
+    const ownerId = getAuthenticatedConsumerId(req);
+    const document = await postgresStore.getPolicyDocument(ownerId, req.params.documentId);
+    if (!document) return res.status(404).json({ error: 'Policy document not found' });
+    const scanned = await scanPolicyDocument({
+      document,
+      provider: getMalwareScanProvider(),
+      repository: postgresStore
+    });
+    res.json({
+      id: scanned.id,
+      status: scanned.status,
+      malwareStatus: scanned.malwareStatus,
+      malwareScanner: scanned.malwareScanner,
+      malwareScannerVersion: scanned.malwareScannerVersion,
+      malwareScannedAt: scanned.malwareScannedAt,
+      updatedAt: scanned.updatedAt
+    });
+  } catch (error: any) {
+    res.status(error.statusCode || 503).json({ error: 'DOCUMENT_SCAN_FAILED', message: error.message });
+  }
+});
+
+app.post('/api/policy-documents/:documentId/extract', async (req, res) => {
+  try {
+    const ownerId = getAuthenticatedConsumerId(req);
+    const document = await postgresStore.getPolicyDocument(ownerId, req.params.documentId);
+    if (!document) return res.status(404).json({ error: 'Policy document not found' });
+    const result = await extractAndClassifyPolicyDocument({
+      document,
+      objectReader: getPolicyDocumentObjectStore(),
+      ocrProvider: getDocumentAiOcrProvider(),
+      repository: postgresStore
+    });
+    res.json({
+      documentId: document.id,
+      extractionRunId: result.ocr.runId,
+      extractor: result.ocr.extractor,
+      extractorVersion: result.ocr.extractorVersion,
+      processedAt: result.ocr.processedAt,
+      pageCount: result.ocr.pages.length,
+      classification: result.classification
+    });
+  } catch (error: any) {
+    res.status(error.statusCode || 503).json({ error: 'DOCUMENT_EXTRACTION_FAILED', message: error.message });
   }
 });
 

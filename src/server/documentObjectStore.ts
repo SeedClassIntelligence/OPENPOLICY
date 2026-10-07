@@ -1,4 +1,5 @@
 import { Storage } from '@google-cloud/storage';
+import crypto from 'crypto';
 
 export interface StoredDocumentObject {
   bucket: string;
@@ -64,5 +65,13 @@ export class CloudPolicyDocumentStore implements DocumentObjectStore {
     const [metadata] = await file.getMetadata();
     if (metadata.metadata?.sha256 !== sha256 || !metadata.generation) return undefined;
     return { bucket: this.bucketName, objectName, generation: String(metadata.generation) };
+  }
+
+  async readQuarantinedPdf(objectName: string, generation: string, sha256: string): Promise<Buffer> {
+    const file = this.storage.bucket(this.bucketName).file(objectName, { generation });
+    const [bytes] = await file.download({ validation: 'crc32c' });
+    const actualHash = crypto.createHash('sha256').update(bytes).digest('hex');
+    if (actualHash !== sha256) throw new Error('Stored document bytes do not match the committed SHA-256.');
+    return bytes;
   }
 }
