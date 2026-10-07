@@ -236,10 +236,9 @@ Local evidence on 2026-10-07:
 
 ### Remaining external acceptance boundary
 
-The complete product gate is not yet closed. Candidate `3f4176e` still requires live
-execution of the real Root policy through authenticated ingestion, scan, OCR,
-normalization, correction where required, explicit attestation, policy creation, and
-immutable baseline verification before traffic promotion.
+The authenticated real-document workflow is now complete on zero-traffic candidate
+`dfa2873`. Traffic promotion, post-promotion observation, and a release decision remain
+separate controlled actions and were not inferred from document acceptance.
 
 Retention, deletion, and consumer-export periods remain founder decisions. No legal
 retention period or destructive lifecycle rule was inferred during activation.
@@ -253,13 +252,47 @@ Exact application commit `3f4176e` was deployed to authorized project
 The candidate tagged URL returned HTTP 200 from `/api/health` and HTTP 401 for
 anonymous policy-document access.
 
-Authenticated live-document execution is not yet complete. A temporary Firebase
-consumer and matching Firestore profile were created twice and removed after each
-attempt. Firebase Identity Toolkit rejected both server-side email/password sign-in
-attempts with HTTP 403, including one carrying the authorized candidate Origin and
-Referer. No API-key restriction was weakened, no reusable credential was retained,
-and no document upload reached the candidate during these attempts. Live acceptance
-therefore requires an interactive browser sign-in from an authorized Firebase origin
-or another approved token-acquisition path that preserves the existing API-key
-restriction. Traffic promotion remains prohibited until that authenticated workflow
-and consumer-confirmed corrections complete successfully.
+That original candidate exposed browser integration and field-normalization defects
+during real acceptance. The defects were repaired without broadening authentication,
+storage, or marketplace architecture. The final application commit is `dfa2873`,
+deployed as Ready revision `openpolicy-acceptance-docintel-ocrmap`, tagged
+`docintel-candidate`, with **0% traffic**. Normal traffic remains 100% on
+`openpolicy-acceptance-persist-ac6d39e`.
+
+## Authenticated live-document acceptance — 2026-10-07
+
+An authenticated Firebase consumer submitted the authorized 66-page Root policy
+through the browser UI. The workflow proved the following production boundaries:
+
+- immutable PDF ingestion returned HTTP 201;
+- the private ClamAV scanner classified the exact 957,469-byte object `CLEAN` and
+  moved it from scan input to the clean bucket;
+- Document AI processed all 66 pages;
+- the normalizer extracted the policy number, carrier, named insured, jurisdiction,
+  policy effective and expiration dates, total premium, vehicle identity, year,
+  make/model, usage, annualized mileage, garaging ZIP, bodily-injury limits, and
+  property-damage limit with page-level provenance;
+- the policy dates were derived from the declarations sentence stating when coverage
+  begins and expires, rather than entered as acceptance fixtures;
+- the provider's column-interleaved OCR layout was handled through a bounded
+  declarations-block mapping: the unique per-person amount, first following
+  per-accident amount, and second per-accident amount mapped to bodily-injury
+  per-person, bodily-injury per-accident, and property damage respectively;
+- the workflow remained `REVIEW_REQUIRED` for the one fact not present in policy
+  evidence: vehicle ownership;
+- the consumer supplied `OWNED`, reviewed all displayed facts, and performed the
+  explicit attestation action;
+- the correction requests returned HTTP 201 and verification returned HTTP 200;
+- PostgreSQL committed verified policy `POL-1b147293b2a6c421874d9112` and immutable
+  version-one baseline `BL-622cf1fcd30f7c59cc111cff`;
+- the UI reported `Your verified coverage baseline is durable and ready` only after
+  the successful verification response;
+- the candidate log review showed no application error for the committed workflow.
+
+The defects found through this live run are permanently covered by the full-policy
+normalization regression. Current focused evidence is document intelligence **38/38**,
+authorization **33/33**, TypeScript pass, and production client/server build pass.
+No private key, bearer token, OCR text corpus, document bytes, or reusable test
+credential was committed or recorded in this acceptance report.
+
+Traffic promotion and merge remain unauthorized by this report.
