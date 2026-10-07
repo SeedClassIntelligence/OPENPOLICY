@@ -1,15 +1,17 @@
-import type { PolicyDocumentClassificationResult, PolicyDocumentRecord } from '../types/insurance';
+import type { PolicyDocumentClassificationResult, PolicyDocumentRecord, PolicyNormalizationResult } from '../types/insurance';
 import { classifyCleanPolicyDocument } from '../domain/documentClassification';
 import type { DocumentAiOcrProvider, ProviderNeutralOcrDocument } from './documentAiOcrProvider';
 import { normalizePolicyFields } from '../domain/policyFieldNormalization';
-import type { PolicyNormalizationResult } from '../types/insurance';
 
 export interface ExactDocumentReader {
   readQuarantinedPdf(objectName: string, generation: string, sha256: string): Promise<Buffer>;
 }
 
 export interface PolicyDocumentClassificationRepository {
-  commitPolicyDocumentClassification(classification: PolicyDocumentClassificationResult): Promise<PolicyDocumentClassificationResult>;
+  commitPolicyDocumentExtraction(
+    classification: PolicyDocumentClassificationResult,
+    normalization: PolicyNormalizationResult
+  ): Promise<{ classification: PolicyDocumentClassificationResult; normalization: PolicyNormalizationResult }>;
 }
 
 export async function extractAndClassifyPolicyDocument(input: {
@@ -39,7 +41,7 @@ export async function extractAndClassifyPolicyDocument(input: {
     pages: ocr.pages.map(page => ({ pageNumber: page.pageNumber, text: page.text })),
     classifierVersion: '1.0.0'
   });
-  const classification = await input.repository.commitPolicyDocumentClassification(proposed);
   const normalization = normalizePolicyFields({ documentId: input.document.id, ocr });
-  return { ocr, classification, normalization };
+  const committed = await input.repository.commitPolicyDocumentExtraction(proposed, normalization);
+  return { ocr, ...committed };
 }

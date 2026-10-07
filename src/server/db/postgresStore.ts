@@ -37,7 +37,8 @@ import {
   ReviewQueueStatus,
   VaultDocument,
   PolicyDocumentRecord,
-  PolicyDocumentClassificationResult
+  PolicyDocumentClassificationResult,
+  PolicyNormalizationResult
 } from '../../types/insurance';
 
 export interface SqlClient {
@@ -395,6 +396,95 @@ export class PostgresStore {
       });
       return classification;
     });
+  }
+
+  public async commitPolicyDocumentExtraction(
+    classification: PolicyDocumentClassificationResult,
+    normalization: PolicyNormalizationResult
+  ): Promise<{ classification: PolicyDocumentClassificationResult; normalization: PolicyNormalizationResult }> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const result = await client.query<{ payload: string }>(
+        `SELECT payload FROM policy_documents WHERE id=$1 FOR UPDATE;`, [classification.documentId]
+      );
+      if (!result.rows[0]) throw new Error('Policy document not found');
+      const document = JSON.parse(result.rows[0].payload) as PolicyDocumentRecord;
+      const identityMatches = document.id === normalization.documentId &&
+        document.objectGeneration === classification.documentGeneration &&
+        document.objectGeneration === normalization.documentGeneration &&
+        document.sha256 === classification.sourceSha256 &&
+        document.sha256 === normalization.sourceSha256;
+      if (document.malwareStatus !== 'CLEAN' || !identityMatches) {
+        throw new Error('Extraction requires matching immutable evidence with a CLEAN security disposition.');
+      }
+      const existingRun = await client.query<{ payload: string }>(
+        `SELECT payload FROM policy_extraction_runs
+         WHERE document_id=$1 AND document_generation=$2 AND extractor=$3 AND extractor_version=$4;`,
+        [normalization.documentId, normalization.documentGeneration, normalization.normalizer, normalization.normalizerVersion]
+      );
+      const existingClassification = await client.query<{ payload: string }>(
+        `SELECT payload FROM policy_document_classifications
+         WHERE document_id=$1 AND document_generation=$2 AND classifier=$3 AND classifier_version=$4;`,
+        [classification.documentId, classification.documentGeneration, classification.classifier, classification.classifierVersion]
+      );
+      if (existingRun.rows[0] && existingClassification.rows[0]) {
+        return {
+          classification: JSON.parse(existingClassification.rows[0].payload) as PolicyDocumentClassificationResult,
+          normalization: JSON.parse(existingRun.rows[0].payload) as PolicyNormalizationResult
+        };
+      }
+      if (existingRun.rows[0] || existingClassification.rows[0]) {
+        throw new Error('Incomplete prior extraction commit detected; refusing to manufacture a mixed result.');
+      }
+      await client.query(
+        `INSERT INTO policy_document_classifications (
+          id,document_id,document_generation,source_sha256,classification,confidence,classifier,
+          classifier_version,requires_review,classified_at,payload
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11);`,
+        [classification.id, classification.documentId, classification.documentGeneration,
+          classification.sourceSha256, classification.classification, classification.confidence,
+          classification.classifier, classification.classifierVersion, classification.requiresReview,
+          classification.classifiedAt, JSON.stringify(classification)]
+      );
+      await client.query(
+        `INSERT INTO policy_extraction_runs (
+          id,document_id,document_generation,extractor,extractor_version,status,critical_issues,
+          created_at,completed_at,payload
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10);`,
+        [normalization.extractionRunId, normalization.documentId, normalization.documentGeneration,
+          normalization.normalizer, normalization.normalizerVersion, normalization.status,
+          JSON.stringify(normalization.criticalIssues), normalization.normalizedAt, normalization.normalizedAt,
+          JSON.stringify(normalization)]
+      );
+      const updated: PolicyDocumentRecord = {
+        ...document,
+        status: normalization.status,
+        updatedAt: normalization.normalizedAt
+      };
+      await client.query(
+        `UPDATE policy_documents SET status=$1,updated_at=$2,payload=$3 WHERE id=$4;`,
+        [updated.status, updated.updatedAt, JSON.stringify(updated), updated.id]
+      );
+      await this.appendAuditInTransaction(client, {
+        eventType: 'POLICY_DOCUMENT_EXTRACTED', actorRole: 'SYSTEM', actorId: normalization.normalizer,
+        details: `Committed evidence-bound extraction ${normalization.extractionRunId} for ${normalization.documentId} with status ${normalization.status}`
+      });
+      return { classification, normalization };
+    });
+  }
+
+  public async getPolicyDocumentExtraction(
+    ownerId: string,
+    documentId: string
+  ): Promise<PolicyNormalizationResult | undefined> {
+    await this.ensureReady();
+    const result = await this.sql!.query<{ payload: string }>(
+      `SELECT r.payload FROM policy_extraction_runs r
+       JOIN policy_documents d ON d.id=r.document_id
+       WHERE r.document_id=$1 AND d.owner_id=$2 ORDER BY r.completed_at DESC LIMIT 1;`,
+      [documentId, ownerId]
+    );
+    return result.rows[0] ? JSON.parse(result.rows[0].payload) as PolicyNormalizationResult : undefined;
   }
 
   private generateAuditHash(value: string): string {
