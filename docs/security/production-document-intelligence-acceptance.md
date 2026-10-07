@@ -10,6 +10,8 @@
 - Initial disposition: **NOT READY — REAL DOCUMENT PATH NOT IMPLEMENTED**
 - External-service activation disposition (2026-10-07):
   **READY — REAL EXTRACTION IMPLEMENTATION**
+- Local implementation candidate (2026-10-07): `3f4176e`
+- Local implementation disposition: **READY FOR ZERO-TRAFFIC EXTERNAL ACCEPTANCE**
 
 ## Founder-authorized objective
 
@@ -195,15 +197,49 @@ endorsement, policy-contract, definitions, exclusions, and total-premium indicat
 No extracted names, policy numbers, addresses, VINs, OCR text, tokens, or document
 bytes were written to this report.
 
-### Remaining implementation boundary
+## Local implementation acceptance — `3f4176e`
 
-External services are real and independently proven, but the complete product gate is
-not yet closed. The next bounded implementation must connect the authenticated durable
-ingestion workflow to the scan-input/clean/malicious disposition, invoke Document AI
-against the exact clean generation, translate the real provider response into a
-provider-neutral OCR representation, normalize insurance-field candidates with
-field-level provenance and confidence, and complete consumer correction, verification,
-policy creation, and immutable-baseline acceptance.
+The authenticated application path now connects immutable upload evidence to the
+external scanner, exact-generation Document AI OCR, provider-neutral page/region
+provenance, bounded field normalization, append-only consumer correction, explicit
+consumer attestation, verified policy creation, and immutable version-one baseline
+creation. Classification and normalization commit atomically with workflow state and
+audit evidence. Verification commits the policy, baseline, final document state, and
+both required audit events in one PostgreSQL transaction.
+
+No caller-supplied policy object is accepted by the new verification route. The
+consumer may correct only an explicit insurance-field allowlist. Ownership, workflow
+state, confidence, object identity, extraction identity, policy identifiers, baseline
+identifiers, and audit identity remain server-controlled. Missing vehicle or core
+liability facts return a validation failure instead of receiving invented defaults.
+Verification identifiers are deterministic for the document/extraction/owner tuple,
+and retry acceptance proved the same policy and baseline are returned without
+duplicates. Restart acceptance proved that original observations, corrections,
+verified policy, baseline, ownership, and final workflow state continue from
+PostgreSQL after an empty process restart. The corrected premium became baseline truth
+while the original machine observation remained unchanged.
+
+Local evidence on 2026-10-07:
+
+- document-intelligence suite: **37/37**;
+- authorization suite: **33/33**;
+- adversarial HTTP probes: **19/19**;
+- TypeScript: pass;
+- production client and server builds: pass (existing bundle-size and ineffective
+  dynamic-import warnings remain non-blocking performance debt);
+- fresh detached checkout of exact `3f4176e`: clean `npm ci` installed 371 packages,
+  TypeScript passed, and production client/server builds passed;
+- canonical validator aggregate: **all 11 suites pass** — PM-1 57/57, PM-2 45/45,
+  PM-3 34/34, PM-4 60/60, PM-5 89/89, Commercial Economics aggregate green,
+  CE-3 135/135, CE-4 38/38, CE-5 42/42, semantic corrections 13/13, and
+  PR-0A 180/180.
+
+### Remaining external acceptance boundary
+
+The complete product gate is not yet closed. Candidate `3f4176e` still requires an
+exact-revision zero-traffic deployment to `openpolicy-35f82` and live execution of the real Root policy through authenticated
+ingestion, scan, OCR, normalization, correction where required, explicit attestation,
+policy creation, and immutable baseline verification before traffic promotion.
 
 Retention, deletion, and consumer-export periods remain founder decisions. No legal
 retention period or destructive lifecycle rule was inferred during activation.
