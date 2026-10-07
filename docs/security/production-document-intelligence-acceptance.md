@@ -150,14 +150,16 @@ The external document boundary was activated in the authorized project
   `Open Policy Evidence OCR`, type `OCR_PROCESSOR`, location `us`, state
   `ENABLED`.
 - Malware scanner: private Cloud Run service `openpolicy-malware-scanner`,
-  verified revision `openpolicy-malware-scanner-00002-t2p`, running Google's
+  verified revision `openpolicy-malware-scanner-00003-fvr`, running Google's
   `gcs-malware-scanner` 3.6.0 with ClamAV 1.5.3. It scales to zero and is capped
   at one instance.
 - Eventarc trigger: `openpolicy-scan-input-finalized` invokes the scanner for
   finalized objects in the private scan-input bucket.
 - Signature maintenance: private CVD mirror seeded through `cvdupdate` 1.2.0;
   Cloud Scheduler job `openpolicy-malware-scanner-mirror-update` is enabled on
-  `17 */2 * * *` UTC.
+  `17 */2 * * *` UTC. A manual scheduler acceptance invocation completed with
+  HTTP 200 after confirming main version 63, daily version 28146, and bytecode
+  version 339 were current and writing regenerated Linux mirror metadata.
 
 The application runtime retains `roles/documentai.apiUser`. The dedicated scanner
 identity has only its scanner-bucket object permissions, bucket metadata read needed
