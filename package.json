@@ -15,7 +15,7 @@
     "test:onboarding": "node --import tsx --test src/auth/roleAccess.test.ts src/server/auth/requestIdentity.test.ts src/server/auth/routeAuthorization.test.ts src/server/db/postgresStore.test.ts",
     "test:authorization": "node --import tsx --test src/server/auth/requestIdentity.test.ts src/server/auth/routeAuthorization.test.ts src/server/auth/notificationAuthorization.test.ts src/server/db/postgresStore.test.ts src/services/apiClient.test.ts src/services/firestoreSecurity.test.ts",
     "test:security-http": "tsx scripts/security-http-probes.ts",
-    "test:document-intelligence": "node --import tsx --test src/domain/documentIntelligence.test.ts src/domain/documentClassification.test.ts src/domain/policyFieldNormalization.test.ts src/domain/policyFieldCorrection.test.ts src/server/policyDocumentIngestion.test.ts src/server/malwareDisposition.test.ts src/server/cloudMalwareScanProvider.test.ts src/server/documentAiOcrProvider.test.ts src/server/policyDocumentExtraction.test.ts"
+    "test:document-intelligence": "node --import tsx --test src/domain/documentIntelligence.test.ts src/domain/documentClassification.test.ts src/domain/policyFieldNormalization.test.ts src/domain/policyFieldCorrection.test.ts src/domain/policyEvidenceVerification.test.ts src/server/policyDocumentIngestion.test.ts src/server/malwareDisposition.test.ts src/server/cloudMalwareScanProvider.test.ts src/server/documentAiOcrProvider.test.ts src/server/policyDocumentExtraction.test.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.8",

@@ -108,7 +108,11 @@ export interface PolicyExtractionRun {
 
 export type NormalizedPolicyFieldPath =
   | 'policyNumber' | 'carrier' | 'namedInsured' | 'jurisdiction'
-  | 'effectiveDate' | 'expirationDate' | 'annualPremium';
+  | 'effectiveDate' | 'expirationDate' | 'annualPremium'
+  | 'vehicle.vin' | 'vehicle.year' | 'vehicle.make' | 'vehicle.model'
+  | 'vehicle.usage' | 'vehicle.annualMileage' | 'vehicle.garagingZip' | 'vehicle.ownership'
+  | 'coverage.bodilyInjury.perPersonLimit' | 'coverage.bodilyInjury.perAccidentLimit'
+  | 'coverage.propertyDamage.propertyLimit';
 
 export interface NormalizedPolicyFieldCandidate {
   fieldPath: NormalizedPolicyFieldPath;
