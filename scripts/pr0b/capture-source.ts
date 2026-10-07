@@ -27,11 +27,16 @@ export interface SourceCapture {
   citation: string;
   requestedUrl: string;
   servedUrl: string;
+  redirected: boolean;
   httpStatus: number;
   contentType: string;
+  responseHeaders: Record<string, string>;
+  etag?: string;
+  lastModified?: string;
   bytes: number;
   sha256: string;
   storedAs: string;
+  archivePath: string;
   retrievedAt: string;
 }
 
@@ -61,18 +66,24 @@ export async function captureSource(params: {
     headers: { 'User-Agent': 'OpenPolicy-RegulatoryResearch/0.1 (primary-source capture; contact via repository owner)' }
   });
   const body = Buffer.from(await response.arrayBuffer());
-  if (!response.ok) {
-    throw new Error(`Capture failed for ${url}: HTTP ${response.status}`);
-  }
   const contentType = response.headers.get('content-type') || 'application/octet-stream';
   const sha256 = crypto.createHash('sha256').update(body).digest('hex');
 
   const dir = path.join(params.rootDir || path.join(process.cwd(), 'research', 'pr0b'), jurisdictionCode, 'sources');
   fs.mkdirSync(dir, { recursive: true });
   const storedAs = `${sha256}.${extensionFor(contentType)}`;
-  const target = path.join(dir, storedAs);
+  // A non-success response is evidence of the failed exchange, not the requested
+  // authoritative artifact. Keep it in a segregated failure archive so it can
+  // never be mistaken for accepted source evidence.
+  const archiveDir = response.ok ? dir : path.join(dir, 'failed-responses');
+  fs.mkdirSync(archiveDir, { recursive: true });
+  const target = path.join(archiveDir, storedAs);
   // Content-addressed: an identical capture never overwrites anything.
   if (!fs.existsSync(target)) fs.writeFileSync(target, body, { flag: 'wx' });
+
+  const responseHeaders = Object.fromEntries(
+    [...response.headers.entries()].filter(([name]) => !['set-cookie', 'set-cookie2', 'authorization', 'proxy-authorization'].includes(name.toLowerCase()))
+  );
 
   const capture: SourceCapture = {
     jurisdictionCode,
@@ -80,14 +91,22 @@ export async function captureSource(params: {
     citation,
     requestedUrl: url,
     servedUrl: response.url || url,
+    redirected: response.redirected,
     httpStatus: response.status,
     contentType,
+    responseHeaders,
+    ...(response.headers.get('etag') ? { etag: response.headers.get('etag')! } : {}),
+    ...(response.headers.get('last-modified') ? { lastModified: response.headers.get('last-modified')! } : {}),
     bytes: body.length,
     sha256,
     storedAs,
+    archivePath: path.relative(process.cwd(), target).replaceAll('\\', '/'),
     retrievedAt: new Date().toISOString()
   };
-  fs.appendFileSync(path.join(dir, 'manifest.jsonl'), JSON.stringify(capture) + '\n');
+  fs.appendFileSync(path.join(dir, response.ok ? 'manifest.jsonl' : 'failed-attempts.jsonl'), JSON.stringify(capture) + '\n');
+  if (!response.ok) {
+    throw Object.assign(new Error(`Capture failed for ${url}: HTTP ${response.status}`), { capture });
+  }
   return capture;
 }
 

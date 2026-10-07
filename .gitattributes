@@ -2,3 +2,5 @@
 *.zip binary
 *.png binary
 *.jpg binary
+# PR-0B evidence is an exact HTTP byte archive. Never normalize captured text.
+research/pr0b/**/sources/** binary
