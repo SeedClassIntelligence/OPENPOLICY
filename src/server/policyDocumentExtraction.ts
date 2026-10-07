@@ -1,6 +1,8 @@
 import type { PolicyDocumentClassificationResult, PolicyDocumentRecord } from '../types/insurance';
 import { classifyCleanPolicyDocument } from '../domain/documentClassification';
 import type { DocumentAiOcrProvider, ProviderNeutralOcrDocument } from './documentAiOcrProvider';
+import { normalizePolicyFields } from '../domain/policyFieldNormalization';
+import type { PolicyNormalizationResult } from '../types/insurance';
 
 export interface ExactDocumentReader {
   readQuarantinedPdf(objectName: string, generation: string, sha256: string): Promise<Buffer>;
@@ -15,7 +17,7 @@ export async function extractAndClassifyPolicyDocument(input: {
   objectReader: ExactDocumentReader;
   ocrProvider: Pick<DocumentAiOcrProvider, 'extract'>;
   repository: PolicyDocumentClassificationRepository;
-}): Promise<{ ocr: ProviderNeutralOcrDocument; classification: PolicyDocumentClassificationResult }> {
+}): Promise<{ ocr: ProviderNeutralOcrDocument; classification: PolicyDocumentClassificationResult; normalization: PolicyNormalizationResult }> {
   if (input.document.status !== 'UPLOADED' || input.document.malwareStatus !== 'CLEAN') {
     throw new Error('OCR requires committed immutable evidence with a CLEAN malware disposition.');
   }
@@ -38,5 +40,6 @@ export async function extractAndClassifyPolicyDocument(input: {
     classifierVersion: '1.0.0'
   });
   const classification = await input.repository.commitPolicyDocumentClassification(proposed);
-  return { ocr, classification };
+  const normalization = normalizePolicyFields({ documentId: input.document.id, ocr });
+  return { ocr, classification, normalization };
 }

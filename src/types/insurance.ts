@@ -106,6 +106,30 @@ export interface PolicyExtractionRun {
   completedAt?: string;
 }
 
+export type NormalizedPolicyFieldPath =
+  | 'policyNumber' | 'carrier' | 'namedInsured' | 'jurisdiction'
+  | 'effectiveDate' | 'expirationDate' | 'annualPremium';
+
+export interface NormalizedPolicyFieldCandidate {
+  fieldPath: NormalizedPolicyFieldPath;
+  value: string | number;
+  confidence: number;
+  evidence: SourceEvidence;
+}
+
+export interface PolicyNormalizationResult {
+  extractionRunId: string;
+  documentId: string;
+  documentGeneration: string;
+  sourceSha256: string;
+  normalizer: string;
+  normalizerVersion: string;
+  fields: NormalizedPolicyFieldCandidate[];
+  criticalIssues: string[];
+  status: 'REVIEW_REQUIRED' | 'READY_FOR_CONSUMER';
+  normalizedAt: string;
+}
+
 export interface PolicyFieldCorrection {
   id: string;
   documentId: string;

@@ -494,7 +494,8 @@ app.post('/api/policy-documents/:documentId/extract', async (req, res) => {
       extractorVersion: result.ocr.extractorVersion,
       processedAt: result.ocr.processedAt,
       pageCount: result.ocr.pages.length,
-      classification: result.classification
+      classification: result.classification,
+      normalization: result.normalization
     });
   } catch (error: any) {
     res.status(error.statusCode || 503).json({ error: 'DOCUMENT_EXTRACTION_FAILED', message: error.message });
