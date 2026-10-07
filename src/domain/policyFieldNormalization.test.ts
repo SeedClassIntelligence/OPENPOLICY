@@ -48,8 +48,8 @@ test('extracts declarations and application facts from a full Root policy withou
       page(65, [
         'Garaging State:', 'NV', 'Year, Make, and Model:', '2015 Hyundai Sonata', 'Annualized Mileage:', '11125',
         'VIN:', '5NPE24AF2FH197646', 'Garaging Address ZIP Code:', '89106', 'Vehicle Usage:', 'commute',
-        'Bodily injury liability', '$25,000 each person', '$50,000 each accident',
-        'Property damage liability', '$20,000 each accident'
+        'Bodily injury liability', 'Premium: $1,151', '$25,000 each person', '$50,000 each accident',
+        'Property damage liability', 'Premium: $416', '$20,000 each accident'
       ].join('\n'))
     ]
   } });

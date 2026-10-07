@@ -53,9 +53,9 @@ const RULES: Rule[] = [
   { fieldPath: 'vehicle.usage', patterns: [/^Vehicle Usage:[ \t]*(?:\r?\n[ \t]*)?(commute|pleasure|business)[ \t]*$/im], transform: upper, confidence: .96 },
   { fieldPath: 'vehicle.annualMileage', patterns: [/^Annualized Mileage:[ \t]*(?:\r?\n[ \t]*)?([\d,]+)[ \t]*$/im], transform: value => Number(value.replace(/,/g, '')), confidence: .96 },
   { fieldPath: 'vehicle.garagingZip', patterns: [/^Garaging Address ZIP Code:[ \t]*(?:\r?\n[ \t]*)?(\d{5}(?:-\d{4})?)[ \t]*$/im], confidence: .97 },
-  { fieldPath: 'coverage.bodilyInjury.perPersonLimit', patterns: [/^Bodily injury liability[ \t]*\r?\n[ \t]*\$([\d,]+)[ \t]+each person[ \t]*$/im], transform: money, confidence: .97 },
-  { fieldPath: 'coverage.bodilyInjury.perAccidentLimit', patterns: [/^Bodily injury liability[ \t]*\r?\n[ \t]*\$[\d,]+[ \t]+each person[ \t]*\r?\n[ \t]*\$([\d,]+)[ \t]+each accident[ \t]*$/im], transform: money, confidence: .97 },
-  { fieldPath: 'coverage.propertyDamage.propertyLimit', patterns: [/^Property damage liability[ \t]*\r?\n[ \t]*\$([\d,]+)[ \t]+each accident[ \t]*$/im], transform: money, confidence: .97 }
+  { fieldPath: 'coverage.bodilyInjury.perPersonLimit', patterns: [/^Bodily injury liability\b[^\n]*(?:\r?\n(?![A-Za-z][^\n]* liability\b)[^\n]*){0,3}?\r?\n[ \t]*\$([\d,]+)[ \t]+each person[ \t]*$/im], transform: money, confidence: .97 },
+  { fieldPath: 'coverage.bodilyInjury.perAccidentLimit', patterns: [/^Bodily injury liability\b[^\n]*(?:\r?\n(?![A-Za-z][^\n]* liability\b)[^\n]*){0,4}?\r?\n[ \t]*\$([\d,]+)[ \t]+each accident[ \t]*$/im], transform: money, confidence: .97 },
+  { fieldPath: 'coverage.propertyDamage.propertyLimit', patterns: [/^Property damage liability\b[^\n]*(?:\r?\n(?![A-Za-z][^\n]* liability\b)[^\n]*){0,3}?\r?\n[ \t]*\$([\d,]+)[ \t]+each accident[ \t]*$/im], transform: money, confidence: .97 }
 ];
 
 function evidence(documentId: string, page: ProviderNeutralOcrPage, match: RegExpMatchArray, confidence: number): SourceEvidence {
