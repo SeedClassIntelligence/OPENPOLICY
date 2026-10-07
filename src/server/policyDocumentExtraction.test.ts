@@ -81,14 +81,22 @@ test('classification, normalized facts, workflow status, and audit survive resta
       }; } }, repository: first
     });
     assert.equal(committed.normalization.status, 'READY_FOR_CONSUMER');
+    const correction = await first.recordPolicyFieldCorrection({
+      ownerId: pending.ownerId, documentId: pending.id, fieldPath: 'annualPremium', afterValue: 1195
+    });
+    assert.equal(correction.beforeValue, 1200);
     await first.close();
     const restarted = new PostgresStore(dataDir);
     const restored = await restarted.getPolicyDocumentExtraction(pending.ownerId, pending.id);
     const workflow = await restarted.getPolicyDocument(pending.ownerId, pending.id);
     assert.equal(restored?.extractionRunId, 'OCR-DURABLE');
     assert.equal(restored?.fields.find(field => field.fieldPath === 'annualPremium')?.value, 1200);
-    assert.equal(workflow?.status, 'READY_FOR_CONSUMER');
+    const corrections = await restarted.getPolicyFieldCorrections(pending.ownerId, pending.id);
+    assert.equal(workflow?.status, 'CONSUMER_CORRECTED');
+    assert.equal(corrections[0]?.afterValue, 1195);
+    assert.equal(restored?.fields.find(field => field.fieldPath === 'annualPremium')?.value, 1200);
     assert.equal(await restarted.getPolicyDocumentExtraction('other-owner', pending.id), undefined);
+    assert.deepEqual(await restarted.getPolicyFieldCorrections('other-owner', pending.id), []);
     await restarted.close();
   } finally {
     await first.close();

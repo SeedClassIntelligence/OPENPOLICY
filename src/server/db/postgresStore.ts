@@ -39,6 +39,7 @@ import {
   PolicyDocumentRecord,
   PolicyDocumentClassificationResult,
   PolicyNormalizationResult
+  ,PolicyFieldCorrection, NormalizedPolicyFieldPath
 } from '../../types/insurance';
 
 export interface SqlClient {
@@ -485,6 +486,71 @@ export class PostgresStore {
       [documentId, ownerId]
     );
     return result.rows[0] ? JSON.parse(result.rows[0].payload) as PolicyNormalizationResult : undefined;
+  }
+
+  public async recordPolicyFieldCorrection(input: {
+    ownerId: string; documentId: string; fieldPath: NormalizedPolicyFieldPath; afterValue: string | number;
+  }): Promise<PolicyFieldCorrection> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const documentResult = await client.query<{ payload: string }>(
+        `SELECT payload FROM policy_documents WHERE id=$1 AND owner_id=$2 FOR UPDATE;`,
+        [input.documentId, input.ownerId]
+      );
+      if (!documentResult.rows[0]) throw Object.assign(new Error('Policy document not found'), { statusCode: 404 });
+      const document = JSON.parse(documentResult.rows[0].payload) as PolicyDocumentRecord;
+      if (document.status !== 'READY_FOR_CONSUMER' && document.status !== 'REVIEW_REQUIRED' && document.status !== 'CONSUMER_CORRECTED') {
+        throw Object.assign(new Error(`Document cannot be corrected from status ${document.status}`), { statusCode: 409 });
+      }
+      const runResult = await client.query<{ payload: string }>(
+        `SELECT payload FROM policy_extraction_runs WHERE document_id=$1 ORDER BY completed_at DESC LIMIT 1 FOR UPDATE;`,
+        [input.documentId]
+      );
+      if (!runResult.rows[0]) throw Object.assign(new Error('Policy extraction not found'), { statusCode: 409 });
+      const extraction = JSON.parse(runResult.rows[0].payload) as PolicyNormalizationResult;
+      const priorCorrections = await client.query<{ after_value: string }>(
+        `SELECT after_value FROM policy_field_corrections
+         WHERE document_id=$1 AND extraction_run_id=$2 AND field_path=$3 ORDER BY corrected_at DESC,id DESC LIMIT 1;`,
+        [input.documentId, extraction.extractionRunId, input.fieldPath]
+      );
+      const extracted = extraction.fields.find(field => field.fieldPath === input.fieldPath)?.value;
+      const beforeValue = priorCorrections.rows[0] ? JSON.parse(priorCorrections.rows[0].after_value) : extracted;
+      const correction: PolicyFieldCorrection = {
+        id: `COR-${crypto.randomUUID()}`, documentId: input.documentId,
+        extractionRunId: extraction.extractionRunId, ownerId: input.ownerId,
+        fieldPath: input.fieldPath, beforeValue: beforeValue ?? null, afterValue: input.afterValue,
+        source: 'CONSUMER', correctedAt: new Date().toISOString()
+      };
+      await client.query(
+        `INSERT INTO policy_field_corrections
+          (id,document_id,extraction_run_id,owner_id,field_path,before_value,after_value,source,corrected_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9);`,
+        [correction.id, correction.documentId, correction.extractionRunId, correction.ownerId,
+          correction.fieldPath, JSON.stringify(correction.beforeValue), JSON.stringify(correction.afterValue),
+          correction.source, correction.correctedAt]
+      );
+      const updated = { ...document, status: 'CONSUMER_CORRECTED' as const, updatedAt: correction.correctedAt };
+      await client.query(`UPDATE policy_documents SET status=$1,updated_at=$2,payload=$3 WHERE id=$4;`,
+        [updated.status, updated.updatedAt, JSON.stringify(updated), updated.id]);
+      await this.appendAuditInTransaction(client, {
+        eventType: 'CONSUMER_CORRECTED_FIELD', actorRole: 'CONSUMER', actorId: input.ownerId,
+        details: `Consumer corrected ${input.fieldPath} for evidence ${input.documentId}`
+      });
+      return correction;
+    });
+  }
+
+  public async getPolicyFieldCorrections(ownerId: string, documentId: string): Promise<PolicyFieldCorrection[]> {
+    await this.ensureReady();
+    const result = await this.sql!.query<{ payload: string }>(
+      `SELECT json_build_object(
+        'id',c.id,'documentId',c.document_id,'extractionRunId',c.extraction_run_id,'ownerId',c.owner_id,
+        'fieldPath',c.field_path,'beforeValue',c.before_value::json,'afterValue',c.after_value::json,
+        'source',c.source,'correctedAt',c.corrected_at)::text AS payload
+       FROM policy_field_corrections c JOIN policy_documents d ON d.id=c.document_id
+       WHERE c.document_id=$1 AND d.owner_id=$2 ORDER BY c.corrected_at,c.id;`, [documentId, ownerId]
+    );
+    return result.rows.map(row => JSON.parse(row.payload) as PolicyFieldCorrection);
   }
 
   private generateAuditHash(value: string): string {

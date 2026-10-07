@@ -87,6 +87,7 @@ import { CloudMalwareScanProvider } from './src/server/cloudMalwareScanProvider'
 import { scanPolicyDocument } from './src/server/malwareDisposition';
 import { DocumentAiOcrProvider } from './src/server/documentAiOcrProvider';
 import { extractAndClassifyPolicyDocument } from './src/server/policyDocumentExtraction';
+import { validatePolicyFieldCorrection } from './src/domain/policyFieldCorrection';
 
 export const app = express();
 const DEFAULT_PORT = Number(process.env.PORT) || 3000;
@@ -499,6 +500,28 @@ app.post('/api/policy-documents/:documentId/extract', async (req, res) => {
     });
   } catch (error: any) {
     res.status(error.statusCode || 503).json({ error: 'DOCUMENT_EXTRACTION_FAILED', message: error.message });
+  }
+});
+
+app.get('/api/policy-documents/:documentId/corrections', async (req, res) => {
+  try {
+    const ownerId = getAuthenticatedConsumerId(req);
+    const document = await postgresStore.getPolicyDocument(ownerId, req.params.documentId);
+    if (!document) return res.status(404).json({ error: 'Policy document not found' });
+    res.json({ corrections: await postgresStore.getPolicyFieldCorrections(ownerId, document.id) });
+  } catch (error: any) {
+    res.status(error.statusCode || 403).json({ error: 'POLICY_CORRECTION_READ_FAILED', message: error.message });
+  }
+});
+
+app.post('/api/policy-documents/:documentId/corrections', async (req, res) => {
+  try {
+    const ownerId = getAuthenticatedConsumerId(req);
+    const correction = validatePolicyFieldCorrection(req.body);
+    const committed = await postgresStore.recordPolicyFieldCorrection({ ownerId, documentId: req.params.documentId, ...correction });
+    res.status(201).json({ correction: committed });
+  } catch (error: any) {
+    res.status(error.statusCode || 400).json({ error: 'POLICY_CORRECTION_FAILED', message: error.message });
   }
 });
 
