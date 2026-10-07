@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { AuthorityTier, captureSource, SourceCapture } from './capture-source';
 
-interface InventoryEntry { tier: AuthorityTier; citation: string; url: string }
+interface InventoryEntry { tier: AuthorityTier; citation: string; url: string; requestHeaders?: Record<string, string> }
 
 const inventoryPath = process.argv[2] || path.join('research', 'pr0b', 'NV', 'SOURCE-INVENTORY.json');
 const entries = JSON.parse(fs.readFileSync(inventoryPath, 'utf8')) as InventoryEntry[];

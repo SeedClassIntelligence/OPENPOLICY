@@ -58,12 +58,16 @@ export async function captureSource(params: {
   tier: AuthorityTier;
   citation: string;
   url: string;
+  requestHeaders?: Record<string, string>;
   rootDir?: string;
 }): Promise<SourceCapture> {
   const { jurisdictionCode, tier, citation, url } = params;
   const response = await fetch(url, {
     redirect: 'follow',
-    headers: { 'User-Agent': 'OpenPolicy-RegulatoryResearch/0.1 (primary-source capture; contact via repository owner)' }
+    headers: {
+      'User-Agent': 'OpenPolicy-RegulatoryResearch/0.1 (primary-source capture; contact via repository owner)',
+      ...(params.requestHeaders || {})
+    }
   });
   const body = Buffer.from(await response.arrayBuffer());
   const contentType = response.headers.get('content-type') || 'application/octet-stream';

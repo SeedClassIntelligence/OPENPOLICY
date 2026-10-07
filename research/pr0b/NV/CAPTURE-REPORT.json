@@ -940,6 +940,34 @@
     },
     {
       "jurisdictionCode": "NV",
+      "tier": "B",
+      "citation": "Nevada SERFF public filing access surface",
+      "requestedUrl": "https://serff-sfa.naic.org/serff/sfa/home/nv",
+      "servedUrl": "https://serff-sfa.naic.org/serff/sfa/home/nv",
+      "redirected": false,
+      "httpStatus": 202,
+      "contentType": "text/html; charset=UTF-8",
+      "responseHeaders": {
+        "access-control-allow-methods": "OPTIONS,GET,POST",
+        "access-control-allow-origin": "*",
+        "access-control-expose-headers": "x-amzn-waf-action",
+        "access-control-max-age": "86400",
+        "cache-control": "no-store, max-age=0",
+        "connection": "keep-alive",
+        "content-length": "2455",
+        "content-type": "text/html; charset=UTF-8",
+        "date": "Wed, 07 Oct 2026 22:18:04 GMT",
+        "server": "awselb/2.0",
+        "x-amzn-waf-action": "challenge"
+      },
+      "bytes": 2455,
+      "sha256": "8c896c6399d75e551e43bee3093d372a6542dd2736241c7f03c3c1d3c2f506ae",
+      "storedAs": "8c896c6399d75e551e43bee3093d372a6542dd2736241c7f03c3c1d3c2f506ae.html",
+      "archivePath": "research/pr0b/NV/sources/8c896c6399d75e551e43bee3093d372a6542dd2736241c7f03c3c1d3c2f506ae.html",
+      "retrievedAt": "2026-10-07T22:18:03.608Z"
+    },
+    {
+      "jurisdictionCode": "NV",
       "tier": "A",
       "citation": "Nevada DOI producer licensing",
       "requestedUrl": "https://doi.nv.gov/Licensing/License_Types/Producer/",
@@ -1213,34 +1241,6 @@
       "retrievedAt": "2026-10-07T22:10:12.183Z"
     }
   ],
-  "failed": [
-    {
-      "citation": "Nevada SERFF public filing access surface",
-      "url": "https://filingaccess.serff.com/sfa/home/nv",
-      "error": "Capture failed for https://filingaccess.serff.com/sfa/home/nv: HTTP 403",
-      "capture": {
-        "jurisdictionCode": "NV",
-        "tier": "B",
-        "citation": "Nevada SERFF public filing access surface",
-        "requestedUrl": "https://filingaccess.serff.com/sfa/home/nv",
-        "servedUrl": "https://filingaccess.serff.com/sfa/home/nv",
-        "redirected": false,
-        "httpStatus": 403,
-        "contentType": "text/html",
-        "responseHeaders": {
-          "connection": "keep-alive",
-          "content-length": "118",
-          "content-type": "text/html",
-          "date": "Wed, 07 Oct 2026 22:10:32 GMT",
-          "server": "awselb/2.0"
-        },
-        "bytes": 118,
-        "sha256": "58bf2215b395dcac74c009aa98701854e43cbe54a1cd3a95fee6a647ca9910d4",
-        "storedAs": "58bf2215b395dcac74c009aa98701854e43cbe54a1cd3a95fee6a647ca9910d4.html",
-        "archivePath": "research/pr0b/NV/sources/failed-responses/58bf2215b395dcac74c009aa98701854e43cbe54a1cd3a95fee6a647ca9910d4.html",
-        "retrievedAt": "2026-10-07T22:10:31.905Z"
-      }
-    }
-  ],
-  "completedAt": "2026-10-07T22:10:31.906Z"
+  "failed": [],
+  "completedAt": "2026-10-07T22:18:03.610Z"
 }

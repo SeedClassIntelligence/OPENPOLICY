@@ -32,7 +32,7 @@
   {"tier":"A","citation":"Nevada DOI personal automobile filing information","url":"https://doi.nv.gov/Insurers/Property-Casualty/Filing-Information/Personal-Automobile-Insurance/"},
   {"tier":"A","citation":"Nevada DOI Review Standards Checklist","url":"https://doi.nv.gov/uploadedFiles/doinvgov/_public-documents/Insurers/ReviewStandardsChecklist.pdf"},
   {"tier":"A","citation":"Nevada DOI Enforcements and Orders","url":"https://doi.nv.gov/News_Notices/Enforcements___Orders/"},
-  {"tier":"B","citation":"Nevada SERFF public filing access surface","url":"https://filingaccess.serff.com/sfa/home/nv"},
+  {"tier":"B","citation":"Nevada SERFF public filing access surface","url":"https://serff-sfa.naic.org/serff/sfa/home/nv","requestHeaders":{"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36","Accept":"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8","Referer":"https://doi.nv.gov/Insurers/Property-Casualty/Filing-Information/Personal-Automobile-Insurance/"}},
   {"tier":"A","citation":"Nevada DOI producer licensing","url":"https://doi.nv.gov/Licensing/License_Types/Producer/"},
   {"tier":"A","citation":"Nevada DOI producer business entities","url":"https://doi.nv.gov/Licensing/License_Types/Producer/Business_Entities/"},
   {"tier":"A","citation":"Nevada DOI appointments and terminations","url":"https://doi.nv.gov/Licensing/Appointments-Terminations/"},
