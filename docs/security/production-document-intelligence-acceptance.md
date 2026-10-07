@@ -236,10 +236,30 @@ Local evidence on 2026-10-07:
 
 ### Remaining external acceptance boundary
 
-The complete product gate is not yet closed. Candidate `3f4176e` still requires an
-exact-revision zero-traffic deployment to `openpolicy-35f82` and live execution of the real Root policy through authenticated
-ingestion, scan, OCR, normalization, correction where required, explicit attestation,
-policy creation, and immutable baseline verification before traffic promotion.
+The complete product gate is not yet closed. Candidate `3f4176e` still requires live
+execution of the real Root policy through authenticated ingestion, scan, OCR,
+normalization, correction where required, explicit attestation, policy creation, and
+immutable baseline verification before traffic promotion.
 
 Retention, deletion, and consumer-export periods remain founder decisions. No legal
 retention period or destructive lifecycle rule was inferred during activation.
+
+## Zero-traffic deployment evidence — 2026-10-07
+
+Exact application commit `3f4176e` was deployed to authorized project
+`openpolicy-35f82` as Ready revision `openpolicy-acceptance-docintel-3f4176e`, tagged
+`docintel-candidate`, with **0% traffic**. The incumbent accepted revision
+`openpolicy-acceptance-persist-ac6d39e` continued receiving 100% of normal traffic.
+The candidate tagged URL returned HTTP 200 from `/api/health` and HTTP 401 for
+anonymous policy-document access.
+
+Authenticated live-document execution is not yet complete. A temporary Firebase
+consumer and matching Firestore profile were created twice and removed after each
+attempt. Firebase Identity Toolkit rejected both server-side email/password sign-in
+attempts with HTTP 403, including one carrying the authorized candidate Origin and
+Referer. No API-key restriction was weakened, no reusable credential was retained,
+and no document upload reached the candidate during these attempts. Live acceptance
+therefore requires an interactive browser sign-in from an authorized Firebase origin
+or another approved token-acquisition path that preserves the existing API-key
+restriction. Traffic promotion remains prohibited until that authenticated workflow
+and consumer-confirmed corrections complete successfully.
