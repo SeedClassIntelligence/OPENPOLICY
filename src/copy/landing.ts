@@ -14,7 +14,7 @@ export const landingCopy = {
     body: 'Policyholders share a policy and review offers. Insurance providers apply for access to review shared policies and send offers. Currently available in Nevada for personal auto.',
   },
   commitments: [
-    ['You stay in control.', 'You choose what to share, which requirements apply, and whether to switch. Doing nothing keeps your current policy.'],
+    ['You stay in control.', 'You choose what policy information to share and whether to select an offer. Doing nothing keeps your current policy.'],
     ['Your contact details stay private.', 'They are shared only with the provider you choose, after you approve.'],
     ['Every difference is shown.', 'If an offer changes your coverage, you see exactly what changed. Details an offer does not state are shown as missing, not assumed.'],
     ['No paid placement.', 'Provider fees do not change how offers are shown to you.'],
@@ -26,7 +26,7 @@ export const landingCopy = {
     ['Will providers contact me?', 'Not while they are reviewing your policy. If you choose a provider, that provider receives your contact details with your approval and can contact you to complete the application.'],
     ['Does sharing my policy commit me to anything?', 'No. You can keep your current policy at any time. There is no charge to you.'],
     ['How do I know whether an offer matches my current coverage?', 'Open Policy compares each offer with your declarations page and lists differences in limits, deductibles, add-ons and price. Offers that change coverage are marked. If an offer leaves a detail out, it is shown as missing. Open Policy does not tell you which offer to choose.'],
-    ['What are requirements?', 'They are the conditions you set for offers, such as a minimum price difference, maximum deductibles, or required add-ons like rental and roadside. Offers that do not meet them remain visible and are clearly marked.'],
+    ['What does Open Policy compare?', 'Open Policy compares each provider offer with the current policy you shared. It shows stated premium and coverage differences without setting target terms, minimum price differences or making the choice for you.'],
     ['Who are the providers?', 'Insurance agents, agencies and carriers that apply for access. Provider access remains pending until the required identity, organization and authority checks are completed.'],
     ['What does it cost?', 'There is no charge to policyholders. Provider terms and fees are stated in the provider agreement and do not change how offers are displayed.'],
     ['What can I use Open Policy for?', 'The current public offering is personal auto insurance in Nevada.'],

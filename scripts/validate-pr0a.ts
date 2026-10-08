@@ -249,7 +249,7 @@ async function run() {
     assert(caBaseline.body.baseline?.jurisdiction === 'CA', 'Baseline keeps the policy jurisdiction (was dropped)');
     const caChallenge = await request(server, 'POST', '/api/challenges/create', { baselineId: caBaseline.body.baseline.id });
     assert(caChallenge.status === 200 && caChallenge.body.challenge.jurisdiction === 'CA', 'A CA policy produces a CA challenge (was hard-coded NV)');
-    assert(String(caChallenge.body.challenge.referenceNumber).startsWith('CHALLENGE #CA-'), 'Challenge reference carries the determined jurisdiction');
+    assert(String(caChallenge.body.challenge.referenceNumber).startsWith('POLICY REVIEW #CA-'), 'Policy review reference carries the determined jurisdiction');
     assert(!!caChallenge.body.challenge.jurisdictionDeterminationId && !!caChallenge.body.challenge.ruleSetContentSha256, 'Challenge anchors its determination and ruleset content hash');
 
     const nvDoc = await request(server, 'POST', '/api/documents/upload-sample', { sampleId: 'DOC-NV-49281' });

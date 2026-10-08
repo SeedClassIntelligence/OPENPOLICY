@@ -152,7 +152,7 @@ export const AccountDashboard: React.FC<AccountDashboardProps> = ({
             <div className="text-xl font-bold text-white font-mono mt-0.5">{challenges.length}</div>
           </div>
           <div className="p-3 bg-slate-800/50 rounded-2xl border border-slate-800">
-            <span className="text-[11px] font-mono text-slate-400 uppercase">Total Blind Offers</span>
+            <span className="text-[11px] font-mono text-slate-400 uppercase">Provider Offers Received</span>
             <div className="text-xl font-bold text-emerald-400 font-mono mt-0.5">{totalOffersReceived} offers</div>
           </div>
           <div className="p-3 bg-slate-800/50 rounded-2xl border border-slate-800">
@@ -160,8 +160,8 @@ export const AccountDashboard: React.FC<AccountDashboardProps> = ({
             <div className="text-xl font-bold text-blue-400 font-mono mt-0.5">{orders.length} active</div>
           </div>
           <div className="p-3 bg-slate-800/50 rounded-2xl border border-slate-800">
-            <span className="text-[11px] font-mono text-slate-400 uppercase">Total Annual Savings</span>
-            <div className="text-xl font-bold text-emerald-400 font-mono mt-0.5">${totalAnnualSavings}/yr</div>
+            <span className="text-[11px] font-mono text-slate-400 uppercase">Combined Annual Premium Difference</span>
+            <div className="text-xl font-bold text-emerald-400 font-mono mt-0.5">-${totalAnnualSavings}/yr</div>
           </div>
         </div>
       </div>
@@ -286,15 +286,15 @@ export const AccountDashboard: React.FC<AccountDashboardProps> = ({
                         <div className="font-bold text-slate-900 font-mono">${chal.baselineMonthlyPremium}/mo</div>
                       </div>
                       <div>
-                        <span className="text-[11px] text-slate-400">Blind Offers Received</span>
+                        <span className="text-[11px] text-slate-400">Provider Offers Received</span>
                         <div className="font-bold text-emerald-600 font-mono">{chal.offersCount} offers</div>
                       </div>
                     </div>
 
                     {chal.bestSavings > 0 && (
                       <div className="p-2.5 bg-emerald-50/70 border border-emerald-200 rounded-xl text-xs flex items-center justify-between">
-                        <span className="text-emerald-800 font-medium">Top Parity Savings:</span>
-                        <span className="font-bold text-emerald-700 font-mono">${chal.bestSavings}/yr saved</span>
+                        <span className="text-emerald-800 font-medium">Lowest submitted annual premium difference:</span>
+                        <span className="font-bold text-emerald-700 font-mono">-${chal.bestSavings}/yr vs current policy</span>
                       </div>
                     )}
                   </div>
@@ -320,7 +320,7 @@ export const AccountDashboard: React.FC<AccountDashboardProps> = ({
           <div>
             <h2 className="text-base font-bold text-slate-900">Bound Policies & Issued Binders</h2>
             <p className="text-xs text-slate-500">
-              Completed insurance orders where you reviewed coverage parity and digitally signed Section 32 statutory consent.
+              Issued policies from offers you selected, with recorded consent and factual reconciliation against the selected offer.
             </p>
           </div>
 
@@ -365,7 +365,7 @@ export const AccountDashboard: React.FC<AccountDashboardProps> = ({
                     <div className="text-right">
                       <span className="text-[11px] text-slate-400 font-mono">New Rate</span>
                       <div className="text-lg font-black text-slate-900 font-mono">${ord.monthlyPremium}/mo</div>
-                      <span className="text-[11px] font-mono text-emerald-600 font-bold">${ord.annualSavings}/yr saved</span>
+                      <span className="text-[11px] font-mono text-emerald-600 font-bold">-${ord.annualSavings}/yr vs prior policy</span>
                     </div>
 
                     <div className="flex flex-col sm:flex-row gap-2">

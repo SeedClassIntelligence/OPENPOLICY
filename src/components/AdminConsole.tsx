@@ -262,7 +262,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
                 Cryptographic Append-Only Chain & Merkle Tree Verification (Section 33)
               </h3>
               <p className="text-xs text-slate-500">
-                Guarantees ledger immutability: every transaction is cryptographically tied to the preceding block hash.
+                Verifies the recorded hash chain so changes to previously recorded transactions can be detected.
               </p>
             </div>
           </div>

@@ -939,8 +939,8 @@ export class PolicyChallengeDatabase {
       {
         id: 'NOTIF-2',
         type: 'CHALLENGE_OPENED',
-        title: 'Marketplace Competition Active',
-        message: 'Challenge #NV-49281 opened. Verified baseline ($2,964/yr) distributed to licensed providers.',
+        title: 'Policy Shared for Provider Review',
+        message: 'Policy review #NV-49281 opened. Authorized baseline details ($2,964/yr current premium) were made available to eligible licensed providers.',
         timestamp: '2026-09-19T08:30:00Z',
         read: true,
         readAt: '2026-09-19T09:00:00Z',
@@ -952,8 +952,8 @@ export class PolicyChallengeDatabase {
       {
         id: 'NOTIF-3',
         type: 'OFFER_RECEIVED',
-        title: 'Competitive Offer from Travelers',
-        message: 'Travelers submitted an offer saving $516/yr ($204/mo) with upgraded $250k property limit.',
+        title: 'Offer Received from Travelers',
+        message: 'Travelers submitted an offer at $204/mo, an annual premium difference of -$516, with a stated $250k property-damage limit.',
         timestamp: '2026-09-19T11:42:00Z',
         read: false,
         recipientType: 'CONSUMER',
@@ -964,8 +964,8 @@ export class PolicyChallengeDatabase {
       {
         id: 'NOTIF-4',
         type: 'OFFER_RECEIVED',
-        title: 'Coverage Reduction Warning',
-        message: 'National General submitted Offer C ($181/mo) but stripped rental and tripled your collision deductible.',
+        title: 'Coverage Differences Identified',
+        message: 'National General submitted Offer C at $181/mo. The offer does not state rental coverage and lists a higher collision deductible than the current policy.',
         timestamp: '2026-09-19T16:06:00Z',
         read: false,
         recipientType: 'CONSUMER',
@@ -2061,8 +2061,8 @@ export class PolicyChallengeDatabase {
     this.addNotification({
       id: `NOTIF-${Date.now()}`,
       type: 'INCUMBENT_DEFENSE',
-      title: 'Current Carrier Defended Policy',
-      message: 'GEICO submitted a retention counter-offer saving $300/year ($222/mo) with identical protection to defend your business.',
+      title: 'Offer Received from Current Carrier',
+      message: 'GEICO submitted an offer at $222/mo, an annual premium difference of -$300, with stated coverage matching the recorded baseline.',
       timestamp: new Date().toISOString(),
       read: false,
       recipientType: 'CONSUMER',
@@ -2237,7 +2237,7 @@ export class PolicyChallengeDatabase {
           this.addNotification({
             id: `NOTIF-${Date.now()}-${org.id}`,
             type: 'OPPORTUNITY_RECEIVED',
-            title: 'New Policy Challenge Opportunity',
+            title: 'New Shared Policy Opportunity',
             message: `New verified ${challenge.jurisdiction} Personal Auto opportunity: ${challenge.referenceNumber}. Current premium: $${challenge.baseline?.baselineAnnualPremium}/yr.`,
             timestamp: new Date().toISOString(),
             read: false,

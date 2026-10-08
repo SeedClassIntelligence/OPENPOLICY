@@ -147,7 +147,7 @@ export async function seedInitialUserChallenge(userId: string, userName: string)
     const initialChallenge: UserChallengeRecord = {
       id: challengeId,
       userId,
-      referenceNumber: `CHALLENGE #NV-${Math.floor(10000 + Math.random() * 90000)}`,
+      referenceNumber: `POLICY REVIEW #NV-${Math.floor(10000 + Math.random() * 90000)}`,
       jurisdiction: 'NV',
       insuranceType: 'AUTO',
       status: 'OFFERS_RECEIVED',
@@ -191,12 +191,12 @@ export async function seedInitialUserChallenge(userId: string, userName: string)
       documentType: 'DECLARATIONS_PAGE',
       uploadedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
       size: '1.4 MB',
-      notes: 'Active policy declarations uploaded for challenge baseline.'
+      notes: 'Active policy declarations uploaded for the current-policy baseline.'
     };
 
     await setDoc(doc(firestore, 'vault', docId), initialDoc);
   } catch (err) {
-    console.warn('[Open Policy] Failed to auto-seed initial challenge for user:', err);
+    console.warn('[Open Policy] Failed to initialize the policy review for user:', err);
   }
 }
 
@@ -205,7 +205,7 @@ export async function seedInitialUserChallenge(userId: string, userName: string)
  */
 export async function fetchUserChallenges(userId: string): Promise<UserChallengeRecord[]> {
   if (!auth.currentUser || auth.currentUser.uid !== userId) {
-    throw new Error('Authenticated consumer identity does not match the requested challenge owner.');
+    throw new Error('Authenticated consumer identity does not match the requested policy-review owner.');
   }
 
   try {

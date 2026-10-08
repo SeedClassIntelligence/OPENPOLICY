@@ -56,7 +56,7 @@ export const PERSPECTIVES: PerspectiveMeta[] = [
     id: 'CONSUMER',
     title: 'Consumer Experience',
     label: 'Consumer',
-    description: 'Policyholder view: baseline policy review, side-by-side carrier offers, and savings reconciliation.',
+    description: 'Policyholder view: current policy review, side-by-side provider offers, and issued-policy reconciliation.',
     icon: UserCheck,
     color: 'text-emerald-400',
     badgeBg: 'bg-emerald-600'
@@ -74,7 +74,7 @@ export const PERSPECTIVES: PerspectiveMeta[] = [
     id: 'ADMIN_AUDIT',
     title: 'Audit & Review Queue',
     label: 'Audit',
-    description: 'Regulatory compliance: quote sheet validation, anti-steering checks, and audit trails.',
+    description: 'Operational review: quote validation, neutral offer display checks, and audit trails.',
     icon: FileText,
     color: 'text-amber-400',
     badgeBg: 'bg-amber-600'
@@ -498,7 +498,7 @@ export const Header: React.FC<HeaderProps> = ({
                 { n: 1, title: 'Consumer Sovereignty', desc: 'The consumer owns the policy, the information and the decision.' },
                 { n: 2, title: 'Friction Reduction', desc: 'The platform reduces the work required to bring that policy to market.' },
                 { n: 3, title: 'Independent Offers', desc: 'Providers review a shared policy independently and decide whether to send an offer.' },
-                { n: 4, title: 'Protection-Price Separation', desc: 'Lower price alone does not constitute a better offer.' },
+                { n: 4, title: 'Protection-Price Separation', desc: 'Premium differences and coverage differences are displayed separately.' },
                 { n: 5, title: 'Visible Differences', desc: 'Coverage differences must be visible.' },
                 { n: 6, title: 'Epistemic Humility', desc: 'Unknown information must remain unknown. AI may never invent missing coverage.' },
                 { n: 7, title: 'Deliberate Progressive Disclosure', desc: 'Personal information is disclosed deliberately rather than indiscriminately distributed.' },

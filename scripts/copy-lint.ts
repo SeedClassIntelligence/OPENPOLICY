@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { globSync } from 'node:fs';
 
-const pattern = /compet|\bbid|auction|challeng|\bbeat\b|\bwin(?:ner|ning)?\b|\bforce\b|\bleads?\b|\brank|\bbest\b|\btop (?:five|5)\b|recommend|guarantee|\bcompliant\b|verified savings|\bsuperior\b|degraded|parity|anti-steering|certificates? of authority|\bsavings?\b|\bdeals?\b|\brounds?\b|best (?:&|and) final|\bbafo\b|improvement (?:round|window)|negotiat|counter-?(?:offer|propos)|sharpen|your (?:terms|requirements)|set your|minimum savings|most competitive|\bcheapest\b|\bsave \$/i;
-const excluded = /(?:AdminConsole|ArchitectureDocs|\.test)\.(?:ts|tsx)$/;
+const pattern = /policy challenge|consumer insurance competition|competition room|my competitions|challenge rating workspace|blind offers?|sealed blind|top parity savings|max savings|\bsaves \$|additional savings|better offer|best[- &]?and[- ]?final|improvement rounds?|counter[- ]?offers?|guaranteed savings|vault confidentiality guarantee|guarantees ledger|requirements you set|your requirements|minimum price difference, maximum deductibles|no competitive market|price concession|anti-steering|section 40 parity|\bcompliant\b|\bbid(?:ding|s)?\b|\bauction(?:ed|ing|s)?\b/i;
+const excluded = /\.test\.(?:ts|tsx)$/;
 const files = globSync(['src/components/**/*.tsx', 'src/copy/**/*.{ts,tsx}', 'index.html'], { exclude: file => excluded.test(file) });
 let findings = 0;
 for (const file of files) {

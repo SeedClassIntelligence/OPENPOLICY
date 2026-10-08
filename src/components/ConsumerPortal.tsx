@@ -106,8 +106,6 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
   const [newDocName, setNewDocName] = useState<string>('Endorsement_NV_PolicyChange.pdf');
   const [newDocType, setNewDocType] = useState<VaultDocument['documentType']>('ENDORSEMENT');
   const [newDocNotes, setNewDocNotes] = useState<string>('Added towing endorsement');
-  const [triggeringFinalRound, setTriggeringFinalRound] = useState<boolean>(false);
-  const [triggeringIncumbent, setTriggeringIncumbent] = useState<boolean>(false);
   const [actionToast, setActionToast] = useState<string | null>(null);
   const [realDocumentId, setRealDocumentId] = useState<string | null>(null);
   const [realNormalization, setRealNormalization] = useState<PolicyNormalizationResult | null>(null);
@@ -220,7 +218,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          reason: 'Consumer elected to retain incumbent policy coverage without forced concession.'
+          reason: 'Consumer elected to retain the current policy.'
         })
       });
       if (res.ok) {
@@ -293,40 +291,6 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
       }
     } catch (e) {
       console.error(e);
-    }
-  };
-
-  const handleTriggerFinalRound = async () => {
-    if (!challenge) return;
-    setTriggeringFinalRound(true);
-    try {
-      const res = await apiFetch(`/api/challenges/${challenge.id}/final-round`, { method: 'POST' });
-      if (res.ok) {
-        onRefreshData();
-        setActionToast('Final offer window opened. Providers may submit a final revision.');
-        setTimeout(() => setActionToast(null), 4000);
-      }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setTriggeringFinalRound(false);
-    }
-  };
-
-  const handleTriggerIncumbentDefense = async () => {
-    if (!challenge) return;
-    setTriggeringIncumbent(true);
-    try {
-      const res = await apiFetch(`/api/challenges/${challenge.id}/incumbent-defense`, { method: 'POST' });
-      if (res.ok) {
-        onRefreshData();
-        setActionToast('Your current provider was invited to send a retention offer.');
-        setTimeout(() => setActionToast(null), 4000);
-      }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setTriggeringIncumbent(false);
     }
   };
 
@@ -1321,7 +1285,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
               Offers are compared with your current policy line by line.
             </p>
             <p className="text-xs text-slate-400">
-              Open Policy displays premium and coverage differences. It does not rank, recommend, negotiate, or decide whether an offer is better for you.
+              Open Policy displays each offer’s stated premium and coverage differences from your current policy. You decide whether to select an offer or retain your policy.
             </p>
           </div>
 
@@ -1345,11 +1309,11 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
       )}
 
       {/* ========================================================================= */}
-      {/* STEP 4: SIGNATURE CONSUMER INTERFACE — THE COMPETITION ROOM               */}
+      {/* STEP 4: SIGNATURE CONSUMER INTERFACE — OFFER REVIEW                       */}
       {/* ========================================================================= */}
       {currentStep === 'COMPETITION_ROOM' && (
         <div className="space-y-6">
-          {/* Header of Competition Room */}
+          {/* Header of Offer Review */}
           <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
               <div className="flex items-center space-x-2">
@@ -1387,7 +1351,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
             </div>
           </div>
 
-          {/* Section 11 & 12 Progressive Disclosure & Dynamic Competition Mechanics */}
+          {/* Section 11 & 12 Progressive Disclosure & Independent Offer Review */}
           <div className="bg-slate-900 text-white rounded-xl p-4 border border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
             <div className="flex items-start space-x-3">
               <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/30">
@@ -1481,20 +1445,6 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                   </button>
                 )}
 
-                <button
-                  id="btn-incumbent-defense"
-                  onClick={handleTriggerIncumbentDefense}
-                  disabled={triggeringIncumbent || challenge?.incumbentDefended}
-                  className={`flex items-center space-x-1.5 text-xs font-semibold px-3 py-2 rounded-lg border transition ${
-                    challenge?.incumbentDefended
-                      ? 'bg-blue-950 text-blue-300 border-blue-700/60 cursor-default'
-                      : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300 shadow-xs'
-                  }`}
-                  title="Invite your current provider to send an offer"
-                >
-                  <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
-                  <span>{challenge?.incumbentDefended ? '✓ Current Provider Offer Received' : 'Invite Current Provider'}</span>
-                </button>
               </div>
             </div>
 
@@ -1628,7 +1578,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
             </div>
           )}
 
-          {/* PM-3: Transparent Consumer Competition Activity Timeline */}
+          {/* PM-3: Consumer Offer Activity Timeline */}
           {activityFeed && activityFeed.length > 0 && (
             <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-3">
               <div className="flex items-center justify-between pb-2 border-b border-slate-100">
@@ -1687,7 +1637,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
           )}
 
           <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
-            Showing {activeComparisons.length} {activeComparisons.length === 1 ? 'offer' : 'offers'} in the order received. Offers that do not meet your requirements remain visible and are clearly marked. Change your requirements above.
+                Showing {activeComparisons.length} {activeComparisons.length === 1 ? 'offer' : 'offers'} in the order received. Every valid documented offer remains visible, including offers with different premiums or coverage.
           </div>
 
           {/* Section 25 Signature Side-by-Side Board */}
@@ -1968,7 +1918,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
             <div className="flex items-center space-x-2">
               <Info className="w-4 h-4 text-slate-500" />
               <span>
-                <strong>Trust Standard:</strong> We compared {selectedComparison.totalFieldsCount} of {selectedComparison.totalFieldsCount} relevant fields. {selectedComparison.matchingFieldsCount} match identically, {selectedComparison.betterFieldsCount} improved, and {selectedComparison.worseFieldsCount} were reduced.
+                <strong>Comparison record:</strong> We compared {selectedComparison.totalFieldsCount} relevant fields. {selectedComparison.matchingFieldsCount} match, {selectedComparison.betterFieldsCount} are classified as more protective, and {selectedComparison.worseFieldsCount} are classified as reduced protection.
               </span>
             </div>
           </div>
@@ -2014,7 +1964,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                         </td>
                         <td className="py-3 px-3">
                           <span className={`inline-block px-2 py-0.5 rounded text-[10px] uppercase tracking-wider ${badgeBg}`}>
-                            {fc.result}
+                            {{ BETTER: 'MORE PROTECTIVE', EQUIVALENT: 'MATCH', WORSE: 'REDUCED PROTECTION', DIFFERENT: 'DIFFERENT', UNKNOWN: 'UNKNOWN' }[fc.result]}
                           </span>
                         </td>
                         <td className="py-3 px-3 text-slate-600 text-[11px] leading-relaxed max-w-xs">
@@ -2129,7 +2079,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                     Terms Version: <span className="font-semibold text-slate-800">{bindingDossier.complianceAcknowledgments.termsVersion}</span>
                   </p>
                   <p className="text-slate-600">
-                    Annual Price Improvement: <span className="font-bold text-emerald-700">${bindingDossier.complianceAcknowledgments.priceImprovementAnnual.toLocaleString()}/yr</span>
+                    Annual Premium Difference: <span className="font-bold text-emerald-700">-${bindingDossier.complianceAcknowledgments.priceImprovementAnnual.toLocaleString()}/yr vs selected offer</span>
                   </p>
                   <p className="text-slate-500 text-[10px]">
                     Consent Hash: <span className="font-mono">{bindingDossier.complianceAcknowledgments.ipAddressHash}</span>
@@ -2253,7 +2203,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                   <span className="font-bold text-rose-900 text-xs">Selected Offer Cannot Be Honored as Submitted</span>
                 </div>
                 <p className="text-xs text-rose-800">
-                  The selected provider reported reason code <strong>{handoffResult.declineReason}</strong>. Your selected OfferVersion, consent history, and prior disclosure evidence remain unchanged. Open Policy does not present replacement terms or negotiate a substitute offer.
+                  The selected provider reported reason code <strong>{handoffResult.declineReason}</strong>. Your selected offer version, consent history, and prior disclosure evidence remain unchanged. Any subsequent insurance transaction occurs directly with a licensed provider.
                 </p>
               </div>
             )}
@@ -2553,7 +2503,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 bg-white p-3.5 rounded-lg border border-slate-200 text-xs">
                 <div>
                   <span className="text-slate-500 block">Carrier & Status</span>
-                  <span className="font-bold text-slate-800">{detailedReconciliation.carrier} ({detailedReconciliation.isCompliant ? 'COMPLIANT' : 'DEVIATION'})</span>
+                  <span className="font-bold text-slate-800">{detailedReconciliation.carrier} ({detailedReconciliation.isCompliant ? 'MATCH' : 'DIFFERENCE IDENTIFIED'})</span>
                 </div>
                 <div>
                   <span className="text-slate-500 block">Annual Rate Creep</span>
@@ -2884,10 +2834,10 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
           <div className="p-4 bg-slate-900 text-white rounded-xl text-xs space-y-1 border border-slate-800">
             <div className="flex items-center space-x-1.5 text-emerald-400 font-bold uppercase tracking-wider">
               <Shield className="w-3.5 h-3.5" />
-              <span>Section 4: Vault Confidentiality Guarantee</span>
+              <span>Section 4: Vault Confidentiality Controls</span>
             </div>
             <p className="text-slate-300 leading-relaxed">
-              Documents placed in the Private Policy Vault are encrypted and tamper-evident. Providers reviewing your policy do not receive direct copies of your documents. Only the permitted policy details are shared during offer review.
+              Each stored document has recorded integrity evidence. Providers reviewing your policy do not receive direct copies through the offer-review workspace; only the policy details authorized for that review are presented.
             </p>
           </div>
         </div>
@@ -2944,7 +2894,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
               </div>
 
               <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200 text-emerald-800 text-[11px] leading-snug">
-                Upon saving, this document will be cryptographically hashed (SHA-256) and archived in your immutable vault.
+                Upon saving, this document will be stored with a recorded SHA-256 integrity value in your policy vault.
               </div>
             </div>
 
@@ -3035,7 +2985,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                   </div>
                   <div>
                     <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 uppercase">
-                      Statutory Informed Consent • Section 40 Parity
+              Recorded Consumer Consent • Coverage Comparison
                     </span>
                     <h3 className="text-base font-bold text-slate-900 mt-0.5">
                       Acknowledge Material Coverage Reductions

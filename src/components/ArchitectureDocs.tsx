@@ -220,7 +220,7 @@ export const ArchitectureDocs: React.FC = () => {
                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               }`}
             >
-              PM-2 Competition ({competitionResults.total})
+              PM-2 Offer Lifecycle ({competitionResults.total})
             </button>
             <button
               onClick={() => setSelectedSuite('PM3_BINDING')}
@@ -372,7 +372,7 @@ export const ArchitectureDocs: React.FC = () => {
                 </span>
               </div>
               <p className="text-xs text-slate-700">
-                Section 40 informed consent gating (PM-3), binding handoff dossier generation, and post-bind rate creep / deductible inflation detection.
+                Informed-consent gating, binding handoff records, and factual reconciliation of selected-offer terms against the issued policy.
               </p>
               <div className="text-[11px] text-slate-500 font-mono">
                 Dependencies: @policy-challenge/policy-schema
@@ -386,7 +386,7 @@ export const ArchitectureDocs: React.FC = () => {
                 </span>
               </div>
               <p className="text-xs text-slate-700">
-                Append-only cryptographically chained event ledger (Section 33), binary Merkle root verification over block transactions, Section 32 human-in-the-loop review queue for ambiguous extractions, and Section 34 statutory compliance proofs for State Insurance Commissioners.
+                Append-only chained event ledger, Merkle-root verification, and a human review queue for ambiguous extractions and operational evidence.
               </p>
               <div className="text-[11px] text-slate-500 font-mono">
                 Dependencies: @policy-challenge/policy-schema (Zero external crypto runtime dependencies)
@@ -421,10 +421,9 @@ export const ArchitectureDocs: React.FC = () => {
               <option value="/api/audit-events">GET /api/audit-events</option>
               <option value="/api/admin/review-queue">GET /api/admin/review-queue (PM-4)</option>
               <option value="/api/admin/audit-chain/verify">GET /api/admin/audit-chain/verify (PM-4)</option>
-              <option value="/api/challenges">GET /api/challenges</option>
+              <option value="/api/challenges">GET policy reviews</option>
               <option value="/api/marketplace/active-provider">GET /api/marketplace/active-provider (PM-1)</option>
-              <option value="/api/marketplace/competition/CHAL-NV-49281/status">GET /api/marketplace/competition/.../status (PM-2)</option>
-              <option value="/api/selection/dossier-by-challenge/CHAL-NV-49281">GET /api/selection/dossier-by-challenge/... (PM-3)</option>
+              <option value="/api/marketplace/competition/CHAL-NV-49281/status">GET offer-submission status (PM-2)</option>
               <option value="/api/tests/run">GET /api/tests/run</option>
               <option value="/api/docs/spec">GET /api/docs/spec</option>
             </select>
@@ -472,7 +471,7 @@ export const ArchitectureDocs: React.FC = () => {
               <span className="text-[10px] bg-slate-800 text-emerald-400 px-2 py-0.5 rounded">GitHub Actions</span>
             </div>
             <pre className="text-slate-300 text-[11px] leading-relaxed overflow-x-auto">
-{`name: Policy Challenge Continuous Delivery
+{`name: Open Policy Continuous Delivery
 
 on:
   push:

@@ -1,6 +1,6 @@
 /**
- * Policy Challenge Main Application
- * Consumer-Controlled Insurance Competition Platform
+ * Open Policy Main Application
+ * Consumer-Controlled Insurance Offer Review Platform
  */
 
 import React, { useState, useEffect } from 'react';
@@ -67,7 +67,7 @@ function MainApp() {
       showToast(
         perspective === 'PROVIDER' 
           ? 'Please register your agency or sign in to access the Provider Quoting Desk.' 
-          : 'Please create an account or sign in to start your policy challenge.'
+          : 'Please create an account or sign in to share your current policy for provider review.'
       );
       return;
     }
@@ -225,7 +225,7 @@ function MainApp() {
         <footer className="w-full bg-slate-900 border-t border-slate-800 py-4 text-center text-xs text-slate-400">
           <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
             <p className="font-mono text-[11px]">
-              Open Policy Engine • Consumer Insurance Competition Model
+              Open Policy • Independent Provider Offers • Factual Policy Comparison
             </p>
             <div className="flex items-center space-x-3 text-[11px] text-slate-400">
               <span>PostgreSQL Integrity</span>
