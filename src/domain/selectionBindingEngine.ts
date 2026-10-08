@@ -6,11 +6,62 @@ import {
   BindingHandoff,
   BindingHandoffStatus,
   BindingModification,
+  BindingHonorFailure,
+  CannotHonorReasonCode,
   Challenge,
   Offer,
   OfferVersion,
   CoverageBaseline
 } from '../types/insurance';
+
+export const CANNOT_HONOR_REASON_CODES: readonly CannotHonorReasonCode[] = [
+  'UNDERWRITING_INELIGIBLE',
+  'MATERIAL_APPLICATION_INFORMATION_CHANGED',
+  'CARRIER_DECLINED',
+  'PROVIDER_AUTHORITY_UNAVAILABLE',
+  'SELECTED_PRODUCT_UNAVAILABLE',
+  'APPLICATION_INCOMPLETE',
+  'OTHER_OPERATIONAL_FAILURE'
+];
+
+export function reportSelectedOfferCannotBeHonored(params: {
+  handoff: BindingHandoff;
+  providerOrgId: string;
+  providerUserId: string;
+  reasonCode: CannotHonorReasonCode;
+  now?: Date;
+}): { failure: BindingHonorFailure; updatedHandoff: BindingHandoff } {
+  const { handoff, providerOrgId, providerUserId, reasonCode, now = new Date() } = params;
+  if (handoff.providerOrganizationId !== providerOrgId) {
+    throw new Error('Unauthorized: Only the selected provider organization can report that the selected offer cannot be honored');
+  }
+  if (handoff.status === 'BOUND' || handoff.status === 'CANCELLED' || handoff.status === 'EXPIRED') {
+    throw new Error(`Cannot report selected-offer unavailability from terminal status '${handoff.status}'`);
+  }
+  if (!CANNOT_HONOR_REASON_CODES.includes(reasonCode)) {
+    throw new Error('A valid controlled cannot-honor reason code is required');
+  }
+  const reportedAt = now.toISOString();
+  const failure: BindingHonorFailure = {
+    id: `HONOR-FAIL-${handoff.id}`,
+    bindingHandoffId: handoff.id,
+    challengeId: handoff.challengeId,
+    providerOrganizationId: providerOrgId,
+    providerUserId,
+    reasonCode,
+    reportedAt
+  };
+  return {
+    failure,
+    updatedHandoff: {
+      ...handoff,
+      status: 'DECLINED',
+      declinedAt: reportedAt,
+      declineReason: reasonCode,
+      updatedAt: reportedAt
+    }
+  };
+}
 
 /**
  * Open Policy Selection, Controlled Disclosure & Binding Engine (PM-4)

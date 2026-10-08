@@ -390,14 +390,24 @@ export async function runCE3ValidationSuite() {
     );
     assert(appSubmitRes.status === 200, 'Handoff updated to APPLICATION_SUBMITTED');
 
+    const underwritingRes = await request(
+      server,
+      'POST',
+      `/api/marketplace/binding/${handoff.id}/update-status`,
+      {
+        newStatus: 'UNDERWRITING'
+      },
+      apexHeaders
+    );
+    assert(underwritingRes.status === 200, 'Handoff updated to UNDERWRITING');
+
     const boundRes = await request(
       server,
       'POST',
       `/api/marketplace/binding/${handoff.id}/update-status`,
       {
         newStatus: 'BOUND',
-        policyNumber: `POL-NV-CE3-${testTimestamp}`,
-        finalPremium: 2350
+        policyNumber: `POL-NV-CE3-${testTimestamp}`
       },
       apexHeaders
     );

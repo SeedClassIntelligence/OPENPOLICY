@@ -14,7 +14,8 @@ import { CURRENT_QUALIFICATION_STANDARD } from './src/domain/qualificationStanda
 import { explainCoverageComparison, generateDeterministicExplanation } from './src/server/geminiService';
 import { Offer, OfferVersion, CoverageBaseline, Challenge, Competition, ChallengeInvitation,
   PlatformNotification, CompetitionActivityEvent, AuditEvent, InformationRequest, OfferVerification,
-  IssuedPolicyDocument, IssuedPolicySnapshot, ReconciliationReport, PolicyVaultItem, VaultDocument } from './src/types/insurance';
+  IssuedPolicyDocument, IssuedPolicySnapshot, ReconciliationReport, PolicyVaultItem, VaultDocument,
+  CannotHonorReasonCode } from './src/types/insurance';
 import { evaluateProviderEligibility, type EligibilityEvaluation } from './src/domain/eligibilityEngine';
 import { evaluateOfferQualification, createOfferVersionSnapshot } from './src/domain/qualificationEngine';
 import {
@@ -31,8 +32,7 @@ import {
   createConsentGrant,
   revokeConsentGrant,
   validateAndExecuteDisclosure,
-  proposeBindingModification,
-  resolveBindingModification,
+  reportSelectedOfferCannotBeHonored,
   transitionBindingStatus
 } from './src/domain/selectionBindingEngine';
 import {
@@ -1868,141 +1868,32 @@ app.post('/api/marketplace/binding/:handoffId/execute-disclosure', async (req, r
   }
 });
 
-// 5. Propose Underwriting Modification (carrier changes terms; selected OfferVersion remains immutable)
-app.post('/api/marketplace/binding/:handoffId/propose-modification', async (req, res) => {
+// 5. Retired post-selection negotiation routes. Historical records remain readable.
+for (const retiredPath of ['propose-modification', 'resolve-modification', 'accept-modification', 'reject-modification']) {
+  app.post(`/api/marketplace/binding/:handoffId/${retiredPath}`, (_req, res) => {
+    res.status(410).json({ error: 'Post-selection modification negotiation through Open Policy is retired.' });
+  });
+}
+
+// 6. Provider factual report: selected offer cannot be honored as submitted.
+app.post('/api/marketplace/binding/:handoffId/cannot-honor', async (req, res) => {
   try {
-    const handoffId = req.params.handoffId;
-    const {
-      carrier,
-      originalAnnualPremium,
-      modifiedAnnualPremium,
-      coverageChanges,
-      underwritingReason
-    } = req.body;
-
-    if (modifiedAnnualPremium === undefined || modifiedAnnualPremium === null) {
-      return res.status(400).json({ error: 'modifiedAnnualPremium is required' });
+    const allowedKeys = new Set(['reasonCode']);
+    if (Object.keys(req.body || {}).some(key => !allowedKeys.has(key))) {
+      return res.status(400).json({ error: 'Only reasonCode is accepted; revised price, coverage, or terms cannot be transmitted through this endpoint.' });
     }
-
-    if (!underwritingReason) {
-      return res.status(400).json({ error: 'underwritingReason is required' });
-    }
-
     const providerOrgId = await getAuthenticatedProviderOrgId(req);
     const providerUserId = await getAuthenticatedProviderUserId(req);
-
-    const handoff = await postgresStore.getBindingHandoff(handoffId);
-    if (!handoff) return res.status(404).json({ error: `Binding handoff not found: ${handoffId}` });
-    const selectedOffer = handoff.offerId ? await postgresStore.getOffer(handoff.offerId) : undefined;
-    const computed = proposeBindingModification({
+    const handoff = await postgresStore.getBindingHandoff(req.params.handoffId);
+    if (!handoff) return res.status(404).json({ error: `Binding handoff not found: ${req.params.handoffId}` });
+    const computed = reportSelectedOfferCannotBeHonored({
       handoff,
       providerOrgId,
       providerUserId,
-      carrier: carrier || handoff.carrier,
-      originalAnnualPremium: originalAnnualPremium ?? selectedOffer?.annualPremium ?? 0,
-      modifiedAnnualPremium: Number(modifiedAnnualPremium),
-      coverageChanges: coverageChanges || [],
-      underwritingReason
+      reasonCode: req.body.reasonCode as CannotHonorReasonCode
     });
-    const committed = await postgresStore.commitBindingModificationProposal({
-      modification: computed.modification,
-      handoff: computed.updatedHandoff
-    });
-    res.json({ success: true, modification: committed.modification, handoff: committed.handoff });
-  } catch (e: any) {
-    res.status(e.statusCode || 400).json({ error: e.message });
-  }
-});
-
-// 6. Resolve Underwriting Modification (ACCEPT / REJECT by consumer)
-app.post('/api/marketplace/binding/:handoffId/resolve-modification', async (req, res) => {
-  try {
-    const { modificationId, decision, rejectionReason } = req.body;
-    const consumerId = getAuthenticatedConsumerId(req);
-
-    if (!modificationId) {
-      return res.status(400).json({ error: 'modificationId is required' });
-    }
-
-    if (decision !== 'ACCEPT' && decision !== 'REJECT') {
-      return res.status(400).json({ error: "decision must be 'ACCEPT' or 'REJECT'" });
-    }
-
-    const modification = await postgresStore.getBindingModification(modificationId);
-    if (!modification) return res.status(404).json({ error: `Binding modification not found: ${modificationId}` });
-    const handoff = await postgresStore.getBindingHandoff(modification.bindingHandoffId);
-    if (!handoff) return res.status(404).json({ error: `Binding handoff not found: ${modification.bindingHandoffId}` });
-    const computed = resolveBindingModification({
-      modification,
-      handoff,
-      consumerId,
-      decision,
-      rejectionReason
-    });
-    const committed = await postgresStore.commitBindingModificationResolution({
-      modification: computed.resolvedModification,
-      handoff: computed.updatedHandoff,
-      consumerId
-    });
-    res.json({ success: true, modification: committed.modification, handoff: committed.handoff });
-  } catch (e: any) {
-    res.status(e.statusCode || 400).json({ error: e.message });
-  }
-});
-
-// Route aliases for explicit accept / reject actions
-app.post('/api/marketplace/binding/:handoffId/accept-modification', async (req, res) => {
-  try {
-    const { modificationId } = req.body;
-    const consumerId = getAuthenticatedConsumerId(req);
-
-    if (!modificationId) {
-      return res.status(400).json({ error: 'modificationId is required' });
-    }
-
-    const modification = await postgresStore.getBindingModification(modificationId);
-    if (!modification) return res.status(404).json({ error: `Binding modification not found: ${modificationId}` });
-    const handoff = await postgresStore.getBindingHandoff(modification.bindingHandoffId);
-    if (!handoff) return res.status(404).json({ error: 'Binding handoff not found' });
-    const computed = resolveBindingModification({
-      modification,
-      handoff,
-      consumerId,
-      decision: 'ACCEPT'
-    });
-    const result = await postgresStore.commitBindingModificationResolution({
-      modification: computed.resolvedModification, handoff: computed.updatedHandoff, consumerId
-    });
-    res.json({ success: true, modification: result.modification, handoff: result.handoff });
-  } catch (e: any) {
-    res.status(e.statusCode || 400).json({ error: e.message });
-  }
-});
-
-app.post('/api/marketplace/binding/:handoffId/reject-modification', async (req, res) => {
-  try {
-    const { modificationId, rejectionReason } = req.body;
-    const consumerId = getAuthenticatedConsumerId(req);
-
-    if (!modificationId) {
-      return res.status(400).json({ error: 'modificationId is required' });
-    }
-
-    const modification = await postgresStore.getBindingModification(modificationId);
-    if (!modification) return res.status(404).json({ error: `Binding modification not found: ${modificationId}` });
-    const handoff = await postgresStore.getBindingHandoff(modification.bindingHandoffId);
-    if (!handoff) return res.status(404).json({ error: 'Binding handoff not found' });
-    const computed = resolveBindingModification({
-      modification,
-      handoff,
-      consumerId,
-      decision: 'REJECT',
-      rejectionReason
-    });
-    const result = await postgresStore.commitBindingModificationResolution({
-      modification: computed.resolvedModification, handoff: computed.updatedHandoff, consumerId
-    });
-    res.json({ success: true, modification: result.modification, handoff: result.handoff });
+    const committed = await postgresStore.commitBindingHonorFailure({ failure: computed.failure, handoff: computed.updatedHandoff });
+    res.json({ success: true, failure: committed.failure, handoff: committed.handoff });
   } catch (e: any) {
     res.status(e.statusCode || 400).json({ error: e.message });
   }
@@ -2012,10 +1903,18 @@ app.post('/api/marketplace/binding/:handoffId/reject-modification', async (req, 
 app.post('/api/marketplace/binding/:handoffId/update-status', async (req, res) => {
   try {
     const handoffId = req.params.handoffId;
-    const { newStatus, declineReason, policyNumber, finalPremium } = req.body;
+    const { newStatus, declineReason, policyNumber } = req.body;
+
+    if ('finalPremium' in (req.body || {}) || 'coverageChanges' in (req.body || {}) || 'revisedTerms' in (req.body || {})) {
+      return res.status(400).json({ error: 'Revised insurance price or coverage terms cannot be transmitted through binding status updates.' });
+    }
 
     if (!newStatus) {
       return res.status(400).json({ error: 'newStatus is required' });
+    }
+
+    if (!['APPLICATION_SUBMITTED', 'UNDERWRITING', 'BOUND'].includes(newStatus)) {
+      return res.status(400).json({ error: 'Binding status updates are limited to APPLICATION_SUBMITTED, UNDERWRITING, and BOUND. Use cannot-honor for an unavailable selected offer.' });
     }
 
     const providerOrgId = await getAuthenticatedProviderOrgId(req);
@@ -2030,8 +1929,7 @@ app.post('/api/marketplace/binding/:handoffId/update-status', async (req, res) =
       activeModifications: modifications,
       declineReason
     });
-    updatedHandoff = { ...updatedHandoff, policyNumber: policyNumber || updatedHandoff.policyNumber,
-      finalPremium: finalPremium ?? updatedHandoff.finalPremium };
+    updatedHandoff = { ...updatedHandoff, policyNumber: policyNumber || updatedHandoff.policyNumber };
     updatedHandoff = await postgresStore.commitBindingStatus(updatedHandoff, providerOrgId);
 
     res.json({ success: true, handoff: updatedHandoff });
@@ -2059,6 +1957,7 @@ app.get('/api/marketplace/binding/:handoffId', async (req, res) => {
   const consentGrants = await postgresStore.getConsentGrants(handoff.challengeId);
   const disclosureEvents = await postgresStore.getDisclosureEvents(handoff.id);
   const modifications = await postgresStore.getBindingModifications(handoff.id);
+  const honorFailure = await postgresStore.getBindingHonorFailure(handoff.id);
 
   res.json({
     success: true,
@@ -2066,7 +1965,8 @@ app.get('/api/marketplace/binding/:handoffId', async (req, res) => {
     selection,
     consentGrants,
     disclosureEvents,
-    modifications
+    modifications,
+    honorFailure
   });
 });
 
@@ -2083,6 +1983,7 @@ app.get('/api/marketplace/challenges/:id/selection-binding', async (req, res) =>
   const consentGrants = await postgresStore.getConsentGrants(challengeId);
   const modifications = handoff ? await postgresStore.getBindingModifications(handoff.id) : [];
   const disclosureEvents = handoff ? await postgresStore.getDisclosureEvents(handoff.id) : [];
+  const honorFailure = handoff ? await postgresStore.getBindingHonorFailure(handoff.id) : undefined;
 
   res.json({
     success: true,
@@ -2090,7 +1991,8 @@ app.get('/api/marketplace/challenges/:id/selection-binding', async (req, res) =>
     handoff,
     consentGrants,
     modifications,
-    disclosureEvents
+    disclosureEvents,
+    honorFailure
   });
 });
 

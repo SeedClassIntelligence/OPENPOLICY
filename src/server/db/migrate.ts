@@ -1165,6 +1165,31 @@ SET status = 'CONSUMER_REVIEW',
 WHERE status = 'FINAL_ROUND';
 `;
 
+export const SQL_MIGRATION_V13 = `
+-- PR-3: factual selected-offer unavailability reports. Historical binding
+-- modifications and their audit events remain untouched and queryable.
+CREATE TABLE IF NOT EXISTS binding_honor_failures (
+  id TEXT PRIMARY KEY,
+  binding_handoff_id TEXT NOT NULL UNIQUE REFERENCES binding_handoffs(id) ON DELETE RESTRICT,
+  challenge_id TEXT NOT NULL,
+  provider_organization_id TEXT NOT NULL,
+  provider_user_id TEXT NOT NULL,
+  reason_code TEXT NOT NULL CHECK (reason_code IN (
+    'UNDERWRITING_INELIGIBLE',
+    'MATERIAL_APPLICATION_INFORMATION_CHANGED',
+    'CARRIER_DECLINED',
+    'PROVIDER_AUTHORITY_UNAVAILABLE',
+    'SELECTED_PRODUCT_UNAVAILABLE',
+    'APPLICATION_INCOMPLETE',
+    'OTHER_OPERATIONAL_FAILURE'
+  )),
+  reported_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_binding_honor_failures_challenge
+  ON binding_honor_failures(challenge_id, reported_at);
+`;
+
 export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR || './data/openpolicy_pg') {
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
@@ -1221,7 +1246,11 @@ export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR ||
     await pglite.query(
       `INSERT INTO _migrations (name) VALUES ('0012_single_submission_window') ON CONFLICT (name) DO NOTHING;`
     );
-    console.log(`[Open Policy DB] Migrations 0001 through 0012 applied successfully.`);
+    await pglite.exec(SQL_MIGRATION_V13);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0013_retire_binding_negotiation') ON CONFLICT (name) DO NOTHING;`
+    );
+    console.log(`[Open Policy DB] Migrations 0001 through 0013 applied successfully.`);
     return pglite;
   } catch (error) {
     console.error(`[Open Policy DB] Migration error:`, error);

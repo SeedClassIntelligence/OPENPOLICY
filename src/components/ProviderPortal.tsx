@@ -47,7 +47,7 @@ import {
   BindingHandoff,
   ConsentGrant,
   DisclosureEvent,
-  BindingModification,
+  CannotHonorReasonCode,
   ReconciliationReport
 } from '../types/insurance';
 import { detectQuoteDiscrepancies } from '../domain/policyIntelligence';
@@ -150,11 +150,9 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
   const [bindingConsent, setBindingConsent] = useState<ConsentGrant | null>(null);
   const [disclosureEvent, setDisclosureEvent] = useState<DisclosureEvent | null>(null);
   const [disclosedData, setDisclosedData] = useState<Record<string, any> | null>(null);
-  const [bindingModifications, setBindingModifications] = useState<BindingModification[]>([]);
   const [isExecutingDisclosure, setIsExecutingDisclosure] = useState<boolean>(false);
-  const [showProposeModModal, setShowProposeModModal] = useState<boolean>(false);
-  const [modPremium, setModPremium] = useState<string>('');
-  const [modReason, setModReason] = useState<string>('');
+  const [showCannotHonorModal, setShowCannotHonorModal] = useState<boolean>(false);
+  const [cannotHonorReason, setCannotHonorReason] = useState<CannotHonorReasonCode>('UNDERWRITING_INELIGIBLE');
   const [showBoundModal, setShowBoundModal] = useState<boolean>(false);
   const [boundPolicyNumber, setBoundPolicyNumber] = useState<string>('');
   const [bindingActionError, setBindingActionError] = useState<string | null>(null);
@@ -399,7 +397,6 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
             setBindingHandoff(bindData.handoff);
             setBindingConsent(bindData.consentGrants?.[0] || null);
             setDisclosureEvent(bindData.disclosureEvents?.[0] || null);
-            setBindingModifications(bindData.modifications || []);
             // PM-5 Reconciliation Fetch
             try {
               const recRes = await apiFetch(`/api/marketplace/binding/${bindData.handoff.id}/reconciliation`);
@@ -414,7 +411,6 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
             setBindingHandoff(null);
             setBindingConsent(null);
             setDisclosureEvent(null);
-            setBindingModifications([]);
             setPm5Report(null);
           }
         }
@@ -459,42 +455,28 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
     }
   };
 
-  const handleProposeModification = async () => {
+  const handleReportCannotHonor = async () => {
     if (!bindingHandoff) return;
-    if (!modPremium || isNaN(Number(modPremium))) {
-      setBindingActionError('Valid annual premium is required');
-      return;
-    }
-    if (!modReason.trim()) {
-      setBindingActionError('Underwriting reason is required');
-      return;
-    }
-    setActionLoading('propose_mod');
+    setActionLoading('cannot_honor');
     setBindingActionError(null);
     try {
-      const res = await apiFetch(`/api/marketplace/binding/${bindingHandoff.id}/propose-modification`, {
+      const res = await apiFetch(`/api/marketplace/binding/${bindingHandoff.id}/cannot-honor`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'x-provider-user-id': authenticatedUserId
         },
-        body: JSON.stringify({
-          modifiedAnnualPremium: Number(modPremium),
-          underwritingReason: modReason
-        })
+        body: JSON.stringify({ reasonCode: cannotHonorReason })
       });
       const data = await res.json();
       if (res.ok && data.success) {
         setBindingHandoff(data.handoff);
-        setBindingModifications(prev => [data.modification, ...prev]);
-        setShowProposeModModal(false);
-        setModPremium('');
-        setModReason('');
+        setShowCannotHonorModal(false);
       } else {
-        setBindingActionError(data.error || 'Failed to propose modification');
+        setBindingActionError(data.error || 'Failed to report selected-offer unavailability');
       }
     } catch (e: any) {
-      setBindingActionError(e.message || 'Error proposing modification');
+      setBindingActionError(e.message || 'Error reporting selected-offer unavailability');
     } finally {
       setActionLoading(null);
     }
@@ -1438,11 +1420,6 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                   <div className="bg-white rounded-xl p-4 border border-emerald-200 space-y-3">
                     <div className="flex items-center justify-between">
                       <span className="font-bold text-slate-900 text-xs">Underwriting & Binding Lifecycle Controls</span>
-                      {bindingModifications.some(m => m.status === 'PENDING_CONSUMER_REVIEW') && (
-                        <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded border border-amber-200">
-                          MODIFICATION PENDING REVIEW (BOUND BLOCKED)
-                        </span>
-                      )}
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
@@ -1463,25 +1440,20 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                       </button>
 
                       <button
-                        onClick={() => setShowProposeModModal(true)}
+                        onClick={() => setShowCannotHonorModal(true)}
                         disabled={bindingHandoff.status === 'BOUND' || bindingHandoff.status === 'DECLINED'}
-                        className="bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-medium text-xs px-3 py-2 rounded-lg transition disabled:opacity-40"
+                        className="bg-rose-50 hover:bg-rose-100 text-rose-900 border border-rose-300 font-medium text-xs px-3 py-2 rounded-lg transition disabled:opacity-40"
                       >
-                        Propose Underwriting Modification
+                        Report Offer Cannot Be Honored
                       </button>
 
                       <button
                         onClick={() => setShowBoundModal(true)}
                         disabled={
                           bindingHandoff.status === 'BOUND' ||
-                          bindingHandoff.status === 'DECLINED' ||
-                          bindingModifications.some(m => m.status === 'PENDING_CONSUMER_REVIEW')
+                          bindingHandoff.status === 'DECLINED'
                         }
-                        title={
-                          bindingModifications.some(m => m.status === 'PENDING_CONSUMER_REVIEW')
-                            ? 'Cannot bind: Underwriting modification pending consumer review'
-                            : 'Mark policy as bound'
-                        }
+                        title="Mark policy as bound after completing the licensed provider's external application and underwriting process"
                         className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs px-3.5 py-2 rounded-lg transition disabled:opacity-40 flex items-center space-x-1"
                       >
                         <Check className="w-3.5 h-3.5" />
@@ -1501,13 +1473,6 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                         </button>
                       )}
 
-                      <button
-                        onClick={() => handleUpdateBindingStatus('DECLINED')}
-                        disabled={bindingHandoff.status === 'BOUND' || bindingHandoff.status === 'DECLINED'}
-                        className="bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 font-medium text-xs px-3 py-2 rounded-lg transition disabled:opacity-40"
-                      >
-                        Decline Risk
-                      </button>
                     </div>
 
                     {/* PM-5: Issued Policy Reconciliation Card */}
@@ -3333,19 +3298,19 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
         </div>
       )}
 
-      {/* PM-4: Propose Underwriting Modification Modal */}
-      {showProposeModModal && (
+      {/* PR-3: factual selected-offer unavailability report */}
+      {showCannotHonorModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-fade-in">
           <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 border border-slate-200 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
-                <AlertTriangle className="h-5 w-5 text-amber-600" />
+                <AlertTriangle className="h-5 w-5 text-rose-600" />
                 <h3 className="text-base font-bold text-slate-900">
-                  Propose Underwriting Modification
+                  Report Selected Offer Cannot Be Honored
                 </h3>
               </div>
               <button
-                onClick={() => setShowProposeModModal(false)}
+                onClick={() => setShowCannotHonorModal(false)}
                 className="text-slate-400 hover:text-slate-700 p-1"
               >
                 <X className="h-5 w-5" />
@@ -3353,57 +3318,41 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
             </div>
 
             <p className="text-xs text-slate-600 leading-relaxed">
-              Underwriting review identified rate factor adjustments or vehicle/driver discrepancies. 
-              The original selected offer version remains immutable. Proposing a modification requires explicit consumer acceptance before the policy can be bound.
+              Use a controlled reason code to report that the selected offer cannot be honored as submitted. Open Policy will notify the policyholder factually. Do not enter or transmit replacement prices or coverage terms here.
             </p>
 
             <div className="space-y-3 text-xs">
               <div>
                 <label className="block text-slate-700 font-semibold mb-1">
-                  Adjusted Annual Premium ($)
+                  Reason
                 </label>
-                <div className="relative">
-                  <DollarSign className="h-4 w-4 absolute left-2.5 top-2.5 text-slate-400" />
-                  <input
-                    type="number"
-                    value={modPremium}
-                    onChange={(e) => setModPremium(e.target.value)}
-                    placeholder="e.g. 2100"
-                    className="w-full text-xs border border-slate-300 rounded-lg pl-8 pr-3 py-2 font-bold text-slate-900 focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-slate-700 font-semibold mb-1">
-                  Underwriting Reason / Discrepancy Note
-                </label>
-                <textarea
-                  rows={3}
-                  value={modReason}
-                  onChange={(e) => setModReason(e.target.value)}
-                  placeholder="e.g. Minor moving violation discovered during MVR run; rate tier adjusted from Preferred to Standard."
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-xs focus:ring-1 focus:ring-amber-500"
-                  required
-                />
+                <select value={cannotHonorReason} onChange={(e) => setCannotHonorReason(e.target.value as CannotHonorReasonCode)} className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-xs focus:ring-1 focus:ring-rose-500">
+                  <option value="UNDERWRITING_INELIGIBLE">Underwriting eligibility requirements were not met</option>
+                  <option value="MATERIAL_APPLICATION_INFORMATION_CHANGED">Material application information changed</option>
+                  <option value="CARRIER_DECLINED">Carrier declined the application</option>
+                  <option value="PROVIDER_AUTHORITY_UNAVAILABLE">Provider authority is unavailable</option>
+                  <option value="SELECTED_PRODUCT_UNAVAILABLE">Selected product is unavailable</option>
+                  <option value="APPLICATION_INCOMPLETE">Application remains incomplete</option>
+                  <option value="OTHER_OPERATIONAL_FAILURE">Other operational failure</option>
+                </select>
               </div>
             </div>
 
             <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100">
               <button
                 type="button"
-                onClick={() => setShowProposeModModal(false)}
+                onClick={() => setShowCannotHonorModal(false)}
                 className="px-4 py-2 border border-slate-200 text-slate-700 rounded-lg font-semibold hover:bg-slate-50"
               >
                 Cancel
               </button>
               <button
                 type="button"
-                disabled={!modPremium || !modReason || actionLoading !== null}
-                onClick={handleProposeModification}
-                className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-semibold flex items-center gap-1.5 shadow-xs disabled:opacity-50"
+                disabled={actionLoading !== null}
+                onClick={handleReportCannotHonor}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-semibold flex items-center gap-1.5 shadow-xs disabled:opacity-50"
               >
-                {actionLoading === 'propose_mod' ? 'Submitting...' : 'Submit Modification'}
+                {actionLoading === 'cannot_honor' ? 'Reporting...' : 'Report Cannot Be Honored'}
               </button>
             </div>
           </div>

@@ -482,6 +482,25 @@ export interface BindingModification {
   rejectionReason?: string;
 }
 
+export type CannotHonorReasonCode =
+  | 'UNDERWRITING_INELIGIBLE'
+  | 'MATERIAL_APPLICATION_INFORMATION_CHANGED'
+  | 'CARRIER_DECLINED'
+  | 'PROVIDER_AUTHORITY_UNAVAILABLE'
+  | 'SELECTED_PRODUCT_UNAVAILABLE'
+  | 'APPLICATION_INCOMPLETE'
+  | 'OTHER_OPERATIONAL_FAILURE';
+
+export interface BindingHonorFailure {
+  id: string;
+  bindingHandoffId: string;
+  challengeId: string;
+  providerOrganizationId: string;
+  providerUserId: string;
+  reasonCode: CannotHonorReasonCode;
+  reportedAt: string;
+}
+
 // PM-5: Issued Policy Document Evidence
 export interface IssuedPolicyDocument {
   id: string;
@@ -680,6 +699,7 @@ export interface AuditEvent {
     | 'BINDING_MODIFICATION_PROPOSED'
     | 'BINDING_MODIFICATION_ACCEPTED'
     | 'BINDING_MODIFICATION_REJECTED'
+    | 'SELECTED_OFFER_CANNOT_BE_HONORED'
     | 'BINDING_STATUS_CHANGED'
     | 'ISSUED_POLICY_UPLOADED'
     | 'RECONCILIATION_VARIANCE_RESOLVED'
@@ -740,7 +760,8 @@ export interface PlatformNotification {
     | 'RENEWAL_APPROACHING'
     | 'RENEWAL_INCREASE_DETECTED'
     | 'OPPORTUNITY_RECEIVED'
-    | 'COMPETITION_UPDATE';
+    | 'COMPETITION_UPDATE'
+    | 'SELECTED_OFFER_UNAVAILABLE';
   title: string;
   message: string;
   timestamp: string;

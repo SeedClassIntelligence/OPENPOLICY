@@ -43,7 +43,7 @@ const rules: RouteRule[] = [
   { pattern: /^\/commercial\//, roles: ['PROVIDER'] },
   { methods: ['POST'], pattern: /^\/marketplace\/competition\/[^/]+\/(?:keep-current-offer\/[^/]+|withdraw|revise-offer\/[^/]+)$/, roles: ['PROVIDER'] },
   { methods: ['POST'], pattern: /^\/marketplace\/(?:challenges\/[^/]+\/information-requests|information-requests\/[^/]+\/answer)$/, roles: ['PROVIDER'] },
-  { methods: ['POST'], pattern: /^\/marketplace\/binding\/[^/]+\/(?:execute-disclosure|propose-modification|update-status|upload-issued-policy|reconcile)$/, roles: ['PROVIDER'] },
+  { methods: ['POST'], pattern: /^\/marketplace\/binding\/[^/]+\/(?:execute-disclosure|propose-modification|cannot-honor|update-status|upload-issued-policy|reconcile)$/, roles: ['PROVIDER'] },
 ];
 
 export function authorizationRuleFor(method: string, path: string): RouteRule | undefined {

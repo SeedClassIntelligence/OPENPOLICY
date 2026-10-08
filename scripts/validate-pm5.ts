@@ -362,24 +362,21 @@ async function runPM5AcceptanceValidation() {
     });
     assert(consentRes.status === 200 && consentRes.body.success, 'Step 2: Stage C consent granted', JSON.stringify(consentRes.body));
 
-    // 3. Provider proposes underwriting modification (annual premium adjusted)
-    const modifiedAnnualPremium = winningOffer.annualPremium + 80;
-    const modRes = await request(server, 'POST', `/api/marketplace/binding/${handoffId}/propose-modification`, {
-      modifiedAnnualPremium,
-      coverageChanges: [],
-      underwritingReason: 'Minor garaging risk adjustment'
+    // 3. Licensed provider completes application and underwriting on its own channel.
+    const modifiedAnnualPremium = winningOffer.annualPremium;
+    const applicationRes = await request(server, 'POST', `/api/marketplace/binding/${handoffId}/update-status`, {
+      newStatus: 'APPLICATION_SUBMITTED'
     }, {
       'x-provider-user-id': 'user_apex_1'
     });
-    assert(modRes.status === 200 && modRes.body.success, 'Step 3: Underwriting modification proposed');
-    const modId = modRes.body.modification.id;
+    assert(applicationRes.status === 200 && applicationRes.body.success, 'Step 3: Application status recorded without transmitting revised terms');
 
-    // 4. Consumer accepts underwriting modification
-    const acceptModRes = await request(server, 'POST', `/api/marketplace/binding/${handoffId}/accept-modification`, {
-      modificationId: modId,
-      consumerId
+    const underwritingRes = await request(server, 'POST', `/api/marketplace/binding/${handoffId}/update-status`, {
+      newStatus: 'UNDERWRITING'
+    }, {
+      'x-provider-user-id': 'user_apex_1'
     });
-    assert(acceptModRes.status === 200 && acceptModRes.body.success, 'Step 4: Underwriting modification accepted by consumer');
+    assert(underwritingRes.status === 200 && underwritingRes.body.success, 'Step 4: Underwriting status recorded without platform negotiation');
 
     // 5. Provider updates status to BOUND
     const boundRes = await request(server, 'POST', `/api/marketplace/binding/${handoffId}/update-status`, {
@@ -442,7 +439,7 @@ async function runPM5AcceptanceValidation() {
     const report = reconcileRes.body.report;
     assert(report.verdict === 'MATCH' || report.verdict === 'AUTHORIZED_VARIANCE', `Reconciliation verdict is MATCH or AUTHORIZED_VARIANCE (actual: ${report.verdict})`);
     assert(report.totalAnnualPremiumVariance === 0, 'Total annual premium variance is $0');
-    assert(report.expectedTermsSummary.annualPremium === modifiedAnnualPremium, `Expected terms reflects accepted modification ($${modifiedAnnualPremium})`);
+    assert(report.expectedTermsSummary.annualPremium === modifiedAnnualPremium, `Expected terms remain anchored to selected OfferVersion ($${modifiedAnnualPremium})`);
 
     // Verify Offer was NOT mutated
     const originalOffer = db.getOffer(winningOffer.id);

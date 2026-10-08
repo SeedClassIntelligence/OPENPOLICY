@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { PostgresStore } from './postgresStore';
-import { runMigrations, SQL_MIGRATION_V12 } from './migrate';
+import { runMigrations, SQL_MIGRATION_V12, SQL_MIGRATION_V13 } from './migrate';
 import {
   createSelection,
   initiateBindingHandoff,
@@ -38,6 +38,33 @@ test('PR-2 migration collapses legacy rounds idempotently while retaining legacy
     assert.deepEqual(JSON.parse(migrated.rows[0].payload).legacyRoundHistory, [{ round: 'IMPROVEMENT' }]);
     const audits = await database.query<any>(`SELECT count(*)::int AS count FROM audit_events WHERE id='AUDIT-PR2-COMP-PR2-LEGACY'`);
     assert.equal(audits.rows[0].count, 1);
+  } finally {
+    await database.close();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('PR-3 migration is idempotent and preserves historical modification evidence', async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openpolicy-pr3-migration-'));
+  const database = await runMigrations(dataDir);
+  try {
+    await database.query(
+      `INSERT INTO binding_handoffs (id,binding_reference,challenge_id,consumer_id,provider_organization_id,carrier,status,created_at,updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      ['HND-PR3-HIST','BIND-PR3-HIST','CHAL-PR3-HIST','consumer_fixture','org_apex','Historical Carrier','MODIFICATION_PENDING','2026-01-01T00:00:00.000Z','2026-01-01T00:00:00.000Z']
+    );
+    await database.query(
+      `INSERT INTO binding_modifications (id,binding_handoff_id,challenge_id,provider_organization_id,provider_user_id,carrier,original_annual_premium,modified_annual_premium,coverage_changes,underwriting_reason,proposed_at,status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      ['MOD-PR3-HIST','HND-PR3-HIST','CHAL-PR3-HIST','org_apex','user_apex_1','Historical Carrier',2400,2500,'[]','Historical evidence','2026-01-01T00:00:00.000Z','ACCEPTED']
+    );
+    await database.exec(SQL_MIGRATION_V13);
+    await database.exec(SQL_MIGRATION_V13);
+    const modifications = await database.query<any>(`SELECT * FROM binding_modifications WHERE id='MOD-PR3-HIST'`);
+    assert.equal(modifications.rows.length, 1);
+    assert.equal(modifications.rows[0].modified_annual_premium, 2500);
+    const table = await database.query<any>(`SELECT count(*)::int AS count FROM information_schema.tables WHERE table_name='binding_honor_failures'`);
+    assert.equal(table.rows[0].count, 1);
   } finally {
     await database.close();
     fs.rmSync(dataDir, { recursive: true, force: true });

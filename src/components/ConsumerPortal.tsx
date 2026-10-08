@@ -45,7 +45,6 @@ import {
   BindingHandoff,
   Selection,
   ConsentGrant,
-  BindingModification,
   ReconciliationReport,
   PolicyVaultItem,
   CoverageItem,
@@ -375,7 +374,6 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
 
   // PM-4 Binding & Controlled Disclosure States
   const [activeConsentGrant, setActiveConsentGrant] = useState<ConsentGrant | null>(null);
-  const [activeModification, setActiveModification] = useState<BindingModification | null>(null);
   const [authorizedFields, setAuthorizedFields] = useState<string[]>([
     'namedInsured',
     'addressLine1',
@@ -386,7 +384,6 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
     'phone'
   ]);
   const [isGrantingConsent, setIsGrantingConsent] = useState<boolean>(false);
-  const [isResolvingMod, setIsResolvingMod] = useState<boolean>(false);
 
   // PM-5 Issued Policy Reconciliation & Policy Vault States
   const [pm5Report, setPm5Report] = useState<ReconciliationReport | null>(null);
@@ -649,9 +646,6 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
         const hData = await hRes.json();
         if (hRes.ok && hData.handoff) {
           setHandoffResult(hData.handoff);
-          if (hData.modifications?.length > 0) {
-            setActiveModification(hData.modifications[0]);
-          }
         }
       } else {
         setConsentError(data.error || 'Failed to grant consent');
@@ -679,30 +673,6 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
       }
     } catch (e: any) {
       setConsentError(e.message || 'Error revoking consent');
-    }
-  };
-
-  const handleResolveModification = async (decision: 'ACCEPT' | 'REJECT') => {
-    if (!handoffResult || !activeModification) return;
-    setIsResolvingMod(true);
-    try {
-      const endpoint = decision === 'ACCEPT' ? 'accept-modification' : 'reject-modification';
-      const res = await apiFetch(`/api/marketplace/binding/${handoffResult.id}/${endpoint}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          modificationId: activeModification.id
-        })
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setActiveModification(data.modification);
-        setHandoffResult(data.handoff);
-      }
-    } catch (e: any) {
-      setConsentError(e.message || 'Error resolving modification');
-    } finally {
-      setIsResolvingMod(false);
     }
   };
 
@@ -2276,56 +2246,15 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
               )}
             </div>
 
-            {/* PM-4 Underwriting Modification Review Card */}
-            {(handoffResult.status === 'MODIFICATION_PENDING' || activeModification) && activeModification && (
-              <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl space-y-3">
+            {handoffResult.status === 'DECLINED' && handoffResult.declineReason && (
+              <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl space-y-2">
                 <div className="flex items-center space-x-2">
-                  <AlertTriangle className="w-4 h-4 text-amber-700" />
-                  <span className="font-bold text-amber-900 text-xs">Carrier Underwriting Modification Proposed</span>
+                  <AlertTriangle className="w-4 h-4 text-rose-700" />
+                  <span className="font-bold text-rose-900 text-xs">Selected Offer Cannot Be Honored as Submitted</span>
                 </div>
-                <p className="text-xs text-amber-800">
-                  The carrier proposed modified terms during underwriting. Your original selected quote remains immutable. You can choose to accept the adjusted terms or reject them. Rejecting halts continuation without automatic platform action.
+                <p className="text-xs text-rose-800">
+                  The selected provider reported reason code <strong>{handoffResult.declineReason}</strong>. Your selected OfferVersion, consent history, and prior disclosure evidence remain unchanged. Open Policy does not present replacement terms or negotiate a substitute offer.
                 </p>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-white p-3 rounded-lg border border-amber-200 text-xs">
-                  <div>
-                    <span className="text-slate-500 block text-[10px] uppercase">Quoted Premium:</span>
-                    <span className="font-semibold text-slate-700 line-through">${activeModification.originalAnnualPremium}/yr</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-500 block text-[10px] uppercase">Modified Premium:</span>
-                    <span className="font-bold text-amber-800">${activeModification.modifiedAnnualPremium}/yr</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-500 block text-[10px] uppercase">Underwriting Reason:</span>
-                    <span className="font-medium text-slate-800">{activeModification.underwritingReason}</span>
-                  </div>
-                </div>
-
-                {activeModification.status === 'PENDING_CONSUMER_REVIEW' ? (
-                  <div className="flex items-center space-x-3 pt-2">
-                    <button
-                      onClick={() => handleResolveModification('ACCEPT')}
-                      disabled={isResolvingMod}
-                      className="flex items-center space-x-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs px-3.5 py-2 rounded-lg transition"
-                    >
-                      <Check className="w-3.5 h-3.5" />
-                      <span>Accept Modified Terms</span>
-                    </button>
-                    <button
-                      onClick={() => handleResolveModification('REJECT')}
-                      disabled={isResolvingMod}
-                      className="flex items-center space-x-1.5 bg-rose-600 hover:bg-rose-700 text-white font-medium text-xs px-3.5 py-2 rounded-lg transition"
-                    >
-                      <AlertTriangle className="w-3.5 h-3.5" />
-                      <span>Reject Modification</span>
-                    </button>
-                  </div>
-                ) : (
-                  <div className="text-xs font-semibold text-slate-700 pt-1">
-                    Status: <span className={activeModification.status === 'ACCEPTED' ? 'text-emerald-700' : 'text-rose-700'}>{activeModification.status}</span>
-                  </div>
-                )}
               </div>
             )}
           </div>

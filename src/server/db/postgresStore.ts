@@ -1,7 +1,7 @@
 import { PGlite } from '@electric-sql/pglite';
 import fs from 'fs';
 import pg from 'pg';
-import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8, SQL_MIGRATION_V9, SQL_MIGRATION_V10, SQL_MIGRATION_V11 } from './migrate';
+import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8, SQL_MIGRATION_V9, SQL_MIGRATION_V10, SQL_MIGRATION_V11, SQL_MIGRATION_V12, SQL_MIGRATION_V13 } from './migrate';
 import { buildVerifiedPolicyAndBaseline } from '../../domain/policyEvidenceVerification';
 import {
   ProviderOrganization,
@@ -26,6 +26,7 @@ import {
   DisclosureEvent,
   BindingHandoff,
   BindingModification,
+  BindingHonorFailure,
   IssuedPolicyDocument,
   IssuedPolicySnapshot,
   ReconciliationReport,
@@ -225,6 +226,14 @@ export class PostgresStore {
         await this.sql.exec(SQL_MIGRATION_V11);
         await this.sql.query(
           `INSERT INTO _migrations (name) VALUES ('0011_production_document_intelligence') ON CONFLICT (name) DO NOTHING;`
+        );
+        await this.sql.exec(SQL_MIGRATION_V12);
+        await this.sql.query(
+          `INSERT INTO _migrations (name) VALUES ('0012_single_submission_window') ON CONFLICT (name) DO NOTHING;`
+        );
+        await this.sql.exec(SQL_MIGRATION_V13);
+        await this.sql.query(
+          `INSERT INTO _migrations (name) VALUES ('0013_retire_binding_negotiation') ON CONFLICT (name) DO NOTHING;`
         );
         this.isReady = true;
         console.log(
@@ -2649,6 +2658,74 @@ export class PostgresStore {
     await this.ensureReady();
     const result = await this.sql!.query<any>(`SELECT * FROM binding_modifications WHERE id=$1;`, [id]);
     return result.rows[0] ? this.mapBindingModification(result.rows[0]) : undefined;
+  }
+
+  private mapBindingHonorFailure(row: any): BindingHonorFailure {
+    return {
+      id: row.id,
+      bindingHandoffId: row.binding_handoff_id,
+      challengeId: row.challenge_id,
+      providerOrganizationId: row.provider_organization_id,
+      providerUserId: row.provider_user_id,
+      reasonCode: row.reason_code,
+      reportedAt: row.reported_at
+    } as BindingHonorFailure;
+  }
+
+  public async getBindingHonorFailure(handoffId: string): Promise<BindingHonorFailure | undefined> {
+    await this.ensureReady();
+    const result = await this.sql!.query<any>(`SELECT * FROM binding_honor_failures WHERE binding_handoff_id=$1;`, [handoffId]);
+    return result.rows[0] ? this.mapBindingHonorFailure(result.rows[0]) : undefined;
+  }
+
+  public async commitBindingHonorFailure(input: {
+    failure: BindingHonorFailure;
+    handoff: BindingHandoff;
+  }): Promise<{ failure: BindingHonorFailure; handoff: BindingHandoff }> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const handoffResult = await client.query<any>(`SELECT * FROM binding_handoffs WHERE id=$1 FOR UPDATE;`, [input.handoff.id]);
+      if (!handoffResult.rows[0]) throw Object.assign(new Error(`Binding handoff not found: ${input.handoff.id}`), { statusCode: 404 });
+      const durable = this.mapBindingHandoff(handoffResult.rows[0]);
+      if (durable.providerOrganizationId !== input.failure.providerOrganizationId) {
+        throw Object.assign(new Error('Provider organization is not authorized for this binding handoff'), { statusCode: 403 });
+      }
+      if (!durable.consumerId) {
+        throw Object.assign(new Error('Binding handoff has no authoritative consumer mapping'), { statusCode: 403 });
+      }
+      const existing = await client.query<any>(`SELECT * FROM binding_honor_failures WHERE binding_handoff_id=$1;`, [durable.id]);
+      if (existing.rows[0]) return { failure: this.mapBindingHonorFailure(existing.rows[0]), handoff: durable };
+      const failure = input.failure;
+      await client.query(
+        `INSERT INTO binding_honor_failures
+          (id,binding_handoff_id,challenge_id,provider_organization_id,provider_user_id,reason_code,reported_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7);`,
+        [failure.id,failure.bindingHandoffId,failure.challengeId,failure.providerOrganizationId,
+          failure.providerUserId,failure.reasonCode,failure.reportedAt]
+      );
+      await client.query(
+        `UPDATE binding_handoffs SET status='DECLINED',declined_at=$2,decline_reason=$3,updated_at=$2 WHERE id=$1;`,
+        [durable.id,failure.reportedAt,failure.reasonCode]
+      );
+      await client.query(
+        `INSERT INTO platform_notifications
+          (id,type,title,message,timestamp,is_read,recipient_type,recipient_consumer_id,created_from_event,action_target)
+         VALUES ($1,'SELECTED_OFFER_UNAVAILABLE',$2,$3,$4,FALSE,'CONSUMER',$5,$6,$7)
+         ON CONFLICT (id) DO NOTHING;`,
+        [`NOTIF-${failure.id}`,'Selected offer cannot be honored as submitted',
+          `The selected provider reported that the selected offer cannot be honored as submitted. Reason: ${failure.reasonCode}. No replacement terms were proposed through Open Policy.`,
+          failure.reportedAt,durable.consumerId,`SELECTED_OFFER_CANNOT_BE_HONORED:${failure.id}`,'BINDING_HANDOFF']
+      );
+      await this.appendAuditInTransaction(client, {
+        eventType: 'SELECTED_OFFER_CANNOT_BE_HONORED', actorRole: 'PROVIDER', actorId: failure.providerUserId,
+        details: `Provider ${failure.providerOrganizationId} reported handoff ${durable.id} cannot honor selected OfferVersion ${durable.offerVersionId}; reason ${failure.reasonCode}`
+      });
+      await this.appendAuditInTransaction(client, {
+        eventType: 'BINDING_STATUS_CHANGED', actorRole: 'PROVIDER', actorId: failure.providerUserId,
+        details: `Handoff ${durable.id} status updated from ${durable.status} to DECLINED without changing consent or selected OfferVersion`
+      });
+      return { failure, handoff: { ...input.handoff, status: 'DECLINED', declinedAt: failure.reportedAt, declineReason: failure.reasonCode, updatedAt: failure.reportedAt } };
+    });
   }
 
   public async commitBindingModificationProposal(input: {

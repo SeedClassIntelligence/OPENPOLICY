@@ -425,116 +425,54 @@ async function runPM4AcceptanceValidation() {
     );
     assert(underRes.status === 200 && underRes.body.handoff.status === 'UNDERWRITING', 'Transitioned to UNDERWRITING');
 
-    // 8. POST /api/marketplace/binding/:handoffId/propose-modification
-    // Underwriting changes terms
+    // 8. PR-3 retires all platform-facilitated modification negotiation
     const originalOfferVersionSnapshot = db.getOfferVersions(winningOffer.id)[0];
     const originalPremium = originalOfferVersionSnapshot ? originalOfferVersionSnapshot.annualPremium : winningOffer.annualPremium;
-
-    const modRes = await request(
-      server,
-      'POST',
-      `/api/marketplace/binding/${handoffId}/propose-modification`,
-      {
-        modifiedAnnualPremium: 2680,
-        underwritingReason: 'Additional youthful driver endorsement required',
-        coverageChanges: [
-          {
-            code: 'COLLISION',
-            name: 'Collision',
-            originalValue: '$500 deductible',
-            modifiedValue: '$1000 deductible',
-            isMaterialReduction: true
-          }
-        ]
-      },
-      { 'x-provider-user-id': 'user_apex_1' }
-    );
-    assert(modRes.status === 200 && modRes.body.success, 'propose-modification endpoint returns 200');
-    assert(modRes.body.modification.status === 'PENDING_CONSUMER_REVIEW', 'Modification created in PENDING_CONSUMER_REVIEW');
-    assert(modRes.body.handoff.status === 'MODIFICATION_PENDING', 'Handoff entered MODIFICATION_PENDING');
-
-    const modId = modRes.body.modification.id;
-
-    // Invariant: Selected OfferVersion remains 100% immutable!
-    const versionsAfterMod = db.getOfferVersions(winningOffer.id);
-    if (versionsAfterMod.length > 0) {
-      assert(versionsAfterMod[0].annualPremium === originalPremium, 'Selected OfferVersion remains strictly immutable during modification');
+    for (const endpoint of ['propose-modification', 'resolve-modification', 'accept-modification', 'reject-modification']) {
+      const retired = await request(server, 'POST', `/api/marketplace/binding/${handoffId}/${endpoint}`, {},
+        endpoint === 'propose-modification' ? { 'x-provider-user-id': 'user_apex_1' } : undefined);
+      assert(retired.status === 410, `${endpoint} returns HTTP 410`);
     }
 
-    // 9. Invariant: Pending modification strictly blocks transition to BOUND
-    const prematureBoundRes = await request(
-      server,
-      'POST',
-      `/api/marketplace/binding/${handoffId}/update-status`,
-      { newStatus: 'BOUND', policyNumber: 'POL-NV-9999' },
-      { 'x-provider-user-id': 'user_apex_1' }
-    );
-    assert(prematureBoundRes.status === 400, 'Transition to BOUND with unresolved modification strictly blocked');
+    const termsInjection = await request(server, 'POST', `/api/marketplace/binding/${handoffId}/cannot-honor`, {
+      reasonCode: 'CARRIER_DECLINED', modifiedAnnualPremium: 2680
+    }, { 'x-provider-user-id': 'user_apex_1' });
+    assert(termsInjection.status === 400, 'cannot-honor rejects revised price or terms fields');
 
-    // 10. POST /api/marketplace/binding/:handoffId/reject-modification (Verification of independent rejection)
-    const rejectModRes = await request(
-      server,
-      'POST',
-      `/api/marketplace/binding/${handoffId}/reject-modification`,
-      {
-        modificationId: modId,
-        rejectionReason: 'Increased deductible unacceptable'
-      }
-    );
-    assert(rejectModRes.status === 200 && rejectModRes.body.success, 'reject-modification endpoint returns 200');
-    assert(rejectModRes.body.modification.status === 'REJECTED', 'Modification marked REJECTED');
-    assert(rejectModRes.body.handoff.status === 'MODIFICATION_PENDING', 'Handoff continuation halted under rejected modification');
+    const statusTermsInjection = await request(server, 'POST', `/api/marketplace/binding/${handoffId}/update-status`, {
+      newStatus: 'UNDERWRITING', finalPremium: 2680
+    }, { 'x-provider-user-id': 'user_apex_1' });
+    assert(statusTermsInjection.status === 400, 'binding status endpoint rejects revised premium fields');
 
-    // 11. Propose and accept an acceptable revised modification
-    const mod2Res = await request(
-      server,
-      'POST',
-      `/api/marketplace/binding/${handoffId}/propose-modification`,
-      {
-        modifiedAnnualPremium: 2590,
-        underwritingReason: 'Applied defensive driving course credit',
-        coverageChanges: []
-      },
-      { 'x-provider-user-id': 'user_apex_1' }
-    );
-    const mod2Id = mod2Res.body.modification.id;
+    const cannotHonor = await request(server, 'POST', `/api/marketplace/binding/${handoffId}/cannot-honor`, {
+      reasonCode: 'CARRIER_DECLINED'
+    }, { 'x-provider-user-id': 'user_apex_1' });
+    assert(cannotHonor.status === 200 && cannotHonor.body.success, 'Selected provider can report cannot-honor factually');
+    assert(cannotHonor.body.failure.reasonCode === 'CARRIER_DECLINED', 'Controlled reason code is persisted');
+    assert(cannotHonor.body.handoff.status === 'DECLINED', 'Handoff ends in DECLINED without a counterproposal');
 
-    const acceptModRes = await request(
-      server,
-      'POST',
-      `/api/marketplace/binding/${handoffId}/accept-modification`,
-      { modificationId: mod2Id }
-    );
-    assert(acceptModRes.status === 200 && acceptModRes.body.success, 'accept-modification endpoint returns 200', JSON.stringify(acceptModRes.body));
-    assert(acceptModRes.body.modification.status === 'ACCEPTED', 'Modification marked ACCEPTED');
-    assert(acceptModRes.body.handoff.status === 'UNDERWRITING', 'Handoff resumed in UNDERWRITING');
+    const retry = await request(server, 'POST', `/api/marketplace/binding/${handoffId}/cannot-honor`, {
+      reasonCode: 'CARRIER_DECLINED'
+    }, { 'x-provider-user-id': 'user_apex_1' });
+    assert(retry.status === 200 && retry.body.failure.id === cannotHonor.body.failure.id, 'Cannot-honor retry is idempotent');
 
-    // 12. Update status to BOUND succeeds now that modifications are resolved
-    const finalBoundRes = await request(
-      server,
-      'POST',
-      `/api/marketplace/binding/${handoffId}/update-status`,
-      {
-        newStatus: 'BOUND',
-        policyNumber: 'NV-POL-2026-8812',
-        finalPremium: 2590
-      },
-      { 'x-provider-user-id': 'user_apex_1' }
-    );
-    assert(finalBoundRes.status === 200 && finalBoundRes.body.success, 'Final transition to BOUND succeeds');
-    assert(finalBoundRes.body.handoff.status === 'BOUND', 'Handoff reached terminal BOUND status');
-    assert(finalBoundRes.body.handoff.policyNumber === 'NV-POL-2026-8812', 'Policy number recorded on bound handoff');
+    const versionsAfterReport = db.getOfferVersions(winningOffer.id);
+    if (versionsAfterReport.length > 0) {
+      assert(versionsAfterReport[0].annualPremium === originalPremium, 'Selected OfferVersion remains strictly immutable after cannot-honor report');
+    }
+    const durableConsent = await postgresStore.getConsentGrant(grantRes.body.consentGrant.id);
+    assert(durableConsent?.revokedAt === revokeRes.body.consentGrant.revokedAt, 'Cannot-honor report does not alter consent revocation history');
+    const notices = await postgresStore.getNotificationsForRecipient({ recipientType: 'CONSUMER', recipientId: 'user_consumer_1' });
+    assert(notices.some(n => n.type === 'SELECTED_OFFER_UNAVAILABLE'), 'Consumer receives a factual selected-offer-unavailable notice');
 
-    // 13. Audit Trail includes PM-4 Governed Audit Events
+    // 9. Audit Trail includes PM-4 and PR-3 governed events
     const auditEvents = await postgresStore.getAuditEvents();
     const pm4Types = new Set(auditEvents.map(e => e.eventType));
     assert(pm4Types.has('OFFER_VERSION_SELECTED'), 'Audit log contains OFFER_VERSION_SELECTED');
     assert(pm4Types.has('CONSENT_GRANTED'), 'Audit log contains CONSENT_GRANTED');
     assert(pm4Types.has('CONSENT_REVOKED'), 'Audit log contains CONSENT_REVOKED');
     assert(pm4Types.has('PII_DISCLOSED'), 'Audit log contains PII_DISCLOSED');
-    assert(pm4Types.has('BINDING_MODIFICATION_PROPOSED'), 'Audit log contains BINDING_MODIFICATION_PROPOSED');
-    assert(pm4Types.has('BINDING_MODIFICATION_ACCEPTED'), 'Audit log contains BINDING_MODIFICATION_ACCEPTED');
-    assert(pm4Types.has('BINDING_MODIFICATION_REJECTED'), 'Audit log contains BINDING_MODIFICATION_REJECTED');
+    assert(pm4Types.has('SELECTED_OFFER_CANNOT_BE_HONORED'), 'Audit log contains SELECTED_OFFER_CANNOT_BE_HONORED');
     assert(pm4Types.has('BINDING_STATUS_CHANGED'), 'Audit log contains BINDING_STATUS_CHANGED');
 
   } finally {
