@@ -323,7 +323,7 @@ async function run() {
     assert(submitted.status === 200, `PR-0A shadow offer submission succeeds (${submitted.status}: ${JSON.stringify(submitted.body)})`);
     const offer = submitted.body.offer;
     const challengeNow = (await postgresStore.getChallenge(nvChallengeId))!;
-    const independentLegacy = evaluateOfferQualification(offer, challengeNow.baseline, challengeNow.requirements, await postgresStore.getProviderOrganization(offer.providerId),
+    const independentLegacy = evaluateOfferQualification(offer, challengeNow.baseline, await postgresStore.getProviderOrganization(offer.providerId),
       await postgresStore.getCarrierRelationships(offer.providerId));
     assert(offer.isQualified === independentLegacy.isQualified, `offer.isQualified is exactly the frozen engine's result (${offer.isQualified}); shadow changed nothing`);
     const offerEval = (await jurisdictionStore.getEvaluations({ subjectType: 'OFFER', subjectId: offer.id }))[0];

@@ -44,7 +44,6 @@ import { runPM2AcceptanceTestSuite } from '../src/domain/pm2InformationOffers.te
 import {
   Offer,
   CoverageBaseline,
-  ConsumerRequirements,
   ProviderOrganization,
   CarrierRelationship,
   InformationRequest,

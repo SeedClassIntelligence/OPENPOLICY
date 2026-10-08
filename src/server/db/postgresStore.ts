@@ -32,7 +32,7 @@ import {
   PolicyVaultItem,
   PlatformNotification,
   CoverageBaseline,
-  ConsumerRequirements,
+  LegacyConsumerRequirements,
   CompetitionActivityEvent,
   ReviewQueueItem,
   ReviewQueueStatus,
@@ -1025,14 +1025,24 @@ export class PostgresStore {
     id: string; user_id: string; reference_number: string; jurisdiction: string;
     status: string; created_at: string; baseline_data: string | null; requirements_data: string | null; payload?: string | null;
   }): Challenge {
-    if (row.payload) return JSON.parse(row.payload) as Challenge;
+    if (row.payload) {
+      const persisted = JSON.parse(row.payload) as Challenge & { requirements?: LegacyConsumerRequirements };
+      const legacyRequirements = persisted.legacyRequirements || persisted.requirements;
+      const { requirements: _historicalRequirements, ...canonical } = persisted;
+      return {
+        ...canonical,
+        qualificationStandardVersion: persisted.qualificationStandardVersion || 'QS-1',
+        ...(legacyRequirements ? { legacyRequirements } : {})
+      } as Challenge;
+    }
     return {
       id: row.id,
       referenceNumber: row.reference_number,
       consumerId: row.user_id,
       coverageBaselineId: 'base_1',
       baseline: row.baseline_data ? JSON.parse(row.baseline_data) : ({} as any),
-      requirements: row.requirements_data ? JSON.parse(row.requirements_data) : ({} as any),
+      qualificationStandardVersion: 'QS-1',
+      legacyRequirements: row.requirements_data ? JSON.parse(row.requirements_data) : undefined,
       jurisdiction: row.jurisdiction,
       openingTimestamp: row.created_at,
       closingTimestamp: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
@@ -1708,8 +1718,9 @@ export class PostgresStore {
     }
     await this.sql!.query(
       `INSERT INTO challenges (id, user_id, reference_number, jurisdiction, status, created_at, baseline_data, requirements_data,
-         jurisdiction_determination_id, rule_set_id, rule_set_content_sha256, regulatory_evaluation_date, payload)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+         jurisdiction_determination_id, rule_set_id, rule_set_content_sha256, regulatory_evaluation_date, payload,
+         qualification_standard_version, legacy_requirements_data)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
        ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, payload = EXCLUDED.payload,
          version = challenges.version + 1;`,
       [
@@ -1720,12 +1731,14 @@ export class PostgresStore {
         chal.status,
         chal.openingTimestamp || (chal as any).createdAt || new Date().toISOString(),
         JSON.stringify(chal.baseline || {}),
-        JSON.stringify(chal.requirements || {}),
+        null,
         chal.jurisdictionDeterminationId ?? null,
         chal.ruleSetId ?? null,
         chal.ruleSetContentSha256 ?? null,
         chal.regulatoryEvaluationDate ?? null,
-        JSON.stringify(chal)
+        JSON.stringify(chal),
+        chal.qualificationStandardVersion || 'QS-1',
+        chal.legacyRequirements ? JSON.stringify(chal.legacyRequirements) : null
       ]
     );
   }
@@ -1742,21 +1755,19 @@ export class PostgresStore {
     const { challenge, competition, invitations, notifications, activity, audits } = input;
     await this.sql!.transaction(async client => {
       await client.query(
-        `INSERT INTO consumer_requirements (id, payload) VALUES ($1, $2)
-         ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload;`,
-        [challenge.requirements.id, JSON.stringify(challenge.requirements)]
-      );
-      await client.query(
         `INSERT INTO challenges (id, user_id, reference_number, jurisdiction, status, created_at,
            baseline_data, requirements_data, jurisdiction_determination_id, rule_set_id,
-           rule_set_content_sha256, regulatory_evaluation_date, payload)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+           rule_set_content_sha256, regulatory_evaluation_date, payload,
+           qualification_standard_version, legacy_requirements_data)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
          ON CONFLICT (id) DO NOTHING;`,
         [challenge.id, challenge.consumerId, challenge.referenceNumber, challenge.jurisdiction,
          challenge.status, challenge.openingTimestamp, JSON.stringify(challenge.baseline),
-         JSON.stringify(challenge.requirements), challenge.jurisdictionDeterminationId || null,
+         null, challenge.jurisdictionDeterminationId || null,
          challenge.ruleSetId || null, challenge.ruleSetContentSha256 || null,
-         challenge.regulatoryEvaluationDate || null, JSON.stringify(challenge)]
+         challenge.regulatoryEvaluationDate || null, JSON.stringify(challenge),
+         challenge.qualificationStandardVersion || 'QS-1',
+         challenge.legacyRequirements ? JSON.stringify(challenge.legacyRequirements) : null]
       );
       await client.query(
         `INSERT INTO competitions (id, challenge_id, jurisdiction, line_of_business, status,
@@ -1930,7 +1941,8 @@ export class PostgresStore {
     return res.rows[0] ? JSON.parse(res.rows[0].payload) as CoverageBaseline : undefined;
   }
 
-  public async saveConsumerRequirements(requirements: ConsumerRequirements): Promise<void> {
+  /** @deprecated Historical records only. New challenges never write this table. */
+  public async saveConsumerRequirements(requirements: LegacyConsumerRequirements): Promise<void> {
     await this.ensureReady();
     await this.sql!.query(
       `INSERT INTO consumer_requirements (id, payload) VALUES ($1, $2)
@@ -1939,12 +1951,13 @@ export class PostgresStore {
     );
   }
 
-  public async getConsumerRequirements(id: string): Promise<ConsumerRequirements | undefined> {
+  /** @deprecated Historical records only. */
+  public async getConsumerRequirements(id: string): Promise<LegacyConsumerRequirements | undefined> {
     await this.ensureReady();
     const res = await this.sql!.query<{ payload: string }>(
       `SELECT payload FROM consumer_requirements WHERE id = $1;`, [id]
     );
-    return res.rows[0] ? JSON.parse(res.rows[0].payload) as ConsumerRequirements : undefined;
+    return res.rows[0] ? JSON.parse(res.rows[0].payload) as LegacyConsumerRequirements : undefined;
   }
 
   public async saveCompetitionActivity(event: CompetitionActivityEvent): Promise<boolean> {

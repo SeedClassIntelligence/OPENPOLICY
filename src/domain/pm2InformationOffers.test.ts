@@ -20,7 +20,7 @@ import {
 import {
   Offer,
   CoverageBaseline,
-  ConsumerRequirements,
+  LegacyConsumerRequirements,
   ProviderOrganization,
   CarrierRelationship,
   OfferVerification,
@@ -74,7 +74,7 @@ export function runPM2AcceptanceTestSuite(): { passed: number; failed: number; t
     verifiedBy: 'Consumer'
   };
 
-  const mockRequirements: ConsumerRequirements = {
+  const mockRequirements: LegacyConsumerRequirements = {
     id: 'REQ-TEST-1',
     ruleSummary: 'Beat price without reducing protection',
     minAnnualSavings: 150,
@@ -146,7 +146,7 @@ export function runPM2AcceptanceTestSuite(): { passed: number; failed: number; t
       status: 'VALIDATED'
     };
 
-    const res = evaluateOfferQualification(validOffer, mockBaseline, mockRequirements, mockProviderOrg, mockCarrierRels);
+    const res = evaluateOfferQualification(validOffer, mockBaseline, mockProviderOrg, mockCarrierRels);
     if (!res.isQualified) {
       throw new Error(`Expected offer to qualify, but was disqualified: ${res.disqualificationReasons.join(', ')}`);
     }
@@ -179,7 +179,7 @@ export function runPM2AcceptanceTestSuite(): { passed: number; failed: number; t
       status: 'VALIDATED'
     };
 
-    const res = evaluateOfferQualification(unappointedOffer, mockBaseline, mockRequirements, mockProviderOrg, mockCarrierRels);
+    const res = evaluateOfferQualification(unappointedOffer, mockBaseline, mockProviderOrg, mockCarrierRels);
     if (res.isQualified) {
       throw new Error('Expected unappointed carrier offer to be disqualified');
     }
@@ -213,7 +213,7 @@ export function runPM2AcceptanceTestSuite(): { passed: number; failed: number; t
       status: 'VALIDATED'
     };
 
-    const res = evaluateOfferQualification(missingCoveragesOffer, mockBaseline, mockRequirements, mockProviderOrg, mockCarrierRels);
+    const res = evaluateOfferQualification(missingCoveragesOffer, mockBaseline, mockProviderOrg, mockCarrierRels);
     if (res.isQualified) {
       throw new Error('Expected offer missing Bodily Injury to be disqualified');
     }
@@ -247,7 +247,7 @@ export function runPM2AcceptanceTestSuite(): { passed: number; failed: number; t
       status: 'VALIDATED'
     };
 
-    const res = evaluateOfferQualification(noDocOffer, mockBaseline, mockRequirements, mockProviderOrg, mockCarrierRels);
+    const res = evaluateOfferQualification(noDocOffer, mockBaseline, mockProviderOrg, mockCarrierRels);
     if (res.isQualified) {
       throw new Error('Expected offer without quote document to be disqualified');
     }
@@ -293,7 +293,7 @@ export function runPM2AcceptanceTestSuite(): { passed: number; failed: number; t
       enteredPremium: 2200
     };
 
-    const res = evaluateOfferQualification(offerWithVerification, mockBaseline, mockRequirements, mockProviderOrg, mockCarrierRels, verification);
+    const res = evaluateOfferQualification(offerWithVerification, mockBaseline, mockProviderOrg, mockCarrierRels, verification);
     if (res.isQualified) {
       throw new Error('Expected offer with document discrepancies to be disqualified');
     }
@@ -589,7 +589,7 @@ export function runPM2AcceptanceTestSuite(): { passed: number; failed: number; t
       discrepanciesDetected: false,
       status: 'VALIDATED'
     };
-    const res = evaluateOfferQualification(validWyOffer, unconfiguredBaseline, mockRequirements, mockProviderOrg, mockCarrierRels);
+    const res = evaluateOfferQualification(validWyOffer, unconfiguredBaseline, mockProviderOrg, mockCarrierRels);
     if (!res.isQualified) {
       throw new Error(`Offer in unconfigured jurisdiction should qualify without false statutory assumptions: ${res.disqualificationReasons.join(', ')}`);
     }

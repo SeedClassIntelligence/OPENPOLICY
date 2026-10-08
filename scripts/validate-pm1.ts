@@ -36,7 +36,6 @@ import { runPM1AcceptanceTestSuite } from '../src/domain/pm1Marketplace.test';
 import {
   Offer,
   CoverageBaseline,
-  ConsumerRequirements,
   Competition,
   ProviderOrganization,
   ProviderUser
@@ -424,15 +423,13 @@ async function runValidation() {
 
   const canonicalChal = db.getChallenge('CHAL-NV-49281')!;
   const baseline = canonicalChal.baseline;
-  const requirements = canonicalChal.requirements;
   const canonicalOffers = db.getOffers('CHAL-NV-49281');
   const testComp = db.getCompetitionForChallenge('CHAL-NV-49281')!;
 
   const evaluationSummary = evaluateCompetitionRoundState(
     testComp,
     canonicalOffers,
-    baseline,
-    requirements
+    baseline
   );
 
   // 3.1 Prohibited fields are absent from summary
@@ -455,9 +452,9 @@ async function runValidation() {
   // 3.4 Consumer-Selected Factual Sorting (Permitted per Section 40)
   // Consumer sorts by annual savings high -> low:
   const sortedBySavings = [...evaluationSummary.offerComparisons].sort(
-    (a, b) => b.comparison.annualSavings - a.comparison.annualSavings
+    (a, b) => b.comparison.annualPremiumDifference - a.comparison.annualPremiumDifference
   );
-  assert(sortedBySavings[0].comparison.annualSavings >= sortedBySavings[1].comparison.annualSavings, 'Consumer can sort by savings descending');
+  assert(sortedBySavings[0].comparison.annualPremiumDifference >= sortedBySavings[1].comparison.annualPremiumDifference, 'Consumer can sort by annual premium difference descending');
 
   // Consumer sorts by annual premium low -> high:
   const consumerSortedValid = [...evaluationSummary.offerComparisons].sort(
@@ -475,7 +472,6 @@ async function runValidation() {
     'org_sierra',
     canonicalOffers,
     baseline,
-    requirements,
     2
   );
 

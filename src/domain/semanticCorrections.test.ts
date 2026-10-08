@@ -124,7 +124,8 @@ export function runSemanticCorrectionsTestSuite(): {
     consumerId: 'user_d6',
     coverageBaselineId: 'BL-D6',
     baseline: baselineWith(jurisdiction),
-    requirements: {
+    qualificationStandardVersion: 'QS-1',
+    legacyRequirements: {
       id: 'REQ-D6', ruleSummary: '', minAnnualSavings: 0, maxCollisionDeductible: 1000,
       maxCompDeductible: 1000, mustIncludeRental: false, mustIncludeRoadside: false
     },
@@ -246,7 +247,7 @@ export function runSemanticCorrectionsTestSuite(): {
     discrepanciesDetected: false,
     status: 'VALIDATED'
   };
-  const qual = evaluateOfferQualification(lowLimitOffer, baselineWith('NV'), undefined, org, []);
+  const qual = evaluateOfferQualification(lowLimitOffer, baselineWith('NV'), org, []);
   const allReasons = [...qual.qualificationReasons, ...qual.disqualificationReasons];
   test(
     'D6-3a: Qualification never claims statutory minimums/limits were verified',

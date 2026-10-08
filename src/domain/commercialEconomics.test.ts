@@ -375,13 +375,13 @@ export function runCommercialEconomicsTestSuite(): {
     };
 
     // Run deterministic comparison engine
-    const compA = compareOfferAgainstBaseline(mockBaseline, dummyRequirements, offerFromProviderA);
-    const compB = compareOfferAgainstBaseline(mockBaseline, dummyRequirements, offerFromProviderB);
+    const compA = compareOfferAgainstBaseline(mockBaseline, offerFromProviderA);
+    const compB = compareOfferAgainstBaseline(mockBaseline, offerFromProviderB);
 
     // Verify absolute equality of comparison outcomes
     assert(compA.classification === compB.classification, 'Classifications must be IDENTICAL');
-    assert(compA.annualSavings === compB.annualSavings, 'Annual savings must be IDENTICAL');
-    assert(compA.meetsConsumerRequirements === compB.meetsConsumerRequirements, 'Requirement satisfaction must be IDENTICAL');
+    assert(compA.annualPremiumDifference === compB.annualPremiumDifference, 'Annual premium differences must be IDENTICAL');
+    assert(!('meetsConsumerRequirements' in compA) && !('meetsConsumerRequirements' in compB), 'Comparison must not expose a platform attractiveness gate');
     assert(compA.fieldComparisons.length === compB.fieldComparisons.length, 'Field comparisons must be IDENTICAL');
 
     // Assert that NO commercial plan attribute leaked into comparison output

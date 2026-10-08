@@ -10,8 +10,9 @@ import { db } from './src/server/db';
 import { postgresStore } from './src/server/db/postgresStore';
 import { SAMPLE_DECLARATIONS_PAGES, detectQuoteDiscrepancies } from './src/domain/policyIntelligence';
 import { compareOfferAgainstBaseline } from './src/domain/comparisonEngine';
+import { CURRENT_QUALIFICATION_STANDARD } from './src/domain/qualificationStandard';
 import { explainCoverageComparison, generateDeterministicExplanation } from './src/server/geminiService';
-import { Offer, OfferVersion, CoverageBaseline, ConsumerRequirements, Challenge, Competition, ChallengeInvitation,
+import { Offer, OfferVersion, CoverageBaseline, Challenge, Competition, ChallengeInvitation,
   PlatformNotification, CompetitionActivityEvent, AuditEvent, InformationRequest, OfferVerification,
   IssuedPolicyDocument, IssuedPolicySnapshot, ReconciliationReport, PolicyVaultItem, VaultDocument } from './src/types/insurance';
 import { evaluateProviderEligibility, type EligibilityEvaluation } from './src/domain/eligibilityEngine';
@@ -643,7 +644,12 @@ app.post('/api/challenges/create', async (req, res) => {
   } catch (e: any) {
     return res.status(e.statusCode || 401).json({ error: e.message });
   }
-  const { baselineId, requirements } = req.body;
+  const { baselineId } = req.body;
+  if (Object.prototype.hasOwnProperty.call(req.body, 'requirements')) {
+    return res.status(400).json({
+      error: 'Terms are taken from your verified policy and cannot be set.'
+    });
+  }
   const baseline = await postgresStore.getCoverageBaseline(baselineId);
   if (!baseline) {
     return res.status(404).json({ error: 'Coverage baseline not found' });
@@ -695,15 +701,7 @@ app.post('/api/challenges/create', async (req, res) => {
     consumerId,
     coverageBaselineId: baselineId,
     baseline,
-    requirements: requirements || {
-      id: `REQ-${Date.now()}`,
-      ruleSummary: 'Beat my current price without reducing my protection.',
-      minAnnualSavings: 150,
-      maxCollisionDeductible: 500,
-      maxCompDeductible: 250,
-      mustIncludeRental: true,
-      mustIncludeRoadside: true
-    },
+    qualificationStandardVersion: CURRENT_QUALIFICATION_STANDARD.version,
     jurisdiction,
     jurisdictionDeterminationId: determination.id,
     openingTimestamp,
@@ -841,7 +839,7 @@ app.get('/api/challenges/:id', async (req, res) => {
   
   // Calculate comparisons for each offer
   const comparisons = offers.map(offer => 
-    compareOfferAgainstBaseline(challenge.baseline, challenge.requirements, offer)
+    compareOfferAgainstBaseline(challenge.baseline, offer)
   );
 
   res.json({
@@ -886,8 +884,8 @@ app.post('/api/offers/submit', async (req, res) => {
   if (!competitionForOffer) return res.status(404).json({ error: 'Competition not found' });
   const providerForOffer = await postgresStore.getProviderOrganization(offerData.providerId);
   const qualification = evaluateOfferQualification(
-    offerData, challengeForOffer.baseline, challengeForOffer.requirements,
-    providerForOffer, await postgresStore.getCarrierRelationships(offerData.providerId),
+    offerData, challengeForOffer.baseline, providerForOffer,
+    await postgresStore.getCarrierRelationships(offerData.providerId),
     await postgresStore.getOfferVerification(offerData.id)
   );
   offerData.isQualified = qualification.isQualified;
@@ -1127,7 +1125,7 @@ app.get('/api/marketplace/opportunities', async (req, res) => {
         currentAnnualPremium: challenge.baseline?.baselineAnnualPremium || 0,
         currentMonthlyPremium: challenge.baseline?.baselineMonthlyPremium || 0,
         coverageBaselineStatus: 'VERIFIED', renewalDaysRemaining: renewalDays,
-        consumerRequirementsSummary: challenge.requirements?.ruleSummary || 'Beat current baseline price with equal or better coverage.',
+        consumerRequirementsSummary: "Offers are compared with the consumer's current policy line by line.",
         competitionClosesAt: competition.closesAt, invitedProvidersCount: challengeInvitations.length,
         participatingProvidersCount: participations.filter(participation => participation.status !== 'WITHDRAWN').length,
         invitationStatus: invitation.status, viewedAt: invitation.viewedAt
@@ -1305,8 +1303,8 @@ app.get('/api/marketplace/workspace/:challengeId', async (req, res) => {
     const workspace = {
       challenge: { id: challenge.id, referenceNumber: challenge.referenceNumber, jurisdiction: challenge.jurisdiction, status: challenge.status, openingTimestamp: challenge.openingTimestamp, closingTimestamp: challenge.closingTimestamp },
       competition: { id: competition.id, currentRound: competition.currentRound, status: competition.status, openedAt: competition.openedAt, closesAt: competition.closesAt, participantCount: participations.filter(item => item.status !== 'WITHDRAWN').length, invitedCount: invitations.length },
-      consumerObjective: `Beat $${challenge.baseline.baselineAnnualPremium}/year ($${challenge.baseline.baselineMonthlyPremium}/month) while maintaining equivalent or superior coverage terms.`,
-      baseline, requirements: challenge.requirements,
+      consumerObjective: "Compare the provider's documented offer with the consumer's verified existing policy.",
+      baseline, qualificationStandardVersion: challenge.qualificationStandardVersion || CURRENT_QUALIFICATION_STANDARD.version,
       authorizedRatingInfo: { vehicle: challenge.baseline.vehicle ? { year: challenge.baseline.vehicle.year, make: challenge.baseline.vehicle.make, model: challenge.baseline.vehicle.model, usage: challenge.baseline.vehicle.usage, annualMileage: challenge.baseline.vehicle.annualMileage, garagingZip: challenge.baseline.vehicle.garagingZip, ownership: challenge.baseline.vehicle.ownership } : undefined, driverInfo: { primaryDriverAgeBracket: '35-49', licenseState: challenge.jurisdiction, yearsLicensed: '15+' }, currentPolicyTerm: { effectiveDate: challenge.baseline.effectiveDate, expirationDate: challenge.baseline.expirationDate, termMonths: 12 } },
       participation, myOffers: offers.filter(offer => offer.providerId === orgId),
       informationRequests: informationRequests.filter(request => request.providerOrganizationId === orgId || request.status === 'ANSWERED'),
@@ -1331,7 +1329,7 @@ app.get('/api/marketplace/competition/:challengeId/status', async (req, res) => 
     await authorizeChallengeResource(req, req.params.challengeId);
     const challenge=await postgresStore.getChallenge(req.params.challengeId);const competition=await postgresStore.getCompetitionForChallenge(req.params.challengeId);
     if(!challenge||!competition)return res.status(404).json({error:'Challenge or competition not found'});
-    const summary=evaluateCompetitionRoundState(competition,await postgresStore.getOffers(req.params.challengeId),challenge.baseline,challenge.requirements);
+    const summary=evaluateCompetitionRoundState(competition,await postgresStore.getOffers(req.params.challengeId),challenge.baseline);
     res.json(summary);
   } catch (e: any) {
     res.status(e.statusCode || 400).json({ error: e.message });
@@ -1344,7 +1342,7 @@ app.get('/api/marketplace/competition/:challengeId/signals', async (req, res) =>
     const [challenge,competition,offers,invitations,participations]=await Promise.all([postgresStore.getChallenge(req.params.challengeId),postgresStore.getCompetitionForChallenge(req.params.challengeId),postgresStore.getOffers(req.params.challengeId),postgresStore.getAllInvitations(),postgresStore.getAllParticipations()]);
     if(!challenge||!competition)return res.status(404).json({error:'Challenge or competition not found'});
     if(!participations.some(p=>p.challengeId===challenge.id&&p.providerOrganizationId===orgId&&p.status!=='WITHDRAWN'))return res.status(403).json({error:'Access Denied: Provider is not an authorized participant'});
-    const signals=calculateProviderMarketSignals(competition,orgId,offers,challenge.baseline,challenge.requirements,invitations.filter(i=>i.challengeId===challenge.id).length);
+    const signals=calculateProviderMarketSignals(competition,orgId,offers,challenge.baseline,invitations.filter(i=>i.challengeId===challenge.id).length);
     res.json(signals);
   } catch (e: any) {
     res.status(e.statusCode || 400).json({ error: e.message });
@@ -1361,7 +1359,7 @@ app.post('/api/marketplace/competition/:challengeId/advance-round', async (req, 
     const updatedChallenge={...challenge,status:(targetRound==='BEST_AND_FINAL'||targetRound==='ROUND_3_BAFO')?'FINAL_ROUND':(targetRound==='CONSUMER_REVIEW'||targetRound==='CLOSED_PENDING_SELECTION')?'CONSUMER_REVIEW':'OPEN',isFinalRound:targetRound==='BEST_AND_FINAL'||targetRound==='ROUND_3_BAFO'} as Challenge;
     const timestamp=new Date().toISOString();
     const updatedComp=await postgresStore.commitCompetitionAdvance({competition:candidate,challenge:updatedChallenge,actorId:req.openPolicyIdentity?.uid||'operator',activity:{id:`ACT-ROUND-${competition.id}-${candidate.currentRound}`,competitionId:competition.id,challengeId:challenge.id,timestamp,type:'ROUND_ADVANCED',actorRole:'ADMIN',summary:triggerReason,round:candidate.currentRound}});
-    const summary=evaluateCompetitionRoundState(updatedComp,await postgresStore.getOffers(challenge.id),updatedChallenge.baseline,updatedChallenge.requirements);
+    const summary=evaluateCompetitionRoundState(updatedComp,await postgresStore.getOffers(challenge.id),updatedChallenge.baseline);
     res.json({ success: true, competition: updatedComp, summary });
   } catch (e: any) {
     res.status(400).json({ error: e.message });
@@ -1442,7 +1440,7 @@ app.post('/api/marketplace/competition/:challengeId/revise-offer/:offerId', asyn
     const version=(originalOffer.version||1)+1;const submittedAt=new Date().toISOString();
     const revisedOffer:Offer={...originalOffer,...req.body.revisedData,id:`OFFER-REV-${Date.now()}`,previousOfferId:originalOffer.id,version,isLatestRevision:true,round:competition.currentRound,submittedAt};
     const [provider,relationships]=await Promise.all([postgresStore.getProviderOrganization(orgId),postgresStore.getCarrierRelationships(orgId)]);
-    const qualification=evaluateOfferQualification(revisedOffer,challenge.baseline,challenge.requirements,provider,relationships);
+    const qualification=evaluateOfferQualification(revisedOffer,challenge.baseline,provider,relationships);
     revisedOffer.isQualified=qualification.isQualified;revisedOffer.qualifiedAt=qualification.evaluatedAt;revisedOffer.qualificationReasons=qualification.qualificationReasons;revisedOffer.disqualificationReasons=qualification.disqualificationReasons;
     const versionSnapshot=createOfferVersionSnapshot(revisedOffer,req.body.revisedData.revisionReason||`Revised during ${competition.currentRound}`);versionSnapshot.offerId=originalOffer.id;versionSnapshot.versionNumber=version;
     const revisedOfferCommitted=await postgresStore.commitOfferRevision({original:originalOffer,revised:revisedOffer,version:versionSnapshot,actorId:orgId,activity:{id:`ACT-REV-${originalOffer.id}-v${version}`,competitionId:competition.id,challengeId:challenge.id,timestamp:submittedAt,type:'OFFER_REVISED',actorRole:'PROVIDER',providerOrganizationId:orgId,summary:`Provider revised ${revisedOffer.carrier} offer`,round:competition.currentRound,metadata:{offerId:revisedOffer.id,version}}});
@@ -1648,7 +1646,6 @@ app.get('/api/marketplace/offers/:id/qualification', async (req, res) => {
     const evaluation = evaluateOfferQualification(
       offer,
       challenge.baseline,
-      challenge.requirements,
       provider,
       relationships,
       verification
@@ -3196,7 +3193,6 @@ export async function synchronizeFixturePersistence(): Promise<void> {
     if (policyIds.has(baseline.policyId)) await postgresStore.saveCoverageBaseline(baseline);
   }
   for (const challenge of db.getChallenges()) {
-    if (challenge.requirements) await postgresStore.saveConsumerRequirements(challenge.requirements);
     await postgresStore.saveChallenge(challenge);
   }
   const competitions = db.getAllCompetitions();

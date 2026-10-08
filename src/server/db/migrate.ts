@@ -787,6 +787,14 @@ ALTER TABLE challenges ADD COLUMN IF NOT EXISTS jurisdiction_determination_id TE
 ALTER TABLE challenges ADD COLUMN IF NOT EXISTS rule_set_id TEXT;
 ALTER TABLE challenges ADD COLUMN IF NOT EXISTS rule_set_content_sha256 TEXT;
 ALTER TABLE challenges ADD COLUMN IF NOT EXISTS regulatory_evaluation_date TEXT;
+ALTER TABLE challenges ADD COLUMN IF NOT EXISTS qualification_standard_version TEXT;
+ALTER TABLE challenges ADD COLUMN IF NOT EXISTS legacy_requirements_data TEXT;
+UPDATE challenges
+SET legacy_requirements_data = requirements_data
+WHERE legacy_requirements_data IS NULL AND requirements_data IS NOT NULL;
+UPDATE challenges
+SET qualification_standard_version = 'QS-1'
+WHERE qualification_standard_version IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_jrs_jurisdiction_line_status ON jurisdiction_rule_sets (jurisdiction_code, insurance_line, status);
 CREATE INDEX IF NOT EXISTS idx_jr_ruleset_point ON jurisdiction_rules (rule_set_id, enforcement_point);

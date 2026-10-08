@@ -102,7 +102,9 @@ export const challenges = pgTable('challenges', {
   status: text('status').notNull(),
   createdAt: text('created_at').notNull(),
   baselineData: text('baseline_data'), // JSON string
-  requirementsData: text('requirements_data') // JSON string
+  requirementsData: text('requirements_data'), // immutable historical JSON
+  qualificationStandardVersion: text('qualification_standard_version'),
+  legacyRequirementsData: text('legacy_requirements_data')
 });
 
 export const policies = pgTable('policies', {
@@ -249,4 +251,3 @@ export const billableEvents = pgTable('billable_events', {
   pricingSnapshot: text('pricing_snapshot').notNull(),
   idempotencyKey: text('idempotency_key').notNull().unique()
 });
-

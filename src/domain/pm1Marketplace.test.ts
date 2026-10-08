@@ -17,7 +17,6 @@ import { compareOfferAgainstBaseline } from './comparisonEngine';
 import { 
   Challenge, 
   CoverageBaseline, 
-  ConsumerRequirements, 
   Offer, 
   ProviderOrganization, 
   ProviderAppetite,
@@ -305,7 +304,6 @@ export function runPM1AcceptanceTestSuite(): {
     'org_sierra',
     allOffers,
     challenge.baseline,
-    challenge.requirements,
     3
   );
 
@@ -358,14 +356,14 @@ export function runPM1AcceptanceTestSuite(): {
   // 5. CONSUMER TRANSPARENCY TEST (Sections 5, 6, 20 - MANDATORY)
   // =========================================================================
   // Consumer sees factual offer comparison without platform-defined winners
-  const compA = compareOfferAgainstBaseline(challenge.baseline, challenge.requirements, offerA);
-  const compC = compareOfferAgainstBaseline(challenge.baseline, challenge.requirements, offerC);
+  const compA = compareOfferAgainstBaseline(challenge.baseline, offerA);
+  const compC = compareOfferAgainstBaseline(challenge.baseline, offerC);
 
   const consumerComparisonFactsA = {
     carrier: compA.carrier,
     annualPremium: compA.offerAnnualPremium,
-    annualSavings: compA.annualSavings,
-    differenceFormatted: `-$${compA.annualSavings}/year`,
+    annualSavings: compA.annualPremiumDifference,
+    differenceFormatted: `-$${compA.annualPremiumDifference}/year`,
     classification: compA.classification,
     materialImprovementsCount: compA.materialImprovements.length,
     materialReductionsCount: compA.materialReductions.length,
@@ -375,8 +373,8 @@ export function runPM1AcceptanceTestSuite(): {
   const consumerComparisonFactsC = {
     carrier: compC.carrier,
     annualPremium: compC.offerAnnualPremium,
-    annualSavings: compC.annualSavings,
-    differenceFormatted: `-$${compC.annualSavings}/year`,
+    annualSavings: compC.annualPremiumDifference,
+    differenceFormatted: `-$${compC.annualPremiumDifference}/year`,
     classification: compC.classification,
     materialImprovementsCount: compC.materialImprovements.length,
     materialReductionsCount: compC.materialReductions.length,

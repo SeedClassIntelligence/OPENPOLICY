@@ -38,7 +38,6 @@ import {
 import { 
   Policy, 
   CoverageBaseline, 
-  ConsumerRequirements, 
   Challenge, 
   Offer, 
   OfferComparison, 
@@ -366,16 +365,6 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
   } : null);
 
   const [activeBaseline, setActiveBaseline] = useState<CoverageBaseline | null>(challenge ? challenge.baseline : null);
-  const [requirements, setRequirements] = useState<ConsumerRequirements>(challenge ? challenge.requirements : {
-    id: 'REQ-1',
-    ruleSummary: 'Offers should cost less and not reduce my coverage.',
-    minAnnualSavings: 100,
-    maxCollisionDeductible: 500,
-    maxCompDeductible: 250,
-    mustIncludeRental: true,
-    mustIncludeRoadside: true
-  });
-
   // Selected Offer for detail view & handoff
   const [selectedOfferId, setSelectedOfferId] = useState<string>('OFFER-B');
   const [handoffResult, setHandoffResult] = useState<BindingHandoff | null>(null);
@@ -430,8 +419,8 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
   // Compute live comparisons against active baseline
   const activeComparisons: OfferComparison[] = React.useMemo(() => {
     if (!activeBaseline) return [];
-    return offers.map(o => compareOfferAgainstBaseline(activeBaseline, requirements, o));
-  }, [activeBaseline, requirements, offers]);
+    return offers.map(o => compareOfferAgainstBaseline(activeBaseline, o));
+  }, [activeBaseline, offers]);
 
   const selectedComparison = activeComparisons.find(c => c.offerId === selectedOfferId) || activeComparisons[0];
 
@@ -578,8 +567,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        baselineId: activeBaseline.id,
-        requirements
+        baselineId: activeBaseline.id
       })
     });
     const data = await res.json();
@@ -1343,19 +1331,19 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
       )}
 
       {/* ========================================================================= */}
-      {/* STEP 3: SET CONSUMER REQUIREMENTS & LAUNCH CHALLENGE                      */}
+      {/* STEP 3: CONFIRM VERIFIED BASELINE & OPEN OFFER REVIEW                      */}
       {/* ========================================================================= */}
       {currentStep === 'SET_REQUIREMENTS' && activeBaseline && (
         <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-6 md:p-8 space-y-6">
           <div>
             <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-              POLICYHOLDER REQUIREMENTS
+              VERIFIED POLICY BASELINE
             </span>
             <h2 className="text-2xl font-bold text-slate-900 mt-1">
-              Set Your Offer Requirements
+              Open Your Policy for Provider Offers
             </h2>
             <p className="text-sm text-slate-600">
-              Your current coverage is the reference point. Your requirements state what you want an offer to include.
+              Your verified existing policy is the reference point. Providers independently determine the price, coverage, and terms they are authorized to offer.
             </p>
           </div>
 
@@ -1363,109 +1351,14 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
           <div className="bg-slate-900 text-white p-5 rounded-xl space-y-2 border border-slate-800">
             <div className="flex items-center space-x-2 text-emerald-400 font-bold text-xs uppercase tracking-wider">
               <Shield className="w-4 h-4" />
-              <span>Governing Consumer Rule</span>
+              <span>Factual Comparison Standard</span>
             </div>
             <p className="text-base font-semibold text-slate-100">
-              “{requirements.ruleSummary}”
+              Offers are compared with your current policy line by line.
             </p>
             <p className="text-xs text-slate-400">
-              Offers should cost less than your current price of ${activeBaseline.baselineAnnualPremium.toLocaleString()}/year and should not reduce liability limits or remove required coverage.
+              Open Policy displays premium and coverage differences. It does not rank, recommend, negotiate, or decide whether an offer is better for you.
             </p>
-          </div>
-
-          {/* Interactive Requirement Controls */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
-            <div className="space-y-4 border border-slate-200 rounded-xl p-5 bg-slate-50/50">
-              <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                Price Improvement Threshold
-              </h4>
-              <div>
-                <div className="flex items-center justify-between text-xs mb-1">
-                  <span className="text-slate-600">Minimum annual price difference (default $100 per year; you can change this):</span>
-                  <span className="font-bold text-emerald-700">${requirements.minAnnualSavings} / year</span>
-                </div>
-                <input
-                  type="range"
-                  min="50"
-                  max="600"
-                  step="25"
-                  value={requirements.minAnnualSavings}
-                  onChange={e => setRequirements({ ...requirements, minAnnualSavings: Number(e.target.value) })}
-                  className="w-full accent-emerald-600 cursor-pointer"
-                />
-                <div className="flex justify-between text-[10px] text-slate-400 mt-1">
-                  <span>$50/yr</span>
-                  <span>$300/yr</span>
-                  <span>$600/yr</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-4 border border-slate-200 rounded-xl p-5 bg-slate-50/50">
-              <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                Deductible Ceiling Protection
-              </h4>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-[11px] text-slate-600 font-medium block mb-1">Max Collision Deductible</label>
-                  <select
-                    value={requirements.maxCollisionDeductible}
-                    onChange={e => setRequirements({ ...requirements, maxCollisionDeductible: Number(e.target.value) })}
-                    className="w-full text-xs font-semibold bg-white border border-slate-300 rounded px-2.5 py-1.5"
-                  >
-                    <option value={250}>$250 (Superior)</option>
-                    <option value={500}>$500 (Current Baseline)</option>
-                    <option value={1000}>$1,000 (Allow higher)</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-[11px] text-slate-600 font-medium block mb-1">Max Comp Deductible</label>
-                  <select
-                    value={requirements.maxCompDeductible}
-                    onChange={e => setRequirements({ ...requirements, maxCompDeductible: Number(e.target.value) })}
-                    className="w-full text-xs font-semibold bg-white border border-slate-300 rounded px-2.5 py-1.5"
-                  >
-                    <option value={100}>$100</option>
-                    <option value={250}>$250 (Current Baseline)</option>
-                    <option value={500}>$500</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Endorsement Guarantees */}
-          <div className="border border-slate-200 rounded-xl p-5 bg-slate-50/50">
-            <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider mb-3">
-              Essential Endorsement Guarantees
-            </h4>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <label className="flex items-center space-x-3 bg-white p-3 rounded-lg border border-slate-200 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={requirements.mustIncludeRental}
-                  onChange={e => setRequirements({ ...requirements, mustIncludeRental: e.target.checked })}
-                  className="rounded text-emerald-600 w-4 h-4 accent-emerald-600"
-                />
-                <div>
-                  <span className="text-xs font-bold text-slate-800">Must Include Rental Reimbursement</span>
-                  <p className="text-[11px] text-slate-500">Do not accept offers that cut rental replacement cars</p>
-                </div>
-              </label>
-
-              <label className="flex items-center space-x-3 bg-white p-3 rounded-lg border border-slate-200 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={requirements.mustIncludeRoadside}
-                  onChange={e => setRequirements({ ...requirements, mustIncludeRoadside: e.target.checked })}
-                  className="rounded text-emerald-600 w-4 h-4 accent-emerald-600"
-                />
-                <div>
-                  <span className="text-xs font-bold text-slate-800">Must Include Roadside Assistance</span>
-                  <p className="text-[11px] text-slate-500">Require emergency towing and roadside dispatch</p>
-                </div>
-              </label>
-            </div>
           </div>
 
           {/* Launch Action */}
@@ -2011,7 +1904,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                       <div className="flex items-center justify-between text-xs mt-1">
                         <span className="text-slate-500 font-mono">${comp.offerAnnualPremium.toLocaleString()}/yr</span>
                         <span className="font-bold text-emerald-700 bg-emerald-100/60 px-1.5 py-0.2 rounded text-[11px]">
-                          Save ${comp.annualSavings.toLocaleString()}/yr
+                          ${Math.abs(comp.annualPremiumDifference).toLocaleString()}/yr {comp.annualPremiumDifference >= 0 ? 'lower' : 'higher'}
                         </span>
                       </div>
                     </div>
@@ -2056,12 +1949,6 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                         </div>
                       )}
 
-                      {/* Requirement Compliance */}
-                      {!comp.meetsConsumerRequirements && (
-                        <div className="text-[10px] text-amber-700 bg-amber-50 p-1.5 rounded border border-amber-200">
-                          ⚠️ Fails your strict requirement ceiling
-                        </div>
-                      )}
                     </div>
                   </div>
 
@@ -2126,7 +2013,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                 Current Policy vs. {selectedComparison.carrier}
               </h2>
               <p className="text-xs text-slate-600">
-                Comparing against verified baseline #BL-NV-49281. Annual savings: <strong className="text-emerald-700 font-bold">${selectedComparison.annualSavings.toLocaleString()}</strong>.
+                Compared with the verified baseline, the annual premium is <strong className="text-emerald-700 font-bold">${Math.abs(selectedComparison.annualPremiumDifference).toLocaleString()} {selectedComparison.annualPremiumDifference >= 0 ? 'lower' : 'higher'}</strong>.
               </p>
             </div>
 
@@ -3291,7 +3178,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                 <p className="leading-relaxed">
                   You are selecting <strong className="text-slate-900">{pendingOffer.carrier}</strong> ({pendingOffer.quoteNumber}) 
                   at <strong className="text-emerald-700">${pendingOffer.annualPremium.toLocaleString()}/yr</strong>. 
-                  While this offer delivers <strong className="text-emerald-700">${pendingComp.annualSavings.toLocaleString()}</strong> in annual savings, 
+                  This offer's annual premium is <strong className="text-emerald-700">${Math.abs(pendingComp.annualPremiumDifference).toLocaleString()} {pendingComp.annualPremiumDifference >= 0 ? 'lower' : 'higher'}</strong>, and
                   our comparison engine verified that it <span className="font-semibold text-rose-700 underline">reduces your baseline protection</span> in the following areas:
                 </p>
 

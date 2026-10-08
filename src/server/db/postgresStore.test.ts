@@ -90,7 +90,8 @@ test('foundation records survive an empty-process restart and continue mutating 
     await first.seedCanonicalProviderData();
     const challenge = {
       id: 'CHAL-RESTART-1', referenceNumber: 'CHALLENGE #X1-RESTART',
-      consumerId: 'consumer_restart', coverageBaselineId: baseline.id, baseline, requirements,
+      consumerId: 'consumer_restart', coverageBaselineId: baseline.id, baseline,
+      qualificationStandardVersion: 'QS-1', legacyRequirements: requirements,
       jurisdiction: 'X1', openingTimestamp: '2026-01-01T00:00:00.000Z',
       closingTimestamp: '2026-02-01T00:00:00.000Z', status: 'OPEN' as const,
       disclosureLevel: 'MARKETPLACE_ANONYMOUS' as const, offersCount: 0

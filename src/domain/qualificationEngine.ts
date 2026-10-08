@@ -9,14 +9,15 @@
 import {
   Offer,
   CoverageBaseline,
-  ConsumerRequirements,
   ProviderOrganization,
   CarrierRelationship,
   OfferVerification,
+  OfferStandardResult,
   OfferVersion,
   InformationRequest,
   VerifiedSupplementalFact
 } from '../types/insurance';
+import { evaluateOfferAgainstStandard } from './qualificationStandard';
 
 export interface JurisdictionalStatutoryRule {
   jurisdiction: string;
@@ -80,6 +81,7 @@ export interface QualificationResult {
   disqualificationReasons: string[];
   evaluatedAt: string;
   applicableRuleVersion?: string;
+  standard: OfferStandardResult;
 }
 
 /**
@@ -90,7 +92,6 @@ export interface QualificationResult {
 export function evaluateOfferQualification(
   offer: Offer,
   baseline: CoverageBaseline,
-  requirements?: ConsumerRequirements,
   providerOrg?: ProviderOrganization,
   carrierRelationships: CarrierRelationship[] = [],
   verification?: OfferVerification,
@@ -218,7 +219,8 @@ export function evaluateOfferQualification(
     qualificationReasons,
     disqualificationReasons,
     evaluatedAt: new Date().toISOString(),
-    applicableRuleVersion
+    applicableRuleVersion,
+    standard: evaluateOfferAgainstStandard(baseline, offer)
   };
 }
 

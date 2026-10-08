@@ -34,15 +34,15 @@ function getAI(): GoogleGenAI | null {
  */
 export function generateDeterministicExplanation(comparison: OfferComparison): string {
   if (comparison.classification === 'BASELINE_MATCH') {
-    return `This offer delivers exact protection parity with your current policy while saving you $${comparison.annualSavings.toLocaleString()} per year ($${comparison.monthlySavings}/mo). All deductible tiers, liability limits, and endorsements mirror your verified baseline.`;
+    return `This offer has matching documented coverage and an annual premium $${Math.abs(comparison.annualPremiumDifference).toLocaleString()} ${comparison.annualPremiumDifference >= 0 ? 'lower' : 'higher'} than the verified baseline.`;
   }
   if (comparison.classification === 'BASELINE_PLUS') {
     const upgradeNames = comparison.materialImprovements.map(m => m.fieldName).join(', ');
-    return `This offer not only saves you $${comparison.annualSavings.toLocaleString()} per year ($${comparison.monthlySavings}/mo), but also expands your protection (${upgradeNames}). No coverage reductions were detected.`;
+    return `This offer has an annual premium $${Math.abs(comparison.annualPremiumDifference).toLocaleString()} ${comparison.annualPremiumDifference >= 0 ? 'lower' : 'higher'} than the verified baseline and documents these additional coverages: ${upgradeNames}.`;
   }
   if (comparison.classification === 'COVERAGE_CHANGED') {
     const cuts = comparison.materialReductions.map(m => `${m.fieldName} (${m.baselineValueFormatted} → ${m.offerValueFormatted})`).join('; ');
-    return `CAUTION: While this quote appears $${comparison.annualSavings.toLocaleString()}/yr cheaper ($${comparison.monthlySavings}/mo), protection has been materially reduced: ${cuts}. You would face significantly higher out-of-pocket exposure in an accident.`;
+    return `Coverage differs from the verified baseline. The annual premium is $${Math.abs(comparison.annualPremiumDifference).toLocaleString()} ${comparison.annualPremiumDifference >= 0 ? 'lower' : 'higher'}, and these documented coverage reductions require review: ${cuts}.`;
   }
   return `This offer contains unverified or ambiguous terms that require human verification before you make a commitment.`;
 }
@@ -68,7 +68,7 @@ Explain this insurance offer to the consumer in 2-3 objective, clear sentences w
 Offer Carrier: ${comparison.carrier}
 Current Annual Premium: $${comparison.currentAnnualPremium}
 Offer Annual Premium: $${comparison.offerAnnualPremium}
-Annual Savings: $${comparison.annualSavings}
+Annual Premium Difference (baseline minus offer): $${comparison.annualPremiumDifference}
 Classification: ${comparison.classification}
 Material Reductions: ${JSON.stringify(comparison.materialReductions.map(r => ({ name: r.fieldName, from: r.baselineValueFormatted, to: r.offerValueFormatted })))}
 Material Improvements: ${JSON.stringify(comparison.materialImprovements.map(r => ({ name: r.fieldName, from: r.baselineValueFormatted, to: r.offerValueFormatted })))}
@@ -103,4 +103,3 @@ Rule: Prominently disclose if coverage was cut. Never praise an offer simply for
   // Graceful degradation to verified deterministic explanation
   return fallback;
 }
-

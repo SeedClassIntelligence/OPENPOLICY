@@ -6,7 +6,6 @@
 import {
   Policy,
   CoverageBaseline,
-  ConsumerRequirements,
   Challenge,
   Offer,
   BindingHandoff,
@@ -114,7 +113,6 @@ import { postgresStore } from './db/postgresStore';
 export class PolicyChallengeDatabase {
   private policies: Map<string, Policy> = new Map();
   private baselines: Map<string, CoverageBaseline> = new Map();
-  private requirements: Map<string, ConsumerRequirements> = new Map();
   private challenges: Map<string, Challenge> = new Map();
   private offers: Map<string, Offer> = new Map();
   private handoffs: Map<string, BindingHandoff> = new Map();
@@ -206,7 +204,6 @@ export class PolicyChallengeDatabase {
   public seedCanonicalDataset() {
     this.policies.clear();
     this.baselines.clear();
-    this.requirements.clear();
     this.challenges.clear();
     this.offers.clear();
     this.handoffs.clear();
@@ -425,20 +422,7 @@ export class PolicyChallengeDatabase {
     this.baselines.set(baselineId, baseline);
     this.recordAudit('BASELINE_CREATED', 'SYSTEM', 'baseline_engine', `Generated immutable CoverageBaseline version 1 from verified policy`);
 
-    // 3. Consumer Requirements
-    const reqId = 'REQ-NV-49281';
-    const requirements: ConsumerRequirements = {
-      id: reqId,
-      ruleSummary: 'Offers should cost less and not reduce my coverage.',
-      minAnnualSavings: 100,
-      maxCollisionDeductible: 500,
-      maxCompDeductible: 250,
-      mustIncludeRental: true,
-      mustIncludeRoadside: true
-    };
-    this.requirements.set(reqId, requirements);
-
-    // 4. Challenge
+    // 3. Challenge
     const challengeId = 'CHAL-NV-49281';
     const challenge: Challenge = {
       id: challengeId,
@@ -446,7 +430,7 @@ export class PolicyChallengeDatabase {
       consumerId: 'user_consumer_1',
       coverageBaselineId: baselineId,
       baseline,
-      requirements,
+      qualificationStandardVersion: 'QS-1',
       jurisdiction: 'NV',
       openingTimestamp: '2026-09-18T14:30:00Z',
       closingTimestamp: '2026-10-18T14:30:00Z',
@@ -1414,7 +1398,6 @@ export class PolicyChallengeDatabase {
 
     const challenge = this.challenges.get(offer.challengeId);
     const baseline = challenge?.baseline || ({} as any);
-    const requirements = challenge?.requirements;
     const providerOrg = this.getProviderOrganization(offer.providerId);
     const carrierRels = this.carrierRelationships.get(offer.providerId) || [];
     const verification = this.offerVerifications.get(offer.id);
@@ -1422,7 +1405,6 @@ export class PolicyChallengeDatabase {
     const evalResult = evaluateOfferQualification(
       offer,
       baseline,
-      requirements,
       providerOrg,
       carrierRels,
       verification
@@ -1613,7 +1595,6 @@ export class PolicyChallengeDatabase {
       const qualResult = evaluateOfferQualification(
         offer,
         chal.baseline,
-        chal.requirements,
         providerOrg,
         carrierRels,
         verification
@@ -1688,7 +1669,7 @@ export class PolicyChallengeDatabase {
     if (!chal || !offer) throw new Error('Challenge or Offer not found');
 
     const baseline = chal.baseline;
-    const comp = compareOfferAgainstBaseline(baseline, chal.requirements, offer);
+    const comp = compareOfferAgainstBaseline(baseline, offer);
     const materialReductionCodes = comp.materialReductions.map(r => r.fieldCode);
 
     // Validate informed consent per Section 40
@@ -1809,7 +1790,7 @@ export class PolicyChallengeDatabase {
         ipAddressHash: this.generateHash(`${params.consumerContact.email}|${Date.now()}`),
         termsVersion: 'v2026.3-consumer-rights',
         discrepanciesExplicitlyApproved: params.acknowledgedReductions || [],
-        priceImprovementAnnual: comp.annualSavings
+        priceImprovementAnnual: comp.annualPremiumDifference
       },
       dossierHash: this.generateHash(`${dossierId}|${bindingRef}|${offer.quoteNumber}`),
       sourceBaselinePolicyId: baseline.policyId
@@ -2368,7 +2349,7 @@ export class PolicyChallengeDatabase {
           currentMonthlyPremium: chal.baseline?.baselineMonthlyPremium || 0,
           coverageBaselineStatus: 'VERIFIED',
           renewalDaysRemaining: renewalDays,
-          consumerRequirementsSummary: chal.requirements?.ruleSummary || 'Beat current baseline price with equal or better coverage.',
+          consumerRequirementsSummary: "Offers are compared with the consumer's current policy line by line.",
           competitionClosesAt: comp.closesAt,
           invitedProvidersCount: invitedCount,
           participatingProvidersCount: participatingCount,
@@ -2684,9 +2665,9 @@ export class PolicyChallengeDatabase {
         participantCount: participatingCount,
         invitedCount
       },
-      consumerObjective: `Beat $${challenge.baseline.baselineAnnualPremium}/year ($${challenge.baseline.baselineMonthlyPremium}/month) while maintaining equivalent or superior coverage terms.`,
+      consumerObjective: "Compare the provider's documented offer with the consumer's verified existing policy.",
       baseline: sanitizedBaseline,
-      requirements: challenge.requirements,
+      qualificationStandardVersion: challenge.qualificationStandardVersion || 'QS-1',
       authorizedRatingInfo,
       participation,
       myOffers,
@@ -2737,7 +2718,6 @@ export class PolicyChallengeDatabase {
       orgId,
       allOffers,
       challenge.baseline,
-      challenge.requirements,
       invitedCount
     );
   }
@@ -2761,8 +2741,7 @@ export class PolicyChallengeDatabase {
     return evaluateCompetitionRoundState(
       competition,
       allOffers,
-      challenge.baseline,
-      challenge.requirements
+      challenge.baseline
     );
   }
 
@@ -3170,7 +3149,6 @@ export class PolicyChallengeDatabase {
     const qualResult = evaluateOfferQualification(
       revisedOffer,
       challenge.baseline,
-      challenge.requirements,
       providerOrg,
       carrierRels
     );

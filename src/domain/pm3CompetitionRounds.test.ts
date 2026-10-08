@@ -25,7 +25,7 @@ import {
   CompetitionRound,
   Offer,
   CoverageBaseline,
-  ConsumerRequirements,
+  LegacyConsumerRequirements,
   CompetitionActivityEvent,
   CoverageItem
 } from '../types/insurance';
@@ -113,7 +113,7 @@ export function runPM3AcceptanceTestSuite(): { passed: number; failed: number; t
     verifiedBy: 'System Underwriter'
   };
 
-  const mockRequirements: ConsumerRequirements = {
+  const mockRequirements: LegacyConsumerRequirements = {
     id: 'REQ-PM3-1',
     ruleSummary: 'Must beat price with equal or better coverages',
     minAnnualSavings: 100,
@@ -518,8 +518,7 @@ export function runPM3AcceptanceTestSuite(): { passed: number; failed: number; t
     const evalSummary = evaluateCompetitionRoundState(
       comp,
       [qualifyingOffer, competitorOffer],
-      mockBaseline,
-      mockRequirements
+      mockBaseline
     );
 
     assert(evalSummary.totalOffersSubmitted === 2, 'Total offers should be 2');

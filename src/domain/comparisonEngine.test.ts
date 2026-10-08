@@ -8,7 +8,7 @@
  */
 
 import { compareCoverageItem, compareOfferAgainstBaseline } from './comparisonEngine';
-import { CoverageItem, CoverageBaseline, ConsumerRequirements, Offer } from '../types/insurance';
+import { CoverageItem, CoverageBaseline, LegacyConsumerRequirements, Offer } from '../types/insurance';
 
 export interface TestCaseResult {
   name: string;
@@ -200,7 +200,7 @@ export function runComparisonEngineTestSuite(): {
     verifiedBy: 'Tester'
   };
 
-  const dummyRequirements: ConsumerRequirements = {
+  const dummyRequirements: LegacyConsumerRequirements = {
     id: 'req-1',
     ruleSummary: 'Beat my price without cutting protection',
     minAnnualSavings: 100,
@@ -230,11 +230,11 @@ export function runComparisonEngineTestSuite(): {
     status: 'VALIDATED',
     coverages: [baseBI, basePD, baseColl, baseRental]
   };
-  const compMatch = compareOfferAgainstBaseline(dummyBaseline, dummyRequirements, matchOffer);
+  const compMatch = compareOfferAgainstBaseline(dummyBaseline, matchOffer);
   test(
     'Offer with identical coverage and lower premium must be BASELINE_MATCH',
     'Whole Offer Classification',
-    compMatch.classification === 'BASELINE_MATCH' && compMatch.annualSavings === 252,
+    compMatch.classification === 'BASELINE_MATCH' && compMatch.annualPremiumDifference === 252,
     compMatch.classification,
     'BASELINE_MATCH'
   );
@@ -246,7 +246,7 @@ export function runComparisonEngineTestSuite(): {
     annualPremium: 2448,
     coverages: [baseBI, offerHigherPD, baseColl, baseRental]
   };
-  const compPlus = compareOfferAgainstBaseline(dummyBaseline, dummyRequirements, plusOffer);
+  const compPlus = compareOfferAgainstBaseline(dummyBaseline, plusOffer);
   test(
     'Offer with upgraded property damage ($250k) must be BASELINE_PLUS',
     'Whole Offer Classification',
@@ -262,7 +262,7 @@ export function runComparisonEngineTestSuite(): {
     annualPremium: 2172,
     coverages: [baseBI, basePD, { ...baseColl, deductible: 1500 }, offerNoRental]
   };
-  const compChanged = compareOfferAgainstBaseline(dummyBaseline, dummyRequirements, changedOffer);
+  const compChanged = compareOfferAgainstBaseline(dummyBaseline, changedOffer);
   test(
     'Cheaper offer ($2,172 vs $2,964) with $1,500 deductible & stripped rental must be COVERAGE_CHANGED',
     'Whole Offer Classification',

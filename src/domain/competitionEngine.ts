@@ -3,7 +3,6 @@ import {
   CompetitionRound, 
   Offer, 
   CoverageBaseline, 
-  ConsumerRequirements, 
   ProviderMarketSignal, 
   ProviderOfferStanding,
   CompetitionEvaluationSummary,
@@ -15,7 +14,7 @@ import { compareOfferAgainstBaseline } from './comparisonEngine';
 /**
  * Open Policy Competition Engine (PM-2)
  * 
- * Implements deterministic multi-round bidding lifecycle, multi-carrier sealed
+ * Implements deterministic multi-round offer lifecycle and privacy protections.
  * market signals, and anti-collusion privacy protections.
  * 
  * SECTION 40 COMPLIANCE NOTE:
@@ -36,32 +35,28 @@ import { compareOfferAgainstBaseline } from './comparisonEngine';
 export function evaluateCompetitionRoundState(
   competition: Competition,
   offers: Offer[],
-  baseline: CoverageBaseline,
-  requirements: ConsumerRequirements
+  baseline: CoverageBaseline
 ): CompetitionEvaluationSummary {
   const evaluatedOffers = offers.map((offer) => {
-    const comparison = compareOfferAgainstBaseline(baseline, requirements, offer);
+    const comparison = compareOfferAgainstBaseline(baseline, offer);
     return { offer, comparison };
   });
 
   const validQualified = evaluatedOffers.filter(
-    (eo) => eo.offer.status !== 'DISCREPANCY_FLAGGED' && 
-            eo.comparison.worseFieldsCount === 0 && 
-            eo.comparison.annualSavings > 0
+    (eo) => eo.offer.status !== 'DISCREPANCY_FLAGGED' && eo.offer.isQualified !== false
   );
 
   const flagged = evaluatedOffers.filter((eo) => eo.offer.status === 'DISCREPANCY_FLAGGED');
   const disqualified = evaluatedOffers.filter(
-    (eo) => eo.offer.status !== 'DISCREPANCY_FLAGGED' && 
-            (eo.comparison.worseFieldsCount > 0 || eo.comparison.annualSavings <= 0)
+    (eo) => eo.offer.status !== 'DISCREPANCY_FLAGGED' && eo.offer.isQualified === false
   );
 
   const maxSavings = validQualified.length > 0 
-    ? Math.max(...validQualified.map((q) => q.comparison.annualSavings))
+    ? Math.max(...validQualified.map((q) => q.comparison.annualPremiumDifference))
     : 0;
 
   const averageSavings = validQualified.length > 0
-    ? Math.round(validQualified.reduce((sum, q) => sum + q.comparison.annualSavings, 0) / validQualified.length)
+    ? Math.round(validQualified.reduce((sum, q) => sum + q.comparison.annualPremiumDifference, 0) / validQualified.length)
     : 0;
 
   // Advancement rules:
@@ -81,9 +76,9 @@ export function evaluateCompetitionRoundState(
 
   const canCloseForConsumerReview = validQualified.length >= 1;
   if (canCloseForConsumerReview) {
-    reasons.push(`${validQualified.length} qualified offer(s) meet Section 40 parity and provide positive consumer savings.`);
+    reasons.push(`${validQualified.length} documented offer(s) are available for consumer review.`);
   } else {
-    reasons.push('Awaiting at least one qualified offer that meets baseline coverage without price penalty.');
+    reasons.push('Awaiting at least one valid, documented provider offer.');
   }
 
   // Build factual offer summaries for consumer review (no platform ranking)
@@ -130,7 +125,6 @@ export function calculateProviderMarketSignals(
   providerOrgId: string,
   allOffers: Offer[],
   baseline: CoverageBaseline,
-  requirements: ConsumerRequirements,
   invitedCount: number = 0
 ): ProviderMarketSignal {
   const myOffers = allOffers.filter((o) => o.providerId === providerOrgId);
@@ -145,12 +139,12 @@ export function calculateProviderMarketSignals(
   const participatingCount = Math.max(competition.participantCount, uniqueProviders.size);
 
   const yourOffers: ProviderOfferStanding[] = myOffers.map((offer) => {
-    const comparison = compareOfferAgainstBaseline(baseline, requirements, offer);
+    const comparison = compareOfferAgainstBaseline(baseline, offer);
     const difference = baseline.baselineAnnualPremium - offer.annualPremium;
     const savingsPercentage = Math.round((difference / baseline.baselineAnnualPremium) * 100);
     const canRevise = isImprovementRound || isBafoRound;
     const isVerified = offer.status !== 'DISCREPANCY_FLAGGED';
-    const meetsReqs = comparison.meetsConsumerRequirements;
+    const meetsReqs = offer.isQualified !== false && offer.status !== 'DISCREPANCY_FLAGGED';
 
     return {
       offerId: offer.id,

@@ -8,7 +8,7 @@ import {
   Competition, 
   Offer, 
   CoverageBaseline, 
-  ConsumerRequirements, 
+  LegacyConsumerRequirements,
   CoverageItem 
 } from '../types/insurance';
 
@@ -110,7 +110,7 @@ export function runCompetitionEngineTestSuite(): { passed: number; failed: numbe
     verifiedBy: 'Consumer'
   };
 
-  const requirements: ConsumerRequirements = {
+  const requirements: LegacyConsumerRequirements = {
     id: 'req_1',
     ruleSummary: 'Must meet or beat current coverage terms with at least $150 annual savings',
     minAnnualSavings: 150,
@@ -231,8 +231,7 @@ export function runCompetitionEngineTestSuite(): { passed: number; failed: numbe
   const roundState = evaluateCompetitionRoundState(
     baseCompetition,
     [offerTravelers, offerSafeco, offerProgressive, offerFlagged],
-    baseline,
-    requirements
+    baseline
   );
   
   test(
@@ -277,8 +276,7 @@ export function runCompetitionEngineTestSuite(): { passed: number; failed: numbe
     baseCompetition,
     'org_apex',
     [offerTravelers, offerSafeco, offerProgressive],
-    baseline,
-    requirements
+    baseline
   );
 
   const apexJson = JSON.stringify(apexSignals);
@@ -299,8 +297,7 @@ export function runCompetitionEngineTestSuite(): { passed: number; failed: numbe
   const stateRound1 = evaluateCompetitionRoundState(
     baseCompetition,
     [offerTravelers, offerSafeco, offerProgressive],
-    baseline,
-    requirements
+    baseline
   );
 
   test(

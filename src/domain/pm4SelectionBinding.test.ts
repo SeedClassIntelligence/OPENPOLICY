@@ -36,7 +36,7 @@ import {
   Offer,
   OfferVersion,
   CoverageBaseline,
-  ConsumerRequirements,
+  LegacyConsumerRequirements,
   BindingHandoff,
   ConsentGrant,
   BindingModification
@@ -90,7 +90,7 @@ export function runPM4AcceptanceTestSuite(): { passed: number; failed: number; t
     verifiedBy: 'system'
   };
 
-  const mockRequirements: ConsumerRequirements = {
+  const mockRequirements: LegacyConsumerRequirements = {
     id: 'REQ-1',
     ruleSummary: 'Beat price without reducing protection',
     minAnnualSavings: 100,
@@ -111,7 +111,8 @@ export function runPM4AcceptanceTestSuite(): { passed: number; failed: number; t
     status: 'OFFERS_RECEIVED',
     disclosureLevel: 'MARKETPLACE_ANONYMOUS',
     baseline: mockBaseline,
-    requirements: mockRequirements,
+    qualificationStandardVersion: 'QS-1',
+    legacyRequirements: mockRequirements,
     offersCount: 2
   };
 

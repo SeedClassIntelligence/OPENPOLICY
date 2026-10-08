@@ -216,7 +216,8 @@ export interface CoverageBaseline {
   verifiedBy: string;
 }
 
-export interface ConsumerRequirements {
+/** @deprecated Historical evidence only. New challenges cannot accept consumer-authored terms. */
+export interface LegacyConsumerRequirements {
   id: string;
   ruleSummary: string; // Default: "Offers should cost less and not reduce my coverage."
   minAnnualSavings: number; // e.g. 100
@@ -226,6 +227,10 @@ export interface ConsumerRequirements {
   mustIncludeRoadside: boolean;
   allowHigherDeductibleIfSavingsExceed?: number; // Advanced rule
   notes?: string;
+}
+
+export interface QualificationStandard {
+  version: string;
 }
 
 export type ChallengeStatus = 
@@ -248,7 +253,8 @@ export interface Challenge {
   consumerId: string;
   coverageBaselineId: string;
   baseline: CoverageBaseline;
-  requirements: ConsumerRequirements;
+  qualificationStandardVersion?: string;
+  legacyRequirements?: LegacyConsumerRequirements;
   jurisdiction: string;
   openingTimestamp: string;
   closingTimestamp: string;
@@ -340,8 +346,8 @@ export interface OfferComparison {
   providerName: string;
   currentAnnualPremium: number;
   offerAnnualPremium: number;
-  annualSavings: number; // positive = saves money, negative = costs more
-  monthlySavings: number;
+  annualPremiumDifference: number; // baseline minus offer; factual, not a qualification score
+  monthlyPremiumDifference: number;
   classification: WholeOfferClassification;
   summaryHeadline: string;
   materialReductions: FieldComparison[];
@@ -353,8 +359,13 @@ export interface OfferComparison {
   differentFieldsCount: number;
   unknownFieldsCount: number;
   totalFieldsCount: number;
-  meetsConsumerRequirements: boolean;
-  requirementViolations: string[];
+}
+
+export interface OfferStandardResult {
+  standardVersion: string;
+  coverageRelation: WholeOfferClassification;
+  annualPremiumDifference: number;
+  differences: FieldComparison[];
 }
 
 export type BindingHandoffStatus = 
