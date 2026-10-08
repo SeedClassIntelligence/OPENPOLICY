@@ -23,7 +23,7 @@ import crypto from 'crypto';
 import { PostgresStore, postgresStore } from '../src/server/db/postgresStore';
 import { SQL_MIGRATION_V4 } from '../src/server/db/migrate';
 import { db } from '../src/server/db';
-import { app } from '../server';
+import { app, synchronizeFixturePersistence } from '../server';
 import { runComparisonEngineTestSuite } from '../src/domain/comparisonEngine.test';
 import { runEligibilityEngineTestSuite } from '../src/domain/eligibilityEngine.test';
 import { runCompetitionEngineTestSuite } from '../src/domain/competitionEngine.test';
@@ -336,6 +336,7 @@ async function runPM5AcceptanceValidation() {
     const testChal1 = makeChallenge(chalId1, consumerId, 3000);
     db.createChallenge(testChal1 as any);
     db.seedCompetitorOffers(chalId1);
+    await synchronizeFixturePersistence();
 
     const offers1 = db.getOffers(chalId1);
     assert(offers1.length > 0, 'Offers seeded for challenge 1');
@@ -347,16 +348,18 @@ async function runPM5AcceptanceValidation() {
       versionNumber: winningOffer.version || 1,
       consumerId
     });
-    assert(selectRes.status === 200 && selectRes.body.success, 'Step 1: OfferVersion selected');
+    assert(selectRes.status === 200 && selectRes.body.success, 'Step 1: OfferVersion selected', JSON.stringify(selectRes.body));
     const handoffId = selectRes.body.handoff.id;
 
     // 2. Consumer grants consent
     const consentRes = await request(server, 'POST', `/api/marketplace/binding/${handoffId}/grant-consent`, {
       challengeId: chalId1,
       consumerId,
-      authorizedFieldNames: ['namedInsured', 'vin', 'garagingAddress', 'driverLicenseNumber']
+      authorizedFieldNames: ['namedInsured', 'vin', 'garagingAddress', 'driverLicenseNumber'],
+      purpose: 'STAGE_C_BINDING_DISCLOSURE',
+      purposeExplanation: 'Authorize the selected provider to complete binding'
     });
-    assert(consentRes.status === 200 && consentRes.body.success, 'Step 2: Stage C consent granted');
+    assert(consentRes.status === 200 && consentRes.body.success, 'Step 2: Stage C consent granted', JSON.stringify(consentRes.body));
 
     // 3. Provider proposes underwriting modification (annual premium adjusted)
     const modifiedAnnualPremium = winningOffer.annualPremium + 80;
@@ -457,7 +460,7 @@ async function runPM5AcceptanceValidation() {
     assert(vaultItem.provenanceHash && vaultItem.provenanceHash.length === 64, 'Cryptographic provenance hash generated');
     assert(vaultItem.futureCoverageBaselineId !== undefined, 'Future CoverageBaseline created');
 
-    const futureBaseline = db.getBaseline(vaultItem.futureCoverageBaselineId);
+    const futureBaseline = await postgresStore.getCoverageBaseline(vaultItem.futureCoverageBaselineId);
     assert(futureBaseline !== undefined, 'Future CoverageBaseline retrievable from database');
     assert(futureBaseline?.baselineAnnualPremium === modifiedAnnualPremium, `Future CoverageBaseline reflects new annual premium ($${modifiedAnnualPremium})`);
 
@@ -473,6 +476,7 @@ async function runPM5AcceptanceValidation() {
     const testChal2 = makeChallenge(chalId2, consumerId, 3000);
     db.createChallenge(testChal2 as any);
     db.seedCompetitorOffers(chalId2);
+    await synchronizeFixturePersistence();
 
     const offers2 = db.getOffers(chalId2);
     const winningOffer2 = offers2[0];
@@ -554,6 +558,7 @@ async function runPM5AcceptanceValidation() {
     const testChal3 = makeChallenge(chalId3, consumerId, 3000);
     db.createChallenge(testChal3 as any);
     db.seedCompetitorOffers(chalId3);
+    await synchronizeFixturePersistence();
 
     const offers3 = db.getOffers(chalId3);
     const winningOffer3 = offers3[0];

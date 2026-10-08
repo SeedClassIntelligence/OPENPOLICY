@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
+import { apiFetch } from '../services/apiClient';
 import { 
   UserCheck, 
   Briefcase, 
@@ -111,7 +112,7 @@ export const Header: React.FC<HeaderProps> = ({
   onReset,
   activeChallengeRef = '#NV-49281'
 }) => {
-  const { userProfile, isAuthenticated, isDemoUser, openAuthModal } = useAuth();
+  const { userProfile, userRole, isAuthenticated, isDemoUser, openAuthModal } = useAuth();
   const [notifications, setNotifications] = useState<PlatformNotification[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showDoctrineModal, setShowDoctrineModal] = useState(false);
@@ -132,7 +133,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   const fetchNotifications = async () => {
     try {
-      const res = await fetch('/api/notifications');
+      const res = await apiFetch('/api/notifications');
       if (res.ok) {
         const data = await res.json();
         setNotifications(data);
@@ -152,7 +153,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   const handleMarkRead = async (id: string) => {
     try {
-      await fetch(`/api/notifications/${id}/read`, { method: 'POST' });
+      await apiFetch(`/api/notifications/${id}/read`, { method: 'POST' });
       setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
     } catch {
       // ignore
@@ -214,6 +215,9 @@ export const Header: React.FC<HeaderProps> = ({
                     ? 'nav-arch-btn' 
                     : `nav-${p.label.toLowerCase()}-btn`;
 
+                  if (isAuthenticated && p.id === 'CONSUMER' && userRole !== 'CONSUMER') return null;
+                  if (isAuthenticated && p.id === 'PROVIDER' && userRole !== 'PROVIDER') return null;
+
                   // Primary perspectives always visible; secondary hidden below xl unless active
                   const isPrimary = p.id === 'LANDING' || p.id === 'CONSUMER' || p.id === 'PROVIDER';
                   const visibilityClass = isPrimary ? 'flex' : (isActive ? 'flex' : 'hidden xl:flex');
@@ -270,6 +274,8 @@ export const Header: React.FC<HeaderProps> = ({
                   {PERSPECTIVES.map((p) => {
                     const isActive = activePerspective === p.id;
                     const Icon = p.icon;
+                    if (isAuthenticated && p.id === 'CONSUMER' && userRole !== 'CONSUMER') return null;
+                    if (isAuthenticated && p.id === 'PROVIDER' && userRole !== 'PROVIDER') return null;
                     return (
                       <button
                         key={p.id}

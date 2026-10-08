@@ -36,6 +36,116 @@ export interface ExtractedField<T> {
   isModifiedByUser?: boolean;
 }
 
+export type PolicyDocumentStatus =
+  | 'UPLOAD_PENDING'
+  | 'UPLOADED'
+  | 'VALIDATING'
+  | 'REJECTED'
+  | 'EXTRACTION_PENDING'
+  | 'EXTRACTING'
+  | 'REVIEW_REQUIRED'
+  | 'READY_FOR_CONSUMER'
+  | 'CONSUMER_CORRECTED'
+  | 'CONSUMER_VERIFIED'
+  | 'BASELINE_CREATED';
+
+export interface PolicyDocumentRecord {
+  id: string;
+  ownerId: string;
+  idempotencyKey: string;
+  originalFileName: string;
+  mimeType: 'application/pdf';
+  byteLength: number;
+  sha256: string;
+  storageBucket: string;
+  objectName: string;
+  objectGeneration: string;
+  status: PolicyDocumentStatus;
+  malwareStatus: 'PENDING_SCAN' | 'CLEAN' | 'REJECTED_MALICIOUS' | 'SCAN_FAILED';
+  malwareScanner?: string;
+  malwareScannerVersion?: string;
+  malwareScannedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  rejectionCode?: string;
+}
+
+export type InsuranceDocumentClassification =
+  | 'DECLARATIONS_PAGE'
+  | 'FULL_POLICY'
+  | 'INSURANCE_CARD'
+  | 'ENDORSEMENT'
+  | 'UNSUPPORTED_NON_POLICY'
+  | 'UNCERTAIN';
+
+export interface PolicyDocumentClassificationResult {
+  id: string;
+  documentId: string;
+  documentGeneration: string;
+  sourceSha256: string;
+  classification: InsuranceDocumentClassification;
+  confidence: number;
+  classifier: string;
+  classifierVersion: string;
+  evidencePageNumbers: number[];
+  evidenceReferences: string[];
+  requiresReview: boolean;
+  classifiedAt: string;
+}
+
+export interface PolicyExtractionRun {
+  id: string;
+  documentId: string;
+  documentGeneration: string;
+  extractor: string;
+  extractorVersion: string;
+  status: 'PENDING' | 'RUNNING' | 'REVIEW_REQUIRED' | 'READY_FOR_CONSUMER' | 'FAILED';
+  normalizedPolicy?: Policy;
+  criticalIssues: string[];
+  createdAt: string;
+  completedAt?: string;
+}
+
+export type NormalizedPolicyFieldPath =
+  | 'policyNumber' | 'carrier' | 'namedInsured' | 'jurisdiction'
+  | 'effectiveDate' | 'expirationDate' | 'annualPremium'
+  | 'vehicle.vin' | 'vehicle.year' | 'vehicle.make' | 'vehicle.model'
+  | 'vehicle.usage' | 'vehicle.annualMileage' | 'vehicle.garagingZip' | 'vehicle.ownership'
+  | 'coverage.bodilyInjury.perPersonLimit' | 'coverage.bodilyInjury.perAccidentLimit'
+  | 'coverage.propertyDamage.propertyLimit';
+
+export interface NormalizedPolicyFieldCandidate {
+  fieldPath: NormalizedPolicyFieldPath;
+  value: string | number;
+  confidence: number;
+  evidence: SourceEvidence;
+}
+
+export interface PolicyNormalizationResult {
+  extractionRunId: string;
+  documentId: string;
+  documentGeneration: string;
+  sourceSha256: string;
+  normalizer: string;
+  normalizerVersion: string;
+  fields: NormalizedPolicyFieldCandidate[];
+  criticalIssues: string[];
+  status: 'REVIEW_REQUIRED' | 'READY_FOR_CONSUMER';
+  normalizedAt: string;
+}
+
+export interface PolicyFieldCorrection {
+  id: string;
+  documentId: string;
+  extractionRunId: string;
+  ownerId: string;
+  fieldPath: string;
+  beforeValue: unknown;
+  afterValue: unknown;
+  source: 'CONSUMER';
+  correctedAt: string;
+}
+
 export interface Vehicle {
   vin: string;
   year: number;
@@ -511,6 +621,13 @@ export interface AuditEvent {
   timestamp: string;
   eventType: 
     | 'POLICY_UPLOADED'
+    | 'POLICY_DOCUMENT_INGESTION_STARTED'
+    | 'POLICY_DOCUMENT_UPLOADED'
+    | 'POLICY_DOCUMENT_SCAN_CLEAN'
+    | 'POLICY_DOCUMENT_REJECTED_MALICIOUS'
+    | 'POLICY_DOCUMENT_SCAN_FAILED'
+    | 'POLICY_DOCUMENT_CLASSIFIED'
+    | 'POLICY_DOCUMENT_EXTRACTED'
     | 'DOCUMENT_PROCESSED'
     | 'FIELD_EXTRACTED'
     | 'CONSUMER_CORRECTED_FIELD'
@@ -618,6 +735,13 @@ export interface PlatformNotification {
   message: string;
   timestamp: string;
   read: boolean;
+  readAt?: string;
+  recipientType: 'CONSUMER' | 'PROVIDER_USER' | 'PROVIDER_ORGANIZATION' | 'PLATFORM_OPERATOR';
+  recipientConsumerId?: string;
+  recipientProviderUserId?: string;
+  recipientProviderOrganizationId?: string;
+  recipientOperatorId?: string;
+  createdFromEvent: string;
   actionTarget?: string;
 }
 

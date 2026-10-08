@@ -25,7 +25,7 @@ import path from 'path';
 import { PGlite } from '@electric-sql/pglite';
 import { PostgresStore } from '../src/server/db/postgresStore';
 import { db } from '../src/server/db';
-import { app } from '../server';
+import { app, synchronizeFixturePersistence } from '../server';
 import {
   advanceCompetitionRound,
   checkRoundDeadlineStatus,
@@ -305,6 +305,7 @@ async function main() {
   try {
     // Reset dataset
     db.seedCanonicalDataset();
+    await synchronizeFixturePersistence();
     const challengeId = 'CHAL-NV-49281';
 
     // 1. Check Deadline Status endpoint
@@ -325,7 +326,7 @@ async function main() {
         customDurationHours: 24
       }
     });
-    assert(resAdvance.status === 200 && resAdvance.data.success === true, 'POST advance-round returns 200');
+    assert(resAdvance.status === 200 && resAdvance.data.success === true, 'POST advance-round returns 200', JSON.stringify(resAdvance.data));
     assert(resAdvance.data.competition.currentRound === 'IMPROVEMENT', 'Competition advanced to IMPROVEMENT');
 
     // 3. Keep Current Offer endpoint

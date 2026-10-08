@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { apiFetch } from '../services/apiClient';
 import { 
   FileText, 
   ShieldAlert, 
@@ -65,9 +66,9 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
     setLoading(true);
     try {
       const [eventsRes, queueRes, verifyRes] = await Promise.all([
-        fetch('/api/audit-events'),
-        fetch('/api/admin/review-queue'),
-        fetch('/api/admin/audit-chain/verify')
+        apiFetch('/api/audit-events'),
+        apiFetch('/api/admin/review-queue'),
+        apiFetch('/api/admin/audit-chain/verify')
       ]);
 
       const eventsData = await eventsRes.json();
@@ -93,7 +94,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
     if (!selectedTicket) return;
     setIsSubmittingResolution(true);
     try {
-      const res = await fetch(`/api/admin/review-queue/${selectedTicket.id}/resolve`, {
+      const res = await apiFetch(`/api/admin/review-queue/${selectedTicket.id}/resolve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -120,7 +121,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
   const handleVerifyChain = async () => {
     setIsVerifyingChain(true);
     try {
-      const res = await fetch('/api/admin/audit-chain/verify');
+      const res = await apiFetch('/api/admin/audit-chain/verify');
       const data = await res.json();
       setVerificationResult(data);
       setSimulatedTamperIndex(null);
@@ -150,7 +151,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
   const handleGenerateRegulatoryProof = async () => {
     setIsGeneratingProof(true);
     try {
-      const res = await fetch('/api/admin/audit-chain/generate-proof', {
+      const res = await apiFetch('/api/admin/audit-chain/generate-proof', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

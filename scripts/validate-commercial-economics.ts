@@ -31,7 +31,7 @@ import './lib/isolatedDataDir';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
-import { app } from '../server';
+import { app, synchronizeFixturePersistence } from '../server';
 import { db } from '../src/server/db';
 import { postgresStore } from '../src/server/db/postgresStore';
 import { commercialStore, CommercialStore } from '../src/server/db/commercialStore';
@@ -264,34 +264,28 @@ async function runValidation() {
     assert(apexEnrollRes.status === 201, 'Enrolled org_apex with HARD_BLOCK and capacity limit = 1');
 
     // Seed challenge and invitations for org_apex
-    const inv1Id = 'INV-CE2-APEX-001';
-    const inv2Id = 'INV-CE2-APEX-002';
-    const challengeId = 'CHAL-NV-49281';
-    const compId = 'COMP-NV-49281';
+    const challengeId = 'CHAL-CE2-APEX-001';
+    const secondChallengeId = 'CHAL-CE2-APEX-002';
+    const canonicalChallenge = db.getChallenge('CHAL-NV-49281')!;
+    db.createChallenge({
+      ...canonicalChallenge,
+      id: challengeId,
+      referenceNumber: 'CHALLENGE #CE2-APEX-001',
+      status: 'OPEN',
+      offersCount: 0
+    });
+    db.createChallenge({
+      ...canonicalChallenge,
+      id: secondChallengeId,
+      referenceNumber: 'CHALLENGE #CE2-APEX-002',
+      status: 'OPEN',
+      offersCount: 0
+    });
+    const compId = db.getCompetitionForChallenge(challengeId)!.id;
 
-    // Seed invitations in memory store
-    db.saveInvitation({
-      id: inv1Id,
-      challengeId,
-      competitionId: compId,
-      providerOrganizationId: 'org_apex',
-      eligibilityResult: 'ELIGIBLE',
-      eligibilityReasons: ['Verified test provider'],
-      status: 'INVITED',
-      invitedAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 86400000).toISOString()
-    });
-    db.saveInvitation({
-      id: inv2Id,
-      challengeId,
-      competitionId: compId,
-      providerOrganizationId: 'org_apex',
-      eligibilityResult: 'ELIGIBLE',
-      eligibilityReasons: ['Verified test provider'],
-      status: 'INVITED',
-      invitedAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 86400000).toISOString()
-    });
+    const inv1Id = db.getInvitationsForChallenge(challengeId).find(invitation => invitation.providerOrganizationId === 'org_apex')!.id;
+    const inv2Id = db.getInvitationsForChallenge(secondChallengeId).find(invitation => invitation.providerOrganizationId === 'org_apex')!.id;
+    await synchronizeFixturePersistence();
 
     // 5.1 Provider within capacity accepts Invitation 1 -> Allowed
     const accept1Res = await request(server, 'POST', `/api/marketplace/invitations/${inv1Id}/accept`, {}, apexHeaders);
@@ -324,18 +318,7 @@ async function runValidation() {
     }, sierraHeaders);
     assert(sierraEnrollRes.status === 201, 'Enrolled org_sierra with ALLOW_OVERAGE policy and limit = 0');
 
-    const invSierraId = 'INV-CE2-SIERRA-001';
-    db.saveInvitation({
-      id: invSierraId,
-      challengeId,
-      competitionId: compId,
-      providerOrganizationId: 'org_sierra',
-      eligibilityResult: 'ELIGIBLE',
-      eligibilityReasons: ['Verified test provider'],
-      status: 'INVITED',
-      invitedAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 86400000).toISOString()
-    });
+    const invSierraId = db.getInvitationsForChallenge(challengeId).find(invitation => invitation.providerOrganizationId === 'org_sierra')!.id;
 
     const acceptSierraRes = await request(server, 'POST', `/api/marketplace/invitations/${invSierraId}/accept`, {}, sierraHeaders);
     assert(acceptSierraRes.status === 200, 'ALLOW_OVERAGE permits participation even when over limit (200 OK)');
@@ -378,22 +361,15 @@ async function runValidation() {
     assert(usageRecords[0].providerOrganizationId === 'org_apex', 'Usage record attributed to providerOrgId');
 
     // 6.3 Failed participation does not consume capacity (phantom consumption prevention)
-    const bogusInvId = 'INV-CE2-BOGUS';
-    db.saveInvitation({
-      id: bogusInvId,
-      challengeId,
-      competitionId: compId,
-      providerOrganizationId: 'org_sierra',
-      eligibilityResult: 'ELIGIBLE',
-      eligibilityReasons: ['Test provider'],
-      status: 'DECLINED', // already declined, so db.acceptInvitation will throw
-      invitedAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 86400000).toISOString()
-    });
+    const declinedInvitation = db.getInvitationsForChallenge(secondChallengeId)
+      .find(invitation => invitation.providerOrganizationId === 'org_sierra')!;
+    const bogusInvId = declinedInvitation.id;
+    db.saveInvitation({ ...declinedInvitation, status: 'DECLINED', declinedAt: new Date().toISOString() });
+    await synchronizeFixturePersistence();
 
     const countSierraUsageBefore = await commercialStore.getUsageCount('org_sierra', 'VPO_ENGAGEMENT');
     const failedAcceptRes = await request(server, 'POST', `/api/marketplace/invitations/${bogusInvId}/accept`, {}, sierraHeaders);
-    assert(failedAcceptRes.status === 400, 'Failed marketplace acceptance rejected with 400');
+    assert(failedAcceptRes.status === 409, `Failed marketplace acceptance rejected with 409 Conflict (${failedAcceptRes.status}: ${JSON.stringify(failedAcceptRes.body)})`);
     const countSierraUsageAfter = await commercialStore.getUsageCount('org_sierra', 'VPO_ENGAGEMENT');
     assert(countSierraUsageBefore === countSierraUsageAfter, 'Zero phantom consumption: usage record released upon marketplace failure');
 
@@ -414,14 +390,16 @@ async function runValidation() {
     };
     await postgresStore.saveProviderOrganization(concurrentOrg);
     db.saveProviderOrganization(concurrentOrg);
-    db.saveProviderUser({
+    const concurrentUser = {
       id: 'user_concurrent_1',
       organizationId: concurrentOrgId,
       email: 'concurrent@example.com',
       name: 'Concurrent User',
       role: 'AGENT',
       status: 'ACTIVE'
-    });
+    } as const;
+    db.saveProviderUser(concurrentUser);
+    await postgresStore.saveProviderUser(concurrentUser);
 
     await commercialStore.enrollCommercialAgreement({
       providerOrgId: concurrentOrgId,
@@ -430,10 +408,14 @@ async function runValidation() {
       customTerms: { includedEngagementCapacity: 1 }
     });
 
+    const concurrentChallenge1 = 'CHAL-CONCUR-1';
+    const concurrentChallenge2 = 'CHAL-CONCUR-2';
+    db.createChallenge({ ...canonicalChallenge, id: concurrentChallenge1, referenceNumber: 'CHALLENGE #CONCUR-1', status: 'OPEN', offersCount: 0 });
+    db.createChallenge({ ...canonicalChallenge, id: concurrentChallenge2, referenceNumber: 'CHALLENGE #CONCUR-2', status: 'OPEN', offersCount: 0 });
     db.saveInvitation({
       id: 'INV-CONCUR-1',
-      challengeId,
-      competitionId: compId,
+      challengeId: concurrentChallenge1,
+      competitionId: 'COMP-CONCUR-1',
       providerOrganizationId: concurrentOrgId,
       eligibilityResult: 'ELIGIBLE',
       eligibilityReasons: ['Concurrent test'],
@@ -443,8 +425,8 @@ async function runValidation() {
     });
     db.saveInvitation({
       id: 'INV-CONCUR-2',
-      challengeId,
-      competitionId: compId,
+      challengeId: concurrentChallenge2,
+      competitionId: 'COMP-CONCUR-2',
       providerOrganizationId: concurrentOrgId,
       eligibilityResult: 'ELIGIBLE',
       eligibilityReasons: ['Concurrent test'],
@@ -452,6 +434,7 @@ async function runValidation() {
       invitedAt: new Date().toISOString(),
       expiresAt: new Date(Date.now() + 86400000).toISOString()
     });
+    await synchronizeFixturePersistence();
 
     // Fire 2 simultaneous requests
     const [c1, c2] = await Promise.all([

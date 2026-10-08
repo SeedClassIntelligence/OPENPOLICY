@@ -1,6 +1,8 @@
 import { PGlite } from '@electric-sql/pglite';
 import fs from 'fs';
-import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8 } from './migrate';
+import pg from 'pg';
+import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8, SQL_MIGRATION_V9, SQL_MIGRATION_V10, SQL_MIGRATION_V11 } from './migrate';
+import { buildVerifiedPolicyAndBaseline } from '../../domain/policyEvidenceVerification';
 import {
   ProviderOrganization,
   ProviderUser,
@@ -16,6 +18,7 @@ import {
   AuditEvent,
   InformationRequest,
   VerifiedSupplementalFact,
+  FactConsentScope,
   OfferVersion,
   OfferVerification,
   Selection,
@@ -26,8 +29,105 @@ import {
   IssuedPolicyDocument,
   IssuedPolicySnapshot,
   ReconciliationReport,
-  PolicyVaultItem
+  PolicyVaultItem,
+  PlatformNotification,
+  CoverageBaseline,
+  ConsumerRequirements,
+  CompetitionActivityEvent,
+  ReviewQueueItem,
+  ReviewQueueStatus,
+  VaultDocument,
+  PolicyDocumentRecord,
+  PolicyDocumentClassificationResult,
+  PolicyNormalizationResult
+  ,PolicyFieldCorrection, NormalizedPolicyFieldPath
 } from '../../types/insurance';
+
+export interface SqlClient {
+  query<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<{ rows: T[]; rowCount?: number }>;
+  exec(sql: string): Promise<unknown>;
+  transaction<T>(callback: (client: SqlClient) => Promise<T>): Promise<T>;
+  close(): Promise<void>;
+}
+
+class CloudSqlClient implements SqlClient {
+  private readonly pool: pg.Pool;
+
+  constructor() {
+    const connectionString = process.env.DATABASE_URL?.trim();
+    if (connectionString) {
+      this.pool = new pg.Pool({
+        connectionString,
+        max: 5,
+        connectionTimeoutMillis: 10_000,
+        idleTimeoutMillis: 30_000,
+        statement_timeout: 30_000,
+        query_timeout: 30_000,
+        application_name: 'openpolicy-runtime'
+      });
+      return;
+    }
+
+    const instance = process.env.CLOUD_SQL_INSTANCE?.trim();
+    const user = process.env.DB_USER?.trim();
+    const database = process.env.DB_NAME?.trim();
+    const password = process.env.DB_PASSWORD;
+    if (!instance || !user || !database || !password) {
+      throw new Error(
+        'Cloud SQL requires DATABASE_URL or CLOUD_SQL_INSTANCE, DB_USER, DB_NAME, and DB_PASSWORD.'
+      );
+    }
+    this.pool = new pg.Pool({
+      host: `/cloudsql/${instance}`,
+      user,
+      password,
+      database,
+      max: 5,
+      connectionTimeoutMillis: 10_000,
+      idleTimeoutMillis: 30_000,
+      statement_timeout: 30_000,
+      query_timeout: 30_000,
+      application_name: 'openpolicy-runtime'
+    });
+  }
+
+  async query<T = Record<string, unknown>>(sql: string, params: unknown[] = []): Promise<{ rows: T[]; rowCount?: number }> {
+    const result = await this.pool.query(sql, params);
+    return { rows: result.rows as T[], rowCount: result.rowCount ?? undefined };
+  }
+
+  async exec(sql: string): Promise<unknown> {
+    return this.pool.query(sql);
+  }
+
+  async transaction<T>(callback: (client: SqlClient) => Promise<T>): Promise<T> {
+    const connection = await this.pool.connect();
+    const transactionClient: SqlClient = {
+      query: async <R = Record<string, unknown>>(sql: string, params: unknown[] = []) => {
+        const result = await connection.query(sql, params);
+        return { rows: result.rows as R[], rowCount: result.rowCount ?? undefined };
+      },
+      exec: sql => connection.query(sql),
+      transaction: async nested => nested(transactionClient),
+      close: async () => undefined
+    };
+    try {
+      await connection.query('BEGIN');
+      const result = await callback(transactionClient);
+      await connection.query('COMMIT');
+      return result;
+    } catch (error) {
+      await connection.query('ROLLBACK');
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
+  async close(): Promise<void> {
+    await this.pool.end();
+  }
+}
 
 /**
  * PostgresStore — Durable PGlite persistence layer for Open Policy marketplace and transaction entities.
@@ -41,14 +141,23 @@ import {
  * Commercial Economics (CE) entities are persisted in commercialStore.ts operating over the same underlying database.
  */
 export class PostgresStore {
-  private pglite: PGlite | null = null;
+  private sql: SqlClient | null = null;
   private isReady = false;
   private dataDir: string;
+  private useCloudSql: boolean;
   private initPromise: Promise<void> | null = null;
 
   // OPENPOLICY_DATA_DIR lets validators run against an isolated database; unset keeps the default.
-  constructor(dataDir = process.env.OPENPOLICY_DATA_DIR || './data/openpolicy_pg') {
-    this.dataDir = dataDir;
+  constructor(dataDir?: string) {
+    this.dataDir = dataDir || process.env.OPENPOLICY_DATA_DIR || './data/openpolicy_pg';
+    this.useCloudSql = !dataDir && !process.env.OPENPOLICY_DATA_DIR && Boolean(
+      process.env.DATABASE_URL?.trim() || process.env.CLOUD_SQL_INSTANCE?.trim()
+    );
+    if (process.env.OPENPOLICY_REQUIRE_DURABLE_STORAGE === 'true' && !this.useCloudSql) {
+      throw new Error(
+        'Durable storage is required, but neither DATABASE_URL nor CLOUD_SQL_INSTANCE is configured.'
+      );
+    }
   }
 
   public async ensureReady(): Promise<void> {
@@ -56,51 +165,73 @@ export class PostgresStore {
   }
 
   public async init(): Promise<void> {
-    if (this.isReady && this.pglite) return;
+    if (this.isReady && this.sql) return;
     if (this.initPromise) {
       return this.initPromise;
     }
     this.initPromise = (async () => {
       try {
-        if (!fs.existsSync(this.dataDir)) {
-          fs.mkdirSync(this.dataDir, { recursive: true });
+        if (this.useCloudSql) {
+          this.sql = new CloudSqlClient();
+          await this.sql.query('SELECT 1');
+        } else {
+          if (!fs.existsSync(this.dataDir)) {
+            fs.mkdirSync(this.dataDir, { recursive: true });
+          }
+          const pglite = new PGlite(this.dataDir);
+          await pglite.waitReady;
+          this.sql = pglite as unknown as SqlClient;
         }
-        this.pglite = new PGlite(this.dataDir);
-        await this.pglite.waitReady;
-        await this.pglite.exec(SQL_MIGRATION_V1);
-        await this.pglite.query(
+        await this.sql.exec(SQL_MIGRATION_V1);
+        await this.sql.query(
           `INSERT INTO _migrations (name) VALUES ('0001_pm1_canonical_marketplace') ON CONFLICT (name) DO NOTHING;`
         );
-        await this.pglite.exec(SQL_MIGRATION_V2);
-        await this.pglite.query(
+        await this.sql.exec(SQL_MIGRATION_V2);
+        await this.sql.query(
           `INSERT INTO _migrations (name) VALUES ('0002_pm2_information_and_offers') ON CONFLICT (name) DO NOTHING;`
         );
-        await this.pglite.exec(SQL_MIGRATION_V3);
-        await this.pglite.query(
+        await this.sql.exec(SQL_MIGRATION_V3);
+        await this.sql.query(
           `INSERT INTO _migrations (name) VALUES ('0003_pm4_selection_disclosure_binding') ON CONFLICT (name) DO NOTHING;`
         );
-        await this.pglite.exec(SQL_MIGRATION_V4);
-        await this.pglite.query(
+        await this.sql.exec(SQL_MIGRATION_V4);
+        await this.sql.query(
           `INSERT INTO _migrations (name) VALUES ('0004_pm5_issued_policy_reconciliation_vault') ON CONFLICT (name) DO NOTHING;`
         );
-        await this.pglite.exec(SQL_MIGRATION_V5);
-        await this.pglite.query(
+        await this.sql.exec(SQL_MIGRATION_V5);
+        await this.sql.query(
           `INSERT INTO _migrations (name) VALUES ('0005_commercial_economics_foundation') ON CONFLICT (name) DO NOTHING;`
         );
-        await this.pglite.exec(SQL_MIGRATION_V6);
-        await this.pglite.query(
+        await this.sql.exec(SQL_MIGRATION_V6);
+        await this.sql.query(
           `INSERT INTO _migrations (name) VALUES ('0006_commercial_rating_engine') ON CONFLICT (name) DO NOTHING;`
         );
-        await this.pglite.exec(SQL_MIGRATION_V7);
-        await this.pglite.query(
+        await this.sql.exec(SQL_MIGRATION_V7);
+        await this.sql.query(
           `INSERT INTO _migrations (name) VALUES ('0007_commercial_billing_settlement') ON CONFLICT (name) DO NOTHING;`
         );
-        await this.pglite.exec(SQL_MIGRATION_V8);
-        await this.pglite.query(
+        await this.sql.exec(SQL_MIGRATION_V8);
+        await this.sql.query(
           `INSERT INTO _migrations (name) VALUES ('0008_jurisdiction_framework') ON CONFLICT (name) DO NOTHING;`
         );
+        await this.sql.exec(SQL_MIGRATION_V9);
+        await this.sql.query(
+          `INSERT INTO _migrations (name) VALUES ('0009_notification_recipient_ownership') ON CONFLICT (name) DO NOTHING;`
+        );
+        await this.sql.exec(SQL_MIGRATION_V10);
+        await this.sql.query(
+          `INSERT INTO _migrations (name) VALUES ('0010_persistence_authority_foundation') ON CONFLICT (name) DO NOTHING;`
+        );
+        await this.sql.exec(SQL_MIGRATION_V11);
+        await this.sql.query(
+          `INSERT INTO _migrations (name) VALUES ('0011_production_document_intelligence') ON CONFLICT (name) DO NOTHING;`
+        );
         this.isReady = true;
-        console.log('[Open Policy Postgres] PostgreSQL 16 durable engine initialized at', this.dataDir);
+        console.log(
+          this.useCloudSql
+            ? '[Open Policy Postgres] Cloud SQL durable engine initialized'
+            : `[Open Policy Postgres] PostgreSQL 16 durable engine initialized at ${this.dataDir}`
+        );
       } catch (err: any) {
         this.initPromise = null;
         this.isReady = false;
@@ -110,9 +241,9 @@ export class PostgresStore {
     return this.initPromise;
   }
 
-  public async getPgClient(): Promise<PGlite> {
+  public async getPgClient(): Promise<SqlClient> {
     await this.ensureReady();
-    return this.pglite!;
+    return this.sql!;
   }
 
 
@@ -123,11 +254,413 @@ export class PostgresStore {
       } catch {}
       this.initPromise = null;
     }
-    if (this.pglite) {
-      await this.pglite.close();
-      this.pglite = null;
+    if (this.sql) {
+      await this.sql.close();
+      this.sql = null;
       this.isReady = false;
     }
+  }
+
+  public async beginPolicyDocumentIngestion(record: PolicyDocumentRecord): Promise<PolicyDocumentRecord> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const existing = await client.query<{ payload: string }>(
+        `SELECT payload FROM policy_documents WHERE owner_id = $1 AND idempotency_key = $2 FOR UPDATE;`,
+        [record.ownerId, record.idempotencyKey]
+      );
+      if (existing.rows[0]) return JSON.parse(existing.rows[0].payload) as PolicyDocumentRecord;
+      await client.query(
+        `INSERT INTO policy_documents (
+           id, owner_id, idempotency_key, original_file_name, mime_type, byte_length, sha256,
+           storage_bucket, object_name, object_generation, status, malware_status,
+           rejection_code, created_at, updated_at, payload
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16);`,
+        [record.id, record.ownerId, record.idempotencyKey, record.originalFileName, record.mimeType,
+          record.byteLength, record.sha256, record.storageBucket, record.objectName,
+          record.objectGeneration, record.status, record.malwareStatus, record.rejectionCode || null,
+          record.createdAt, record.updatedAt, JSON.stringify(record)]
+      );
+      await this.appendAuditInTransaction(client, {
+        eventType: 'POLICY_DOCUMENT_INGESTION_STARTED', actorRole: 'CONSUMER', actorId: record.ownerId,
+        details: `Started immutable evidence ingestion for ${record.id}`
+      });
+      return record;
+    });
+  }
+
+  public async completePolicyDocumentUpload(params: {
+    ownerId: string; documentId: string; objectGeneration: string;
+  }): Promise<PolicyDocumentRecord> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const result = await client.query<{ payload: string }>(
+        `SELECT payload FROM policy_documents WHERE id = $1 AND owner_id = $2 FOR UPDATE;`,
+        [params.documentId, params.ownerId]
+      );
+      if (!result.rows[0]) throw Object.assign(new Error('Policy document not found'), { statusCode: 404 });
+      const current = JSON.parse(result.rows[0].payload) as PolicyDocumentRecord;
+      if (current.status !== 'UPLOAD_PENDING') {
+        if (current.objectGeneration === params.objectGeneration) return current;
+        throw new Error(`Document ${params.documentId} cannot be completed from status ${current.status}`);
+      }
+      const completed: PolicyDocumentRecord = {
+        ...current, objectGeneration: params.objectGeneration, status: 'UPLOADED', updatedAt: new Date().toISOString()
+      };
+      await client.query(
+        `UPDATE policy_documents SET object_generation=$1,status=$2,updated_at=$3,payload=$4
+         WHERE id=$5 AND owner_id=$6 AND status='UPLOAD_PENDING';`,
+        [completed.objectGeneration, completed.status, completed.updatedAt, JSON.stringify(completed),
+          completed.id, completed.ownerId]
+      );
+      await this.appendAuditInTransaction(client, {
+        eventType: 'POLICY_DOCUMENT_UPLOADED', actorRole: 'CONSUMER', actorId: completed.ownerId,
+        details: `Committed immutable evidence object for ${completed.id}`
+      });
+      return completed;
+    });
+  }
+
+  public async getPolicyDocument(ownerId: string, documentId: string): Promise<PolicyDocumentRecord | undefined> {
+    await this.ensureReady();
+    const result = await this.sql!.query<{ payload: string }>(
+      `SELECT payload FROM policy_documents WHERE id=$1 AND owner_id=$2;`, [documentId, ownerId]
+    );
+    return result.rows[0] ? JSON.parse(result.rows[0].payload) as PolicyDocumentRecord : undefined;
+  }
+
+  public async recordPolicyDocumentMalwareDisposition(input: {
+    documentId: string; objectGeneration: string; sourceSha256: string;
+    status: 'CLEAN' | 'REJECTED_MALICIOUS' | 'SCAN_FAILED'; scanner: string; scannerVersion: string;
+  }): Promise<PolicyDocumentRecord> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const result = await client.query<{ payload: string }>(
+        `SELECT payload FROM policy_documents WHERE id=$1 FOR UPDATE;`, [input.documentId]
+      );
+      if (!result.rows[0]) throw new Error('Policy document not found');
+      const current = JSON.parse(result.rows[0].payload) as PolicyDocumentRecord;
+      if (current.status !== 'UPLOADED' || current.objectGeneration !== input.objectGeneration || current.sha256 !== input.sourceSha256) {
+        throw new Error('Malware disposition evidence identity does not match the committed document.');
+      }
+      if (current.malwareStatus === 'CLEAN' || current.malwareStatus === 'REJECTED_MALICIOUS') return current;
+      const updated: PolicyDocumentRecord = {
+        ...current, malwareStatus: input.status, malwareScanner: input.scanner,
+        malwareScannerVersion: input.scannerVersion, malwareScannedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      await client.query(
+        `UPDATE policy_documents SET malware_status=$1,updated_at=$2,payload=$3 WHERE id=$4;`,
+        [updated.malwareStatus, updated.updatedAt, JSON.stringify(updated), updated.id]
+      );
+      await this.appendAuditInTransaction(client, {
+        eventType: input.status === 'CLEAN' ? 'POLICY_DOCUMENT_SCAN_CLEAN' :
+          input.status === 'REJECTED_MALICIOUS' ? 'POLICY_DOCUMENT_REJECTED_MALICIOUS' : 'POLICY_DOCUMENT_SCAN_FAILED',
+        actorRole: 'SYSTEM', actorId: 'document-security-scanner',
+        details: `Recorded ${input.status} security disposition for ${updated.id}`
+      });
+      return updated;
+    });
+  }
+
+  public async commitPolicyDocumentClassification(
+    classification: PolicyDocumentClassificationResult
+  ): Promise<PolicyDocumentClassificationResult> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const documentResult = await client.query<{ payload: string }>(
+        `SELECT payload FROM policy_documents WHERE id=$1 FOR UPDATE;`, [classification.documentId]
+      );
+      if (!documentResult.rows[0]) throw new Error('Policy document not found');
+      const document = JSON.parse(documentResult.rows[0].payload) as PolicyDocumentRecord;
+      if (document.malwareStatus !== 'CLEAN' || document.objectGeneration !== classification.documentGeneration ||
+          document.sha256 !== classification.sourceSha256) {
+        throw new Error('Classification requires matching immutable evidence with a CLEAN security disposition.');
+      }
+      const existing = await client.query<{ payload: string }>(
+        `SELECT payload FROM policy_document_classifications
+         WHERE document_id=$1 AND document_generation=$2 AND classifier=$3 AND classifier_version=$4;`,
+        [classification.documentId, classification.documentGeneration, classification.classifier, classification.classifierVersion]
+      );
+      if (existing.rows[0]) return JSON.parse(existing.rows[0].payload) as PolicyDocumentClassificationResult;
+      await client.query(
+        `INSERT INTO policy_document_classifications (
+           id,document_id,document_generation,source_sha256,classification,confidence,classifier,
+           classifier_version,requires_review,classified_at,payload
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11);`,
+        [classification.id, classification.documentId, classification.documentGeneration,
+          classification.sourceSha256, classification.classification, classification.confidence,
+          classification.classifier, classification.classifierVersion, classification.requiresReview,
+          classification.classifiedAt, JSON.stringify(classification)]
+      );
+      await this.appendAuditInTransaction(client, {
+        eventType: 'POLICY_DOCUMENT_CLASSIFIED', actorRole: 'SYSTEM', actorId: classification.classifier,
+        details: `Classified ${classification.documentId} as ${classification.classification}`
+      });
+      return classification;
+    });
+  }
+
+  public async commitPolicyDocumentExtraction(
+    classification: PolicyDocumentClassificationResult,
+    normalization: PolicyNormalizationResult
+  ): Promise<{ classification: PolicyDocumentClassificationResult; normalization: PolicyNormalizationResult }> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const result = await client.query<{ payload: string }>(
+        `SELECT payload FROM policy_documents WHERE id=$1 FOR UPDATE;`, [classification.documentId]
+      );
+      if (!result.rows[0]) throw new Error('Policy document not found');
+      const document = JSON.parse(result.rows[0].payload) as PolicyDocumentRecord;
+      const identityMatches = document.id === normalization.documentId &&
+        document.objectGeneration === classification.documentGeneration &&
+        document.objectGeneration === normalization.documentGeneration &&
+        document.sha256 === classification.sourceSha256 &&
+        document.sha256 === normalization.sourceSha256;
+      if (document.malwareStatus !== 'CLEAN' || !identityMatches) {
+        throw new Error('Extraction requires matching immutable evidence with a CLEAN security disposition.');
+      }
+      const existingRun = await client.query<{ payload: string }>(
+        `SELECT payload FROM policy_extraction_runs
+         WHERE document_id=$1 AND document_generation=$2 AND extractor=$3 AND extractor_version=$4;`,
+        [normalization.documentId, normalization.documentGeneration, normalization.normalizer, normalization.normalizerVersion]
+      );
+      const existingClassification = await client.query<{ payload: string }>(
+        `SELECT payload FROM policy_document_classifications
+         WHERE document_id=$1 AND document_generation=$2 AND classifier=$3 AND classifier_version=$4;`,
+        [classification.documentId, classification.documentGeneration, classification.classifier, classification.classifierVersion]
+      );
+      if (existingRun.rows[0] && existingClassification.rows[0]) {
+        return {
+          classification: JSON.parse(existingClassification.rows[0].payload) as PolicyDocumentClassificationResult,
+          normalization: JSON.parse(existingRun.rows[0].payload) as PolicyNormalizationResult
+        };
+      }
+      if (existingRun.rows[0] || existingClassification.rows[0]) {
+        throw new Error('Incomplete prior extraction commit detected; refusing to manufacture a mixed result.');
+      }
+      await client.query(
+        `INSERT INTO policy_document_classifications (
+          id,document_id,document_generation,source_sha256,classification,confidence,classifier,
+          classifier_version,requires_review,classified_at,payload
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11);`,
+        [classification.id, classification.documentId, classification.documentGeneration,
+          classification.sourceSha256, classification.classification, classification.confidence,
+          classification.classifier, classification.classifierVersion, classification.requiresReview,
+          classification.classifiedAt, JSON.stringify(classification)]
+      );
+      await client.query(
+        `INSERT INTO policy_extraction_runs (
+          id,document_id,document_generation,extractor,extractor_version,status,critical_issues,
+          created_at,completed_at,payload
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10);`,
+        [normalization.extractionRunId, normalization.documentId, normalization.documentGeneration,
+          normalization.normalizer, normalization.normalizerVersion, normalization.status,
+          JSON.stringify(normalization.criticalIssues), normalization.normalizedAt, normalization.normalizedAt,
+          JSON.stringify(normalization)]
+      );
+      const updated: PolicyDocumentRecord = {
+        ...document,
+        status: normalization.status,
+        updatedAt: normalization.normalizedAt
+      };
+      await client.query(
+        `UPDATE policy_documents SET status=$1,updated_at=$2,payload=$3 WHERE id=$4;`,
+        [updated.status, updated.updatedAt, JSON.stringify(updated), updated.id]
+      );
+      await this.appendAuditInTransaction(client, {
+        eventType: 'POLICY_DOCUMENT_EXTRACTED', actorRole: 'SYSTEM', actorId: normalization.normalizer,
+        details: `Committed evidence-bound extraction ${normalization.extractionRunId} for ${normalization.documentId} with status ${normalization.status}`
+      });
+      return { classification, normalization };
+    });
+  }
+
+  public async getPolicyDocumentExtraction(
+    ownerId: string,
+    documentId: string
+  ): Promise<PolicyNormalizationResult | undefined> {
+    await this.ensureReady();
+    const result = await this.sql!.query<{ payload: string }>(
+      `SELECT r.payload FROM policy_extraction_runs r
+       JOIN policy_documents d ON d.id=r.document_id
+       WHERE r.document_id=$1 AND d.owner_id=$2 ORDER BY r.completed_at DESC LIMIT 1;`,
+      [documentId, ownerId]
+    );
+    return result.rows[0] ? JSON.parse(result.rows[0].payload) as PolicyNormalizationResult : undefined;
+  }
+
+  public async recordPolicyFieldCorrection(input: {
+    ownerId: string; documentId: string; fieldPath: NormalizedPolicyFieldPath; afterValue: string | number;
+  }): Promise<PolicyFieldCorrection> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const documentResult = await client.query<{ payload: string }>(
+        `SELECT payload FROM policy_documents WHERE id=$1 AND owner_id=$2 FOR UPDATE;`,
+        [input.documentId, input.ownerId]
+      );
+      if (!documentResult.rows[0]) throw Object.assign(new Error('Policy document not found'), { statusCode: 404 });
+      const document = JSON.parse(documentResult.rows[0].payload) as PolicyDocumentRecord;
+      if (document.status !== 'READY_FOR_CONSUMER' && document.status !== 'REVIEW_REQUIRED' && document.status !== 'CONSUMER_CORRECTED') {
+        throw Object.assign(new Error(`Document cannot be corrected from status ${document.status}`), { statusCode: 409 });
+      }
+      const runResult = await client.query<{ payload: string }>(
+        `SELECT payload FROM policy_extraction_runs WHERE document_id=$1 ORDER BY completed_at DESC LIMIT 1 FOR UPDATE;`,
+        [input.documentId]
+      );
+      if (!runResult.rows[0]) throw Object.assign(new Error('Policy extraction not found'), { statusCode: 409 });
+      const extraction = JSON.parse(runResult.rows[0].payload) as PolicyNormalizationResult;
+      const priorCorrections = await client.query<{ after_value: string }>(
+        `SELECT after_value FROM policy_field_corrections
+         WHERE document_id=$1 AND extraction_run_id=$2 AND field_path=$3 ORDER BY corrected_at DESC,id DESC LIMIT 1;`,
+        [input.documentId, extraction.extractionRunId, input.fieldPath]
+      );
+      const extracted = extraction.fields.find(field => field.fieldPath === input.fieldPath)?.value;
+      const beforeValue = priorCorrections.rows[0] ? JSON.parse(priorCorrections.rows[0].after_value) : extracted;
+      const correction: PolicyFieldCorrection = {
+        id: `COR-${crypto.randomUUID()}`, documentId: input.documentId,
+        extractionRunId: extraction.extractionRunId, ownerId: input.ownerId,
+        fieldPath: input.fieldPath, beforeValue: beforeValue ?? null, afterValue: input.afterValue,
+        source: 'CONSUMER', correctedAt: new Date().toISOString()
+      };
+      await client.query(
+        `INSERT INTO policy_field_corrections
+          (id,document_id,extraction_run_id,owner_id,field_path,before_value,after_value,source,corrected_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9);`,
+        [correction.id, correction.documentId, correction.extractionRunId, correction.ownerId,
+          correction.fieldPath, JSON.stringify(correction.beforeValue), JSON.stringify(correction.afterValue),
+          correction.source, correction.correctedAt]
+      );
+      const updated = { ...document, status: 'CONSUMER_CORRECTED' as const, updatedAt: correction.correctedAt };
+      await client.query(`UPDATE policy_documents SET status=$1,updated_at=$2,payload=$3 WHERE id=$4;`,
+        [updated.status, updated.updatedAt, JSON.stringify(updated), updated.id]);
+      await this.appendAuditInTransaction(client, {
+        eventType: 'CONSUMER_CORRECTED_FIELD', actorRole: 'CONSUMER', actorId: input.ownerId,
+        details: `Consumer corrected ${input.fieldPath} for evidence ${input.documentId}`
+      });
+      return correction;
+    });
+  }
+
+  public async getPolicyFieldCorrections(ownerId: string, documentId: string): Promise<PolicyFieldCorrection[]> {
+    await this.ensureReady();
+    const result = await this.sql!.query<{ payload: string }>(
+      `SELECT json_build_object(
+        'id',c.id,'documentId',c.document_id,'extractionRunId',c.extraction_run_id,'ownerId',c.owner_id,
+        'fieldPath',c.field_path,'beforeValue',c.before_value::json,'afterValue',c.after_value::json,
+        'source',c.source,'correctedAt',c.corrected_at)::text AS payload
+       FROM policy_field_corrections c JOIN policy_documents d ON d.id=c.document_id
+       WHERE c.document_id=$1 AND d.owner_id=$2 ORDER BY c.corrected_at,c.id;`, [documentId, ownerId]
+    );
+    return result.rows.map(row => JSON.parse(row.payload) as PolicyFieldCorrection);
+  }
+
+  public async verifyPolicyDocumentEvidence(input: {
+    ownerId: string; documentId: string;
+  }): Promise<{ policy: Policy; baseline: CoverageBaseline; document: PolicyDocumentRecord }> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const documentResult = await client.query<{ payload: string }>(
+        `SELECT payload FROM policy_documents WHERE id=$1 AND owner_id=$2 FOR UPDATE;`,
+        [input.documentId, input.ownerId]
+      );
+      if (!documentResult.rows[0]) throw Object.assign(new Error('Policy document not found'), { statusCode: 404 });
+      const document = JSON.parse(documentResult.rows[0].payload) as PolicyDocumentRecord;
+      if (document.status === 'BASELINE_CREATED') {
+        const policyResult = await client.query<{ payload: string }>(
+          `SELECT payload FROM policies WHERE payload::jsonb->>'sourceDocumentId'=$1 LIMIT 1;`, [document.id]
+        );
+        if (!policyResult.rows[0]) throw new Error('Verified document is missing its durable policy.');
+        const policy = JSON.parse(policyResult.rows[0].payload) as Policy;
+        const baselineResult = await client.query<{ payload: string }>(
+          `SELECT payload FROM coverage_baselines WHERE policy_id=$1 AND version=1 LIMIT 1;`, [policy.id]
+        );
+        if (!baselineResult.rows[0]) throw new Error('Verified document is missing its durable baseline.');
+        return { policy, baseline: JSON.parse(baselineResult.rows[0].payload) as CoverageBaseline, document };
+      }
+      if (document.status !== 'READY_FOR_CONSUMER' && document.status !== 'CONSUMER_CORRECTED') {
+        throw Object.assign(new Error(`Document cannot be verified from status ${document.status}`), { statusCode: 409 });
+      }
+      const extractionResult = await client.query<{ payload: string }>(
+        `SELECT payload FROM policy_extraction_runs WHERE document_id=$1 ORDER BY completed_at DESC LIMIT 1 FOR UPDATE;`,
+        [document.id]
+      );
+      if (!extractionResult.rows[0]) throw Object.assign(new Error('Policy extraction not found'), { statusCode: 409 });
+      const normalization = JSON.parse(extractionResult.rows[0].payload) as PolicyNormalizationResult;
+      const correctionResult = await client.query<any>(
+        `SELECT * FROM policy_field_corrections WHERE document_id=$1 AND extraction_run_id=$2 ORDER BY corrected_at,id;`,
+        [document.id, normalization.extractionRunId]
+      );
+      const corrections: PolicyFieldCorrection[] = correctionResult.rows.map(row => ({
+        id:row.id,documentId:row.document_id,extractionRunId:row.extraction_run_id,ownerId:row.owner_id,
+        fieldPath:row.field_path,beforeValue:JSON.parse(row.before_value),afterValue:JSON.parse(row.after_value),
+        source:row.source,correctedAt:row.corrected_at
+      }));
+      const verifiedAt = new Date().toISOString();
+      const { policy, baseline } = buildVerifiedPolicyAndBaseline({
+        ownerId: input.ownerId, documentName: document.originalFileName, normalization, corrections, verifiedAt
+      });
+      await client.query(
+        `INSERT INTO policies (id,policy_number,carrier,jurisdiction,named_insured,effective_date,expiration_date,annual_premium,status,payload)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT(id) DO NOTHING;`,
+        [policy.id,policy.policyNumber,policy.carrier,policy.jurisdiction,policy.namedInsured,policy.effectiveDate,
+          policy.expirationDate,policy.annualPremium,policy.status,JSON.stringify(policy)]
+      );
+      await client.query(
+        `INSERT INTO coverage_baselines (id,policy_id,version,jurisdiction,verified_at,payload)
+         VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT(id) DO NOTHING;`,
+        [baseline.id,baseline.policyId,baseline.version,baseline.jurisdiction || null,baseline.verifiedAt,JSON.stringify(baseline)]
+      );
+      const updated: PolicyDocumentRecord = { ...document, status:'BASELINE_CREATED', updatedAt:verifiedAt };
+      await client.query(`UPDATE policy_documents SET status=$1,updated_at=$2,payload=$3 WHERE id=$4;`,
+        [updated.status,updated.updatedAt,JSON.stringify(updated),updated.id]);
+      await this.appendAuditInTransaction(client,{eventType:'POLICY_VERIFIED',actorRole:'CONSUMER',actorId:input.ownerId,
+        details:`Consumer verified evidence ${document.id} into policy ${policy.id}`});
+      await this.appendAuditInTransaction(client,{eventType:'BASELINE_CREATED',actorRole:'SYSTEM',actorId:'baseline_engine',
+        details:`Created immutable coverage baseline ${baseline.id} from verified evidence ${document.id}`});
+      return { policy, baseline, document:updated };
+    });
+  }
+
+  private generateAuditHash(value: string): string {
+    let hash = 0;
+    for (let index = 0; index < value.length; index += 1) {
+      hash = (hash << 5) - hash + value.charCodeAt(index);
+      hash |= 0;
+    }
+    return Math.abs(hash).toString(16).padStart(12, '0');
+  }
+
+  private async appendAuditInTransaction(
+    client: SqlClient,
+    input: Pick<AuditEvent, 'eventType' | 'actorRole' | 'actorId' | 'details'>
+  ): Promise<AuditEvent> {
+    const head = await client.query<{ latest_hash: string; version: string }>(
+      `SELECT latest_hash, version FROM audit_chain_head WHERE singleton = TRUE FOR UPDATE;`
+    );
+    const previousHash = head.rows[0]?.latest_hash || 'GENESIS_BLOCK_000000';
+    const timestamp = new Date().toISOString();
+    const id = `AUD-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const event: AuditEvent = {
+      id, timestamp, ...input,
+      hash: this.generateAuditHash(`${timestamp}|${input.eventType}|${input.actorId}|${input.details}|${previousHash}`)
+    };
+    await client.query(
+      `INSERT INTO audit_events (id, timestamp, event_type, actor_role, actor_id, details, hash)
+       VALUES ($1, $2, $3, $4, $5, $6, $7);`,
+      [event.id, event.timestamp, event.eventType, event.actorRole, event.actorId, event.details, event.hash]
+    );
+    await client.query(
+      `UPDATE audit_chain_head SET latest_hash = $1, latest_event_id = $2, version = version + 1
+       WHERE singleton = TRUE;`, [event.hash, event.id]
+    );
+    return event;
+  }
+
+  public async appendAuditEvent(
+    input: Pick<AuditEvent, 'eventType' | 'actorRole' | 'actorId' | 'details'>
+  ): Promise<AuditEvent> {
+    await this.ensureReady();
+    return this.sql!.transaction(client => this.appendAuditInTransaction(client, input));
   }
 
   // ===========================================================================
@@ -136,7 +669,7 @@ export class PostgresStore {
 
   public async getProviderOrganizations(): Promise<ProviderOrganization[]> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; legal_name: string; display_name: string; organization_type: string;
       verification_status: string; marketplace_status: string; states: string;
       lines_of_business: string; created_at: string; verified_at: string | null;
@@ -157,7 +690,7 @@ export class PostgresStore {
 
   public async getProviderOrganization(id: string): Promise<ProviderOrganization | undefined> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; legal_name: string; display_name: string; organization_type: string;
       verification_status: string; marketplace_status: string; states: string;
       lines_of_business: string; created_at: string; verified_at: string | null;
@@ -181,11 +714,11 @@ export class PostgresStore {
   public async getProviderUsers(orgId?: string): Promise<ProviderUser[]> {
     await this.ensureReady();
     const res = orgId
-      ? await this.pglite!.query<{
+      ? await this.sql!.query<{
           id: string; organization_id: string; email: string; full_name: string;
           role: string; is_active: boolean; created_at: string;
         }>(`SELECT * FROM provider_users WHERE organization_id = $1;`, [orgId])
-      : await this.pglite!.query<{
+      : await this.sql!.query<{
           id: string; organization_id: string; email: string; full_name: string;
           role: string; is_active: boolean; created_at: string;
         }>(`SELECT * FROM provider_users;`);
@@ -201,7 +734,7 @@ export class PostgresStore {
 
   public async getProviderUser(userId: string): Promise<ProviderUser | undefined> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; organization_id: string; email: string; full_name: string;
       role: string; is_active: boolean; created_at: string;
     }>(`SELECT * FROM provider_users WHERE id = $1;`, [userId]);
@@ -219,7 +752,7 @@ export class PostgresStore {
 
   public async getProviderLicenses(orgId: string): Promise<ProviderLicense[]> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; provider_organization_id: string; jurisdiction: string;
       license_number: string; license_type: string; status: string;
       expiration_date: string; verified_at: string | null;
@@ -239,7 +772,7 @@ export class PostgresStore {
 
   public async getCarrierRelationships(orgId: string): Promise<CarrierRelationship[]> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; provider_organization_id: string; carrier_id: string;
       carrier_name: string; jurisdiction: string; line_of_business: string;
       relationship_type: string; status: string;
@@ -258,7 +791,7 @@ export class PostgresStore {
 
   public async getProviderAppetite(orgId: string): Promise<ProviderAppetite | undefined> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       provider_organization_id: string; jurisdictions: string; lines_of_business: string;
       min_annual_premium: number | null; max_annual_premium: number | null;
       target_vehicle_years_min: number | null; target_vehicle_years_max: number | null;
@@ -282,9 +815,9 @@ export class PostgresStore {
 
   public async getCompetition(id: string): Promise<Competition | undefined> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; challenge_id: string; status: string; current_round: string;
-      participant_count: number; opened_at: string; closes_at: string;
+      participant_count: number; opened_at: string; closes_at: string; payload: string | null;
     }>(`SELECT * FROM competitions WHERE id = $1;`, [id]);
     if (res.rows.length === 0) return undefined;
     return this._mapCompetition(res.rows[0]);
@@ -292,9 +825,9 @@ export class PostgresStore {
 
   public async getCompetitionForChallenge(challengeId: string): Promise<Competition | undefined> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; challenge_id: string; status: string; current_round: string;
-      participant_count: number; opened_at: string; closes_at: string;
+      participant_count: number; opened_at: string; closes_at: string; payload: string | null;
     }>(`SELECT * FROM competitions WHERE challenge_id = $1 LIMIT 1;`, [challengeId]);
     if (res.rows.length === 0) return undefined;
     return this._mapCompetition(res.rows[0]);
@@ -302,17 +835,18 @@ export class PostgresStore {
 
   public async getAllCompetitions(): Promise<Competition[]> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; challenge_id: string; status: string; current_round: string;
-      participant_count: number; opened_at: string; closes_at: string;
+      participant_count: number; opened_at: string; closes_at: string; payload: string | null;
     }>(`SELECT * FROM competitions;`);
     return res.rows.map(r => this._mapCompetition(r));
   }
 
   private _mapCompetition(row: {
     id: string; challenge_id: string; status: string; current_round: string;
-    participant_count: number; opened_at: string; closes_at: string;
+    participant_count: number; opened_at: string; closes_at: string; payload: string | null;
   }): Competition {
+    if (row.payload) return JSON.parse(row.payload) as Competition;
     return {
       id: row.id,
       challengeId: row.challenge_id,
@@ -328,10 +862,10 @@ export class PostgresStore {
 
   public async getInvitation(id: string): Promise<ChallengeInvitation | undefined> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; challenge_id: string; competition_id: string; provider_organization_id: string;
       status: string; invited_at: string; viewed_at: string | null; accepted_at: string | null;
-      declined_at: string | null; decline_reason: string | null; decline_notes: string | null;
+      declined_at: string | null; decline_reason: string | null; decline_notes: string | null; payload: string | null;
     }>(`SELECT * FROM challenge_invitations WHERE id = $1;`, [id]);
     if (res.rows.length === 0) return undefined;
     return this._mapInvitation(res.rows[0]);
@@ -339,30 +873,30 @@ export class PostgresStore {
 
   public async getInvitationsForChallenge(challengeId: string): Promise<ChallengeInvitation[]> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; challenge_id: string; competition_id: string; provider_organization_id: string;
       status: string; invited_at: string; viewed_at: string | null; accepted_at: string | null;
-      declined_at: string | null; decline_reason: string | null; decline_notes: string | null;
+      declined_at: string | null; decline_reason: string | null; decline_notes: string | null; payload: string | null;
     }>(`SELECT * FROM challenge_invitations WHERE challenge_id = $1;`, [challengeId]);
     return res.rows.map(r => this._mapInvitation(r));
   }
 
   public async getInvitationsForOrg(orgId: string): Promise<ChallengeInvitation[]> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; challenge_id: string; competition_id: string; provider_organization_id: string;
       status: string; invited_at: string; viewed_at: string | null; accepted_at: string | null;
-      declined_at: string | null; decline_reason: string | null; decline_notes: string | null;
+      declined_at: string | null; decline_reason: string | null; decline_notes: string | null; payload: string | null;
     }>(`SELECT * FROM challenge_invitations WHERE provider_organization_id = $1;`, [orgId]);
     return res.rows.map(r => this._mapInvitation(r));
   }
 
   public async getAllInvitations(): Promise<ChallengeInvitation[]> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; challenge_id: string; competition_id: string; provider_organization_id: string;
       status: string; invited_at: string; viewed_at: string | null; accepted_at: string | null;
-      declined_at: string | null; decline_reason: string | null; decline_notes: string | null;
+      declined_at: string | null; decline_reason: string | null; decline_notes: string | null; payload: string | null;
     }>(`SELECT * FROM challenge_invitations;`);
     return res.rows.map(r => this._mapInvitation(r));
   }
@@ -370,8 +904,9 @@ export class PostgresStore {
   private _mapInvitation(row: {
     id: string; challenge_id: string; competition_id: string; provider_organization_id: string;
     status: string; invited_at: string; viewed_at: string | null; accepted_at: string | null;
-    declined_at: string | null; decline_reason: string | null; decline_notes: string | null;
+    declined_at: string | null; decline_reason: string | null; decline_notes: string | null; payload: string | null;
   }): ChallengeInvitation {
+    if (row.payload) return JSON.parse(row.payload) as ChallengeInvitation;
     return {
       id: row.id,
       challengeId: row.challenge_id,
@@ -392,7 +927,7 @@ export class PostgresStore {
 
   public async getParticipationsForOrg(orgId: string): Promise<ChallengeParticipation[]> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; challenge_id: string; competition_id: string; provider_organization_id: string;
       accepted_at: string; status: string; last_activity_at: string;
     }>(`SELECT * FROM challenge_participations WHERE provider_organization_id = $1;`, [orgId]);
@@ -401,7 +936,7 @@ export class PostgresStore {
 
   public async getParticipationsForChallenge(challengeId: string): Promise<ChallengeParticipation[]> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; challenge_id: string; competition_id: string; provider_organization_id: string;
       accepted_at: string; status: string; last_activity_at: string;
     }>(`SELECT * FROM challenge_participations WHERE challenge_id = $1;`, [challengeId]);
@@ -410,7 +945,7 @@ export class PostgresStore {
 
   public async getAllParticipations(): Promise<ChallengeParticipation[]> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; challenge_id: string; competition_id: string; provider_organization_id: string;
       accepted_at: string; status: string; last_activity_at: string;
     }>(`SELECT * FROM challenge_participations;`);
@@ -419,8 +954,9 @@ export class PostgresStore {
 
   private _mapParticipation(row: {
     id: string; challenge_id: string; competition_id: string; provider_organization_id: string;
-    accepted_at: string; status: string; last_activity_at: string;
+    accepted_at: string; status: string; last_activity_at: string; payload?: string | null;
   }): ChallengeParticipation {
+    if (row.payload) return JSON.parse(row.payload) as ChallengeParticipation;
     return {
       id: row.id,
       challengeId: row.challenge_id,
@@ -434,7 +970,7 @@ export class PostgresStore {
 
   public async getAuditEvents(): Promise<AuditEvent[]> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; timestamp: string; event_type: string;
       actor_role: string; actor_id: string; details: string; hash: string;
     }>(`SELECT * FROM audit_events ORDER BY timestamp ASC;`);
@@ -451,7 +987,7 @@ export class PostgresStore {
 
   public async getChallenges(): Promise<Challenge[]> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; user_id: string; reference_number: string; jurisdiction: string;
       status: string; created_at: string; baseline_data: string | null; requirements_data: string | null;
     }>(`SELECT * FROM challenges ORDER BY created_at ASC;`);
@@ -460,7 +996,7 @@ export class PostgresStore {
 
   public async getChallenge(id: string): Promise<Challenge | undefined> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; user_id: string; reference_number: string; jurisdiction: string;
       status: string; created_at: string; baseline_data: string | null; requirements_data: string | null;
     }>(`SELECT * FROM challenges WHERE id = $1;`, [id]);
@@ -468,10 +1004,28 @@ export class PostgresStore {
     return this._mapChallenge(res.rows[0]);
   }
 
+  public async getOffers(challengeId?: string): Promise<Offer[]> {
+    await this.ensureReady();
+    const res = challengeId
+      ? await this.sql!.query<{ payload: string }>(
+          `SELECT payload FROM offers WHERE challenge_id = $1 ORDER BY id;`, [challengeId])
+      : await this.sql!.query<{ payload: string }>(`SELECT payload FROM offers ORDER BY id;`);
+    return res.rows.map(row => JSON.parse(row.payload) as Offer);
+  }
+
+  public async getOffer(id: string): Promise<Offer | undefined> {
+    await this.ensureReady();
+    const res = await this.sql!.query<{ payload: string }>(
+      `SELECT payload FROM offers WHERE id = $1;`, [id]
+    );
+    return res.rows[0] ? JSON.parse(res.rows[0].payload) as Offer : undefined;
+  }
+
   private _mapChallenge(row: {
     id: string; user_id: string; reference_number: string; jurisdiction: string;
-    status: string; created_at: string; baseline_data: string | null; requirements_data: string | null;
+    status: string; created_at: string; baseline_data: string | null; requirements_data: string | null; payload?: string | null;
   }): Challenge {
+    if (row.payload) return JSON.parse(row.payload) as Challenge;
     return {
       id: row.id,
       referenceNumber: row.reference_number,
@@ -494,7 +1048,7 @@ export class PostgresStore {
 
   public async getInformationRequests(challengeId: string): Promise<InformationRequest[]> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; challenge_id: string; competition_id: string; provider_organization_id: string;
       requested_field: string; custom_field_name: string | null; purpose: string;
       purpose_explanation: string; status: string; requested_at: string;
@@ -517,9 +1071,12 @@ export class PostgresStore {
     }));
   }
 
+  private _mapInformationRequest(row:any):InformationRequest{return {id:row.id,challengeId:row.challenge_id,competitionId:row.competition_id,providerOrganizationId:row.provider_organization_id,requestedField:row.requested_field,customFieldName:row.custom_field_name||undefined,purpose:row.purpose,purposeExplanation:row.purpose_explanation,status:row.status,requestedAt:row.requested_at,answeredAt:row.answered_at||undefined,answerValue:row.answer_value?JSON.parse(row.answer_value):undefined,reusableFactId:row.reusable_fact_id||undefined};}
+  private _mapSupplementalFact(row:any):VerifiedSupplementalFact{return {id:row.id,consumerId:row.consumer_id,challengeId:row.challenge_id,fieldType:row.field_type,fieldName:row.field_name,value:JSON.parse(row.value),formattedValue:row.formatted_value,verificationState:row.verification_state,source:row.source,createdAt:row.created_at,consentScope:row.consent_scope||'REQUESTING_PROVIDER_ONLY',sharedWithOrganizationIds:JSON.parse(row.shared_with_organization_ids||'[]')};}
+
   public async getInformationRequest(id: string): Promise<InformationRequest | undefined> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; challenge_id: string; competition_id: string; provider_organization_id: string;
       requested_field: string; custom_field_name: string | null; purpose: string;
       purpose_explanation: string; status: string; requested_at: string;
@@ -544,13 +1101,72 @@ export class PostgresStore {
     };
   }
 
+  public async createInformationRequestAtomic(req: InformationRequest, idempotencyKey: string): Promise<InformationRequest> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const existing = await client.query<any>(`SELECT * FROM information_requests WHERE idempotency_key = $1;`, [idempotencyKey]);
+      if (existing.rows[0]) return this._mapInformationRequest(existing.rows[0]);
+      const participant = await client.query<{ id: string }>(
+        `SELECT id FROM challenge_participations WHERE challenge_id=$1 AND provider_organization_id=$2 AND status <> 'WITHDRAWN';`,
+        [req.challengeId, req.providerOrganizationId]);
+      if (!participant.rows[0]) throw Object.assign(new Error('Provider is not an active participant'), { statusCode: 403 });
+      const challenge = await client.query<{ user_id: string }>(`SELECT user_id FROM challenges WHERE id=$1;`, [req.challengeId]);
+      if (!challenge.rows[0]) throw Object.assign(new Error('Challenge not found'), { statusCode: 404 });
+      await client.query(
+        `INSERT INTO information_requests (id,challenge_id,competition_id,provider_organization_id,requested_field,custom_field_name,purpose,purpose_explanation,status,requested_at,idempotency_key)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11);`,
+        [req.id,req.challengeId,req.competitionId,req.providerOrganizationId,req.requestedField,req.customFieldName||null,req.purpose,req.purposeExplanation,req.status,req.requestedAt,idempotencyKey]);
+      const notification: PlatformNotification = { id:`NOTIF-${req.id}`, type:'COMPETITION_UPDATE', title:'Underwriting Information Requested',
+        message:`A participating provider requested: ${req.customFieldName||req.requestedField} for rating discounts.`, timestamp:req.requestedAt, read:false,
+        recipientType:'CONSUMER', recipientConsumerId:challenge.rows[0].user_id, createdFromEvent:`INFORMATION_REQUEST:${req.id}` };
+      await client.query(`INSERT INTO platform_notifications (id,type,title,message,timestamp,is_read,recipient_type,recipient_consumer_id,created_from_event)
+        VALUES ($1,$2,$3,$4,$5,FALSE,$6,$7,$8) ON CONFLICT(id) DO NOTHING;`,
+        [notification.id,notification.type,notification.title,notification.message,notification.timestamp,notification.recipientType,notification.recipientConsumerId,notification.createdFromEvent]);
+      await this.appendAuditInTransaction(client,{eventType:'POLICY_UPLOADED',actorRole:'PROVIDER',actorId:req.providerOrganizationId,details:`Information request ${req.id} created for ${req.requestedField}`});
+      return req;
+    });
+  }
+
+  public async answerInformationRequestAtomic(params:{requestId:string;answerValue:any;consumerId:string;consentScope?:FactConsentScope;authorizedOrgIds?:string[]}):Promise<{request:InformationRequest;fact:VerifiedSupplementalFact}>{
+    await this.ensureReady();
+    return this.sql!.transaction(async client=>{
+      const row=await client.query<any>(`SELECT * FROM information_requests WHERE id=$1 FOR UPDATE;`,[params.requestId]);
+      if(!row.rows[0]) throw Object.assign(new Error('Information request not found'),{statusCode:404});
+      const request=this._mapInformationRequest(row.rows[0]);
+      const owner=await client.query<{user_id:string}>(`SELECT user_id FROM challenges WHERE id=$1;`,[request.challengeId]);
+      if(owner.rows[0]?.user_id!==params.consumerId) throw Object.assign(new Error('Consumer does not own this challenge'),{statusCode:403});
+      const existing=await client.query<any>(`SELECT * FROM verified_supplemental_facts WHERE id=$1;`,[`FACT-${request.id}`]);
+      if(request.status==='ANSWERED'&&existing.rows[0]) return {request,fact:this._mapSupplementalFact(existing.rows[0])};
+      const scope=params.consentScope||'REQUESTING_PROVIDER_ONLY';
+      let shared=[request.providerOrganizationId];
+      if(scope==='ALL_ACTIVE_PARTICIPANTS'){const p=await client.query<{provider_organization_id:string}>(`SELECT provider_organization_id FROM challenge_participations WHERE challenge_id=$1 AND status<>'WITHDRAWN';`,[request.challengeId]);shared=p.rows.map(x=>x.provider_organization_id);}
+      if(scope==='EXPLICIT_PROVIDER_SELECTION') shared=[...new Set([request.providerOrganizationId,...(params.authorizedOrgIds||[])])];
+      const now=new Date().toISOString(); const fact:VerifiedSupplementalFact={id:`FACT-${request.id}`,consumerId:params.consumerId,challengeId:request.challengeId,fieldType:request.requestedField,fieldName:request.customFieldName||request.requestedField,value:params.answerValue,formattedValue:typeof params.answerValue==='object'?JSON.stringify(params.answerValue):String(params.answerValue),verificationState:'CONSUMER_ATTESTED',source:'CONSUMER_PORTAL',createdAt:now,consentScope:scope,sharedWithOrganizationIds:shared};
+      request.status='ANSWERED';request.answeredAt=now;request.answerValue=params.answerValue;request.reusableFactId=fact.id;
+      await client.query(`UPDATE information_requests SET status='ANSWERED',answered_at=$2,answer_value=$3,reusable_fact_id=$4 WHERE id=$1;`,[request.id,now,JSON.stringify(params.answerValue),fact.id]);
+      await client.query(
+        `INSERT INTO verified_supplemental_facts
+          (id,consumer_id,challenge_id,field_type,field_name,value,formatted_value,verification_state,source,created_at,shared_with_organization_ids,consent_scope,consent_history)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13);`,
+        [
+          fact.id, fact.consumerId, fact.challengeId, fact.fieldType, fact.fieldName,
+          JSON.stringify(fact.value), fact.formattedValue, fact.verificationState,
+          fact.source, fact.createdAt, JSON.stringify(shared), scope,
+          JSON.stringify([{ at: now, scope, organizations: shared, actor: params.consumerId }])
+        ]
+      );
+      await this.appendAuditInTransaction(client,{eventType:'CONSUMER_CORRECTED_FIELD',actorRole:'CONSUMER',actorId:params.consumerId,details:`Consumer answered information request ${request.id}`});
+      return {request,fact};
+    });
+  }
+
   public async getVerifiedSupplementalFacts(challengeId: string): Promise<VerifiedSupplementalFact[]> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; consumer_id: string; challenge_id: string; field_type: string;
       field_name: string; value: string; formatted_value: string;
       verification_state: string; source: string; created_at: string;
-      shared_with_organization_ids: string;
+      shared_with_organization_ids: string; consent_scope: string | null;
     }>(`SELECT * FROM verified_supplemental_facts WHERE challenge_id = $1 ORDER BY created_at ASC;`, [challengeId]);
     return res.rows.map(row => ({
       id: row.id,
@@ -563,17 +1179,18 @@ export class PostgresStore {
       verificationState: row.verification_state as VerifiedSupplementalFact['verificationState'],
       source: row.source,
       createdAt: row.created_at,
+      consentScope: (row.consent_scope || 'REQUESTING_PROVIDER_ONLY') as FactConsentScope,
       sharedWithOrganizationIds: JSON.parse(row.shared_with_organization_ids || '[]')
     }));
   }
 
   public async getVerifiedSupplementalFact(id: string): Promise<VerifiedSupplementalFact | undefined> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; consumer_id: string; challenge_id: string; field_type: string;
       field_name: string; value: string; formatted_value: string;
       verification_state: string; source: string; created_at: string;
-      shared_with_organization_ids: string;
+      shared_with_organization_ids: string; consent_scope: string | null;
     }>(`SELECT * FROM verified_supplemental_facts WHERE id = $1;`, [id]);
     if (res.rows.length === 0) return undefined;
     const row = res.rows[0];
@@ -588,13 +1205,74 @@ export class PostgresStore {
       verificationState: row.verification_state as VerifiedSupplementalFact['verificationState'],
       source: row.source,
       createdAt: row.created_at,
+      consentScope: (row.consent_scope || 'REQUESTING_PROVIDER_ONLY') as FactConsentScope,
       sharedWithOrganizationIds: JSON.parse(row.shared_with_organization_ids || '[]')
     };
   }
 
+  public async grantSupplementalFactConsentAtomic(params: {
+    factId: string;
+    consumerId: string;
+    organizationIds: string[];
+  }): Promise<VerifiedSupplementalFact> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const result = await client.query<any>(
+        `SELECT * FROM verified_supplemental_facts WHERE id = $1 FOR UPDATE;`,
+        [params.factId]
+      );
+      if (!result.rows[0]) {
+        throw Object.assign(new Error('Supplemental fact not found'), { statusCode: 404 });
+      }
+      const row = result.rows[0];
+      if (row.consumer_id !== params.consumerId) {
+        throw Object.assign(
+          new Error('Unauthorized: Only the consumer can grant access consent to a supplemental fact'),
+          { statusCode: 403 }
+        );
+      }
+
+      const existingOrganizations = JSON.parse(row.shared_with_organization_ids || '[]') as string[];
+      const organizations = [...new Set([...existingOrganizations, ...params.organizationIds])];
+      const existingHistory = JSON.parse(row.consent_history || '[]') as unknown[];
+      const changed = organizations.length !== existingOrganizations.length;
+      if (!changed) return this._mapSupplementalFact(row);
+
+      const now = new Date().toISOString();
+      const history = [
+        ...existingHistory,
+        {
+          at: now,
+          action: 'GRANTED',
+          organizations: params.organizationIds,
+          actor: params.consumerId
+        }
+      ];
+      const scope: FactConsentScope = 'EXPLICIT_PROVIDER_SELECTION';
+      await client.query(
+        `UPDATE verified_supplemental_facts
+         SET shared_with_organization_ids = $2, consent_scope = $3, consent_history = $4
+         WHERE id = $1;`,
+        [params.factId, JSON.stringify(organizations), scope, JSON.stringify(history)]
+      );
+      await this.appendAuditInTransaction(client, {
+        eventType: 'CONSUMER_CORRECTED_FIELD',
+        actorRole: 'CONSUMER',
+        actorId: params.consumerId,
+        details: `Consumer granted disclosure consent for fact ${params.factId} to providers: ${params.organizationIds.join(', ')}`
+      });
+      return this._mapSupplementalFact({
+        ...row,
+        shared_with_organization_ids: JSON.stringify(organizations),
+        consent_scope: scope,
+        consent_history: JSON.stringify(history)
+      });
+    });
+  }
+
   public async getOfferVersions(offerId: string): Promise<OfferVersion[]> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; offer_id: string; version_number: number; round: string;
       carrier: string; annual_premium: number; monthly_premium: number;
       coverages: string; supporting_quote_doc_name: string; revision_reason: string;
@@ -618,7 +1296,7 @@ export class PostgresStore {
 
   public async getOfferVerification(offerId: string): Promise<OfferVerification | undefined> {
     await this.ensureReady();
-    const res = await this.pglite!.query<{
+    const res = await this.sql!.query<{
       id: string; offer_id: string; document_name: string; status: string;
       verified_at: string; discrepancy_count: number; discrepancies: string;
       extracted_premium: number | null; entered_premium: number | null;
@@ -640,7 +1318,7 @@ export class PostgresStore {
 
   public async saveProviderOrganization(org: ProviderOrganization) {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO provider_organizations (id, legal_name, display_name, organization_type, verification_status, marketplace_status, states, lines_of_business, created_at, verified_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        ON CONFLICT (id) DO UPDATE SET
@@ -665,7 +1343,7 @@ export class PostgresStore {
 
   public async saveProviderUser(user: ProviderUser) {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO provider_users (id, organization_id, email, full_name, role, is_active, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT (id) DO UPDATE SET full_name = EXCLUDED.full_name, role = EXCLUDED.role;`,
@@ -683,7 +1361,7 @@ export class PostgresStore {
 
   public async saveProviderLicense(lic: ProviderLicense) {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO provider_licenses (id, provider_organization_id, jurisdiction, license_number, license_type, status, expiration_date, verified_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, expiration_date = EXCLUDED.expiration_date;`,
@@ -702,7 +1380,7 @@ export class PostgresStore {
 
   public async saveCarrierRelationship(rel: CarrierRelationship) {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO carrier_relationships (id, provider_organization_id, carrier_id, carrier_name, jurisdiction, line_of_business, relationship_type, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status;`,
@@ -712,7 +1390,7 @@ export class PostgresStore {
 
   public async saveProviderAppetite(appetite: ProviderAppetite) {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO provider_appetites (provider_organization_id, jurisdictions, lines_of_business, min_annual_premium, max_annual_premium, target_vehicle_years_min, target_vehicle_years_max, preferred_risk_tiers, excluded_vehicle_types)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        ON CONFLICT (provider_organization_id) DO UPDATE SET
@@ -734,14 +1412,16 @@ export class PostgresStore {
 
   public async saveCompetition(comp: Competition) {
     await this.ensureReady();
-    await this.pglite!.query(
-      `INSERT INTO competitions (id, challenge_id, jurisdiction, line_of_business, status, current_round, participant_count, opened_at, closes_at, rules)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    await this.sql!.query(
+      `INSERT INTO competitions (id, challenge_id, jurisdiction, line_of_business, status, current_round, participant_count, opened_at, closes_at, rules, payload)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        ON CONFLICT (id) DO UPDATE SET
          status = EXCLUDED.status,
          current_round = EXCLUDED.current_round,
          participant_count = EXCLUDED.participant_count,
-         closes_at = EXCLUDED.closes_at;`,
+         closes_at = EXCLUDED.closes_at,
+         payload = EXCLUDED.payload,
+         version = competitions.version + 1;`,
       [
         comp.id,
         comp.challengeId,
@@ -752,23 +1432,91 @@ export class PostgresStore {
         comp.participantCount,
         comp.openedAt,
         comp.closesAt,
-        JSON.stringify((comp as any).rules || {})
+        JSON.stringify((comp as any).rules || {}),
+        JSON.stringify(comp)
       ]
     );
   }
 
+  public async commitCompetitionAdvance(input:{competition:Competition;challenge:Challenge;activity:CompetitionActivityEvent;actorId:string}):Promise<Competition>{
+    await this.ensureReady();
+    return this.sql!.transaction(async client=>{
+      const current=await client.query<any>(`SELECT * FROM competitions WHERE id=$1 FOR UPDATE;`,[input.competition.id]);
+      if(!current.rows[0])throw Object.assign(new Error('Competition not found'),{statusCode:404});
+      const durable=this._mapCompetition(current.rows[0]);
+      if(durable.currentRound===input.competition.currentRound)return durable;
+      await client.query(`UPDATE competitions SET status=$2,current_round=$3,closes_at=$4,payload=$5,version=version+1 WHERE id=$1;`,
+        [input.competition.id,input.competition.status,input.competition.currentRound,input.competition.closesAt,JSON.stringify(input.competition)]);
+      await client.query(`UPDATE challenges SET status=$2,payload=$3,version=version+1 WHERE id=$1;`,[input.challenge.id,input.challenge.status,JSON.stringify(input.challenge)]);
+      const e=input.activity;
+      await client.query(`INSERT INTO competition_activity_events (id,competition_id,challenge_id,occurred_at,event_type,provider_organization_id,payload) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(id) DO NOTHING;`,
+        [e.id,e.competitionId,e.challengeId,e.timestamp,e.type,e.providerOrganizationId||null,JSON.stringify(e)]);
+      await this.appendAuditInTransaction(client,{eventType:'COMPETITION_ROUND_ADVANCED',actorRole:'ADMIN',actorId:input.actorId,details:e.summary});
+      return input.competition;
+    });
+  }
+
+  public async commitProviderWithdrawal(input:{challengeId:string;organizationId:string;reason:string;notes?:string}):Promise<ChallengeParticipation>{
+    await this.ensureReady();return this.sql!.transaction(async client=>{
+      const result=await client.query<any>(`SELECT * FROM challenge_participations WHERE challenge_id=$1 AND provider_organization_id=$2 FOR UPDATE;`,[input.challengeId,input.organizationId]);
+      if(!result.rows[0])throw Object.assign(new Error('Active participation not found'),{statusCode:404});
+      const participation=this._mapParticipation(result.rows[0]);if(participation.status==='WITHDRAWN')return participation;
+      const withdrawn={...participation,status:'WITHDRAWN',withdrawnAt:new Date().toISOString(),withdrawalReason:input.reason,withdrawalNotes:input.notes} as ChallengeParticipation;
+      await client.query(`UPDATE challenge_participations SET status='WITHDRAWN',payload=$2,version=version+1 WHERE id=$1;`,[withdrawn.id,JSON.stringify(withdrawn)]);
+      const offers=await client.query<any>(`SELECT id,payload FROM offers WHERE challenge_id=$1 AND provider_id=$2 AND status<>'SELECTED';`,[input.challengeId,input.organizationId]);
+      for(const row of offers.rows){const offer={...JSON.parse(row.payload||'{}'),status:'WITHDRAWN'};await client.query(`UPDATE offers SET status='WITHDRAWN',payload=$2 WHERE id=$1;`,[row.id,JSON.stringify(offer)]);}
+      await client.query(`UPDATE competitions SET participant_count=GREATEST(0,participant_count-1),version=version+1 WHERE challenge_id=$1;`,[input.challengeId]);
+      await this.appendAuditInTransaction(client,{eventType:'PROVIDER_WITHDREW',actorRole:'PROVIDER',actorId:input.organizationId,details:`Provider withdrew from ${input.challengeId}: ${input.reason}`});
+      return withdrawn;
+    });
+  }
+
+  public async commitKeepCurrentPolicy(input:{challengeId:string;consumerId:string;reason?:string}):Promise<Challenge>{
+    await this.ensureReady();return this.sql!.transaction(async client=>{
+      const result=await client.query<any>(`SELECT * FROM challenges WHERE id=$1 FOR UPDATE;`,[input.challengeId]);if(!result.rows[0])throw Object.assign(new Error('Challenge not found'),{statusCode:404});
+      const challenge=this._mapChallenge(result.rows[0]);if(challenge.consumerId!==input.consumerId)throw Object.assign(new Error('Only the challenge owner can keep the current policy'),{statusCode:403});
+      if(challenge.status==='INCUMBENT_DEFENDED')return challenge;
+      const updated={...challenge,status:'INCUMBENT_DEFENDED',incumbentDefended:true} as Challenge;
+      await client.query(`UPDATE challenges SET status=$2,payload=$3,version=version+1 WHERE id=$1;`,[challenge.id,updated.status,JSON.stringify(updated)]);
+      await client.query(`UPDATE competitions SET status='COMPLETED',completed_at=$2,version=version+1 WHERE challenge_id=$1;`,[challenge.id,new Date().toISOString()]);
+      await this.appendAuditInTransaction(client,{eventType:'INCUMBENT_POLICY_DEFENDED',actorRole:'CONSUMER',actorId:input.consumerId,details:`Consumer kept incumbent policy for ${challenge.id}${input.reason?`: ${input.reason}`:''}`});return updated;
+    });
+  }
+
+  public async commitKeepCurrentOffer(input:{challengeId:string;offerId:string;organizationId:string}):Promise<Offer>{
+    await this.ensureReady();return this.sql!.transaction(async client=>{
+      const [offerResult,competitionResult,organizationResult]=await Promise.all([
+        client.query<any>(`SELECT payload FROM offers WHERE id=$1 AND challenge_id=$2 FOR UPDATE;`,[input.offerId,input.challengeId]),
+        client.query<any>(`SELECT * FROM competitions WHERE challenge_id=$1;`,[input.challengeId]),
+        client.query<any>(`SELECT display_name FROM provider_organizations WHERE id=$1;`,[input.organizationId])
+      ]);
+      if(!offerResult.rows[0])throw Object.assign(new Error('Offer not found'),{statusCode:404});
+      const offer=JSON.parse(offerResult.rows[0].payload) as Offer;
+      if(offer.providerId!==input.organizationId)throw Object.assign(new Error('Provider is not authorized for this offer'),{statusCode:403});
+      if(!competitionResult.rows[0])throw Object.assign(new Error('Competition not found'),{statusCode:404});
+      const competition=this._mapCompetition(competitionResult.rows[0]);
+      const organizationName=organizationResult.rows[0]?.display_name||input.organizationId;
+      const activity:CompetitionActivityEvent={id:`ACT-KEEP-${input.offerId}-${competition.currentRound}`,competitionId:competition.id,challengeId:input.challengeId,timestamp:new Date().toISOString(),type:'PROVIDER_KEPT_CURRENT_OFFER',actorRole:'PROVIDER',actorName:organizationName,providerOrganizationId:input.organizationId,summary:`${organizationName} confirmed current terms for ${offer.carrier} ($${offer.annualPremium}/yr) in ${competition.currentRound}.`,round:competition.currentRound,metadata:{offerId:offer.id,carrier:offer.carrier,annualPremium:offer.annualPremium}};
+      await client.query(`INSERT INTO competition_activity_events (id,competition_id,challenge_id,occurred_at,event_type,provider_organization_id,payload) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(id) DO NOTHING;`,[activity.id,activity.competitionId,activity.challengeId,activity.timestamp,activity.type,activity.providerOrganizationId,JSON.stringify(activity)]);
+      await this.appendAuditInTransaction(client,{eventType:'OFFER_CONFIRMED_CURRENT',actorRole:'PROVIDER',actorId:input.organizationId,details:activity.summary});
+      return offer;
+    });
+  }
+
   public async saveInvitation(inv: ChallengeInvitation) {
     await this.ensureReady();
-    await this.pglite!.query(
-      `INSERT INTO challenge_invitations (id, challenge_id, competition_id, provider_organization_id, status, invited_at, viewed_at, accepted_at, declined_at, decline_reason, decline_notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    await this.sql!.query(
+      `INSERT INTO challenge_invitations (id, challenge_id, competition_id, provider_organization_id, status, invited_at, viewed_at, accepted_at, declined_at, decline_reason, decline_notes, payload)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        ON CONFLICT (id) DO UPDATE SET
          status = EXCLUDED.status,
          viewed_at = EXCLUDED.viewed_at,
          accepted_at = EXCLUDED.accepted_at,
          declined_at = EXCLUDED.declined_at,
          decline_reason = EXCLUDED.decline_reason,
-         decline_notes = EXCLUDED.decline_notes;`,
+         decline_notes = EXCLUDED.decline_notes,
+         payload = EXCLUDED.payload,
+         version = challenge_invitations.version + 1;`,
       [
         inv.id,
         inv.challengeId,
@@ -780,19 +1528,165 @@ export class PostgresStore {
         inv.acceptedAt || null,
         inv.declinedAt || null,
         inv.declineReason || null,
-        inv.declineNotes || null
+        inv.declineNotes || null,
+        JSON.stringify(inv)
       ]
     );
   }
 
+  public async viewInvitation(id: string, organizationId: string): Promise<ChallengeInvitation> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const result = await client.query<any>(
+        `SELECT * FROM challenge_invitations WHERE id = $1 FOR UPDATE;`, [id]
+      );
+      if (!result.rows[0]) throw Object.assign(new Error('Invitation not found'), { statusCode: 404 });
+      const invitation = this._mapInvitation(result.rows[0]);
+      if (invitation.providerOrganizationId !== organizationId) {
+        throw Object.assign(new Error('Invitation does not belong to this organization'), { statusCode: 403 });
+      }
+      if (invitation.status === 'INVITED') {
+        invitation.status = 'VIEWED';
+        invitation.viewedAt = new Date().toISOString();
+        await client.query(
+          `UPDATE challenge_invitations SET status = 'VIEWED', viewed_at = $2,
+             payload = $3, version = version + 1 WHERE id = $1 AND status = 'INVITED';`,
+          [id, invitation.viewedAt, JSON.stringify(invitation)]
+        );
+        await this.appendAuditInTransaction(client, {
+          eventType: 'INVITATION_VIEWED', actorRole: 'PROVIDER', actorId: organizationId,
+          details: `Provider organization ${organizationId} viewed invitation ${id}`
+        });
+      }
+      return invitation;
+    });
+  }
+
+  public async acceptInvitation(id: string, organizationId: string): Promise<{
+    invitation: ChallengeInvitation; participation: ChallengeParticipation;
+  }> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const result = await client.query<any>(
+        `SELECT * FROM challenge_invitations WHERE id = $1 FOR UPDATE;`, [id]
+      );
+      if (!result.rows[0]) throw Object.assign(new Error('Invitation not found'), { statusCode: 404 });
+      const invitation = this._mapInvitation(result.rows[0]);
+      if (invitation.providerOrganizationId !== organizationId) {
+        throw Object.assign(new Error('Invitation does not belong to this organization'), { statusCode: 403 });
+      }
+      const existing = await client.query<any>(
+        `SELECT * FROM challenge_participations
+         WHERE challenge_id = $1 AND provider_organization_id = $2;`,
+        [invitation.challengeId, organizationId]
+      );
+      if (invitation.status === 'ACCEPTED' && existing.rows[0]) {
+        return { invitation, participation: this._mapParticipation(existing.rows[0]) };
+      }
+      if (!['INVITED', 'VIEWED'].includes(invitation.status)) {
+        throw Object.assign(new Error(`Invitation cannot be accepted from ${invitation.status}`), { statusCode: 409 });
+      }
+      const now = new Date().toISOString();
+      invitation.status = 'ACCEPTED';
+      invitation.acceptedAt = now;
+      const participation: ChallengeParticipation = {
+        id: `PART-${invitation.challengeId.replace('CHAL-', '')}-${organizationId}`,
+        challengeId: invitation.challengeId, competitionId: invitation.competitionId,
+        providerOrganizationId: organizationId, acceptedAt: now,
+        status: 'ACTIVE', lastActivityAt: now
+      };
+      await client.query(
+        `UPDATE challenge_invitations SET status = 'ACCEPTED', accepted_at = $2,
+           payload = $3, version = version + 1
+         WHERE id = $1 AND status IN ('INVITED','VIEWED');`,
+        [id, now, JSON.stringify(invitation)]
+      );
+      await client.query(
+        `INSERT INTO challenge_participations
+         (id, challenge_id, competition_id, provider_organization_id, accepted_at, status, last_activity_at, payload)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+         ON CONFLICT (challenge_id, provider_organization_id) DO NOTHING;`,
+        [participation.id, participation.challengeId, participation.competitionId,
+         participation.providerOrganizationId, participation.acceptedAt,
+         participation.status, participation.lastActivityAt, JSON.stringify(participation)]
+      );
+      const count = await client.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM challenge_participations
+         WHERE competition_id = $1 AND status <> 'WITHDRAWN';`, [invitation.competitionId]
+      );
+      await client.query(
+        `UPDATE competitions SET participant_count = $2, version = version + 1
+         WHERE id = $1;`, [invitation.competitionId, Number(count.rows[0]?.count || 0)]
+      );
+      const activity: CompetitionActivityEvent = {
+        id: `ACT-${participation.id}-JOINED`, competitionId: invitation.competitionId,
+        challengeId: invitation.challengeId, timestamp: now, type: 'PROVIDER_JOINED',
+        actorRole: 'PROVIDER', providerOrganizationId: organizationId,
+        summary: `Provider organization ${organizationId} joined competition`, round: 'ROUND_1_OPEN'
+      };
+      await client.query(
+        `INSERT INTO competition_activity_events
+         (id, competition_id, challenge_id, occurred_at, event_type, provider_organization_id, payload)
+         VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO NOTHING;`,
+        [activity.id, activity.competitionId, activity.challengeId, activity.timestamp,
+         activity.type, organizationId, JSON.stringify(activity)]
+      );
+      await this.appendAuditInTransaction(client, {
+        eventType: 'INVITATION_ACCEPTED', actorRole: 'PROVIDER', actorId: organizationId,
+        details: `Provider organization ${organizationId} accepted invitation ${id}`
+      });
+      await this.appendAuditInTransaction(client, {
+        eventType: 'PARTICIPATION_CREATED', actorRole: 'SYSTEM', actorId: 'competition_engine',
+        details: `Participation ${participation.id} created for invitation ${id}`
+      });
+      return { invitation, participation };
+    });
+  }
+
+  public async declineInvitation(
+    id: string, organizationId: string, reason: ChallengeInvitation['declineReason'], notes?: string
+  ): Promise<ChallengeInvitation> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const result = await client.query<any>(
+        `SELECT * FROM challenge_invitations WHERE id = $1 FOR UPDATE;`, [id]
+      );
+      if (!result.rows[0]) throw Object.assign(new Error('Invitation not found'), { statusCode: 404 });
+      const invitation = this._mapInvitation(result.rows[0]);
+      if (invitation.providerOrganizationId !== organizationId) {
+        throw Object.assign(new Error('Invitation does not belong to this organization'), { statusCode: 403 });
+      }
+      if (!['INVITED', 'VIEWED'].includes(invitation.status)) {
+        throw Object.assign(new Error(`Invitation cannot be declined from ${invitation.status}`), { statusCode: 409 });
+      }
+      invitation.status = 'DECLINED';
+      invitation.declinedAt = new Date().toISOString();
+      invitation.declineReason = reason;
+      invitation.declineNotes = notes;
+      await client.query(
+        `UPDATE challenge_invitations SET status = 'DECLINED', declined_at = $2,
+           decline_reason = $3, decline_notes = $4, payload = $5, version = version + 1
+         WHERE id = $1 AND status IN ('INVITED','VIEWED');`,
+        [id, invitation.declinedAt, reason || null, notes || null, JSON.stringify(invitation)]
+      );
+      await this.appendAuditInTransaction(client, {
+        eventType: 'INVITATION_DECLINED', actorRole: 'PROVIDER', actorId: organizationId,
+        details: `Provider organization ${organizationId} declined invitation ${id}`
+      });
+      return invitation;
+    });
+  }
+
   public async saveParticipation(part: ChallengeParticipation) {
     await this.ensureReady();
-    await this.pglite!.query(
-      `INSERT INTO challenge_participations (id, challenge_id, competition_id, provider_organization_id, accepted_at, status, last_activity_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+    await this.sql!.query(
+      `INSERT INTO challenge_participations (id, challenge_id, competition_id, provider_organization_id, accepted_at, status, last_activity_at, payload)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        ON CONFLICT (id) DO UPDATE SET
          status = EXCLUDED.status,
-         last_activity_at = EXCLUDED.last_activity_at;`,
+         last_activity_at = EXCLUDED.last_activity_at,
+         payload = EXCLUDED.payload,
+         version = challenge_participations.version + 1;`,
       [
         part.id,
         part.challengeId,
@@ -800,21 +1694,27 @@ export class PostgresStore {
         part.providerOrganizationId,
         part.acceptedAt,
         part.status,
-        part.lastActivityAt
+        part.lastActivityAt,
+        JSON.stringify(part)
       ]
     );
   }
 
   public async saveChallenge(chal: Challenge) {
     await this.ensureReady();
-    await this.pglite!.query(
+    const consumerId = chal.consumerId || (chal as any).userId;
+    if (!consumerId) {
+      throw new Error(`Challenge '${chal.id}' has no authoritative consumer owner.`);
+    }
+    await this.sql!.query(
       `INSERT INTO challenges (id, user_id, reference_number, jurisdiction, status, created_at, baseline_data, requirements_data,
-         jurisdiction_determination_id, rule_set_id, rule_set_content_sha256, regulatory_evaluation_date)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-       ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status;`,
+         jurisdiction_determination_id, rule_set_id, rule_set_content_sha256, regulatory_evaluation_date, payload)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+       ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, payload = EXCLUDED.payload,
+         version = challenges.version + 1;`,
       [
         chal.id,
-        chal.consumerId || (chal as any).userId || 'usr_consumer_default',
+        consumerId,
         chal.referenceNumber,
         chal.jurisdiction,
         chal.status,
@@ -824,14 +1724,93 @@ export class PostgresStore {
         chal.jurisdictionDeterminationId ?? null,
         chal.ruleSetId ?? null,
         chal.ruleSetContentSha256 ?? null,
-        chal.regulatoryEvaluationDate ?? null
+        chal.regulatoryEvaluationDate ?? null,
+        JSON.stringify(chal)
       ]
     );
   }
 
+  public async commitChallengeOpening(input: {
+    challenge: Challenge;
+    competition: Competition;
+    invitations: ChallengeInvitation[];
+    notifications: PlatformNotification[];
+    activity: CompetitionActivityEvent;
+    audits: Array<Pick<AuditEvent, 'eventType' | 'actorRole' | 'actorId' | 'details'>>;
+  }): Promise<void> {
+    await this.ensureReady();
+    const { challenge, competition, invitations, notifications, activity, audits } = input;
+    await this.sql!.transaction(async client => {
+      await client.query(
+        `INSERT INTO consumer_requirements (id, payload) VALUES ($1, $2)
+         ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload;`,
+        [challenge.requirements.id, JSON.stringify(challenge.requirements)]
+      );
+      await client.query(
+        `INSERT INTO challenges (id, user_id, reference_number, jurisdiction, status, created_at,
+           baseline_data, requirements_data, jurisdiction_determination_id, rule_set_id,
+           rule_set_content_sha256, regulatory_evaluation_date, payload)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+         ON CONFLICT (id) DO NOTHING;`,
+        [challenge.id, challenge.consumerId, challenge.referenceNumber, challenge.jurisdiction,
+         challenge.status, challenge.openingTimestamp, JSON.stringify(challenge.baseline),
+         JSON.stringify(challenge.requirements), challenge.jurisdictionDeterminationId || null,
+         challenge.ruleSetId || null, challenge.ruleSetContentSha256 || null,
+         challenge.regulatoryEvaluationDate || null, JSON.stringify(challenge)]
+      );
+      await client.query(
+        `INSERT INTO competitions (id, challenge_id, jurisdiction, line_of_business, status,
+           current_round, participant_count, opened_at, closes_at, rules, payload)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+         ON CONFLICT (id) DO NOTHING;`,
+        [competition.id, competition.challengeId, challenge.jurisdiction, 'PERSONAL_AUTO',
+         competition.status, competition.currentRound, competition.participantCount,
+         competition.openedAt, competition.closesAt, '{}', JSON.stringify(competition)]
+      );
+      for (const invitation of invitations) {
+        await client.query(
+          `INSERT INTO challenge_invitations (id, challenge_id, competition_id,
+             provider_organization_id, status, invited_at, viewed_at, accepted_at,
+             declined_at, decline_reason, decline_notes, payload)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+           ON CONFLICT (id) DO NOTHING;`,
+          [invitation.id, invitation.challengeId, invitation.competitionId,
+           invitation.providerOrganizationId, invitation.status, invitation.invitedAt,
+           invitation.viewedAt || null, invitation.acceptedAt || null,
+           invitation.declinedAt || null, invitation.declineReason || null,
+           invitation.declineNotes || null, JSON.stringify(invitation)]
+        );
+      }
+      await client.query(
+        `INSERT INTO competition_activity_events
+         (id, competition_id, challenge_id, occurred_at, event_type, provider_organization_id, payload)
+         VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO NOTHING;`,
+        [activity.id, activity.competitionId, activity.challengeId, activity.timestamp,
+         activity.type, activity.providerOrganizationId || null, JSON.stringify(activity)]
+      );
+      for (const notification of notifications) {
+        await client.query(
+          `INSERT INTO platform_notifications (id, type, title, message, timestamp, is_read,
+             read_at, recipient_type, recipient_consumer_id, recipient_provider_user_id,
+             recipient_provider_organization_id, recipient_operator_id, created_from_event, action_target)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+           ON CONFLICT (id) DO NOTHING;`,
+          [notification.id, notification.type, notification.title, notification.message,
+           notification.timestamp, notification.read, notification.readAt || null,
+           notification.recipientType, notification.recipientConsumerId || null,
+           notification.recipientProviderUserId || null,
+           notification.recipientProviderOrganizationId || null,
+           notification.recipientOperatorId || null, notification.createdFromEvent,
+           notification.actionTarget || null]
+        );
+      }
+      for (const audit of audits) await this.appendAuditInTransaction(client, audit);
+    });
+  }
+
   public async savePolicy(policy: Policy) {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO policies (id, policy_number, carrier, jurisdiction, named_insured, effective_date, expiration_date, annual_premium, status, payload)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status;`,
@@ -850,15 +1829,217 @@ export class PostgresStore {
     );
   }
 
+  public async commitPolicyWithAudit(
+    policy: Policy,
+    audits: Array<Pick<AuditEvent, 'eventType' | 'actorRole' | 'actorId' | 'details'>>
+  ): Promise<AuditEvent[]> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      await client.query(
+        `INSERT INTO policies (id, policy_number, carrier, jurisdiction, named_insured, effective_date, expiration_date, annual_premium, status, payload)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         ON CONFLICT (id) DO UPDATE SET
+           policy_number = EXCLUDED.policy_number,
+           carrier = EXCLUDED.carrier,
+           jurisdiction = EXCLUDED.jurisdiction,
+           named_insured = EXCLUDED.named_insured,
+           effective_date = EXCLUDED.effective_date,
+           expiration_date = EXCLUDED.expiration_date,
+           annual_premium = EXCLUDED.annual_premium,
+           status = EXCLUDED.status,
+           payload = EXCLUDED.payload;`,
+        [policy.id, policy.policyNumber, policy.carrier, policy.jurisdiction, policy.namedInsured,
+         policy.effectiveDate, policy.expirationDate, policy.annualPremium, policy.status,
+         JSON.stringify(policy)]
+      );
+      const events: AuditEvent[] = [];
+      for (const audit of audits) events.push(await this.appendAuditInTransaction(client, audit));
+      return events;
+    });
+  }
+
+  public async getPolicies(): Promise<Policy[]> {
+    await this.ensureReady();
+    const res = await this.sql!.query<{ payload: string }>(
+      `SELECT payload FROM policies ORDER BY id;`
+    );
+    return res.rows.map(row => JSON.parse(row.payload) as Policy);
+  }
+
+  public async getPolicy(id: string): Promise<Policy | undefined> {
+    await this.ensureReady();
+    const res = await this.sql!.query<{ payload: string }>(
+      `SELECT payload FROM policies WHERE id = $1;`, [id]
+    );
+    return res.rows[0] ? JSON.parse(res.rows[0].payload) as Policy : undefined;
+  }
+
+  public async saveCoverageBaseline(baseline: CoverageBaseline): Promise<void> {
+    await this.ensureReady();
+    await this.sql!.query(
+      `INSERT INTO coverage_baselines (id, policy_id, version, jurisdiction, verified_at, payload)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (id) DO UPDATE SET
+         policy_id = EXCLUDED.policy_id,
+         version = EXCLUDED.version,
+         jurisdiction = EXCLUDED.jurisdiction,
+         verified_at = EXCLUDED.verified_at,
+         payload = EXCLUDED.payload;`,
+      [baseline.id, baseline.policyId, baseline.version, baseline.jurisdiction || null,
+       baseline.verifiedAt, JSON.stringify(baseline)]
+    );
+  }
+
+  public async commitCoverageBaselineWithAudit(
+    baseline: CoverageBaseline,
+    audit: Pick<AuditEvent, 'eventType' | 'actorRole' | 'actorId' | 'details'>
+  ): Promise<AuditEvent> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      await client.query(
+        `INSERT INTO coverage_baselines (id, policy_id, version, jurisdiction, verified_at, payload)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (id) DO UPDATE SET
+           policy_id = EXCLUDED.policy_id,
+           version = EXCLUDED.version,
+           jurisdiction = EXCLUDED.jurisdiction,
+           verified_at = EXCLUDED.verified_at,
+           payload = EXCLUDED.payload;`,
+        [baseline.id, baseline.policyId, baseline.version, baseline.jurisdiction || null,
+         baseline.verifiedAt, JSON.stringify(baseline)]
+      );
+      return this.appendAuditInTransaction(client, audit);
+    });
+  }
+
+  public async getCoverageBaselines(policyId?: string): Promise<CoverageBaseline[]> {
+    await this.ensureReady();
+    const res = policyId
+      ? await this.sql!.query<{ payload: string }>(
+          `SELECT payload FROM coverage_baselines WHERE policy_id = $1 ORDER BY version;`, [policyId])
+      : await this.sql!.query<{ payload: string }>(
+          `SELECT payload FROM coverage_baselines ORDER BY policy_id, version;`);
+    return res.rows.map(row => JSON.parse(row.payload) as CoverageBaseline);
+  }
+
+  public async getCoverageBaseline(id: string): Promise<CoverageBaseline | undefined> {
+    await this.ensureReady();
+    const res = await this.sql!.query<{ payload: string }>(
+      `SELECT payload FROM coverage_baselines WHERE id = $1;`, [id]
+    );
+    return res.rows[0] ? JSON.parse(res.rows[0].payload) as CoverageBaseline : undefined;
+  }
+
+  public async saveConsumerRequirements(requirements: ConsumerRequirements): Promise<void> {
+    await this.ensureReady();
+    await this.sql!.query(
+      `INSERT INTO consumer_requirements (id, payload) VALUES ($1, $2)
+       ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload;`,
+      [requirements.id, JSON.stringify(requirements)]
+    );
+  }
+
+  public async getConsumerRequirements(id: string): Promise<ConsumerRequirements | undefined> {
+    await this.ensureReady();
+    const res = await this.sql!.query<{ payload: string }>(
+      `SELECT payload FROM consumer_requirements WHERE id = $1;`, [id]
+    );
+    return res.rows[0] ? JSON.parse(res.rows[0].payload) as ConsumerRequirements : undefined;
+  }
+
+  public async saveCompetitionActivity(event: CompetitionActivityEvent): Promise<boolean> {
+    await this.ensureReady();
+    const result = await this.sql!.query(
+      `INSERT INTO competition_activity_events
+       (id, competition_id, challenge_id, occurred_at, event_type, provider_organization_id, payload)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (id) DO NOTHING;`,
+      [event.id, event.competitionId, event.challengeId, event.timestamp, event.type,
+       event.providerOrganizationId || null, JSON.stringify(event)]
+    );
+    return result.rowCount === 1;
+  }
+
+  public async getCompetitionActivity(challengeId: string): Promise<CompetitionActivityEvent[]> {
+    await this.ensureReady();
+    const res = await this.sql!.query<{ payload: string }>(
+      `SELECT payload FROM competition_activity_events
+       WHERE challenge_id = $1 ORDER BY occurred_at, id;`, [challengeId]
+    );
+    return res.rows.map(row => JSON.parse(row.payload) as CompetitionActivityEvent);
+  }
+
+  public async saveReviewQueueItem(item: ReviewQueueItem): Promise<void> {
+    await this.ensureReady();
+    await this.sql!.query(
+      `INSERT INTO review_queue_items (id, status, severity, created_at, resolved_at, payload)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (id) DO UPDATE SET
+         status = EXCLUDED.status,
+         severity = EXCLUDED.severity,
+         resolved_at = EXCLUDED.resolved_at,
+         version = review_queue_items.version + 1,
+         payload = EXCLUDED.payload;`,
+      [item.id, item.status, item.severity, item.createdAt, item.resolvedAt || null,
+       JSON.stringify(item)]
+    );
+  }
+
+  public async getReviewQueue(status?: ReviewQueueStatus): Promise<ReviewQueueItem[]> {
+    await this.ensureReady();
+    const res = status
+      ? await this.sql!.query<{ payload: string }>(
+          `SELECT payload FROM review_queue_items WHERE status = $1 ORDER BY created_at DESC;`, [status])
+      : await this.sql!.query<{ payload: string }>(
+          `SELECT payload FROM review_queue_items ORDER BY created_at DESC;`);
+    return res.rows.map(row => JSON.parse(row.payload) as ReviewQueueItem);
+  }
+
+  public async resolveReviewQueueItem(
+    expected: ReviewQueueItem,
+    updated: ReviewQueueItem,
+    audit?: Pick<AuditEvent, 'eventType' | 'actorRole' | 'actorId' | 'details'>
+  ): Promise<boolean> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const result = await client.query(
+        `UPDATE review_queue_items
+         SET status = $2, resolved_at = $3, version = version + 1, payload = $4
+         WHERE id = $1 AND status = $5;`,
+        [updated.id, updated.status, updated.resolvedAt || null, JSON.stringify(updated), expected.status]
+      );
+      if (result.rowCount !== 1) return false;
+      if (audit) await this.appendAuditInTransaction(client, audit);
+      return true;
+    });
+  }
+
+  public async enqueueReviewQueueItem(
+    item: ReviewQueueItem,
+    audit: Pick<AuditEvent, 'eventType' | 'actorRole' | 'actorId' | 'details'>
+  ): Promise<void> {
+    await this.ensureReady();
+    await this.sql!.transaction(async client => {
+      await client.query(
+        `INSERT INTO review_queue_items (id, status, severity, created_at, resolved_at, payload)
+         VALUES ($1,$2,$3,$4,$5,$6);`,
+        [item.id, item.status, item.severity, item.createdAt, item.resolvedAt || null, JSON.stringify(item)]
+      );
+      await this.appendAuditInTransaction(client, audit);
+    });
+  }
+
   public async saveOffer(offer: Offer) {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO offers (id, challenge_id, provider_id, provider_name, carrier, annual_premium, monthly_premium, status, round, version, previous_offer_id, is_latest_revision, payload)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
        ON CONFLICT (id) DO UPDATE SET
-         annual_premium = EXCLUDED.annual_premium,
-         status = EXCLUDED.status,
-         is_latest_revision = EXCLUDED.is_latest_revision;`,
+          annual_premium = EXCLUDED.annual_premium,
+          monthly_premium = EXCLUDED.monthly_premium,
+          status = EXCLUDED.status,
+          is_latest_revision = EXCLUDED.is_latest_revision,
+          payload = EXCLUDED.payload;`,
       [
         offer.id,
         offer.challengeId,
@@ -877,9 +2058,99 @@ export class PostgresStore {
     );
   }
 
+  public async commitOfferSubmission(input: {
+    offer: Offer;
+    version: OfferVersion;
+    activity: CompetitionActivityEvent;
+    audits: Array<Pick<AuditEvent, 'eventType' | 'actorRole' | 'actorId' | 'details'>>;
+  }): Promise<void> {
+    await this.ensureReady();
+    const { offer, version, activity, audits } = input;
+    await this.sql!.transaction(async client => {
+      const participation = await client.query<{ id: string }>(
+        `SELECT id FROM challenge_participations
+         WHERE challenge_id = $1 AND provider_organization_id = $2 AND status <> 'WITHDRAWN';`,
+        [offer.challengeId, offer.providerId]
+      );
+      if (!participation.rows[0]) {
+        throw Object.assign(new Error('Provider is not an active participant in this challenge'), { statusCode: 403 });
+      }
+      const challengeResult = await client.query<{ payload: string }>(
+        `SELECT payload FROM challenges WHERE id = $1 FOR UPDATE;`, [offer.challengeId]
+      );
+      if (!challengeResult.rows[0]) {
+        throw Object.assign(new Error('Challenge not found'), { statusCode: 404 });
+      }
+      const challenge = JSON.parse(challengeResult.rows[0].payload) as Challenge;
+      const existingOffer = await client.query<{ provider_id: string; payload: string }>(
+        `SELECT provider_id, payload FROM offers WHERE id = $1;`, [offer.id]
+      );
+      if (existingOffer.rows[0]) {
+        if (existingOffer.rows[0].provider_id !== offer.providerId) {
+          throw Object.assign(new Error('Offer identifier belongs to another provider'), { statusCode: 403 });
+        }
+        return;
+      }
+      await client.query(
+        `INSERT INTO offers (id, challenge_id, provider_id, provider_name, carrier,
+           annual_premium, monthly_premium, status, round, version, previous_offer_id,
+           is_latest_revision, payload)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13);`,
+        [offer.id, offer.challengeId, offer.providerId, offer.providerName, offer.carrier,
+         offer.annualPremium, offer.monthlyPremium, offer.status, offer.round || 'ROUND_1_OPEN',
+         offer.version || 1, offer.previousOfferId || null, offer.isLatestRevision ?? true,
+         JSON.stringify(offer)]
+      );
+      await client.query(
+        `INSERT INTO offer_versions (id, offer_id, version_number, round, carrier,
+           annual_premium, monthly_premium, coverages, supporting_quote_doc_name,
+           revision_reason, submitted_at, superseded_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12);`,
+        [version.id, version.offerId, version.versionNumber, version.round, version.carrier,
+         version.annualPremium, version.monthlyPremium, JSON.stringify(version.coverages || []),
+         version.supportingQuoteDocName || '', version.revisionReason, version.submittedAt,
+         version.supersededAt || null]
+      );
+      challenge.offersCount = Number(challenge.offersCount || 0) + 1;
+      challenge.status = 'OFFERS_RECEIVED';
+      await client.query(
+        `UPDATE challenges SET status = $2, payload = $3, version = version + 1 WHERE id = $1;`,
+        [challenge.id, challenge.status, JSON.stringify(challenge)]
+      );
+      await client.query(
+        `INSERT INTO competition_activity_events
+         (id, competition_id, challenge_id, occurred_at, event_type, provider_organization_id, payload)
+         VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO NOTHING;`,
+        [activity.id, activity.competitionId, activity.challengeId, activity.timestamp,
+         activity.type, activity.providerOrganizationId || null, JSON.stringify(activity)]
+      );
+      for (const audit of audits) await this.appendAuditInTransaction(client, audit);
+    });
+  }
+
+  public async commitOfferRevision(input:{original:Offer;revised:Offer;version:OfferVersion;activity:CompetitionActivityEvent;actorId:string}):Promise<Offer>{
+    await this.ensureReady();
+    return this.sql!.transaction(async client=>{
+      const locked=await client.query<any>(`SELECT * FROM offers WHERE id=$1 FOR UPDATE;`,[input.original.id]);
+      if(!locked.rows[0])throw Object.assign(new Error('Original offer not found'),{statusCode:404});
+      const durable=JSON.parse(locked.rows[0].payload||'{}') as Offer;
+      if(durable.providerId!==input.actorId)throw Object.assign(new Error('Provider cannot revise another organization offer'),{statusCode:403});
+      const existing=await client.query<any>(`SELECT * FROM offer_versions WHERE offer_id=$1 AND version_number=$2;`,[input.original.id,input.version.versionNumber]);
+      if(existing.rows[0]){const offer=await client.query<any>(`SELECT payload FROM offers WHERE previous_offer_id=$1 AND version=$2;`,[input.original.id,input.version.versionNumber]);return offer.rows[0]?JSON.parse(offer.rows[0].payload):input.revised;}
+      await client.query(`UPDATE offers SET is_latest_revision=FALSE,payload=$2 WHERE id=$1;`,[input.original.id,JSON.stringify({...durable,isLatestRevision:false})]);
+      const o=input.revised;
+      await client.query(`INSERT INTO offers (id,challenge_id,provider_id,provider_name,carrier,annual_premium,monthly_premium,status,round,version,previous_offer_id,is_latest_revision,payload) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,TRUE,$12);`,[o.id,o.challengeId,o.providerId,o.providerName,o.carrier,o.annualPremium,o.monthlyPremium,o.status,o.round,o.version,o.previousOfferId,JSON.stringify(o)]);
+      const v=input.version;
+      await client.query(`INSERT INTO offer_versions (id,offer_id,version_number,round,carrier,annual_premium,monthly_premium,coverages,supporting_quote_doc_name,revision_reason,submitted_at,superseded_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12);`,[v.id,v.offerId,v.versionNumber,v.round,v.carrier,v.annualPremium,v.monthlyPremium,JSON.stringify(v.coverages),v.supportingQuoteDocName,v.revisionReason,v.submittedAt,v.supersededAt||null]);
+      const e=input.activity;await client.query(`INSERT INTO competition_activity_events (id,competition_id,challenge_id,occurred_at,event_type,provider_organization_id,payload) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(id) DO NOTHING;`,[e.id,e.competitionId,e.challengeId,e.timestamp,e.type,e.providerOrganizationId||null,JSON.stringify(e)]);
+      await this.appendAuditInTransaction(client,{eventType:'OFFER_SUBMITTED',actorRole:'PROVIDER',actorId:input.actorId,details:`Provider revised offer ${input.original.id} to version ${v.versionNumber}`});
+      return o;
+    });
+  }
+
   public async saveAuditEvent(event: AuditEvent) {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO audit_events (id, timestamp, event_type, actor_role, actor_id, details, hash)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT (id) DO NOTHING;`,
@@ -893,7 +2164,7 @@ export class PostgresStore {
 
   public async saveInformationRequest(req: InformationRequest): Promise<void> {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO information_requests (
         id, challenge_id, competition_id, provider_organization_id, requested_field,
         custom_field_name, purpose, purpose_explanation, status, requested_at,
@@ -924,7 +2195,7 @@ export class PostgresStore {
 
   public async saveVerifiedSupplementalFact(fact: VerifiedSupplementalFact): Promise<void> {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO verified_supplemental_facts (
         id, consumer_id, challenge_id, field_type, field_name, value, formatted_value,
         verification_state, source, created_at, shared_with_organization_ids
@@ -952,7 +2223,7 @@ export class PostgresStore {
 
   public async saveOfferVersion(ver: OfferVersion): Promise<void> {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO offer_versions (
         id, offer_id, version_number, round, carrier, annual_premium, monthly_premium,
         coverages, supporting_quote_doc_name, revision_reason, submitted_at, superseded_at
@@ -978,7 +2249,7 @@ export class PostgresStore {
 
   public async saveOfferVerification(ver: OfferVerification): Promise<void> {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO offer_verifications (
         id, offer_id, document_name, status, verified_at, discrepancy_count,
         discrepancies, extracted_premium, entered_premium
@@ -1004,6 +2275,85 @@ export class PostgresStore {
     );
   }
 
+  public async commitOfferVerification(input: {
+    verification: OfferVerification;
+    offer: Offer;
+    actorId: string;
+  }): Promise<OfferVerification> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const locked = await client.query<{ id: string }>(
+        `SELECT id FROM offers WHERE id = $1 FOR UPDATE;`,
+        [input.offer.id]
+      );
+      if (!locked.rows[0]) {
+        throw Object.assign(new Error(`Offer ${input.offer.id} not found`), { statusCode: 404 });
+      }
+      const existing = await client.query<any>(
+        `SELECT * FROM offer_verifications WHERE offer_id = $1;`,
+        [input.offer.id]
+      );
+      if (existing.rows[0]) {
+        const row = existing.rows[0];
+        return {
+          id: row.id,
+          offerId: row.offer_id,
+          documentName: row.document_name,
+          status: row.status,
+          verifiedAt: row.verified_at,
+          discrepancyCount: row.discrepancy_count,
+          discrepancies: JSON.parse(row.discrepancies || '[]'),
+          extractedPremium: row.extracted_premium ?? undefined,
+          enteredPremium: row.entered_premium ?? undefined
+        } as OfferVerification;
+      }
+      const verification = input.verification;
+      await client.query(
+        `INSERT INTO offer_verifications
+          (id,offer_id,document_name,status,verified_at,discrepancy_count,discrepancies,extracted_premium,entered_premium)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9);`,
+        [verification.id, verification.offerId, verification.documentName, verification.status,
+          verification.verifiedAt, verification.discrepancyCount, JSON.stringify(verification.discrepancies),
+          verification.extractedPremium ?? null, verification.enteredPremium ?? null]
+      );
+      await client.query(
+        `UPDATE offers SET status = $2, payload = $3 WHERE id = $1;`,
+        [input.offer.id, input.offer.status, JSON.stringify(input.offer)]
+      );
+      await this.appendAuditInTransaction(client, {
+        eventType: 'OFFER_SUBMITTED',
+        actorRole: 'PROVIDER',
+        actorId: input.actorId,
+        details: `Offer ${input.offer.id} document verification ${verification.status}`
+      });
+      return verification;
+    });
+  }
+
+  public async commitOfferQualification(offer: Offer, actorId: string): Promise<Offer> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const locked = await client.query<{ id: string }>(
+        `SELECT id FROM offers WHERE id = $1 FOR UPDATE;`,
+        [offer.id]
+      );
+      if (!locked.rows[0]) {
+        throw Object.assign(new Error(`Offer ${offer.id} not found`), { statusCode: 404 });
+      }
+      await client.query(
+        `UPDATE offers SET status = $2, payload = $3 WHERE id = $1;`,
+        [offer.id, offer.status, JSON.stringify(offer)]
+      );
+      await this.appendAuditInTransaction(client, {
+        eventType: 'OFFER_SUBMITTED',
+        actorRole: 'SYSTEM',
+        actorId,
+        details: `Offer ${offer.id} qualification evaluated: ${offer.isQualified ? 'QUALIFIED' : 'NOT_QUALIFIED'}`
+      });
+      return offer;
+    });
+  }
+
   // ===========================================================================
   // DIAGNOSTICS
   // ===========================================================================
@@ -1012,9 +2362,358 @@ export class PostgresStore {
   // PM-4: Selection, Consent, Disclosure & Binding Persistence
   // ===========================================================================
 
+  private mapSelection(row: any): Selection {
+    return {
+      id: row.id, challengeId: row.challenge_id, consumerId: row.consumer_id,
+      offerId: row.offer_id, offerVersionId: row.offer_version_id,
+      versionNumber: row.version_number, providerOrganizationId: row.provider_organization_id,
+      carrier: row.carrier, annualPremium: row.annual_premium,
+      monthlyPremium: row.monthly_premium ?? undefined, selectedAt: row.selected_at,
+      status: row.status
+    } as Selection;
+  }
+
+  private mapBindingHandoff(row: any): BindingHandoff {
+    return {
+      id: row.id, bindingReference: row.binding_reference, challengeId: row.challenge_id,
+      selectionId: row.selection_id || undefined, offerId: row.offer_id || undefined,
+      offerVersionId: row.offer_version_id || undefined, consumerId: row.consumer_id || undefined,
+      providerOrganizationId: row.provider_organization_id || undefined, carrier: row.carrier,
+      status: row.status, createdAt: row.created_at, updatedAt: row.updated_at,
+      consentGrantId: row.consent_grant_id || undefined,
+      disclosureEventId: row.disclosure_event_id || undefined,
+      activeModificationId: row.active_modification_id || undefined,
+      boundAt: row.bound_at || undefined, declinedAt: row.declined_at || undefined,
+      declineReason: row.decline_reason || undefined, consumerName: row.consumer_name || undefined,
+      consumerEmail: row.consumer_email || undefined, consumerPhone: row.consumer_phone || undefined,
+      providerName: row.provider_name || undefined
+      ,policyNumber: row.policy_number || undefined, finalPremium: row.final_premium ?? undefined
+    } as BindingHandoff;
+  }
+
+  private mapConsentGrant(row: any): ConsentGrant {
+    return {
+      id: row.id, challengeId: row.challenge_id, consumerId: row.consumer_id,
+      recipientOrganizationId: row.recipient_organization_id,
+      recipientUserId: row.recipient_user_id || undefined, purpose: row.purpose,
+      purposeExplanation: row.purpose_explanation,
+      authorizedFieldNames: JSON.parse(row.authorized_field_names),
+      acknowledgedVariations: JSON.parse(row.acknowledged_variations),
+      grantedAt: row.granted_at, expiresAt: row.expires_at || undefined,
+      revokedAt: row.revoked_at || undefined, ipAddressHash: row.ip_address_hash,
+      termsVersion: row.terms_version
+    } as ConsentGrant;
+  }
+
+  public async getSelection(id: string): Promise<Selection | undefined> {
+    await this.ensureReady();
+    const result = await this.sql!.query<any>(`SELECT * FROM selections WHERE id = $1;`, [id]);
+    return result.rows[0] ? this.mapSelection(result.rows[0]) : undefined;
+  }
+
+  public async getBindingHandoff(id: string): Promise<BindingHandoff | undefined> {
+    await this.ensureReady();
+    const result = await this.sql!.query<any>(`SELECT * FROM binding_handoffs WHERE id = $1;`, [id]);
+    return result.rows[0] ? this.mapBindingHandoff(result.rows[0]) : undefined;
+  }
+
+  public async getConsentGrant(id: string): Promise<ConsentGrant | undefined> {
+    await this.ensureReady();
+    const result = await this.sql!.query<any>(`SELECT * FROM consent_grants WHERE id = $1;`, [id]);
+    return result.rows[0] ? this.mapConsentGrant(result.rows[0]) : undefined;
+  }
+
+  public async commitSelection(input: {
+    selection: Selection;
+    handoff: BindingHandoff;
+  }): Promise<{ selection: Selection; handoff: BindingHandoff }> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const challengeResult = await client.query<any>(
+        `SELECT * FROM challenges WHERE id = $1 FOR UPDATE;`, [input.selection.challengeId]
+      );
+      if (!challengeResult.rows[0]) {
+        throw Object.assign(new Error(`Challenge not found: ${input.selection.challengeId}`), { statusCode: 404 });
+      }
+      const challenge = this._mapChallenge(challengeResult.rows[0]);
+      if (challenge.consumerId !== input.selection.consumerId) {
+        throw Object.assign(new Error('Unauthorized: Only the challenge owner can select an offer version'), { statusCode: 403 });
+      }
+      const existing = await client.query<any>(
+        `SELECT * FROM selections WHERE challenge_id = $1;`, [input.selection.challengeId]
+      );
+      if (existing.rows[0]) {
+        if (existing.rows[0].offer_version_id !== input.selection.offerVersionId) {
+          throw Object.assign(new Error('Challenge already has a different durable selection'), { statusCode: 409 });
+        }
+        const handoffResult = await client.query<any>(
+          `SELECT * FROM binding_handoffs WHERE selection_id = $1;`, [existing.rows[0].id]
+        );
+        return {
+          selection: this.mapSelection(existing.rows[0]),
+          handoff: this.mapBindingHandoff(handoffResult.rows[0])
+        };
+      }
+      const offer = await client.query<any>(
+        `SELECT * FROM offers WHERE id = $1 AND challenge_id = $2 FOR UPDATE;`,
+        [input.selection.offerId, input.selection.challengeId]
+      );
+      if (!offer.rows[0]) throw Object.assign(new Error('Offer does not belong to the specified challenge'), { statusCode: 400 });
+      const version = await client.query<{ id: string }>(
+        `SELECT id FROM offer_versions WHERE id = $1 AND offer_id = $2 AND version_number = $3;`,
+        [input.selection.offerVersionId, input.selection.offerId, input.selection.versionNumber]
+      );
+      if (!version.rows[0]) throw Object.assign(new Error('Selected offer version is not durably recorded'), { statusCode: 404 });
+      await client.query(
+        `INSERT INTO selections
+          (id,challenge_id,consumer_id,offer_id,offer_version_id,version_number,provider_organization_id,carrier,annual_premium,monthly_premium,selected_at,status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12);`,
+        [input.selection.id,input.selection.challengeId,input.selection.consumerId,input.selection.offerId,
+          input.selection.offerVersionId,input.selection.versionNumber,input.selection.providerOrganizationId,
+          input.selection.carrier,input.selection.annualPremium,input.selection.monthlyPremium ?? null,
+          input.selection.selectedAt,input.selection.status]
+      );
+      const h = input.handoff;
+      await client.query(
+        `INSERT INTO binding_handoffs
+          (id,binding_reference,challenge_id,selection_id,offer_id,offer_version_id,consumer_id,provider_organization_id,carrier,status,created_at,updated_at,consent_grant_id,disclosure_event_id,active_modification_id,bound_at,declined_at,decline_reason,consumer_name,consumer_email,consumer_phone,provider_name)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22);`,
+        [h.id,h.bindingReference,h.challengeId,h.selectionId||null,h.offerId||null,h.offerVersionId||null,
+          h.consumerId||null,h.providerOrganizationId||null,h.carrier,h.status,h.createdAt,h.updatedAt,
+          h.consentGrantId||null,h.disclosureEventId||null,h.activeModificationId||null,h.boundAt||null,
+          h.declinedAt||null,h.declineReason||null,h.consumerName||null,h.consumerEmail||null,
+          h.consumerPhone||null,h.providerName||null]
+      );
+      const selectedOffer = { ...JSON.parse(offer.rows[0].payload || '{}'), status: 'SELECTED' };
+      await client.query(`UPDATE offers SET status='SELECTED', payload=$2 WHERE id=$1;`, [input.selection.offerId, JSON.stringify(selectedOffer)]);
+      challenge.status = 'SELECTED';
+      await client.query(`UPDATE challenges SET status='SELECTED', payload=$2, version=version+1 WHERE id=$1;`, [challenge.id, JSON.stringify(challenge)]);
+      await client.query(
+        `UPDATE competitions SET status='CLOSED', completed_at=$2, version=version+1
+         WHERE challenge_id=$1 AND status<>'CLOSED';`,
+        [challenge.id, input.selection.selectedAt]
+      );
+      await this.appendAuditInTransaction(client, { eventType:'OFFER_VERSION_SELECTED', actorRole:'CONSUMER', actorId:input.selection.consumerId,
+        details:`Consumer selected offer ${input.selection.offerId} v${input.selection.versionNumber}` });
+      await this.appendAuditInTransaction(client, { eventType:'BINDING_STATUS_CHANGED', actorRole:'SYSTEM', actorId:'handoff_service',
+        details:`Binding handoff ${h.id} created in SELECTED status` });
+      return input;
+    });
+  }
+
+  public async commitConsentGrant(input: {
+    grant: ConsentGrant;
+    handoff: BindingHandoff;
+  }): Promise<ConsentGrant> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const handoffResult = await client.query<any>(
+        `SELECT * FROM binding_handoffs WHERE id = $1 FOR UPDATE;`, [input.handoff.id]
+      );
+      if (!handoffResult.rows[0]) throw Object.assign(new Error(`Binding handoff not found: ${input.handoff.id}`), { statusCode: 404 });
+      const durableHandoff = this.mapBindingHandoff(handoffResult.rows[0]);
+      if (durableHandoff.consumerId !== input.grant.consumerId) {
+        throw Object.assign(new Error('Unauthorized: Only the challenge owner can grant consent for this handoff'), { statusCode: 403 });
+      }
+      if (durableHandoff.providerOrganizationId !== input.grant.recipientOrganizationId) {
+        throw Object.assign(new Error('Consent recipient does not match binding provider'), { statusCode: 403 });
+      }
+      if (durableHandoff.consentGrantId) {
+        const existing = await client.query<any>(`SELECT * FROM consent_grants WHERE id = $1;`, [durableHandoff.consentGrantId]);
+        if (existing.rows[0]) return this.mapConsentGrant(existing.rows[0]);
+      }
+      const grant = input.grant;
+      await client.query(
+        `INSERT INTO consent_grants
+          (id,challenge_id,consumer_id,recipient_organization_id,recipient_user_id,purpose,purpose_explanation,authorized_field_names,acknowledged_variations,granted_at,expires_at,revoked_at,ip_address_hash,terms_version)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14);`,
+        [grant.id,grant.challengeId,grant.consumerId,grant.recipientOrganizationId,grant.recipientUserId||null,
+          grant.purpose,grant.purposeExplanation,JSON.stringify(grant.authorizedFieldNames),
+          JSON.stringify(grant.acknowledgedVariations),grant.grantedAt,grant.expiresAt||null,
+          grant.revokedAt||null,grant.ipAddressHash,grant.termsVersion]
+      );
+      await client.query(
+        `UPDATE binding_handoffs SET consent_grant_id=$2, updated_at=$3 WHERE id=$1;`,
+        [durableHandoff.id, grant.id, input.handoff.updatedAt]
+      );
+      await this.appendAuditInTransaction(client, { eventType:'CONSENT_GRANTED', actorRole:'CONSUMER', actorId:grant.consumerId,
+        details:`Consumer granted binding consent ${grant.id} to provider ${grant.recipientOrganizationId}` });
+      return grant;
+    });
+  }
+
+  public async commitConsentRevocation(consent: ConsentGrant, consumerId: string): Promise<ConsentGrant> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const result = await client.query<any>(`SELECT * FROM consent_grants WHERE id=$1 FOR UPDATE;`, [consent.id]);
+      if (!result.rows[0]) throw Object.assign(new Error(`Consent grant not found: ${consent.id}`), { statusCode: 404 });
+      const durable = this.mapConsentGrant(result.rows[0]);
+      if (durable.consumerId !== consumerId) throw Object.assign(new Error('Unauthorized: Only the consumer can revoke this consent'), { statusCode: 403 });
+      if (durable.revokedAt) return durable;
+      await client.query(`UPDATE consent_grants SET revoked_at=$2 WHERE id=$1;`, [consent.id, consent.revokedAt]);
+      await this.appendAuditInTransaction(client, { eventType:'CONSENT_REVOKED', actorRole:'CONSUMER', actorId:consumerId,
+        details:`Consumer revoked consent grant ${consent.id}; historical disclosure evidence remains intact` });
+      return consent;
+    });
+  }
+
+  public async commitControlledDisclosure(input: {
+    event: DisclosureEvent;
+    handoff: BindingHandoff;
+    providerOrganizationId: string;
+  }): Promise<{ event: DisclosureEvent; handoff: BindingHandoff }> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const handoffResult = await client.query<any>(`SELECT * FROM binding_handoffs WHERE id=$1 FOR UPDATE;`, [input.handoff.id]);
+      if (!handoffResult.rows[0]) throw Object.assign(new Error(`Binding handoff not found: ${input.handoff.id}`), { statusCode: 404 });
+      const durableHandoff = this.mapBindingHandoff(handoffResult.rows[0]);
+      if (durableHandoff.providerOrganizationId !== input.providerOrganizationId) {
+        throw Object.assign(new Error('Provider organization is not authorized for this binding handoff'), { statusCode: 403 });
+      }
+      const consentResult = await client.query<any>(`SELECT * FROM consent_grants WHERE id=$1 FOR UPDATE;`, [input.event.consentGrantId]);
+      if (!consentResult.rows[0]) throw Object.assign(new Error('Consent grant not found'), { statusCode: 404 });
+      const consent = this.mapConsentGrant(consentResult.rows[0]);
+      if (consent.recipientOrganizationId !== input.providerOrganizationId || consent.revokedAt || (consent.expiresAt && Date.parse(consent.expiresAt) <= Date.now())) {
+        throw Object.assign(new Error('Consent is not active for this provider organization'), { statusCode: 403 });
+      }
+      const existing = await client.query<any>(
+        `SELECT * FROM disclosure_events WHERE binding_handoff_id=$1 AND consent_grant_id=$2;`,
+        [input.handoff.id, input.event.consentGrantId]
+      );
+      if (existing.rows[0]) return { event: this.mapDisclosureEvent(existing.rows[0]), handoff: durableHandoff };
+      const event = input.event;
+      await client.query(
+        `INSERT INTO disclosure_events
+          (id,challenge_id,binding_handoff_id,consent_grant_id,recipient_provider_organization_id,recipient_provider_user_id,disclosed_at,disclosed_field_names,metadata,event_payload_hash)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10);`,
+        [event.id,event.challengeId,event.bindingHandoffId,event.consentGrantId,event.recipientProviderOrganizationId,
+          event.recipientProviderUserId||null,event.disclosedAt,JSON.stringify(event.disclosedFieldNames),
+          event.metadata?JSON.stringify(event.metadata):null,event.eventPayloadHash]
+      );
+      await client.query(
+        `UPDATE binding_handoffs SET status=$2, disclosure_event_id=$3, updated_at=$4 WHERE id=$1;`,
+        [input.handoff.id,input.handoff.status,event.id,input.handoff.updatedAt]
+      );
+      await this.appendAuditInTransaction(client, { eventType:'PII_DISCLOSED', actorRole:'SYSTEM', actorId:'disclosure_engine',
+        details:`Controlled disclosure ${event.id} executed for provider ${input.providerOrganizationId}; payload hash ${event.eventPayloadHash}` });
+      await this.appendAuditInTransaction(client, { eventType:'BINDING_STATUS_CHANGED', actorRole:'SYSTEM', actorId:'disclosure_engine',
+        details:`Handoff ${input.handoff.id} status updated to ${input.handoff.status}` });
+      return input;
+    });
+  }
+
+  private mapDisclosureEvent(row: any): DisclosureEvent {
+    return {
+      id:row.id, challengeId:row.challenge_id, bindingHandoffId:row.binding_handoff_id,
+      consentGrantId:row.consent_grant_id, recipientProviderOrganizationId:row.recipient_provider_organization_id,
+      recipientProviderUserId:row.recipient_provider_user_id||undefined, disclosedAt:row.disclosed_at,
+      disclosedFieldNames:JSON.parse(row.disclosed_field_names), metadata:row.metadata?JSON.parse(row.metadata):undefined,
+      eventPayloadHash:row.event_payload_hash
+    };
+  }
+
+  private mapBindingModification(row: any): BindingModification {
+    return {
+      id:row.id, bindingHandoffId:row.binding_handoff_id, challengeId:row.challenge_id,
+      providerOrganizationId:row.provider_organization_id, providerUserId:row.provider_user_id,
+      carrier:row.carrier, originalAnnualPremium:row.original_annual_premium,
+      modifiedAnnualPremium:row.modified_annual_premium, coverageChanges:JSON.parse(row.coverage_changes),
+      underwritingReason:row.underwriting_reason, proposedAt:row.proposed_at, status:row.status,
+      decidedAt:row.decided_at||undefined, rejectionReason:row.rejection_reason||undefined
+    } as BindingModification;
+  }
+
+  public async getBindingModification(id: string): Promise<BindingModification | undefined> {
+    await this.ensureReady();
+    const result = await this.sql!.query<any>(`SELECT * FROM binding_modifications WHERE id=$1;`, [id]);
+    return result.rows[0] ? this.mapBindingModification(result.rows[0]) : undefined;
+  }
+
+  public async commitBindingModificationProposal(input: {
+    modification: BindingModification;
+    handoff: BindingHandoff;
+  }): Promise<{ modification: BindingModification; handoff: BindingHandoff }> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const result = await client.query<any>(`SELECT * FROM binding_handoffs WHERE id=$1 FOR UPDATE;`, [input.handoff.id]);
+      if (!result.rows[0]) throw Object.assign(new Error(`Binding handoff not found: ${input.handoff.id}`), { statusCode: 404 });
+      const durable = this.mapBindingHandoff(result.rows[0]);
+      if (durable.providerOrganizationId !== input.modification.providerOrganizationId) {
+        throw Object.assign(new Error('Provider organization is not authorized for this binding handoff'), { statusCode: 403 });
+      }
+      if (durable.activeModificationId) {
+        const existing = await client.query<any>(`SELECT * FROM binding_modifications WHERE id=$1;`, [durable.activeModificationId]);
+        if (existing.rows[0]) {
+          const existingModification = this.mapBindingModification(existing.rows[0]);
+          if (existingModification.status === 'PENDING_CONSUMER_REVIEW') {
+            return { modification: existingModification, handoff: durable };
+          }
+        }
+      }
+      const mod=input.modification;
+      await client.query(
+        `INSERT INTO binding_modifications
+          (id,binding_handoff_id,challenge_id,provider_organization_id,provider_user_id,carrier,original_annual_premium,modified_annual_premium,coverage_changes,underwriting_reason,proposed_at,status,decided_at,rejection_reason)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14);`,
+        [mod.id,mod.bindingHandoffId,mod.challengeId,mod.providerOrganizationId,mod.providerUserId,mod.carrier,
+          mod.originalAnnualPremium,mod.modifiedAnnualPremium,JSON.stringify(mod.coverageChanges),mod.underwritingReason,
+          mod.proposedAt,mod.status,mod.decidedAt||null,mod.rejectionReason||null]
+      );
+      await client.query(`UPDATE binding_handoffs SET status=$2,active_modification_id=$3,updated_at=$4 WHERE id=$1;`,
+        [input.handoff.id,input.handoff.status,mod.id,input.handoff.updatedAt]);
+      await this.appendAuditInTransaction(client,{eventType:'BINDING_MODIFICATION_PROPOSED',actorRole:'PROVIDER',actorId:mod.providerUserId,
+        details:`Provider ${mod.providerOrganizationId} proposed underwriting modification ${mod.id}`});
+      await this.appendAuditInTransaction(client,{eventType:'BINDING_STATUS_CHANGED',actorRole:'PROVIDER',actorId:mod.providerUserId,
+        details:`Handoff ${input.handoff.id} status updated to ${input.handoff.status}`});
+      return input;
+    });
+  }
+
+  public async commitBindingModificationResolution(input: {
+    modification: BindingModification;
+    handoff: BindingHandoff;
+    consumerId: string;
+  }): Promise<{ modification: BindingModification; handoff: BindingHandoff }> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const modResult=await client.query<any>(`SELECT * FROM binding_modifications WHERE id=$1 FOR UPDATE;`,[input.modification.id]);
+      if(!modResult.rows[0])throw Object.assign(new Error(`Binding modification not found: ${input.modification.id}`),{statusCode:404});
+      const durableMod=this.mapBindingModification(modResult.rows[0]);
+      const handoffResult=await client.query<any>(`SELECT * FROM binding_handoffs WHERE id=$1 FOR UPDATE;`,[durableMod.bindingHandoffId]);
+      if(!handoffResult.rows[0])throw Object.assign(new Error('Binding handoff not found'),{statusCode:404});
+      const durableHandoff=this.mapBindingHandoff(handoffResult.rows[0]);
+      if(durableHandoff.consumerId!==input.consumerId)throw Object.assign(new Error('Unauthorized: Only the consumer can resolve this modification'),{statusCode:403});
+      if(durableMod.status!=='PENDING_CONSUMER_REVIEW')return {modification:durableMod,handoff:durableHandoff};
+      const mod=input.modification;
+      await client.query(`UPDATE binding_modifications SET status=$2,decided_at=$3,rejection_reason=$4 WHERE id=$1;`,
+        [mod.id,mod.status,mod.decidedAt||null,mod.rejectionReason||null]);
+      await client.query(`UPDATE binding_handoffs SET status=$2,active_modification_id=$3,updated_at=$4 WHERE id=$1;`,
+        [input.handoff.id,input.handoff.status,input.handoff.activeModificationId||null,input.handoff.updatedAt]);
+      const eventType=mod.status==='ACCEPTED'?'BINDING_MODIFICATION_ACCEPTED':'BINDING_MODIFICATION_REJECTED';
+      await this.appendAuditInTransaction(client,{eventType,actorRole:'CONSUMER',actorId:input.consumerId,details:`Consumer resolved modification ${mod.id}: ${mod.status}`});
+      await this.appendAuditInTransaction(client,{eventType:'BINDING_STATUS_CHANGED',actorRole:'CONSUMER',actorId:input.consumerId,details:`Handoff ${input.handoff.id} status updated to ${input.handoff.status}`});
+      return input;
+    });
+  }
+
+  public async commitBindingStatus(handoff: BindingHandoff, providerOrganizationId: string): Promise<BindingHandoff> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const result=await client.query<any>(`SELECT * FROM binding_handoffs WHERE id=$1 FOR UPDATE;`,[handoff.id]);
+      if(!result.rows[0])throw Object.assign(new Error(`Binding handoff not found: ${handoff.id}`),{statusCode:404});
+      const durable=this.mapBindingHandoff(result.rows[0]);
+      if(durable.providerOrganizationId!==providerOrganizationId)throw Object.assign(new Error('Unauthorized: Only the selected provider organization can update binding status'),{statusCode:403});
+      if(durable.status===handoff.status)return durable;
+      await client.query(`UPDATE binding_handoffs SET status=$2,updated_at=$3,bound_at=$4,declined_at=$5,decline_reason=$6,policy_number=$7,final_premium=$8 WHERE id=$1;`,
+        [handoff.id,handoff.status,handoff.updatedAt,handoff.boundAt||null,handoff.declinedAt||null,handoff.declineReason||null,handoff.policyNumber||null,handoff.finalPremium??null]);
+      await this.appendAuditInTransaction(client,{eventType:'BINDING_STATUS_CHANGED',actorRole:'PROVIDER',actorId:providerOrganizationId,details:`Handoff ${handoff.id} status updated from ${durable.status} to ${handoff.status}`});
+      return handoff;
+    });
+  }
+
   public async saveSelection(sel: Selection): Promise<void> {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO selections (
         id, challenge_id, consumer_id, offer_id, offer_version_id, version_number,
         provider_organization_id, carrier, annual_premium, monthly_premium, selected_at, status
@@ -1034,7 +2733,7 @@ export class PostgresStore {
       ? `SELECT * FROM selections WHERE challenge_id = $1 ORDER BY selected_at DESC;`
       : `SELECT * FROM selections ORDER BY selected_at DESC;`;
     const params = challengeId ? [challengeId] : [];
-    const res = await this.pglite!.query<any>(query, params);
+    const res = await this.sql!.query<any>(query, params);
     return res.rows.map(r => ({
       id: r.id,
       challengeId: r.challenge_id,
@@ -1053,7 +2752,7 @@ export class PostgresStore {
 
   public async saveConsentGrant(grant: ConsentGrant): Promise<void> {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO consent_grants (
         id, challenge_id, consumer_id, recipient_organization_id, recipient_user_id,
         purpose, purpose_explanation, authorized_field_names, acknowledged_variations,
@@ -1076,7 +2775,7 @@ export class PostgresStore {
       ? `SELECT * FROM consent_grants WHERE challenge_id = $1 ORDER BY granted_at DESC;`
       : `SELECT * FROM consent_grants ORDER BY granted_at DESC;`;
     const params = challengeId ? [challengeId] : [];
-    const res = await this.pglite!.query<any>(query, params);
+    const res = await this.sql!.query<any>(query, params);
     return res.rows.map(r => ({
       id: r.id,
       challengeId: r.challenge_id,
@@ -1097,7 +2796,7 @@ export class PostgresStore {
 
   public async saveDisclosureEvent(evt: DisclosureEvent): Promise<void> {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO disclosure_events (
         id, challenge_id, binding_handoff_id, consent_grant_id,
         recipient_provider_organization_id, recipient_provider_user_id,
@@ -1119,7 +2818,7 @@ export class PostgresStore {
       ? `SELECT * FROM disclosure_events WHERE challenge_id = $1 OR binding_handoff_id = $1 ORDER BY disclosed_at DESC;`
       : `SELECT * FROM disclosure_events ORDER BY disclosed_at DESC;`;
     const params = id ? [id] : [];
-    const res = await this.pglite!.query<any>(query, params);
+    const res = await this.sql!.query<any>(query, params);
     return res.rows.map(r => ({
       id: r.id,
       challengeId: r.challenge_id,
@@ -1136,7 +2835,7 @@ export class PostgresStore {
 
   public async saveBindingHandoff(h: BindingHandoff): Promise<void> {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO binding_handoffs (
         id, binding_reference, challenge_id, selection_id, offer_id, offer_version_id,
         consumer_id, provider_organization_id, carrier, status, created_at, updated_at,
@@ -1169,7 +2868,7 @@ export class PostgresStore {
       ? `SELECT * FROM binding_handoffs WHERE challenge_id = $1 ORDER BY created_at DESC;`
       : `SELECT * FROM binding_handoffs ORDER BY created_at DESC;`;
     const params = challengeId ? [challengeId] : [];
-    const res = await this.pglite!.query<any>(query, params);
+    const res = await this.sql!.query<any>(query, params);
     return res.rows.map(r => ({
       id: r.id,
       bindingReference: r.binding_reference,
@@ -1198,7 +2897,7 @@ export class PostgresStore {
 
   public async saveBindingModification(mod: BindingModification): Promise<void> {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO binding_modifications (
         id, binding_handoff_id, challenge_id, provider_organization_id, provider_user_id,
         carrier, original_annual_premium, modified_annual_premium, coverage_changes,
@@ -1223,7 +2922,7 @@ export class PostgresStore {
       ? `SELECT * FROM binding_modifications WHERE binding_handoff_id = $1 ORDER BY proposed_at DESC;`
       : `SELECT * FROM binding_modifications ORDER BY proposed_at DESC;`;
     const params = handoffId ? [handoffId] : [];
-    const res = await this.pglite!.query<any>(query, params);
+    const res = await this.sql!.query<any>(query, params);
     return res.rows.map(r => ({
       id: r.id,
       bindingHandoffId: r.binding_handoff_id,
@@ -1246,9 +2945,144 @@ export class PostgresStore {
   // PM-5: Issued Policy Documents, Snapshots, Reconciliation & Vault
   // ========================================================
 
+  public async commitIssuedPolicyEvidence(input: {
+    document: IssuedPolicyDocument;
+    snapshot: IssuedPolicySnapshot;
+    providerUserId: string;
+  }): Promise<{ document: IssuedPolicyDocument; snapshot: IssuedPolicySnapshot }> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const handoffResult = await client.query<any>(
+        `SELECT * FROM binding_handoffs WHERE id=$1 FOR UPDATE;`, [input.document.bindingHandoffId]
+      );
+      if (!handoffResult.rows[0]) throw Object.assign(new Error(`Binding handoff ${input.document.bindingHandoffId} not found`), { statusCode: 404 });
+      const handoff = this.mapBindingHandoff(handoffResult.rows[0]);
+      if (handoff.status !== 'BOUND') throw Object.assign(new Error(`Issued policy can only be uploaded for a BOUND handoff (current: ${handoff.status})`), { statusCode: 409 });
+      const userResult = await client.query<{ organization_id:string; is_active:boolean }>(
+        `SELECT organization_id,is_active FROM provider_users WHERE id=$1;`, [input.providerUserId]
+      );
+      const user = userResult.rows[0];
+      if (!user || !user.is_active || user.organization_id !== handoff.providerOrganizationId) {
+        throw Object.assign(new Error('Forbidden: Provider is not authorized for this binding handoff'), { statusCode: 403 });
+      }
+      const existing = await client.query<any>(
+        `SELECT * FROM issued_policy_documents WHERE binding_handoff_id=$1 AND document_sha256=$2;`,
+        [handoff.id,input.document.documentSha256]
+      );
+      if (existing.rows[0]) {
+        const row=existing.rows[0];
+        const document:IssuedPolicyDocument={id:row.id,bindingHandoffId:row.binding_handoff_id,challengeId:row.challenge_id,
+          providerOrganizationId:row.provider_organization_id,fileName:row.file_name,fileSizeBytes:row.file_size_bytes,
+          mimeType:row.mime_type,documentSha256:row.document_sha256,storageRef:row.storage_ref,uploadedAt:row.uploaded_at};
+        const snapshotResult=await client.query<any>(`SELECT * FROM issued_policy_snapshots WHERE issued_policy_document_id=$1;`,[document.id]);
+        const s=snapshotResult.rows[0];
+        if (!s) throw new Error('Durable issued-policy document is missing its snapshot');
+        const snapshot:IssuedPolicySnapshot={id:s.id,issuedPolicyDocumentId:s.issued_policy_document_id,bindingHandoffId:s.binding_handoff_id,
+          carrier:s.carrier,policyNumber:s.policy_number,annualPremium:s.annual_premium,monthlyPremium:s.monthly_premium??undefined,
+          effectiveDate:s.effective_date,expirationDate:s.expiration_date,coverages:JSON.parse(s.coverages||'[]'),
+          extractionConfidence:Number(s.extraction_confidence),isAmbiguous:Boolean(s.is_ambiguous),snapshotSha256:s.snapshot_sha256,extractedAt:s.extracted_at};
+        return { document, snapshot };
+      }
+      const doc=input.document;
+      await client.query(
+        `INSERT INTO issued_policy_documents
+          (id,binding_handoff_id,challenge_id,provider_organization_id,file_name,file_size_bytes,mime_type,document_sha256,storage_ref,uploaded_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10);`,
+        [doc.id,doc.bindingHandoffId,doc.challengeId,doc.providerOrganizationId,doc.fileName,doc.fileSizeBytes,
+          doc.mimeType,doc.documentSha256,doc.storageRef,doc.uploadedAt]
+      );
+      const snapshot=input.snapshot;
+      await client.query(
+        `INSERT INTO issued_policy_snapshots
+          (id,issued_policy_document_id,binding_handoff_id,carrier,policy_number,annual_premium,monthly_premium,effective_date,expiration_date,coverages,extraction_confidence,is_ambiguous,snapshot_sha256,extracted_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14);`,
+        [snapshot.id,snapshot.issuedPolicyDocumentId,snapshot.bindingHandoffId,snapshot.carrier,snapshot.policyNumber,
+          snapshot.annualPremium,snapshot.monthlyPremium??null,snapshot.effectiveDate,snapshot.expirationDate,
+          JSON.stringify(snapshot.coverages||[]),snapshot.extractionConfidence,snapshot.isAmbiguous,
+          snapshot.snapshotSha256,snapshot.extractedAt]
+      );
+      await this.appendAuditInTransaction(client,{eventType:'ISSUED_POLICY_UPLOADED',actorRole:'PROVIDER',actorId:input.providerUserId,
+        details:`Issued policy document ${doc.fileName} (${doc.documentSha256}) uploaded for handoff ${handoff.id}`});
+      return input;
+    });
+  }
+
+  public async commitReconciliation(input: {
+    report: ReconciliationReport;
+    vaultItem?: PolicyVaultItem;
+    newBaseline?: CoverageBaseline;
+    actorRole: AuditEvent['actorRole'];
+    actorId: string;
+  }): Promise<{ report: ReconciliationReport; vaultItem?: PolicyVaultItem; newBaseline?: CoverageBaseline }> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const existing=await client.query<any>(`SELECT * FROM reconciliation_reports WHERE issued_policy_snapshot_id=$1;`,[input.report.issuedPolicySnapshotId]);
+      if(existing.rows[0])return {report:this.mapReconciliationReport(existing.rows[0]),vaultItem:input.vaultItem,newBaseline:input.newBaseline};
+      const report=input.report;
+      await client.query(
+        `INSERT INTO reconciliation_reports
+          (id,binding_handoff_id,challenge_id,issued_policy_document_id,issued_policy_snapshot_id,verdict,status,discrepancies,total_annual_premium_variance,expected_terms_summary,issued_terms_summary,reconciled_at,reconciled_by,consumer_reviewed_at,consumer_decision,consumer_dispute_notes)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16);`,
+        [report.id,report.bindingHandoffId,report.challengeId,report.issuedPolicyDocumentId,report.issuedPolicySnapshotId,
+          report.verdict,report.status,JSON.stringify(report.discrepancies||[]),report.totalAnnualPremiumVariance,
+          JSON.stringify(report.expectedTermsSummary),JSON.stringify(report.issuedTermsSummary),report.reconciledAt,
+          report.reconciledBy,report.consumerReviewedAt||null,report.consumerDecision||null,report.consumerDisputeNotes||null]
+      );
+      await this.appendAuditInTransaction(client,{eventType:'ISSUED_POLICY_RECONCILED',actorRole:input.actorRole,actorId:input.actorId,
+        details:`Issued policy reconciliation ${report.id}: ${report.verdict}`});
+      if(input.vaultItem)await this.insertVaultItemInTransaction(client,input.vaultItem);
+      if(input.newBaseline){
+        const b=input.newBaseline;
+        const vault=input.vaultItem!;
+        const policy={id:b.policyId,policyNumber:vault.policyNumber,carrier:vault.carrier,jurisdiction:b.jurisdiction||'',
+          effectiveDate:vault.effectiveDate,expirationDate:vault.expirationDate,termMonths:12,annualPremium:vault.annualPremium,
+          monthlyPremium:Math.round(vault.annualPremium/12),status:'VERIFIED',namedInsured:vault.consumerId,drivers:[],vehicles:[],
+          coverages:vault.coverages,sourceDocumentId:vault.issuedPolicyDocumentId,sourceDocumentName:'issued-policy'};
+        await client.query(`INSERT INTO policies (id,policy_number,carrier,jurisdiction,named_insured,effective_date,expiration_date,annual_premium,status,payload) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT(id) DO NOTHING;`,
+          [policy.id,policy.policyNumber,policy.carrier,policy.jurisdiction,policy.namedInsured,policy.effectiveDate,policy.expirationDate,policy.annualPremium,policy.status,JSON.stringify(policy)]);
+        await client.query(`INSERT INTO coverage_baselines (id,policy_id,version,jurisdiction,verified_at,payload) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT(id) DO NOTHING;`,
+          [b.id,b.policyId,b.version,b.jurisdiction||null,b.verifiedAt,JSON.stringify(b)]);
+      }
+      if(input.vaultItem)await this.appendAuditInTransaction(client,{eventType:'POLICY_VAULT_FILED',actorRole:'SYSTEM',actorId:'system_vault_manager',details:`Policy ${input.vaultItem.policyNumber} filed into Policy Vault`});
+      if(input.newBaseline)await this.appendAuditInTransaction(client,{eventType:'FUTURE_BASELINE_ACTIVATED',actorRole:'SYSTEM',actorId:'system_baseline_manager',details:`Coverage baseline ${input.newBaseline.id} activated for future cycles`});
+      return {report,vaultItem:input.vaultItem,newBaseline:input.newBaseline};
+    });
+  }
+
+  private mapReconciliationReport(r:any):ReconciliationReport{return {id:r.id,bindingHandoffId:r.binding_handoff_id,challengeId:r.challenge_id,issuedPolicyDocumentId:r.issued_policy_document_id,issuedPolicySnapshotId:r.issued_policy_snapshot_id,verdict:r.verdict,status:r.status,discrepancies:JSON.parse(r.discrepancies||'[]'),totalAnnualPremiumVariance:r.total_annual_premium_variance,expectedTermsSummary:JSON.parse(r.expected_terms_summary),issuedTermsSummary:JSON.parse(r.issued_terms_summary),reconciledAt:r.reconciled_at,reconciledBy:r.reconciled_by,consumerReviewedAt:r.consumer_reviewed_at||undefined,consumerDecision:r.consumer_decision||undefined,consumerDisputeNotes:r.consumer_dispute_notes||undefined} as ReconciliationReport;}
+
+  private async insertVaultItemInTransaction(client:SqlClient,item:PolicyVaultItem):Promise<void>{
+    await client.query(`INSERT INTO policy_vault_items (id,consumer_id,challenge_id,selection_id,binding_handoff_id,selected_offer_version_id,accepted_binding_modification_ids,issued_policy_document_id,issued_policy_snapshot_id,reconciliation_report_id,future_coverage_baseline_id,carrier,policy_number,annual_premium,effective_date,expiration_date,coverages,provenance_hash,status,filed_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) ON CONFLICT(reconciliation_report_id) DO NOTHING;`,[item.id,item.consumerId,item.challengeId,item.selectionId,item.bindingHandoffId,item.selectedOfferVersionId,JSON.stringify(item.acceptedBindingModificationIds||[]),item.issuedPolicyDocumentId,item.issuedPolicySnapshotId,item.reconciliationReportId,item.futureCoverageBaselineId||null,item.carrier,item.policyNumber,item.annualPremium,item.effectiveDate,item.expirationDate,JSON.stringify(item.coverages||[]),item.provenanceHash,item.status,item.filedAt]);
+  }
+
+  public async commitReconciliationReview(input:{
+    report:ReconciliationReport; consumerId:string; vaultItem?:PolicyVaultItem; newBaseline?:CoverageBaseline;
+  }):Promise<{report:ReconciliationReport;vaultItem?:PolicyVaultItem;newBaseline?:CoverageBaseline}>{
+    await this.ensureReady();
+    return this.sql!.transaction(async client=>{
+      const currentResult=await client.query<any>(`SELECT * FROM reconciliation_reports WHERE id=$1 FOR UPDATE;`,[input.report.id]);
+      if(!currentResult.rows[0])throw Object.assign(new Error(`Reconciliation report ${input.report.id} not found`),{statusCode:404});
+      const current=this.mapReconciliationReport(currentResult.rows[0]);
+      const challengeResult=await client.query<any>(`SELECT * FROM challenges WHERE id=$1;`,[current.challengeId]);
+      if(!challengeResult.rows[0])throw Object.assign(new Error('Challenge not found'),{statusCode:404});
+      const challenge=this._mapChallenge(challengeResult.rows[0]);
+      if(challenge.consumerId!==input.consumerId)throw Object.assign(new Error('Unauthorized: Only the challenge consumer can review reconciliation'),{statusCode:403});
+      if(current.consumerDecision)return {report:current,vaultItem:input.vaultItem,newBaseline:input.newBaseline};
+      const report=input.report;
+      await client.query(`UPDATE reconciliation_reports SET status=$2,consumer_reviewed_at=$3,consumer_decision=$4,consumer_dispute_notes=$5 WHERE id=$1;`,
+        [report.id,report.status,report.consumerReviewedAt||null,report.consumerDecision||null,report.consumerDisputeNotes||null]);
+      await this.appendAuditInTransaction(client,{eventType:'RECONCILIATION_VARIANCE_RESOLVED',actorRole:'CONSUMER',actorId:input.consumerId,details:`Consumer reconciliation decision ${report.consumerDecision} for ${report.id}`});
+      if(input.vaultItem)await this.insertVaultItemInTransaction(client,input.vaultItem);
+      if(input.newBaseline){const b=input.newBaseline;const vault=input.vaultItem!;const policy={id:b.policyId,policyNumber:vault.policyNumber,carrier:vault.carrier,jurisdiction:b.jurisdiction||'',effectiveDate:vault.effectiveDate,expirationDate:vault.expirationDate,termMonths:12,annualPremium:vault.annualPremium,monthlyPremium:Math.round(vault.annualPremium/12),status:'VERIFIED',namedInsured:vault.consumerId,drivers:[],vehicles:[],coverages:vault.coverages,sourceDocumentId:vault.issuedPolicyDocumentId,sourceDocumentName:'issued-policy'};await client.query(`INSERT INTO policies (id,policy_number,carrier,jurisdiction,named_insured,effective_date,expiration_date,annual_premium,status,payload) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT(id) DO NOTHING;`,[policy.id,policy.policyNumber,policy.carrier,policy.jurisdiction,policy.namedInsured,policy.effectiveDate,policy.expirationDate,policy.annualPremium,policy.status,JSON.stringify(policy)]);await client.query(`INSERT INTO coverage_baselines (id,policy_id,version,jurisdiction,verified_at,payload) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT(id) DO NOTHING;`,[b.id,b.policyId,b.version,b.jurisdiction||null,b.verifiedAt,JSON.stringify(b)]);}
+      if(input.vaultItem)await this.appendAuditInTransaction(client,{eventType:'POLICY_VAULT_FILED',actorRole:'SYSTEM',actorId:'system_vault_manager',details:`Policy ${input.vaultItem.policyNumber} filed after consumer review`});
+      if(input.newBaseline)await this.appendAuditInTransaction(client,{eventType:'FUTURE_BASELINE_ACTIVATED',actorRole:'SYSTEM',actorId:'system_baseline_manager',details:`Coverage baseline ${input.newBaseline.id} activated after consumer review`});
+      return input;
+    });
+  }
+
   public async saveIssuedPolicyDocument(doc: IssuedPolicyDocument): Promise<void> {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO issued_policy_documents (
         id, binding_handoff_id, challenge_id, provider_organization_id,
         file_name, file_size_bytes, mime_type, document_sha256, storage_ref, uploaded_at
@@ -1268,7 +3102,7 @@ export class PostgresStore {
       ? `SELECT * FROM issued_policy_documents WHERE binding_handoff_id = $1 ORDER BY uploaded_at DESC;`
       : `SELECT * FROM issued_policy_documents ORDER BY uploaded_at DESC;`;
     const params = bindingHandoffId ? [bindingHandoffId] : [];
-    const res = await this.pglite!.query<any>(query, params);
+    const res = await this.sql!.query<any>(query, params);
     return res.rows.map(r => ({
       id: r.id,
       bindingHandoffId: r.binding_handoff_id,
@@ -1285,7 +3119,7 @@ export class PostgresStore {
 
   public async getIssuedPolicyDocument(id: string): Promise<IssuedPolicyDocument | undefined> {
     await this.ensureReady();
-    const res = await this.pglite!.query<any>(
+    const res = await this.sql!.query<any>(
       `SELECT * FROM issued_policy_documents WHERE id = $1;`,
       [id]
     );
@@ -1307,7 +3141,7 @@ export class PostgresStore {
 
   public async saveIssuedPolicySnapshot(snapshot: IssuedPolicySnapshot): Promise<void> {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO issued_policy_snapshots (
         id, issued_policy_document_id, binding_handoff_id, carrier, policy_number,
         annual_premium, monthly_premium, effective_date, expiration_date, coverages,
@@ -1330,7 +3164,7 @@ export class PostgresStore {
       ? `SELECT * FROM issued_policy_snapshots WHERE binding_handoff_id = $1 ORDER BY extracted_at DESC;`
       : `SELECT * FROM issued_policy_snapshots ORDER BY extracted_at DESC;`;
     const params = bindingHandoffId ? [bindingHandoffId] : [];
-    const res = await this.pglite!.query<any>(query, params);
+    const res = await this.sql!.query<any>(query, params);
     return res.rows.map(r => ({
       id: r.id,
       issuedPolicyDocumentId: r.issued_policy_document_id,
@@ -1351,7 +3185,7 @@ export class PostgresStore {
 
   public async getIssuedPolicySnapshot(id: string): Promise<IssuedPolicySnapshot | undefined> {
     await this.ensureReady();
-    const res = await this.pglite!.query<any>(
+    const res = await this.sql!.query<any>(
       `SELECT * FROM issued_policy_snapshots WHERE id = $1;`,
       [id]
     );
@@ -1377,7 +3211,7 @@ export class PostgresStore {
 
   public async saveReconciliationReport(report: ReconciliationReport): Promise<void> {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO reconciliation_reports (
         id, binding_handoff_id, challenge_id, issued_policy_document_id,
         issued_policy_snapshot_id, verdict, status, discrepancies,
@@ -1409,7 +3243,7 @@ export class PostgresStore {
       ? `SELECT * FROM reconciliation_reports WHERE challenge_id = $1 OR binding_handoff_id = $1 ORDER BY reconciled_at DESC;`
       : `SELECT * FROM reconciliation_reports ORDER BY reconciled_at DESC;`;
     const params = refId ? [refId] : [];
-    const res = await this.pglite!.query<any>(query, params);
+    const res = await this.sql!.query<any>(query, params);
     return res.rows.map(r => ({
       id: r.id,
       bindingHandoffId: r.binding_handoff_id,
@@ -1432,7 +3266,7 @@ export class PostgresStore {
 
   public async getReconciliationReport(id: string): Promise<ReconciliationReport | undefined> {
     await this.ensureReady();
-    const res = await this.pglite!.query<any>(
+    const res = await this.sql!.query<any>(
       `SELECT * FROM reconciliation_reports WHERE id = $1;`,
       [id]
     );
@@ -1460,7 +3294,7 @@ export class PostgresStore {
 
   public async savePolicyVaultItem(item: PolicyVaultItem): Promise<void> {
     await this.ensureReady();
-    await this.pglite!.query(
+    await this.sql!.query(
       `INSERT INTO policy_vault_items (
         id, consumer_id, challenge_id, selection_id, binding_handoff_id,
         selected_offer_version_id, accepted_binding_modification_ids,
@@ -1480,13 +3314,91 @@ export class PostgresStore {
     );
   }
 
+  public async saveNotification(notification: PlatformNotification): Promise<void> {
+    await this.ensureReady();
+    await this.sql!.query(
+      `INSERT INTO platform_notifications (
+        id, type, title, message, timestamp, is_read, read_at, recipient_type,
+        recipient_consumer_id, recipient_provider_user_id, recipient_provider_organization_id,
+        recipient_operator_id, created_from_event, action_target
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+      ON CONFLICT (id) DO UPDATE SET is_read = EXCLUDED.is_read, read_at = EXCLUDED.read_at;`,
+      [
+        notification.id, notification.type, notification.title, notification.message,
+        notification.timestamp, notification.read, notification.readAt || null,
+        notification.recipientType, notification.recipientConsumerId || null,
+        notification.recipientProviderUserId || null,
+        notification.recipientProviderOrganizationId || null,
+        notification.recipientOperatorId || null, notification.createdFromEvent,
+        notification.actionTarget || null
+      ]
+    );
+  }
+
+  public async markNotificationRead(id: string, readAt: string): Promise<void> {
+    await this.ensureReady();
+    await this.sql!.query(
+      `UPDATE platform_notifications SET is_read = TRUE, read_at = $2 WHERE id = $1;`,
+      [id, readAt]
+    );
+  }
+
+  public async getNotificationsForRecipient(selector: {
+    recipientType: PlatformNotification['recipientType'];
+    recipientId: string;
+  }): Promise<PlatformNotification[]> {
+    await this.ensureReady();
+    const column = {
+      CONSUMER: 'recipient_consumer_id',
+      PROVIDER_USER: 'recipient_provider_user_id',
+      PROVIDER_ORGANIZATION: 'recipient_provider_organization_id',
+      PLATFORM_OPERATOR: 'recipient_operator_id'
+    }[selector.recipientType];
+    const res = await this.sql!.query<any>(
+      `SELECT * FROM platform_notifications
+       WHERE recipient_type = $1 AND ${column} = $2
+       ORDER BY timestamp DESC, id;`,
+      [selector.recipientType, selector.recipientId]
+    );
+    return res.rows.map(r => ({
+      id: r.id, type: r.type, title: r.title, message: r.message,
+      timestamp: r.timestamp, read: r.is_read, readAt: r.read_at || undefined,
+      recipientType: r.recipient_type,
+      recipientConsumerId: r.recipient_consumer_id || undefined,
+      recipientProviderUserId: r.recipient_provider_user_id || undefined,
+      recipientProviderOrganizationId: r.recipient_provider_organization_id || undefined,
+      recipientOperatorId: r.recipient_operator_id || undefined,
+      createdFromEvent: r.created_from_event, actionTarget: r.action_target || undefined
+    })) as PlatformNotification[];
+  }
+
+  public async markNotificationReadForRecipient(
+    id: string,
+    selector: { recipientType: PlatformNotification['recipientType']; recipientId: string },
+    readAt: string
+  ): Promise<boolean> {
+    await this.ensureReady();
+    const column = {
+      CONSUMER: 'recipient_consumer_id',
+      PROVIDER_USER: 'recipient_provider_user_id',
+      PROVIDER_ORGANIZATION: 'recipient_provider_organization_id',
+      PLATFORM_OPERATOR: 'recipient_operator_id'
+    }[selector.recipientType];
+    const result = await this.sql!.query(
+      `UPDATE platform_notifications SET is_read = TRUE, read_at = $3
+       WHERE id = $1 AND recipient_type = $2 AND ${column} = $4;`,
+      [id, selector.recipientType, readAt, selector.recipientId]
+    );
+    return result.rowCount === 1;
+  }
+
   public async getPolicyVaultItems(consumerId?: string): Promise<PolicyVaultItem[]> {
     await this.ensureReady();
     const query = consumerId
       ? `SELECT * FROM policy_vault_items WHERE consumer_id = $1 ORDER BY filed_at DESC;`
       : `SELECT * FROM policy_vault_items ORDER BY filed_at DESC;`;
     const params = consumerId ? [consumerId] : [];
-    const res = await this.pglite!.query<any>(query, params);
+    const res = await this.sql!.query<any>(query, params);
     return res.rows.map(r => ({
       id: r.id,
       consumerId: r.consumer_id,
@@ -1513,7 +3425,7 @@ export class PostgresStore {
 
   public async getPolicyVaultItem(id: string): Promise<PolicyVaultItem | undefined> {
     await this.ensureReady();
-    const res = await this.pglite!.query<any>(
+    const res = await this.sql!.query<any>(
       `SELECT * FROM policy_vault_items WHERE id = $1;`,
       [id]
     );
@@ -1542,6 +3454,10 @@ export class PostgresStore {
       filedAt: r.filed_at
     };
   }
+
+  public async getConsumerVaultDocuments(ownerId:string):Promise<VaultDocument[]>{await this.ensureReady();const result=await this.sql!.query<{payload:string}>(`SELECT payload FROM consumer_vault_documents WHERE owner_id=$1 ORDER BY uploaded_at DESC;`,[ownerId]);return result.rows.map(row=>JSON.parse(row.payload) as VaultDocument);}
+
+  public async commitConsumerVaultDocument(document:VaultDocument):Promise<VaultDocument>{await this.ensureReady();return this.sql!.transaction(async client=>{const existing=await client.query<{payload:string}>(`SELECT payload FROM consumer_vault_documents WHERE owner_id=$1 AND document_hash=$2;`,[document.ownerId,document.documentHash]);if(existing.rows[0])return JSON.parse(existing.rows[0].payload) as VaultDocument;await client.query(`INSERT INTO consumer_vault_documents (document_id,owner_id,document_hash,uploaded_at,payload) VALUES ($1,$2,$3,$4,$5);`,[document.documentId,document.ownerId,document.documentHash,document.uploadTimestamp,JSON.stringify(document)]);await this.appendAuditInTransaction(client,{eventType:'VAULT_DOCUMENT_ADDED',actorRole:'CONSUMER',actorId:document.ownerId,details:`Added document ${document.fileName} (${document.documentType}) to Policy Vault`});return document;});}
 
   public async getTableCounts(): Promise<Record<string, number>> {
     await this.ensureReady();
@@ -1575,7 +3491,7 @@ export class PostgresStore {
     const counts: Record<string, number> = {};
     for (const tbl of tables) {
       try {
-        const res = await this.pglite!.query<{ cnt: string }>(`SELECT COUNT(*) as cnt FROM ${tbl};`);
+        const res = await this.sql!.query<{ cnt: string }>(`SELECT COUNT(*) as cnt FROM ${tbl};`);
         counts[tbl] = parseInt(res.rows[0]?.cnt || '0', 10);
       } catch {
         counts[tbl] = 0;

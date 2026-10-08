@@ -915,6 +915,218 @@ CREATE TRIGGER trg_guard_rule_insert BEFORE INSERT ON jurisdiction_rules
   FOR EACH ROW EXECUTE FUNCTION op_guard_rule_insert();
 `;
 
+export const SQL_MIGRATION_V9 = `
+-- Open Policy notification recipient ownership Migration 0009
+CREATE TABLE IF NOT EXISTS platform_notifications (
+  id TEXT PRIMARY KEY,
+  type TEXT NOT NULL,
+  title TEXT NOT NULL,
+  message TEXT NOT NULL,
+  timestamp TEXT NOT NULL,
+  is_read BOOLEAN NOT NULL DEFAULT FALSE,
+  read_at TEXT,
+  recipient_type TEXT NOT NULL CHECK (recipient_type IN ('CONSUMER', 'PROVIDER_USER', 'PROVIDER_ORGANIZATION', 'PLATFORM_OPERATOR')),
+  recipient_consumer_id TEXT,
+  recipient_provider_user_id TEXT,
+  recipient_provider_organization_id TEXT,
+  recipient_operator_id TEXT,
+  created_from_event TEXT NOT NULL,
+  action_target TEXT,
+  CONSTRAINT platform_notifications_exactly_one_recipient CHECK (
+    ((recipient_consumer_id IS NOT NULL)::int +
+     (recipient_provider_user_id IS NOT NULL)::int +
+     (recipient_provider_organization_id IS NOT NULL)::int +
+     (recipient_operator_id IS NOT NULL)::int) = 1
+  ),
+  CONSTRAINT platform_notifications_recipient_type_matches CHECK (
+    (recipient_type = 'CONSUMER' AND recipient_consumer_id IS NOT NULL) OR
+    (recipient_type = 'PROVIDER_USER' AND recipient_provider_user_id IS NOT NULL) OR
+    (recipient_type = 'PROVIDER_ORGANIZATION' AND recipient_provider_organization_id IS NOT NULL) OR
+    (recipient_type = 'PLATFORM_OPERATOR' AND recipient_operator_id IS NOT NULL)
+  )
+);
+`;
+
+export const SQL_MIGRATION_V10 = `
+-- Open Policy persistence authority foundation Migration 0010
+-- These tables represent business objects that previously existed only in the
+-- process-local PolicyChallengeDatabase. Existing challenge snapshot columns remain
+-- immutable historical evidence; they are not replaced by mutable joins.
+ALTER TABLE challenges ADD COLUMN IF NOT EXISTS payload TEXT;
+ALTER TABLE challenges ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 1;
+ALTER TABLE competitions ADD COLUMN IF NOT EXISTS payload TEXT;
+ALTER TABLE competitions ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 1;
+ALTER TABLE competitions ADD COLUMN IF NOT EXISTS completed_at TEXT;
+ALTER TABLE challenge_invitations ADD COLUMN IF NOT EXISTS payload TEXT;
+ALTER TABLE challenge_invitations ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 1;
+ALTER TABLE challenge_participations ADD COLUMN IF NOT EXISTS payload TEXT;
+ALTER TABLE challenge_participations ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 1;
+ALTER TABLE information_requests ADD COLUMN IF NOT EXISTS idempotency_key TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_information_request_idempotency
+  ON information_requests (idempotency_key) WHERE idempotency_key IS NOT NULL;
+ALTER TABLE verified_supplemental_facts ADD COLUMN IF NOT EXISTS consent_scope TEXT NOT NULL DEFAULT 'REQUESTING_PROVIDER_ONLY';
+ALTER TABLE verified_supplemental_facts ADD COLUMN IF NOT EXISTS consent_history TEXT NOT NULL DEFAULT '[]';
+CREATE UNIQUE INDEX IF NOT EXISTS uq_offer_verification_offer
+  ON offer_verifications (offer_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_selection_challenge
+  ON selections (challenge_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_handoff_selection
+  ON binding_handoffs (selection_id) WHERE selection_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_disclosure_handoff_consent
+  ON disclosure_events (binding_handoff_id, consent_grant_id);
+ALTER TABLE binding_handoffs ADD COLUMN IF NOT EXISTS policy_number TEXT;
+ALTER TABLE binding_handoffs ADD COLUMN IF NOT EXISTS final_premium INTEGER;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_issued_document_handoff_hash
+  ON issued_policy_documents (binding_handoff_id, document_sha256);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_issued_snapshot_document
+  ON issued_policy_snapshots (issued_policy_document_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_reconciliation_snapshot
+  ON reconciliation_reports (issued_policy_snapshot_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_vault_reconciliation
+  ON policy_vault_items (reconciliation_report_id);
+CREATE TABLE IF NOT EXISTS consumer_vault_documents (
+  document_id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL,
+  document_hash TEXT NOT NULL,
+  uploaded_at TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  UNIQUE(owner_id, document_hash)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_invitation_challenge_org
+  ON challenge_invitations (challenge_id, provider_organization_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_participation_challenge_org
+  ON challenge_participations (challenge_id, provider_organization_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_offer_version_number
+  ON offer_versions (offer_id, version_number);
+
+CREATE TABLE IF NOT EXISTS coverage_baselines (
+  id TEXT PRIMARY KEY,
+  policy_id TEXT NOT NULL REFERENCES policies(id),
+  version INTEGER NOT NULL CHECK (version > 0),
+  jurisdiction TEXT,
+  verified_at TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  UNIQUE (policy_id, version)
+);
+
+CREATE TABLE IF NOT EXISTS consumer_requirements (
+  id TEXT PRIMARY KEY,
+  payload TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS competition_activity_events (
+  id TEXT PRIMARY KEY,
+  competition_id TEXT NOT NULL REFERENCES competitions(id) ON DELETE CASCADE,
+  challenge_id TEXT NOT NULL,
+  occurred_at TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  provider_organization_id TEXT,
+  payload TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_competition_activity_order
+  ON competition_activity_events (challenge_id, occurred_at, id);
+
+CREATE TABLE IF NOT EXISTS review_queue_items (
+  id TEXT PRIMARY KEY,
+  status TEXT NOT NULL,
+  severity TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  resolved_at TEXT,
+  version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
+  payload TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_review_queue_status_created
+  ON review_queue_items (status, created_at);
+
+CREATE TABLE IF NOT EXISTS audit_chain_head (
+  singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton),
+  latest_hash TEXT NOT NULL,
+  latest_event_id TEXT,
+  version BIGINT NOT NULL DEFAULT 0
+);
+INSERT INTO audit_chain_head (singleton, latest_hash, latest_event_id, version)
+VALUES (TRUE, 'GENESIS_BLOCK_000000', NULL, 0)
+ON CONFLICT (singleton) DO NOTHING;
+
+CREATE INDEX IF NOT EXISTS idx_notifications_recipient_consumer
+  ON platform_notifications (recipient_consumer_id, timestamp);
+CREATE INDEX IF NOT EXISTS idx_notifications_recipient_provider_user
+  ON platform_notifications (recipient_provider_user_id, timestamp);
+CREATE INDEX IF NOT EXISTS idx_notifications_recipient_provider_org
+  ON platform_notifications (recipient_provider_organization_id, timestamp);
+CREATE INDEX IF NOT EXISTS idx_notifications_recipient_operator
+  ON platform_notifications (recipient_operator_id, timestamp);
+`;
+
+export const SQL_MIGRATION_V11 = `
+-- Production document intelligence foundation Migration 0011
+CREATE TABLE IF NOT EXISTS policy_documents (
+  id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  original_file_name TEXT NOT NULL,
+  mime_type TEXT NOT NULL CHECK (mime_type = 'application/pdf'),
+  byte_length BIGINT NOT NULL CHECK (byte_length > 0),
+  sha256 TEXT NOT NULL CHECK (length(sha256) = 64),
+  storage_bucket TEXT NOT NULL,
+  object_name TEXT NOT NULL,
+  object_generation TEXT NOT NULL,
+  status TEXT NOT NULL,
+  malware_status TEXT NOT NULL,
+  rejection_code TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  UNIQUE (owner_id, idempotency_key),
+  UNIQUE (storage_bucket, object_name, object_generation)
+);
+CREATE INDEX IF NOT EXISTS idx_policy_documents_owner_created
+  ON policy_documents (owner_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS policy_extraction_runs (
+  id TEXT PRIMARY KEY,
+  document_id TEXT NOT NULL REFERENCES policy_documents(id) ON DELETE RESTRICT,
+  document_generation TEXT NOT NULL,
+  extractor TEXT NOT NULL,
+  extractor_version TEXT NOT NULL,
+  status TEXT NOT NULL,
+  critical_issues TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL,
+  completed_at TEXT,
+  payload TEXT NOT NULL,
+  UNIQUE (document_id, document_generation, extractor, extractor_version)
+);
+
+CREATE TABLE IF NOT EXISTS policy_field_corrections (
+  id TEXT PRIMARY KEY,
+  document_id TEXT NOT NULL REFERENCES policy_documents(id) ON DELETE RESTRICT,
+  extraction_run_id TEXT NOT NULL REFERENCES policy_extraction_runs(id) ON DELETE RESTRICT,
+  owner_id TEXT NOT NULL,
+  field_path TEXT NOT NULL,
+  before_value TEXT NOT NULL,
+  after_value TEXT NOT NULL,
+  source TEXT NOT NULL CHECK (source = 'CONSUMER'),
+  corrected_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_policy_corrections_document
+  ON policy_field_corrections (document_id, corrected_at, id);
+
+CREATE TABLE IF NOT EXISTS policy_document_classifications (
+  id TEXT PRIMARY KEY,
+  document_id TEXT NOT NULL REFERENCES policy_documents(id) ON DELETE RESTRICT,
+  document_generation TEXT NOT NULL,
+  source_sha256 TEXT NOT NULL,
+  classification TEXT NOT NULL,
+  confidence DOUBLE PRECISION NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
+  classifier TEXT NOT NULL,
+  classifier_version TEXT NOT NULL,
+  requires_review BOOLEAN NOT NULL,
+  classified_at TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  UNIQUE (document_id, document_generation, classifier, classifier_version)
+);
+`;
+
 export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR || './data/openpolicy_pg') {
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
@@ -955,7 +1167,19 @@ export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR ||
     await pglite.query(
       `INSERT INTO _migrations (name) VALUES ('0008_jurisdiction_framework') ON CONFLICT (name) DO NOTHING;`
     );
-    console.log(`[Open Policy DB] Migrations 0001 through 0008 applied successfully.`);
+    await pglite.exec(SQL_MIGRATION_V9);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0009_notification_recipient_ownership') ON CONFLICT (name) DO NOTHING;`
+    );
+    await pglite.exec(SQL_MIGRATION_V10);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0010_persistence_authority_foundation') ON CONFLICT (name) DO NOTHING;`
+    );
+    await pglite.exec(SQL_MIGRATION_V11);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0011_production_document_intelligence') ON CONFLICT (name) DO NOTHING;`
+    );
+    console.log(`[Open Policy DB] Migrations 0001 through 0011 applied successfully.`);
     return pglite;
   } catch (error) {
     console.error(`[Open Policy DB] Migration error:`, error);

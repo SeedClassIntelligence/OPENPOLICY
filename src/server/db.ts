@@ -59,6 +59,12 @@ import {
   ReconciliationVerdict,
   ReconciliationStatus
 } from '../types/insurance';
+import {
+  assertNotificationRecipient,
+  notificationMatchesRecipient,
+  validateNotificationRecipient,
+  type NotificationRecipientSelector
+} from './auth/notificationAuthorization';
 import { SAMPLE_DECLARATIONS_PAGES, detectQuoteDiscrepancies } from '../domain/policyIntelligence';
 import { compareOfferAgainstBaseline } from '../domain/comparisonEngine';
 import { evaluateProviderEligibility, EligibilityEvaluation } from '../domain/eligibilityEngine';
@@ -943,6 +949,10 @@ export class PolicyChallengeDatabase {
         message: 'Extracted 7 coverage items from GEICO Dec Page with 97.4% verification confidence.',
         timestamp: '2026-09-18T14:23:00Z',
         read: true,
+        readAt: '2026-09-18T15:00:00Z',
+        recipientType: 'CONSUMER',
+        recipientConsumerId: 'user_consumer_1',
+        createdFromEvent: 'SEED_POLICY_PROCESSED',
         actionTarget: 'VERIFY_POLICY'
       },
       {
@@ -952,6 +962,10 @@ export class PolicyChallengeDatabase {
         message: 'Challenge #NV-49281 opened. Verified baseline ($2,964/yr) distributed to licensed providers.',
         timestamp: '2026-09-19T08:30:00Z',
         read: true,
+        readAt: '2026-09-19T09:00:00Z',
+        recipientType: 'CONSUMER',
+        recipientConsumerId: 'user_consumer_1',
+        createdFromEvent: 'SEED_CHALLENGE_OPENED',
         actionTarget: 'COMPETITION_ROOM'
       },
       {
@@ -961,6 +975,9 @@ export class PolicyChallengeDatabase {
         message: 'Travelers submitted an offer saving $516/yr ($204/mo) with upgraded $250k property limit.',
         timestamp: '2026-09-19T11:42:00Z',
         read: false,
+        recipientType: 'CONSUMER',
+        recipientConsumerId: 'user_consumer_1',
+        createdFromEvent: 'SEED_OFFER_RECEIVED_TRAVELERS',
         actionTarget: 'COMPETITION_ROOM'
       },
       {
@@ -970,6 +987,9 @@ export class PolicyChallengeDatabase {
         message: 'National General submitted Offer C ($181/mo) but stripped rental and tripled your collision deductible.',
         timestamp: '2026-09-19T16:06:00Z',
         read: false,
+        recipientType: 'CONSUMER',
+        recipientConsumerId: 'user_consumer_1',
+        createdFromEvent: 'SEED_OFFER_RECEIVED_COVERAGE_WARNING',
         actionTarget: 'COMPARISON_DEEP_DIVE'
       },
       {
@@ -979,9 +999,13 @@ export class PolicyChallengeDatabase {
         message: 'Policy expires in 58 days. Your current carrier proposed an annual rate revision.',
         timestamp: '2026-09-20T09:00:00Z',
         read: false,
+        recipientType: 'CONSUMER',
+        recipientConsumerId: 'user_consumer_1',
+        createdFromEvent: 'SEED_RENEWAL_APPROACHING',
         actionTarget: 'RECONCILIATION_VAULT'
       }
     ];
+    this.notifications.forEach(notification => this.validateNotificationRecipient(notification));
 
     // PM-4: Seed Human Review Queue (Section 32)
     this.reviewQueue.clear();
@@ -1038,13 +1062,36 @@ export class PolicyChallengeDatabase {
     return Array.from(this.vaultDocuments.values());
   }
 
-  public getNotifications(): PlatformNotification[] {
-    return [...this.notifications];
+  private validateNotificationRecipient(notification: PlatformNotification): void {
+    validateNotificationRecipient(notification);
   }
 
-  public markNotificationRead(id: string): void {
+  private addNotification(notification: PlatformNotification): void {
+    this.validateNotificationRecipient(notification);
+    this.notifications.unshift(notification);
+    postgresStore.saveNotification(notification).catch(err => {
+      console.warn('[PostgresStore Notification Sync Error]', err?.message || err);
+    });
+  }
+
+  public createNotification(notification: PlatformNotification): PlatformNotification {
+    this.addNotification(notification);
+    return notification;
+  }
+
+  public getNotificationsForRecipient(recipient: NotificationRecipientSelector): PlatformNotification[] {
+    return this.notifications.filter(notification => notificationMatchesRecipient(notification, recipient));
+  }
+
+  public markNotificationRead(id: string, recipient: NotificationRecipientSelector): void {
     const notif = this.notifications.find(n => n.id === id);
-    if (notif) notif.read = true;
+    if (!notif) throw Object.assign(new Error('Notification not found'), { statusCode: 404 });
+    assertNotificationRecipient(notif, recipient);
+    notif.read = true;
+    notif.readAt = new Date().toISOString();
+    postgresStore.markNotificationRead(notif.id, notif.readAt).catch(err => {
+      console.warn('[PostgresStore Notification Read Sync Error]', err?.message || err);
+    });
   }
 
   public getPolicy(id: string): Policy | undefined {
@@ -1128,13 +1175,18 @@ export class PolicyChallengeDatabase {
     );
 
     // Notify consumer of rating request
-    this.notifications.unshift({
+    const challenge = this.getChallenge(params.challengeId);
+    if (!challenge?.consumerId) throw new Error('Information request has no authoritative consumer recipient');
+    this.addNotification({
       id: `NOTIF-${Date.now()}`,
       type: 'COMPETITION_UPDATE',
       title: 'Underwriting Information Requested',
       message: `A participating provider requested: ${req.customFieldName || req.requestedField} for rating discounts.`,
       timestamp: new Date().toISOString(),
-      read: false
+      read: false,
+      recipientType: 'CONSUMER',
+      recipientConsumerId: challenge.consumerId,
+      createdFromEvent: `INFORMATION_REQUEST:${req.id}`
     });
 
     postgresStore.saveInformationRequest(req).catch(err => {
@@ -1949,11 +2001,12 @@ export class PolicyChallengeDatabase {
   }
 
   public uploadVaultDocument(doc: Partial<VaultDocument>): VaultDocument {
+    if (!doc.ownerId) throw new Error('Forbidden: Vault document requires an authoritative consumer owner');
     const documentId = doc.documentId || `DOC-USER-${Date.now()}`;
     const hash = this.generateHash(`${documentId}|${doc.fileName}|${Date.now()}`);
     const fullDoc: VaultDocument = {
       documentId,
-      ownerId: doc.ownerId || 'user_consumer_1',
+      ownerId: doc.ownerId,
       documentType: doc.documentType || 'ENDORSEMENT',
       source: doc.source || 'UPLOAD',
       uploadTimestamp: new Date().toISOString(),
@@ -1970,7 +2023,7 @@ export class PolicyChallengeDatabase {
       isImmutable: true
     };
     this.vaultDocuments.set(fullDoc.documentId, fullDoc);
-    this.recordAudit('VAULT_DOCUMENT_ADDED', 'CONSUMER', 'user_consumer_1', `Added document ${fullDoc.fileName} (${fullDoc.documentType}) to Policy Vault`);
+    this.recordAudit('VAULT_DOCUMENT_ADDED', 'CONSUMER', fullDoc.ownerId, `Added document ${fullDoc.fileName} (${fullDoc.documentType}) to Policy Vault`);
     return fullDoc;
   }
 
@@ -2001,13 +2054,16 @@ export class PolicyChallengeDatabase {
       `Consumer initiated Best & Final round. Providers notified to submit their sharpened rates.`
     );
 
-    this.notifications.unshift({
+    this.addNotification({
       id: `NOTIF-${Date.now()}`,
       type: 'FINAL_ROUND_OPENED',
       title: 'Best & Final Improvement Round Active',
       message: 'Providers have submitted sharpened final rates. Travelers reduced to $199/mo ($2,388/yr) while maintaining upgraded limits.',
       timestamp: new Date().toISOString(),
       read: false,
+      recipientType: 'CONSUMER',
+      recipientConsumerId: challenge.consumerId,
+      createdFromEvent: `FINAL_ROUND:${challenge.id}`,
       actionTarget: 'COMPETITION_ROOM'
     });
 
@@ -2061,13 +2117,16 @@ export class PolicyChallengeDatabase {
       `GEICO Retention Desk submitted competitive defense offer ($2,664/yr, -$300 savings) with 100% baseline match`
     );
 
-    this.notifications.unshift({
+    this.addNotification({
       id: `NOTIF-${Date.now()}`,
       type: 'INCUMBENT_DEFENSE',
       title: 'Current Carrier Defended Policy',
       message: 'GEICO submitted a retention counter-offer saving $300/year ($222/mo) with identical protection to defend your business.',
       timestamp: new Date().toISOString(),
       read: false,
+      recipientType: 'CONSUMER',
+      recipientConsumerId: challenge.consumerId,
+      createdFromEvent: `INCUMBENT_DEFENSE:${challenge.id}`,
       actionTarget: 'COMPETITION_ROOM'
     });
 
@@ -2236,13 +2295,16 @@ export class PolicyChallengeDatabase {
             `Created challenge invitation ${invitation.id} for ${org.displayName}`
           );
 
-          this.notifications.unshift({
+          this.addNotification({
             id: `NOTIF-${Date.now()}-${org.id}`,
             type: 'OPPORTUNITY_RECEIVED',
             title: 'New Policy Challenge Opportunity',
             message: `New verified ${challenge.jurisdiction} Personal Auto opportunity: ${challenge.referenceNumber}. Current premium: $${challenge.baseline?.baselineAnnualPremium}/yr.`,
             timestamp: new Date().toISOString(),
             read: false,
+            recipientType: 'PROVIDER_ORGANIZATION',
+            recipientProviderOrganizationId: org.id,
+            createdFromEvent: `INVITATION:${invitation.id}`,
             actionTarget: 'OPPORTUNITIES'
           });
         } else {
@@ -2812,14 +2874,22 @@ export class PolicyChallengeDatabase {
       metadata: { targetRound, reason, customDurationHours, closesAt: updatedComp.closesAt }
     });
 
-    this.notifications.unshift({
-      id: `NOTIF-${Date.now()}`,
-      type: (targetRound === 'ROUND_3_BAFO' || targetRound === 'BEST_AND_FINAL') ? 'FINAL_ROUND_OPENED' : 'COMPETITION_UPDATE',
-      title: (targetRound === 'ROUND_3_BAFO' || targetRound === 'BEST_AND_FINAL') ? 'BAFO Final Round Initiated' : `Competition Advanced: ${targetRound}`,
-      message: `Challenge #${challenge.referenceNumber} entered ${targetRound}. Participating providers notified.`,
-      timestamp: new Date().toISOString(),
-      read: false
-    });
+    const participantOrgIds = Array.from(new Set(Array.from(this.challengeParticipations.values())
+      .filter(p => p.challengeId === challengeId && p.status !== 'WITHDRAWN')
+      .map(p => p.providerOrganizationId)));
+    for (const providerOrganizationId of participantOrgIds) {
+      this.addNotification({
+        id: `NOTIF-${Date.now()}-${providerOrganizationId}`,
+        type: (targetRound === 'ROUND_3_BAFO' || targetRound === 'BEST_AND_FINAL') ? 'FINAL_ROUND_OPENED' : 'COMPETITION_UPDATE',
+        title: (targetRound === 'ROUND_3_BAFO' || targetRound === 'BEST_AND_FINAL') ? 'BAFO Final Round Initiated' : `Competition Advanced: ${targetRound}`,
+        message: `Challenge #${challenge.referenceNumber} entered ${targetRound}. Participating providers notified.`,
+        timestamp: new Date().toISOString(),
+        read: false,
+        recipientType: 'PROVIDER_ORGANIZATION',
+        recipientProviderOrganizationId: providerOrganizationId,
+        createdFromEvent: `COMPETITION_ROUND:${updatedComp.id}:${targetRound}`
+      });
+    }
 
     return updatedComp;
   }
@@ -3338,7 +3408,10 @@ export class PolicyChallengeDatabase {
       throw new Error('Unauthorized: Only the challenge owner can grant consent for this handoff');
     }
 
-    const recipientOrganizationId = handoff.providerOrganizationId || 'org_apex';
+    const recipientOrganizationId = handoff.providerOrganizationId;
+    if (!recipientOrganizationId) {
+      throw new Error('Forbidden: Binding handoff has no authoritative provider organization mapping');
+    }
 
     const consentGrant = createConsentGrant({
       challengeId: params.challengeId,

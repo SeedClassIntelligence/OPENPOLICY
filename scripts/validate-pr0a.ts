@@ -285,7 +285,7 @@ async function run() {
     assert(open?.enforcementPoint === 'CHALLENGE_OPEN' && open.mode === 'SHADOW' && open.outcome === 'PASS', 'Challenge opening evaluated in SHADOW mode (SANDBOX NV active -> PASS)');
     assert(open?.ruleSetBasis === 'UNPUBLISHED_CANDIDATE', 'Evaluation labels its basis: the legacy ruleset is an unpublished candidate');
 
-    const invitations = db.getInvitationsForChallenge(nvChallengeId);
+    const invitations = await postgresStore.getInvitationsForChallenge(nvChallengeId);
     const authEvals = (await jurisdictionStore.getEvaluations({ subjectType: 'INVITATION' })).filter(e => invitations.some(i => i.id === e.subjectId));
     assert(invitations.length > 0 && authEvals.length === invitations.length, `Provider authority evaluated for each of ${invitations.length} invitations`);
     assert(authEvals.every(e => e.outcome === 'INDETERMINATE' && e.legacyOutcome === 'ELIGIBLE' && e.discrepancy),
@@ -307,11 +307,24 @@ async function run() {
         { id: 'L2', code: 'PROPERTY_DAMAGE', name: 'Property Damage', category: 'LIABILITY', propertyLimit: 5000, isIncluded: true }
       ]
     };
+    const sierraInvitation = invitations.find(i => i.providerOrganizationId === 'org_sierra');
+    if (sierraInvitation) {
+      await postgresStore.saveParticipation({
+        id: `PART-${nvChallengeId}-org_sierra`,
+        challengeId: nvChallengeId,
+        competitionId: sierraInvitation.competitionId,
+        providerOrganizationId: 'org_sierra',
+        acceptedAt: new Date().toISOString(),
+        status: 'ACTIVE',
+        lastActivityAt: new Date().toISOString()
+      });
+    }
     const submitted = await request(server, 'POST', '/api/offers/submit', lowLimitOffer, { 'x-provider-user-id': 'user_sierra_1' });
+    assert(submitted.status === 200, `PR-0A shadow offer submission succeeds (${submitted.status}: ${JSON.stringify(submitted.body)})`);
     const offer = submitted.body.offer;
-    const challengeNow = db.getChallenge(nvChallengeId)!;
-    const independentLegacy = evaluateOfferQualification(offer, challengeNow.baseline, challengeNow.requirements, db.getProviderOrganization(offer.providerId),
-      db.getCarrierRelationships(offer.providerId));
+    const challengeNow = (await postgresStore.getChallenge(nvChallengeId))!;
+    const independentLegacy = evaluateOfferQualification(offer, challengeNow.baseline, challengeNow.requirements, await postgresStore.getProviderOrganization(offer.providerId),
+      await postgresStore.getCarrierRelationships(offer.providerId));
     assert(offer.isQualified === independentLegacy.isQualified, `offer.isQualified is exactly the frozen engine's result (${offer.isQualified}); shadow changed nothing`);
     const offerEval = (await jurisdictionStore.getEvaluations({ subjectType: 'OFFER', subjectId: offer.id }))[0];
     assert(offerEval?.outcome === 'FAIL' && offerEval.legacyOutcome === 'STATUTORY_PASS' && offerEval.discrepancy,

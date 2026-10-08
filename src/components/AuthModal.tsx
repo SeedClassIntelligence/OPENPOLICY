@@ -17,6 +17,7 @@ import {
   Briefcase
 } from 'lucide-react';
 import { useAuth, UserRole } from '../context/AuthContext';
+import { JurisdictionSelectOptions } from './JurisdictionSelectOptions';
 
 interface AuthModalProps {
   onSuccess?: (role: UserRole) => void;
@@ -76,22 +77,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
 
     try {
       if (mode === 'SIGN_IN') {
-        await signInWithEmail(signInEmail, signInPassword);
-        const resolvedRole: UserRole = signInEmail.includes('broker') || signInEmail.includes('agency') || signInEmail.includes('provider') ? 'PROVIDER' : 'CONSUMER';
+        const resolvedRole = await signInWithEmail(signInEmail, signInPassword);
         if (onSuccess) onSuccess(resolvedRole);
       } else if (mode === 'SIGN_UP') {
         if (role === 'CONSUMER') {
           if (!consumerName.trim()) {
             throw new Error('Please enter your full name or preferred alias.');
           }
-          await signUpAsConsumer(consumerName, consumerEmail, consumerPassword, consumerState, currentCarrier);
-          if (onSuccess) onSuccess('CONSUMER');
+          const createdRole = await signUpAsConsumer(consumerName, consumerEmail, consumerPassword, consumerState, currentCarrier);
+          if (onSuccess) onSuccess(createdRole);
         } else {
           if (!agentName.trim() || !agencyName.trim() || !licenseNumber.trim()) {
             throw new Error('Please complete all agency registration fields.');
           }
-          await signUpAsProvider(agentName, agencyName, licenseNumber, providerState, providerEmail, providerPassword);
-          if (onSuccess) onSuccess('PROVIDER');
+          const createdRole = await signUpAsProvider(agentName, agencyName, licenseNumber, providerState, providerEmail, providerPassword);
+          if (onSuccess) onSuccess(createdRole);
         }
       }
     } catch (err: any) {
@@ -364,12 +364,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
                     onChange={(e) => setConsumerState(e.target.value)}
                     className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-emerald-500"
                   >
-                    <option value="NV">Nevada (NV)</option>
-                    <option value="CA">California (CA)</option>
-                    <option value="AZ">Arizona (AZ)</option>
-                    <option value="OH">Ohio (OH)</option>
-                    <option value="TX">Texas (TX)</option>
-                    <option value="FL">Florida (FL)</option>
+                    <JurisdictionSelectOptions />
                   </select>
                 </div>
 
@@ -451,12 +446,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
                     onChange={(e) => setProviderState(e.target.value)}
                     className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-blue-500"
                   >
-                    <option value="NV">Nevada (NV)</option>
-                    <option value="CA">California (CA)</option>
-                    <option value="AZ">Arizona (AZ)</option>
-                    <option value="OH">Ohio (OH)</option>
-                    <option value="TX">Texas (TX)</option>
-                    <option value="FL">Florida (FL)</option>
+                    <JurisdictionSelectOptions />
                   </select>
                 </div>
 

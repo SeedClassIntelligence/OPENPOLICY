@@ -67,6 +67,8 @@ export interface FirestoreUserProfile {
   agencyName?: string;
   licenseNumber?: string;
   state?: string;
+  currentCarrier?: string;
+  providerStatus?: 'PENDING_VERIFICATION' | 'ACTIVE' | 'REJECTED';
 }
 
 export interface UserChallengeRecord {
@@ -111,9 +113,19 @@ export interface UserVaultRecord {
   notes?: string;
 }
 
-/**
- * Creates or retrieves a user profile in Firestore
- */
+export async function loadUserProfile(userId: string): Promise<FirestoreUserProfile | null> {
+  const snap = await getDoc(doc(firestore, 'users', userId));
+  return snap.exists() ? (snap.data() as FirestoreUserProfile) : null;
+}
+
+export async function createUserProfile(profile: FirestoreUserProfile): Promise<FirestoreUserProfile> {
+  const userRef = doc(firestore, 'users', profile.id);
+  const existing = await getDoc(userRef);
+  if (existing.exists()) return existing.data() as FirestoreUserProfile;
+  await setDoc(userRef, profile);
+  return profile;
+}
+
 export async function syncUserProfile(user: { uid: string; email: string | null; displayName: string | null }): Promise<FirestoreUserProfile> {
   const userRef = doc(firestore, 'users', user.uid);
   const snap = await getDoc(userRef);
@@ -122,19 +134,7 @@ export async function syncUserProfile(user: { uid: string; email: string | null;
     return snap.data() as FirestoreUserProfile;
   }
 
-  const newProfile: FirestoreUserProfile = {
-    id: user.uid,
-    email: user.email || 'consumer@example.com',
-    displayName: user.displayName || user.email?.split('@')[0] || 'Policyholder',
-    createdAt: new Date().toISOString()
-  };
-
-  await setDoc(userRef, newProfile);
-
-  // Auto-seed initial canonical challenge for this user's personal account
-  await seedInitialUserChallenge(user.uid, newProfile.displayName);
-
-  return newProfile;
+  throw new Error('This account has no Open Policy role profile. Complete the correct consumer or provider onboarding process.');
 }
 
 /**
@@ -200,72 +200,12 @@ export async function seedInitialUserChallenge(userId: string, userName: string)
   }
 }
 
-// Canonical Demo Records for unauthenticated / demo state
-const DEMO_CHALLENGES: UserChallengeRecord[] = [
-  {
-    id: 'CHAL-NV-49281',
-    userId: 'user_consumer_1',
-    referenceNumber: 'CHALLENGE #NV-49281',
-    jurisdiction: 'NV',
-    insuranceType: 'AUTO',
-    status: 'OFFERS_RECEIVED',
-    baselineMonthlyPremium: 247,
-    baselineAnnualPremium: 2964,
-    carrier: 'GEICO Advantage',
-    vehicleOrProperty: '2024 Toyota Camry XLE',
-    createdAt: '2025-11-18T10:00:00Z',
-    offersCount: 3,
-    bestSavings: 474
-  }
-];
-
-const DEMO_ORDERS: UserOrderRecord[] = [
-  {
-    id: 'ORD-BINDER-NV-001',
-    userId: 'user_consumer_1',
-    challengeId: 'CHAL-NV-49281',
-    challengeRef: 'CHALLENGE #NV-49281',
-    carrier: 'Safeco Insurance (Liberty Mutual)',
-    policyTier: 'Baseline Plus (Identical Limits, Lower Deductibles)',
-    monthlyPremium: 207,
-    annualSavings: 474,
-    boundAt: '2026-01-20T14:22:00Z',
-    binderStatus: 'ACTIVE',
-    section32DossierRef: 'DOSSIER-NV-49281-SAFECO',
-    policyNumber: 'NV-AUTO-SAF-994821'
-  }
-];
-
-const DEMO_VAULT: UserVaultRecord[] = [
-  {
-    id: 'VLT-DOC-1',
-    userId: 'user_consumer_1',
-    challengeId: 'CHAL-NV-49281',
-    name: '2025_Geico_Policy_Declarations.pdf',
-    documentType: 'DECLARATIONS_PAGE',
-    uploadedAt: '2025-11-18T09:45:00Z',
-    size: '1.2 MB',
-    notes: 'Extracted baseline document for NV-49281'
-  },
-  {
-    id: 'VLT-DOC-2',
-    userId: 'user_consumer_1',
-    challengeId: 'CHAL-NV-49281',
-    name: 'Safeco_Binding_Confirmation_Binder.pdf',
-    documentType: 'BINDER',
-    uploadedAt: '2026-01-20T14:25:00Z',
-    size: '840 KB',
-    notes: 'Official 30-day binder issued by Sierra Brokerage Group'
-  }
-];
-
 /**
  * Fetch all challenges belonging to a specific authenticated user
  */
 export async function fetchUserChallenges(userId: string): Promise<UserChallengeRecord[]> {
-  // If not authenticated or in demo profile, return demo records to avoid Firestore permission rejection
   if (!auth.currentUser || auth.currentUser.uid !== userId) {
-    return DEMO_CHALLENGES;
+    throw new Error('Authenticated consumer identity does not match the requested challenge owner.');
   }
 
   try {
@@ -279,8 +219,7 @@ export async function fetchUserChallenges(userId: string): Promise<UserChallenge
     if (e?.code === 'permission-denied') {
       handleFirestoreError(e, OperationType.LIST, 'challenges');
     }
-    console.error('Error fetching user challenges:', e);
-    return DEMO_CHALLENGES;
+    throw e;
   }
 }
 
@@ -289,7 +228,7 @@ export async function fetchUserChallenges(userId: string): Promise<UserChallenge
  */
 export async function fetchUserOrders(userId: string): Promise<UserOrderRecord[]> {
   if (!auth.currentUser || auth.currentUser.uid !== userId) {
-    return DEMO_ORDERS;
+    throw new Error('Authenticated consumer identity does not match the requested order owner.');
   }
 
   try {
@@ -303,8 +242,7 @@ export async function fetchUserOrders(userId: string): Promise<UserOrderRecord[]
     if (e?.code === 'permission-denied') {
       handleFirestoreError(e, OperationType.LIST, 'orders');
     }
-    console.error('Error fetching user orders:', e);
-    return DEMO_ORDERS;
+    throw e;
   }
 }
 
@@ -313,7 +251,7 @@ export async function fetchUserOrders(userId: string): Promise<UserOrderRecord[]
  */
 export async function fetchUserVault(userId: string): Promise<UserVaultRecord[]> {
   if (!auth.currentUser || auth.currentUser.uid !== userId) {
-    return DEMO_VAULT;
+    throw new Error('Authenticated consumer identity does not match the requested vault owner.');
   }
 
   try {
@@ -327,8 +265,7 @@ export async function fetchUserVault(userId: string): Promise<UserVaultRecord[]>
     if (e?.code === 'permission-denied') {
       handleFirestoreError(e, OperationType.LIST, 'vault');
     }
-    console.error('Error fetching user vault:', e);
-    return DEMO_VAULT;
+    throw e;
   }
 }
 

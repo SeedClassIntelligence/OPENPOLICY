@@ -7,6 +7,7 @@
 import { CarrierRelationship, ProviderLicense, ProviderOrganization } from '../types/insurance';
 import { GateAttestation, JurisdictionRule, JurisdictionRuleSet, MarketActivationEvent, MachineRule } from '../types/jurisdiction';
 import { US_JURISDICTIONS } from './jurisdiction/usJurisdictions';
+import { getJurisdictionRollout, JURISDICTION_ROLLOUT, REGIONAL_ROLLOUT_WAVES, resolveRegionalRolloutWaves } from './jurisdiction/jurisdictionRollout';
 import { aggregateOutcome, evaluateRules, isRuleInForce } from './jurisdictionRuleEngine';
 import { evaluateProviderJurisdictionAuthority } from './providerAuthorityEngine';
 import { determineJurisdiction } from './jurisdictionDetermination';
@@ -77,6 +78,27 @@ export function runJurisdictionTestSuite(): { total: number; passed: number; fai
   test('REF-1: exactly 51 jurisdictions (50 states + DC)', 'Reference', codes.length === 51 && new Set(codes).size === 51);
   test('REF-2: DC is present as FEDERAL_DISTRICT', 'Reference', US_JURISDICTIONS.some(j => j.code === 'DC' && j.kind === 'FEDERAL_DISTRICT'));
   test('REF-3: no territories (PR, GU, VI, AS, MP)', 'Reference', !['PR', 'GU', 'VI', 'AS', 'MP'].some(c => (codes as string[]).includes(c)));
+  const rolloutCodes = JURISDICTION_ROLLOUT.map(j => j.code);
+  test('REF-4: rollout contains all 51 canonical jurisdictions exactly once', 'Reference',
+    rolloutCodes.length === 51 && new Set(rolloutCodes).size === 51 && codes.every(code => rolloutCodes.includes(code)));
+  test('REF-5: Nevada occurs once in Wave 0 and is enabled', 'Reference',
+    rolloutCodes.filter(code => code === 'NV').length === 1 && getJurisdictionRollout('NV').waveId === 0 && getJurisdictionRollout('NV').rolloutState === 'ENABLED');
+  test('REF-6: Wave 1 is exactly the unlocked West remainder', 'Reference',
+    JSON.stringify(REGIONAL_ROLLOUT_WAVES[1].jurisdictions) === JSON.stringify(['AK', 'AZ', 'CA', 'CO', 'HI', 'ID', 'MT', 'NM', 'OR', 'UT', 'WA', 'WY']) &&
+    REGIONAL_ROLLOUT_WAVES[1].state === 'UNLOCKED');
+  test('REF-7: Midwest, South and Northeast are present but locked', 'Reference',
+    REGIONAL_ROLLOUT_WAVES.slice(2).every(wave => wave.state === 'LOCKED') &&
+    REGIONAL_ROLLOUT_WAVES.slice(2).flatMap(wave => wave.jurisdictions).length === 38);
+  test('REF-8: rollout availability does not confer PRODUCTION activation', 'Reference',
+    getJurisdictionRollout('CA').rolloutAvailable && replayActivation([], {
+      jurisdictionCode: 'CA', insuranceLine: 'PERSONAL_AUTO', environment: 'PRODUCTION'
+    }).state === 'INACTIVE');
+  test('REF-9: legacy-rule presence does not unlock a region', 'Reference',
+    getJurisdictionRollout('OH').rolloutState === 'LOCKED');
+  const futureUnlock = resolveRegionalRolloutWaves(new Set([1, 2]));
+  test('REF-10: a future region unlock is configuration-only and leaves later waves locked', 'Reference',
+    futureUnlock[0].state === 'ENABLED' && futureUnlock[1].state === 'UNLOCKED' && futureUnlock[2].state === 'UNLOCKED' &&
+    futureUnlock[3].state === 'LOCKED' && futureUnlock[4].state === 'LOCKED');
 
   // ------------------------------------------------------------------
   // Effective dating (D3, D10)

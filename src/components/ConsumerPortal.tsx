@@ -57,11 +57,14 @@ import {
   CompetitionActivityEvent,
   RoundDeadlineStatus,
   CompetitionEvaluationSummary
+  ,PolicyNormalizationResult
+  ,NormalizedPolicyFieldPath
 } from '../types/insurance';
 import { SAMPLE_DECLARATIONS_PAGES } from '../domain/policyIntelligence';
 import { compareOfferAgainstBaseline, formatClassification } from '../domain/comparisonEngine';
 import { useAuth } from '../context/AuthContext';
 import { AccountDashboard } from './AccountDashboard';
+import { apiFetch } from '../services/apiClient';
 
 interface ConsumerPortalProps {
   challenge: Challenge | null;
@@ -109,10 +112,28 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
   const [triggeringFinalRound, setTriggeringFinalRound] = useState<boolean>(false);
   const [triggeringIncumbent, setTriggeringIncumbent] = useState<boolean>(false);
   const [actionToast, setActionToast] = useState<string | null>(null);
+  const [realDocumentId, setRealDocumentId] = useState<string | null>(null);
+  const [realNormalization, setRealNormalization] = useState<PolicyNormalizationResult | null>(null);
+  const [documentProcessing, setDocumentProcessing] = useState<string | null>(null);
+  const [documentProcessingError, setDocumentProcessingError] = useState<string | null>(null);
+  const [policyReviewValues, setPolicyReviewValues] = useState<Record<string, string>>({});
+  const [policyEvidenceAttested, setPolicyEvidenceAttested] = useState(false);
+  const [verifiedBaseline, setVerifiedBaseline] = useState<{ policyId:string; baselineId:string } | null>(null);
+
+  const reviewFieldPaths: NormalizedPolicyFieldPath[] = [
+    'policyNumber','carrier','namedInsured','jurisdiction','effectiveDate','expirationDate','annualPremium',
+    'vehicle.vin','vehicle.year','vehicle.make','vehicle.model','vehicle.usage','vehicle.annualMileage',
+    'vehicle.garagingZip','vehicle.ownership','coverage.bodilyInjury.perPersonLimit',
+    'coverage.bodilyInjury.perAccidentLimit','coverage.propertyDamage.propertyLimit'
+  ];
+  const numericReviewFields = new Set<NormalizedPolicyFieldPath>([
+    'annualPremium','vehicle.year','vehicle.annualMileage','coverage.bodilyInjury.perPersonLimit',
+    'coverage.bodilyInjury.perAccidentLimit','coverage.propertyDamage.propertyLimit'
+  ]);
 
   const fetchVaultDocs = async () => {
     try {
-      const res = await fetch('/api/vault/documents');
+      const res = await apiFetch('/api/vault/documents');
       if (res.ok) {
         const docs = await res.json();
         setVaultDocs(docs);
@@ -130,7 +151,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
   const fetchConsumerInfoRequests = async () => {
     if (!challenge?.id) return;
     try {
-      const res = await fetch(`/api/marketplace/challenges/${challenge.id}/information-requests`);
+      const res = await apiFetch(`/api/marketplace/challenges/${challenge.id}/information-requests`);
       if (res.ok) {
         const data = await res.json();
         setConsumerInfoRequests(data.requests || []);
@@ -152,9 +173,9 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
     if (!challenge?.id) return;
     try {
       const [deadRes, evalRes, feedRes] = await Promise.all([
-        fetch(`/api/marketplace/competition/${challenge.id}/deadline-status`),
-        fetch(`/api/marketplace/competition/${challenge.id}/status`),
-        fetch(`/api/marketplace/competition/${challenge.id}/activity-feed`)
+        apiFetch(`/api/marketplace/competition/${challenge.id}/deadline-status`),
+        apiFetch(`/api/marketplace/competition/${challenge.id}/status`),
+        apiFetch(`/api/marketplace/competition/${challenge.id}/activity-feed`)
       ]);
       if (deadRes.ok) {
         const deadData = await deadRes.json();
@@ -177,7 +198,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
     if (!challenge?.id) return;
     setAdvancingRound(targetRound);
     try {
-      const res = await fetch(`/api/marketplace/competition/${challenge.id}/advance-round`, {
+      const res = await apiFetch(`/api/marketplace/competition/${challenge.id}/advance-round`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ targetRound, reason })
@@ -199,11 +220,10 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
     if (!challenge?.id) return;
     setRetainingCurrentPolicy(true);
     try {
-      const res = await fetch(`/api/marketplace/competition/${challenge.id}/keep-current-policy`, {
+      const res = await apiFetch(`/api/marketplace/competition/${challenge.id}/keep-current-policy`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          consumerId: userProfile?.id || 'user_consumer_1',
           reason: 'Consumer elected to retain incumbent policy coverage without forced concession.'
         })
       });
@@ -243,10 +263,10 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
 
   const handleAnswerInfoRequest = async (requestId: string, val: any) => {
     try {
-      const res = await fetch(`/api/marketplace/information-requests/${requestId}/answer`, {
+      const res = await apiFetch(`/api/marketplace/information-requests/${requestId}/answer`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ answerValue: val, consumerId: 'user_consumer_1' })
+        body: JSON.stringify({ answerValue: val })
       });
       if (res.ok) {
         setActionToast('Answer attested and shared as a reusable verified fact across all participating brokers.');
@@ -262,7 +282,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
 
   const handleUploadVaultDoc = async () => {
     try {
-      const res = await fetch('/api/vault/upload', {
+      const res = await apiFetch('/api/vault/upload', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -288,7 +308,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
     if (!challenge) return;
     setTriggeringFinalRound(true);
     try {
-      const res = await fetch(`/api/challenges/${challenge.id}/final-round`, { method: 'POST' });
+      const res = await apiFetch(`/api/challenges/${challenge.id}/final-round`, { method: 'POST' });
       if (res.ok) {
         onRefreshData();
         setActionToast('Best & Final Round activated! Challengers submitted sharpened rates.');
@@ -305,7 +325,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
     if (!challenge) return;
     setTriggeringIncumbent(true);
     try {
-      const res = await fetch(`/api/challenges/${challenge.id}/incumbent-defense`, { method: 'POST' });
+      const res = await apiFetch(`/api/challenges/${challenge.id}/incumbent-defense`, { method: 'POST' });
       if (res.ok) {
         onRefreshData();
         setActionToast('Current company (GEICO) defense initiated! Retention offer entered the competition.');
@@ -420,7 +440,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
     let isCancelled = false;
     if (selectedComparison) {
       setLoadingAi(true);
-      fetch('/api/explain-comparison', {
+      apiFetch('/api/explain-comparison', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ comparison: selectedComparison })
@@ -449,7 +469,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
 
   // Handle sample upload
   const handleSelectSample = async (sampleId: string) => {
-    const res = await fetch('/api/documents/upload-sample', {
+    const res = await apiFetch('/api/documents/upload-sample', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sampleId })
@@ -461,12 +481,82 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
     }
   };
 
+  const handleRealPolicyUpload = async (file?: File) => {
+    if (!file) return;
+    setDocumentProcessingError(null);
+    setRealNormalization(null);
+    try {
+      setDocumentProcessing('Uploading immutable policy evidence…');
+      const ingest = await apiFetch('/api/policy-documents/ingest', {
+        method:'POST', headers:{'Content-Type':'application/pdf','X-Document-Filename':file.name,
+          'Idempotency-Key':crypto.randomUUID()}, body:file
+      });
+      const ingested = await ingest.json();
+      if (!ingest.ok) throw new Error(ingested.message || ingested.error || 'Upload failed');
+      const documentId = ingested.document.id;
+      setRealDocumentId(documentId);
+      setDocumentProcessing('Scanning policy evidence for malware…');
+      const scan = await apiFetch(`/api/policy-documents/${documentId}/scan`, {method:'POST'});
+      const scanned = await scan.json();
+      if (!scan.ok || scanned.malwareStatus !== 'CLEAN') throw new Error(scanned.message || 'Document did not receive a CLEAN scan disposition');
+      setDocumentProcessing('Extracting policy evidence with Document AI…');
+      const extract = await apiFetch(`/api/policy-documents/${documentId}/extract`, {method:'POST'});
+      const extracted = await extract.json();
+      if (!extract.ok) throw new Error(extracted.message || extracted.error || 'Extraction failed');
+      setRealNormalization(extracted.normalization);
+      setPolicyReviewValues(Object.fromEntries(
+        reviewFieldPaths.map(fieldPath => [fieldPath,
+          String(extracted.normalization.fields.find((field: any) => field.fieldPath === fieldPath)?.value ?? '')])
+      ));
+      setPolicyEvidenceAttested(false);
+      setVerifiedBaseline(null);
+      setDocumentProcessing(null);
+    } catch (error:any) {
+      setDocumentProcessing(null);
+      setDocumentProcessingError(error?.message || 'Document processing failed');
+    }
+  };
+
+  const handleVerifyRealPolicy = async () => {
+    if (!realDocumentId || !realNormalization || !policyEvidenceAttested) return;
+    setDocumentProcessingError(null);
+    setDocumentProcessing('Saving your confirmed policy facts…');
+    try {
+      for (const fieldPath of reviewFieldPaths) {
+        const raw = (policyReviewValues[fieldPath] || '').trim();
+        if (!raw) throw new Error(`Please complete ${fieldPath}.`);
+        const afterValue = numericReviewFields.has(fieldPath) ? Number(raw) : raw;
+        if (numericReviewFields.has(fieldPath) && !Number.isFinite(afterValue as number)) {
+          throw new Error(`${fieldPath} must be a valid number.`);
+        }
+        const correction = await apiFetch(`/api/policy-documents/${realDocumentId}/corrections`, {
+          method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({fieldPath, afterValue})
+        });
+        const correctionBody = await correction.json();
+        if (!correction.ok) throw new Error(correctionBody.message || correctionBody.error || `Could not save ${fieldPath}`);
+      }
+      setDocumentProcessing('Creating your immutable verified coverage baseline…');
+      const verification = await apiFetch(`/api/policy-documents/${realDocumentId}/verify`, {
+        method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({attested:true})
+      });
+      const result = await verification.json();
+      if (!verification.ok) throw new Error(result.message || result.error || 'Policy verification failed');
+      setVerifiedBaseline({policyId:result.policy.id, baselineId:result.baseline.id});
+      setActivePolicy(result.policy);
+      setDocumentProcessing(null);
+      onRefreshData();
+    } catch (error:any) {
+      setDocumentProcessing(null);
+      setDocumentProcessingError(error?.message || 'Policy verification failed');
+    }
+  };
+
   // Confirm extracted policy and create baseline
   const handleConfirmPolicy = async () => {
     if (!activePolicy) return;
     
     // Create baseline
-    const res = await fetch('/api/baselines/create', {
+    const res = await apiFetch('/api/baselines/create', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -484,7 +574,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
   // Launch challenge
   const handleLaunchChallenge = async () => {
     if (!activeBaseline) return;
-    const res = await fetch('/api/challenges/create', {
+    const res = await apiFetch('/api/challenges/create', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -529,13 +619,12 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
 
     try {
       const offer = offers.find(o => o.id === offerId);
-      const res = await fetch(`/api/marketplace/challenges/${challenge.id}/select-version`, {
+      const res = await apiFetch(`/api/marketplace/challenges/${challenge.id}/select-version`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           offerId,
-          versionNumber: offer?.version || 1,
-          consumerId: challenge.consumerId || 'user_consumer_1'
+          versionNumber: offer?.version || 1
         })
       });
       const data = await res.json();
@@ -560,12 +649,11 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
     setIsGrantingConsent(true);
     setConsentError(null);
     try {
-      const res = await fetch(`/api/marketplace/binding/${handoffResult.id}/grant-consent`, {
+      const res = await apiFetch(`/api/marketplace/binding/${handoffResult.id}/grant-consent`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           challengeId: challenge.id,
-          consumerId: challenge.consumerId || 'user_consumer_1',
           authorizedFieldNames: authorizedFields,
           purpose: 'STAGE_C_BINDING_DISCLOSURE',
           purposeExplanation: 'Authorization to disclose Stage C PII for policy binding handoff'
@@ -575,7 +663,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
       if (res.ok && data.success) {
         setActiveConsentGrant(data.consentGrant);
         // Refresh handoff status
-        const hRes = await fetch(`/api/marketplace/binding/${handoffResult.id}`);
+        const hRes = await apiFetch(`/api/marketplace/binding/${handoffResult.id}`);
         const hData = await hRes.json();
         if (hRes.ok && hData.handoff) {
           setHandoffResult(hData.handoff);
@@ -596,12 +684,11 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
   const handleRevokeConsent = async () => {
     if (!handoffResult || !activeConsentGrant) return;
     try {
-      const res = await fetch(`/api/marketplace/binding/${handoffResult.id}/revoke-consent`, {
+      const res = await apiFetch(`/api/marketplace/binding/${handoffResult.id}/revoke-consent`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          consentGrantId: activeConsentGrant.id,
-          consumerId: challenge?.consumerId || 'user_consumer_1'
+          consentGrantId: activeConsentGrant.id
         })
       });
       const data = await res.json();
@@ -618,12 +705,11 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
     setIsResolvingMod(true);
     try {
       const endpoint = decision === 'ACCEPT' ? 'accept-modification' : 'reject-modification';
-      const res = await fetch(`/api/marketplace/binding/${handoffResult.id}/${endpoint}`, {
+      const res = await apiFetch(`/api/marketplace/binding/${handoffResult.id}/${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          modificationId: activeModification.id,
-          consumerId: challenge?.consumerId || 'user_consumer_1'
+          modificationId: activeModification.id
         })
       });
       const data = await res.json();
@@ -641,7 +727,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
   // PM-5 Fetch Reconciliation & Policy Vault data
   const fetchPM5Data = async (targetHandoffId?: string) => {
     try {
-      const vRes = await fetch('/api/marketplace/vault/policies');
+      const vRes = await apiFetch('/api/marketplace/vault/policies');
       if (vRes.ok) {
         const vData = await vRes.json();
         if (vData.success && Array.isArray(vData.vaultItems)) {
@@ -650,7 +736,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
       }
       const hid = targetHandoffId || handoffResult?.id;
       if (hid) {
-        const rRes = await fetch(`/api/marketplace/binding/${hid}/reconciliation`);
+        const rRes = await apiFetch(`/api/marketplace/binding/${hid}/reconciliation`);
         if (rRes.ok) {
           const rData = await rRes.json();
           if (rData.success && rData.report) {
@@ -668,7 +754,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
     if (!handoffResult?.id) return;
     setIsVerifyingReconciliation(true);
     try {
-      const res = await fetch(`/api/marketplace/binding/${handoffResult.id}/consumer-verify`, {
+      const res = await apiFetch(`/api/marketplace/binding/${handoffResult.id}/consumer-verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -723,7 +809,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
       coverages: issuedCoverages
     };
 
-    const res = await fetch('/api/reconciliation/verify', {
+    const res = await apiFetch('/api/reconciliation/verify', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -985,11 +1071,91 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                   type="file" 
                   className="hidden" 
                   accept=".pdf,.png,.jpg,.jpeg"
-                  onChange={() => handleSelectSample('DOC-NV-49281')} 
+                  onChange={event => handleRealPolicyUpload(event.target.files?.[0])}
                 />
               </label>
             </div>
           </div>
+
+          {(documentProcessing || documentProcessingError || realNormalization) && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-5 space-y-3">
+              {documentProcessing && <p className="text-sm font-semibold text-blue-700">{documentProcessing}</p>}
+              {documentProcessingError && <p className="text-sm font-semibold text-red-700">{documentProcessingError}</p>}
+              {realNormalization && (
+                <>
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-bold text-slate-900">Real policy extraction complete</p>
+                      <p className="text-xs text-slate-500 font-mono">Evidence {realDocumentId}</p>
+                    </div>
+                    <span className={`text-xs font-bold px-2 py-1 rounded ${realNormalization.status === 'READY_FOR_CONSUMER' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>{realNormalization.status.replace(/_/g,' ')}</span>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    {realNormalization.fields.map(field => (
+                      <div key={field.fieldPath} className="bg-white border border-slate-200 rounded p-3">
+                        <p className="text-[11px] uppercase text-slate-500">{field.fieldPath}</p>
+                        <p className="text-sm font-semibold text-slate-900 break-words">{String(field.value)}</p>
+                        <p className="text-[11px] text-blue-700">Page {field.evidence.pageNumber} · {Math.round(field.confidence*100)}% confidence</p>
+                      </div>
+                    ))}
+                  </div>
+                  {realNormalization.criticalIssues.length > 0 && (
+                    <div className="bg-amber-50 border border-amber-200 rounded p-3">
+                      <p className="text-xs font-bold text-amber-900">Consumer confirmation required</p>
+                      {realNormalization.criticalIssues.map(issue => <p key={issue} className="text-xs text-amber-800">• {issue}</p>)}
+                    </div>
+                  )}
+                  <div className="border-t border-slate-200 pt-4 space-y-4">
+                    <div>
+                      <p className="text-sm font-bold text-slate-900">Review every fact before creating your baseline</p>
+                      <p className="text-xs text-slate-600">These values become the standard carriers must match. Correct OCR mistakes and fill every blank from your policy document.</p>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {reviewFieldPaths.map(fieldPath => (
+                        <label key={fieldPath} className="text-xs font-semibold text-slate-700">
+                          <span className="block mb-1">{fieldPath}</span>
+                          <input
+                            aria-label={fieldPath}
+                            type={numericReviewFields.has(fieldPath) ? 'number' : fieldPath.endsWith('Date') ? 'date' : 'text'}
+                            value={policyReviewValues[fieldPath] || ''}
+                            onChange={event => {
+                              setPolicyReviewValues(current => ({...current, [fieldPath]:event.target.value}));
+                              setPolicyEvidenceAttested(false);
+                            }}
+                            placeholder={fieldPath === 'vehicle.usage' ? 'COMMUTE, PLEASURE, or BUSINESS' : fieldPath === 'vehicle.ownership' ? 'OWNED, FINANCED, or LEASED' : undefined}
+                            className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-slate-900"
+                          />
+                        </label>
+                      ))}
+                    </div>
+                    <label className="flex items-start gap-2 rounded border border-blue-200 bg-blue-50 p-3 text-xs text-blue-950">
+                      <input
+                        type="checkbox"
+                        checked={policyEvidenceAttested}
+                        onChange={event => setPolicyEvidenceAttested(event.target.checked)}
+                        className="mt-0.5"
+                      />
+                      <span>I reviewed these facts against my policy and attest that they are accurate. I understand they will create my immutable coverage baseline.</span>
+                    </label>
+                    <button
+                      onClick={handleVerifyRealPolicy}
+                      disabled={!policyEvidenceAttested || Boolean(documentProcessing) || Boolean(verifiedBaseline)}
+                      className="w-full rounded-lg bg-emerald-600 px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {verifiedBaseline ? 'Verified Baseline Created' : 'Confirm Facts & Create Coverage Baseline'}
+                    </button>
+                    {verifiedBaseline && (
+                      <div className="rounded border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900">
+                        <p className="font-bold">Your verified coverage baseline is durable and ready.</p>
+                        <p className="font-mono break-all">Policy {verifiedBaseline.policyId}</p>
+                        <p className="font-mono break-all">Baseline {verifiedBaseline.baselineId}</p>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
 
           {/* Sample Policies for Instant Demonstration */}
           <div className="pt-4 border-t border-slate-100">

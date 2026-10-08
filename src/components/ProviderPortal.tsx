@@ -52,6 +52,7 @@ import {
   ReconciliationReport
 } from '../types/insurance';
 import { detectQuoteDiscrepancies } from '../domain/policyIntelligence';
+import { apiFetch } from '../services/apiClient';
 
 interface ProviderPortalProps {
   challenge: Challenge | null;
@@ -195,7 +196,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
     if (!selectedChallengeId) return;
     setInfoRequestSubmitting(true);
     try {
-      const res = await fetch(`/api/marketplace/challenges/${selectedChallengeId}/information-requests`, {
+      const res = await apiFetch(`/api/marketplace/challenges/${selectedChallengeId}/information-requests`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -228,7 +229,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
     const authHeaders = { 'x-provider-user-id': userIdToUse };
     try {
       // 1. Fetch authenticated provider info derived server-side
-      const activeRes = await fetch('/api/marketplace/my-provider', {
+      const activeRes = await apiFetch('/api/marketplace/my-provider', {
         headers: authHeaders
       });
       if (activeRes.ok) {
@@ -241,7 +242,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
       }
 
       // 2. Fetch opportunities for authenticated provider organization
-      const oppRes = await fetch('/api/marketplace/opportunities', {
+      const oppRes = await apiFetch('/api/marketplace/opportunities', {
         headers: authHeaders
       });
       if (oppRes.ok) {
@@ -250,7 +251,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
       }
 
       // 3. Fetch competitions for authenticated provider organization
-      const compRes = await fetch('/api/marketplace/competitions', {
+      const compRes = await apiFetch('/api/marketplace/competitions', {
         headers: authHeaders
       });
       if (compRes.ok) {
@@ -281,17 +282,17 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
     const authHeaders = { 'x-provider-user-id': userIdToUse };
     try {
       const [accRes, agrRes, entRes, evtRes, valRes, bilRes, adjRes, sumRes, invRes, bpRes, balRes] = await Promise.all([
-        fetch('/api/commercial/account', { headers: authHeaders }),
-        fetch('/api/commercial/agreement', { headers: authHeaders }),
-        fetch('/api/commercial/entitlements', { headers: authHeaders }),
-        fetch('/api/commercial/events', { headers: authHeaders }),
-        fetch('/api/commercial/value-summary', { headers: authHeaders }),
-        fetch('/api/commercial/billable-events', { headers: authHeaders }),
-        fetch('/api/commercial/adjustments', { headers: authHeaders }),
-        fetch('/api/commercial/billable-events/summary', { headers: authHeaders }),
-        fetch('/api/commercial/invoices', { headers: authHeaders }),
-        fetch('/api/commercial/billing-periods', { headers: authHeaders }),
-        fetch('/api/commercial/statements/balance', { headers: authHeaders })
+        apiFetch('/api/commercial/account', { headers: authHeaders }),
+        apiFetch('/api/commercial/agreement', { headers: authHeaders }),
+        apiFetch('/api/commercial/entitlements', { headers: authHeaders }),
+        apiFetch('/api/commercial/events', { headers: authHeaders }),
+        apiFetch('/api/commercial/value-summary', { headers: authHeaders }),
+        apiFetch('/api/commercial/billable-events', { headers: authHeaders }),
+        apiFetch('/api/commercial/adjustments', { headers: authHeaders }),
+        apiFetch('/api/commercial/billable-events/summary', { headers: authHeaders }),
+        apiFetch('/api/commercial/invoices', { headers: authHeaders }),
+        apiFetch('/api/commercial/billing-periods', { headers: authHeaders }),
+        apiFetch('/api/commercial/statements/balance', { headers: authHeaders })
       ]);
 
       if (accRes.ok) {
@@ -351,7 +352,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
     const userIdToUse = targetUserId || authenticatedUserId;
     const authHeaders = { 'x-provider-user-id': userIdToUse };
     try {
-      const res = await fetch(`/api/marketplace/workspace/${challengeId}`, {
+      const res = await apiFetch(`/api/marketplace/workspace/${challengeId}`, {
         headers: authHeaders
       });
       if (res.ok) {
@@ -373,10 +374,10 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
       // Fetch PM-2 competition market signals and evaluation
       try {
         const [signalsRes, evalRes] = await Promise.all([
-          fetch(`/api/marketplace/competition/${challengeId}/signals`, {
+          apiFetch(`/api/marketplace/competition/${challengeId}/signals`, {
             headers: authHeaders
           }),
-          fetch(`/api/marketplace/competition/${challengeId}/status`)
+          apiFetch(`/api/marketplace/competition/${challengeId}/status`)
         ]);
         if (signalsRes.ok) {
           const sig = await signalsRes.json();
@@ -392,7 +393,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
 
       // Fetch PM-4 selection and binding data
       try {
-        const bindRes = await fetch(`/api/marketplace/challenges/${challengeId}/selection-binding`);
+        const bindRes = await apiFetch(`/api/marketplace/challenges/${challengeId}/selection-binding`);
         if (bindRes.ok) {
           const bindData = await bindRes.json();
           if (bindData.handoff) {
@@ -402,7 +403,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
             setBindingModifications(bindData.modifications || []);
             // PM-5 Reconciliation Fetch
             try {
-              const recRes = await fetch(`/api/marketplace/binding/${bindData.handoff.id}/reconciliation`);
+              const recRes = await apiFetch(`/api/marketplace/binding/${bindData.handoff.id}/reconciliation`);
               if (recRes.ok) {
                 const recData = await recRes.json();
                 setPm5Report(recData.latestReport || null);
@@ -433,7 +434,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
     setIsExecutingDisclosure(true);
     setBindingActionError(null);
     try {
-      const res = await fetch(`/api/marketplace/binding/${bindingHandoff.id}/execute-disclosure`, {
+      const res = await apiFetch(`/api/marketplace/binding/${bindingHandoff.id}/execute-disclosure`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -472,7 +473,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
     setActionLoading('propose_mod');
     setBindingActionError(null);
     try {
-      const res = await fetch(`/api/marketplace/binding/${bindingHandoff.id}/propose-modification`, {
+      const res = await apiFetch(`/api/marketplace/binding/${bindingHandoff.id}/propose-modification`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -505,7 +506,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
     setActionLoading(`status_${newStatus}`);
     setBindingActionError(null);
     try {
-      const res = await fetch(`/api/marketplace/binding/${bindingHandoff.id}/update-status`, {
+      const res = await apiFetch(`/api/marketplace/binding/${bindingHandoff.id}/update-status`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -538,7 +539,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
     setBindingActionError(null);
     try {
       // 1. Upload Document Evidence
-      const uploadRes = await fetch(`/api/marketplace/binding/${bindingHandoff.id}/upload-issued-policy`, {
+      const uploadRes = await apiFetch(`/api/marketplace/binding/${bindingHandoff.id}/upload-issued-policy`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -563,7 +564,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
       }
 
       // 2. Deterministic Reconciliation
-      const recRes = await fetch(`/api/marketplace/binding/${bindingHandoff.id}/reconcile`, {
+      const recRes = await apiFetch(`/api/marketplace/binding/${bindingHandoff.id}/reconcile`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -590,7 +591,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
     if (!workspaceData?.challenge?.id) return;
     setActionLoading(`round-${targetRound}`);
     try {
-      const res = await fetch(`/api/marketplace/competition/${workspaceData.challenge.id}/advance-round`, {
+      const res = await apiFetch(`/api/marketplace/competition/${workspaceData.challenge.id}/advance-round`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ targetRound, reason })
@@ -611,7 +612,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
     if (!workspaceData?.challenge?.id) return;
     setActionLoading('seed-competitors');
     try {
-      const res = await fetch(`/api/marketplace/competition/${workspaceData.challenge.id}/seed-competitors`, {
+      const res = await apiFetch(`/api/marketplace/competition/${workspaceData.challenge.id}/seed-competitors`, {
         method: 'POST'
       });
       if (res.ok) {
@@ -660,7 +661,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
         return c;
       }) || [];
 
-      const res = await fetch(`/api/marketplace/competition/${workspaceData.challenge.id}/revise-offer/${revisingOffer.id}`, {
+      const res = await apiFetch(`/api/marketplace/competition/${workspaceData.challenge.id}/revise-offer/${revisingOffer.id}`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -699,7 +700,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
     if (!workspaceData?.challenge?.id) return;
     setActionLoading(`keep-${offerId}`);
     try {
-      const res = await fetch(`/api/marketplace/competition/${workspaceData.challenge.id}/keep-current-offer/${offerId}`, {
+      const res = await apiFetch(`/api/marketplace/competition/${workspaceData.challenge.id}/keep-current-offer/${offerId}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -722,7 +723,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
     if (!workspaceData?.challenge?.id) return;
     setActionLoading('withdraw');
     try {
-      const res = await fetch(`/api/marketplace/competition/${workspaceData.challenge.id}/withdraw`, {
+      const res = await apiFetch(`/api/marketplace/competition/${workspaceData.challenge.id}/withdraw`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -765,7 +766,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
   const handleAcceptOpportunity = async (invitationId: string) => {
     setActionLoading(invitationId);
     try {
-      const res = await fetch(`/api/marketplace/invitations/${invitationId}/accept`, {
+      const res = await apiFetch(`/api/marketplace/invitations/${invitationId}/accept`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -794,7 +795,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
     if (!decliningInvitationId) return;
     setActionLoading(decliningInvitationId);
     try {
-      await fetch(`/api/marketplace/invitations/${decliningInvitationId}/decline`, {
+      await apiFetch(`/api/marketplace/invitations/${decliningInvitationId}/decline`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -941,7 +942,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
     };
 
     try {
-      const response = await fetch('/api/offers/submit', {
+      const response = await apiFetch('/api/offers/submit', {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
