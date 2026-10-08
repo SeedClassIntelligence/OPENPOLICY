@@ -23,6 +23,7 @@ import crypto from 'crypto';
 import { PostgresStore, postgresStore } from '../src/server/db/postgresStore';
 import { SQL_MIGRATION_V4 } from '../src/server/db/migrate';
 import { db } from '../src/server/db';
+import { addTestOffer } from './lib/testOfferFixture';
 import { app, synchronizeFixturePersistence } from '../server';
 import { runComparisonEngineTestSuite } from '../src/domain/comparisonEngine.test';
 import { runEligibilityEngineTestSuite } from '../src/domain/eligibilityEngine.test';
@@ -335,7 +336,7 @@ async function runPM5AcceptanceValidation() {
 
     const testChal1 = makeChallenge(chalId1, consumerId, 3000);
     db.createChallenge(testChal1 as any);
-    db.seedCompetitorOffers(chalId1);
+    addTestOffer(db, chalId1);
     await synchronizeFixturePersistence();
 
     const offers1 = db.getOffers(chalId1);
@@ -475,7 +476,7 @@ async function runPM5AcceptanceValidation() {
     const chalId2 = `chal_pm5_disc_${Date.now()}`;
     const testChal2 = makeChallenge(chalId2, consumerId, 3000);
     db.createChallenge(testChal2 as any);
-    db.seedCompetitorOffers(chalId2);
+    addTestOffer(db, chalId2);
     await synchronizeFixturePersistence();
 
     const offers2 = db.getOffers(chalId2);
@@ -557,7 +558,7 @@ async function runPM5AcceptanceValidation() {
     const chalId3 = `chal_pm5_ambig_${Date.now()}`;
     const testChal3 = makeChallenge(chalId3, consumerId, 3000);
     db.createChallenge(testChal3 as any);
-    db.seedCompetitorOffers(chalId3);
+    addTestOffer(db, chalId3);
     await synchronizeFixturePersistence();
 
     const offers3 = db.getOffers(chalId3);

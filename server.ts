@@ -1474,16 +1474,6 @@ app.post('/api/marketplace/competition/:challengeId/revise-offer/:offerId', asyn
   }
 });
 
-app.post('/api/marketplace/competition/:challengeId/seed-competitors', async (req, res) => {
-  try {
-    db.seedCompetitorOffers(req.params.challengeId);
-    const summary = db.getCompetitionEvaluation(req.params.challengeId);
-    res.json({ success: true, message: 'Seeded competing quote from Apex Insurance (Progressive $2,540/yr)', summary });
-  } catch (e: any) {
-    res.status(400).json({ error: e.message });
-  }
-});
-
 // ==========================================
 // PM-2: Information Requests, Supplemental Facts & Offer Integrity API (Sections 17, 18, 25, 26, 28, 30, 34)
 // ==========================================
@@ -2041,22 +2031,6 @@ app.post('/api/marketplace/binding/:handoffId/update-status', async (req, res) =
       finalPremium: finalPremium ?? updatedHandoff.finalPremium };
     updatedHandoff = await postgresStore.commitBindingStatus(updatedHandoff, providerOrgId);
 
-    // CE-3: Instrument BOUND_ACQUISITION only when authoritative BindingHandoff reaches BOUND
-    if (updatedHandoff.status === 'BOUND') {
-      await commercialStore.projectMarketplaceEvent({
-        eventType: 'BOUND_ACQUISITION',
-        sourceEntityType: 'BINDING_HANDOFF',
-        sourceEntityId: updatedHandoff.id,
-        providerOrganizationId: updatedHandoff.providerOrganizationId || providerOrgId,
-        challengeId: updatedHandoff.challengeId,
-        occurredAt: updatedHandoff.boundAt || updatedHandoff.updatedAt || new Date().toISOString(),
-        metadata: {
-          policyNumber: updatedHandoff.policyNumber,
-          finalPremium: updatedHandoff.finalPremium
-        }
-      }).catch(err => console.warn('[CommercialEvent Error]', err));
-    }
-
     res.json({ success: true, handoff: updatedHandoff });
   } catch (e: any) {
     res.status(e.statusCode || 400).json({ error: e.message });
@@ -2214,6 +2188,15 @@ app.post('/api/marketplace/binding/:handoffId/reconcile', async (req, res) => {
     const isVerified = result.report.verdict === 'MATCH' || result.report.verdict === 'AUTHORIZED_VARIANCE';
     if (isVerified) {
       await commercialStore.projectMarketplaceEvent({
+        eventType: 'BOUND_ACQUISITION',
+        sourceEntityType: 'ISSUED_POLICY_DOCUMENT',
+        sourceEntityId: latestDocument.id,
+        providerOrganizationId: requireHandoffProviderOrganization(handoff),
+        challengeId: result.report.challengeId,
+        occurredAt: result.report.reconciledAt,
+        metadata: { bindingHandoffId: handoff.id, evidenceVerified: true }
+      }).catch(err => console.warn('[CommercialEvent Error]', err));
+      await commercialStore.projectMarketplaceEvent({
         eventType: 'VERIFIED_BOUND_OUTCOME',
         sourceEntityType: 'RECONCILIATION_REPORT',
         sourceEntityId: result.report.id,
@@ -2320,6 +2303,15 @@ app.post('/api/marketplace/binding/:handoffId/consumer-verify', async (req, res)
 
     // CE-3: Instrument VERIFIED_BOUND_OUTCOME if consumer accepts variance
     if (result.report.status === 'CONSUMER_ACCEPTED_VARIANCE') {
+      await commercialStore.projectMarketplaceEvent({
+        eventType: 'BOUND_ACQUISITION',
+        sourceEntityType: 'RECONCILIATION_REPORT',
+        sourceEntityId: result.report.id,
+        providerOrganizationId: requireHandoffProviderOrganization(handoff),
+        challengeId: result.report.challengeId,
+        occurredAt: result.report.reconciledAt,
+        metadata: { bindingHandoffId: handoff.id, consumerConfirmed: true }
+      }).catch(err => console.warn('[CommercialEvent Error]', err));
       await commercialStore.projectMarketplaceEvent({
         eventType: 'VERIFIED_BOUND_OUTCOME',
         sourceEntityType: 'RECONCILIATION_REPORT',
@@ -2477,6 +2469,11 @@ app.post('/api/commercial/agreements/enroll', async (req, res) => {
   try {
     const orgId = await getAuthenticatedProviderOrgId(req);
     const { planId, planCode, planVersionId, customTerms, enforcementPolicy } = req.body;
+    const suppliedRates = customTerms?.rates && Object.keys(customTerms.rates).length > 0;
+    const suppliedUnitPrice = customTerms && Object.keys(customTerms).some(key => /(?:rate|price).*cents|unitpricecents/i.test(key));
+    if (suppliedRates || suppliedUnitPrice) {
+      return res.status(403).json({ error: 'Provider-supplied commercial pricing terms are not permitted.' });
+    }
 
     let targetPlanId = planId;
     if (!targetPlanId && planCode) {

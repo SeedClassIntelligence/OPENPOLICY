@@ -1446,6 +1446,7 @@ export interface CommercialEvent {
 export type RatingDisposition =
   | 'BILLABLE'
   | 'INCLUDED_IN_PLAN'
+  | 'NOT_BILLABLE'
   | 'NOT_RATED'
   | 'EXEMPT'
   | 'PREVIOUSLY_RATED';

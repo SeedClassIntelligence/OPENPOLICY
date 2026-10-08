@@ -21,6 +21,7 @@ import path from 'path';
 import { PGlite } from '@electric-sql/pglite';
 import { PostgresStore, postgresStore } from '../src/server/db/postgresStore';
 import { db } from '../src/server/db';
+import { addTestOffer } from './lib/testOfferFixture';
 import { app, synchronizeFixturePersistence } from '../server';
 import { runComparisonEngineTestSuite } from '../src/domain/comparisonEngine.test';
 import { runEligibilityEngineTestSuite } from '../src/domain/eligibilityEngine.test';
@@ -287,7 +288,7 @@ async function runPM4AcceptanceValidation() {
       createdAt: new Date().toISOString()
     };
     db.createChallenge(testChal);
-    db.seedCompetitorOffers(testChalId);
+    addTestOffer(db, testChalId);
     await synchronizeFixturePersistence();
 
     const offers = db.getOffers(testChalId);

@@ -92,6 +92,8 @@ export function runCommercialEconomicsTestSuite(): {
       billingInterval: 'MONTHLY',
       recurringFeeCents: 49900, // $499.00
       termsSnapshot: {
+        compensationDeterminationApproved: true,
+        determinationReference: 'TEST-DETERMINATION',
         includedProducerSeats: 5,
         includedJurisdictions: 3,
         includedVpoCapacity: 100,
@@ -132,6 +134,8 @@ export function runCommercialEconomicsTestSuite(): {
       billingInterval: 'MONTHLY',
       recurringFeeCents: 49900,
       termsSnapshot: {
+        compensationDeterminationApproved: true,
+        determinationReference: 'TEST-DETERMINATION',
         includedVpoCapacity: 50,
         includedEngagementCapacity: 20
       }
@@ -196,6 +200,8 @@ export function runCommercialEconomicsTestSuite(): {
       billingInterval: 'MONTHLY',
       recurringFeeCents: 49900,
       termsSnapshot: {
+        compensationDeterminationApproved: true,
+        determinationReference: 'TEST-DETERMINATION',
         includedAuthorizedConnections: 10,
         authorizedConnectionUnitPriceCents: 2000 // $20.00
       }
@@ -538,6 +544,8 @@ export function runCommercialEconomicsTestSuite(): {
       version: 1,
       recurringFeeCents: 0,
       termsSnapshot: {
+        compensationDeterminationApproved: true,
+        determinationReference: 'TEST-DETERMINATION',
         includedVpoCapacity: 75,
         includedEngagementCapacity: 15,
         capacityEnforcementPolicy: 'HARD_BLOCK'

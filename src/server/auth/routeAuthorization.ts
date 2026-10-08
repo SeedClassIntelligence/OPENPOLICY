@@ -2,7 +2,7 @@ import type { NextFunction, Request, Response } from 'express';
 import { configuredAuthMode, type IdentityRole } from './requestIdentity';
 import type { RequestIdentity } from './requestIdentity';
 
-type RouteRule = { methods?: string[]; pattern: RegExp; roles: IdentityRole[] | 'PUBLIC' | 'DECISION_REQUIRED' | 'FIXTURE_ONLY' };
+type RouteRule = { methods?: string[]; pattern: RegExp; roles: IdentityRole[] | 'PUBLIC' | 'DECISION_REQUIRED' };
 
 const rules: RouteRule[] = [
   { pattern: /^\/health$/, roles: 'PUBLIC' },
@@ -17,7 +17,6 @@ const rules: RouteRule[] = [
   { pattern: /^\/marketplace\/users$/, roles: ['ADMIN'] },
   { pattern: /^\/marketplace\/providers$/, roles: ['CONSUMER', 'PROVIDER', 'ADMIN'] },
   { pattern: /^\/notifications(?:\/[^/]+\/read)?$/, roles: ['CONSUMER', 'PROVIDER', 'ADMIN'] },
-  { methods: ['POST'], pattern: /^\/marketplace\/competition\/[^/]+\/seed-competitors$/, roles: 'FIXTURE_ONLY' },
 
   { pattern: /^\/(?:tests\/run|metrics|jurisdiction-evaluations|audit-events|reset)$/, roles: ['ADMIN'] },
   { methods: ['POST'], pattern: /^\/(?:documents\/upload-sample|policies\/[^/]+\/verify|baselines\/create)$/, roles: ['ADMIN'] },
@@ -105,11 +104,6 @@ export function enforceApiAuthorization(req: Request, res: Response, next: NextF
     res.status(403).json({ error: 'Forbidden', message: 'Authorization policy for this route requires an explicit architecture decision.' });
     return;
   }
-  if (rule?.roles === 'FIXTURE_ONLY') {
-    res.status(404).json({ error: 'Not Found' });
-    return;
-  }
-
   const identity = req.openPolicyIdentity;
   if (!identity) {
     res.status(401).json({ error: 'Unauthorized', message: 'Verified identity required.' });

@@ -232,6 +232,8 @@ async function runCE4ValidationSuite() {
       recurringFeeCents: 0,
       currency: 'USD',
       termsSnapshot: {
+        compensationDeterminationApproved: true,
+        determinationReference: 'TEST-DETERMINATION',
         rates: {
           BOUND_ACQUISITION_CENTS: 3000
         }
@@ -247,6 +249,8 @@ async function runCE4ValidationSuite() {
       recurringFeeCents: 0,
       currency: 'USD',
       termsSnapshot: {
+        compensationDeterminationApproved: true,
+        determinationReference: 'TEST-DETERMINATION',
         rates: {
           BOUND_ACQUISITION_CENTS: 7500
         }
@@ -294,6 +298,8 @@ async function runCE4ValidationSuite() {
       recurringFeeCents: 0,
       currency: 'USD',
       termsSnapshot: {
+        compensationDeterminationApproved: true,
+        determinationReference: 'TEST-DETERMINATION',
         includedAuthorizedConnections: 2,
         includedEngagementCapacity: 5,
         rates: {
@@ -402,6 +408,8 @@ async function runCE4ValidationSuite() {
       recurringFeeCents: 0,
       currency: 'USD',
       termsSnapshot: {
+        compensationDeterminationApproved: true,
+        determinationReference: 'TEST-DETERMINATION',
         rates: {
           BOUND_ACQUISITION_CENTS: 0
         }

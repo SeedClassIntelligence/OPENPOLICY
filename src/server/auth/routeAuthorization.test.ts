@@ -78,13 +78,12 @@ test('real policy-document ingestion is consumer-only and never public or provid
   assert.equal(invoke('GET', '/policy-documents/DOC-1', consumer).next, true);
 });
 
-test('founder-approved directory, notification, and fixture-only route policies are enforced', () => {
+test('founder-approved directory and notification route policies are enforced', () => {
   assert.equal(invoke('GET', '/marketplace/users', provider).status, 403);
   assert.equal(invoke('GET', '/marketplace/users', admin).next, true);
   assert.equal(invoke('GET', '/marketplace/providers', consumer).next, true);
   assert.equal(invoke('GET', '/marketplace/providers', provider).next, true);
   assert.equal(invoke('GET', '/notifications', consumer).next, true);
-  assert.equal(invoke('POST', '/marketplace/competition/c/seed-competitors', admin).status, 404);
 });
 
 test('fixture bypass requires an explicit process-only switch and is forbidden by production auth mode', () => {

@@ -607,25 +607,6 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
     }
   };
 
-  // Seed Competing Offers (Apex Insurance - Progressive) for testing competition
-  const handleSeedCompetitors = async () => {
-    if (!workspaceData?.challenge?.id) return;
-    setActionLoading('seed-competitors');
-    try {
-      const res = await apiFetch(`/api/marketplace/competition/${workspaceData.challenge.id}/seed-competitors`, {
-        method: 'POST'
-      });
-      if (res.ok) {
-        await loadWorkspace(workspaceData.challenge.id);
-        await loadMarketplaceData();
-      }
-    } catch (e) {
-      console.error('Failed seeding competitors:', e);
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
   // Open Revision Modal with Multi-Dimensional Coverage Defaults
   const handleOpenReviseModal = (offer: Offer) => {
     setRevisingOffer(offer);
@@ -1745,17 +1726,6 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                     >
                       <X className="h-3.5 w-3.5" />
                       Withdraw
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={handleSeedCompetitors}
-                      disabled={actionLoading === 'seed-competitors'}
-                      className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors"
-                      title="Add a demonstration offer for local testing"
-                    >
-                      <Zap className="h-3.5 w-3.5 text-amber-600" />
-                      {actionLoading === 'seed-competitors' ? 'Simulating...' : 'Add Demo Offer'}
                     </button>
 
                     {(workspaceData.competition.currentRound === 'ROUND_1_OPEN' || workspaceData.competition.currentRound === 'OPEN') && (

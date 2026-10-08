@@ -2200,8 +2200,20 @@ export class CommercialStore {
     customTerms?: Record<string, any>;
     enforcementPolicy?: CapacityEnforcementPolicy;
     now?: string;
+    actorRole?: 'ADMIN' | 'PROVIDER';
   }): Promise<{ agreement: CommercialAgreement; entitlements: ProviderEntitlement[]; planVersion: CommercialPlanVersion }> {
-    const { providerOrgId, customTerms, enforcementPolicy, now = new Date().toISOString() } = params;
+    const { providerOrgId, customTerms, enforcementPolicy, now = new Date().toISOString(), actorRole = 'PROVIDER' } = params;
+    const rates = (customTerms?.rates || {}) as Record<string, unknown>;
+    const pricedOutcomeTerms = [rates.BOUND_ACQUISITION_CENTS, rates.VERIFIED_BOUND_OUTCOME_CENTS,
+      rates.AUTHORIZED_CONNECTION_CENTS, customTerms?.boundAcquisitionUnitPriceCents,
+      customTerms?.authorizedConnectionUnitPriceCents].some(value => typeof value === 'number' && value > 0);
+    if (customTerms && actorRole !== 'ADMIN' && (pricedOutcomeTerms || 'rates' in customTerms)) {
+      throw Object.assign(new Error('Only an administrator may attach priced commercial terms.'), { statusCode: 403 });
+    }
+    if (pricedOutcomeTerms && !(customTerms?.compensationDeterminationApproved === true &&
+      typeof customTerms?.determinationReference === 'string' && customTerms.determinationReference.trim())) {
+      throw new Error('COMPENSATION_DETERMINATION_PENDING');
+    }
     let planId = params.planId;
     const plan = (await this.getCommercialPlanById(planId)) || (await this.getCommercialPlanByCode(planId));
     if (plan) {

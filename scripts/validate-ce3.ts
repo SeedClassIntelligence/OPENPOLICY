@@ -382,8 +382,8 @@ export async function runCE3ValidationSuite() {
     const preBound = boundsBefore.find(e => e.challengeId === createdChal.id);
     assert(!preBound, 'Handoff creation and disclosure produce ZERO BOUND_ACQUISITION events');
 
-    // 1.11 Binding Confirmation (BOUND) -> exactly 1 BOUND_ACQUISITION
-    console.log('\n[1.11] Testing BOUND_ACQUISITION on binding confirmation...');
+    // 1.11 Provider-set BOUND alone -> zero BOUND_ACQUISITION
+    console.log('\n[1.11] Testing provider-set BOUND does not create billable acquisition evidence...');
     const appSubmitRes = await request(
       server,
       'POST',
@@ -413,8 +413,7 @@ export async function runCE3ValidationSuite() {
       eventType: 'BOUND_ACQUISITION'
     });
     const postBound = boundsAfter.find(e => e.challengeId === createdChal.id);
-    assert(!!postBound, 'BOUND_ACQUISITION recorded exactly when handoff reaches BOUND');
-    assert(postBound?.sourceEntityType === 'BINDING_HANDOFF', 'Source entity is BINDING_HANDOFF');
+    assert(!postBound, 'Provider-set BOUND produces ZERO BOUND_ACQUISITION events');
 
     // 1.12 Ingestion with REVIEW_REQUIRED -> ZERO VERIFIED_BOUND_OUTCOME
     console.log('\n[1.12] Testing review-required reconciliation produces ZERO VERIFIED_BOUND_OUTCOME...');
@@ -473,6 +472,13 @@ export async function runCE3ValidationSuite() {
     const postVerified = verifiedAfter.find(e => e.challengeId === createdChal.id);
     assert(!!postVerified, 'VERIFIED_BOUND_OUTCOME recorded when variance is resolved and accepted');
     assert(postVerified?.sourceEntityType === 'RECONCILIATION_REPORT', 'Source entity is RECONCILIATION_REPORT');
+    const confirmedBounds = await commercialStore.getCommercialEvents({
+      providerOrganizationId: testOrgId,
+      eventType: 'BOUND_ACQUISITION'
+    });
+    const confirmedBound = confirmedBounds.find(e => e.challengeId === createdChal.id);
+    assert(!!confirmedBound, 'Consumer-confirmed issued-policy variance records BOUND_ACQUISITION');
+    assert(confirmedBound?.sourceEntityType === 'RECONCILIATION_REPORT', 'Bound evidence is the reconciliation report');
 
     // 1.14 Baseline Activation -> exactly 1 BASELINE_ACTIVATED
     console.log('\n[1.14] Testing BASELINE_ACTIVATED on vault activation...');

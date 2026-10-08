@@ -563,6 +563,19 @@ export function rateCommercialEvent(params: {
   const snapshot = planVersion.termsSnapshot || {};
   const rates = (snapshot.rates as Record<string, number | undefined>) || {};
 
+  const determinationApproved = snapshot.compensationDeterminationApproved === true &&
+    typeof snapshot.determinationReference === 'string' && snapshot.determinationReference.trim().length > 0;
+  if (['AUTHORIZED_CONNECTION', 'BOUND_ACQUISITION', 'VERIFIED_BOUND_OUTCOME'].includes(event.eventType) && !determinationApproved) {
+    return {
+      disposition: 'NOT_BILLABLE', billable: false,
+      commercialEventId: event.id, providerOrganizationId: event.providerOrganizationId,
+      commercialAgreementId: agreement.id, commercialPlanVersionId: planVersion.id,
+      chargeCode: `${event.eventType}_DETERMINATION_PENDING`, quantity: 1,
+      unitPriceCents: 0, amountCents: 0, currency: 'USD',
+      reason: 'COMPENSATION_DETERMINATION_PENDING', ratedAt
+    };
+  }
+
   switch (event.eventType) {
     case 'AUTHORIZED_CONNECTION': {
       const included = snapshot.includedAuthorizedConnections ?? ((snapshot.rates as any)?.AUTHORIZED_CONNECTION_INCLUDED as number) ?? 0;
