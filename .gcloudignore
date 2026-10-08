@@ -4,6 +4,7 @@ bun.lock
 
 # Historical artifacts are not runtime inputs.
 archive/
+research/
 
 # Local configuration and generated state must never be uploaded.
 .env
