@@ -368,8 +368,8 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
   const [activeBaseline, setActiveBaseline] = useState<CoverageBaseline | null>(challenge ? challenge.baseline : null);
   const [requirements, setRequirements] = useState<ConsumerRequirements>(challenge ? challenge.requirements : {
     id: 'REQ-1',
-    ruleSummary: 'Beat my current price without reducing my protection.',
-    minAnnualSavings: 150,
+    ruleSummary: 'Offers should cost less and not reduce my coverage.',
+    minAnnualSavings: 100,
     maxCollisionDeductible: 500,
     maxCompDeductible: 250,
     mustIncludeRental: true,
@@ -1369,7 +1369,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
               “{requirements.ruleSummary}”
             </p>
             <p className="text-xs text-slate-400">
-              Challengers must beat your current price of ${activeBaseline.baselineAnnualPremium.toLocaleString()}/year without reducing liability limits or stripping essential coverages.
+              Offers should cost less than your current price of ${activeBaseline.baselineAnnualPremium.toLocaleString()}/year and should not reduce liability limits or remove required coverage.
             </p>
           </div>
 
@@ -1381,7 +1381,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
               </h4>
               <div>
                 <div className="flex items-center justify-between text-xs mb-1">
-                  <span className="text-slate-600">Minimum Annual Savings Required:</span>
+                  <span className="text-slate-600">Minimum annual price difference (default $100 per year; you can change this):</span>
                   <span className="font-bold text-emerald-700">${requirements.minAnnualSavings} / year</span>
                 </div>
                 <input
@@ -1875,6 +1875,10 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
               )}
             </div>
           )}
+
+          <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
+            Showing {activeComparisons.length} {activeComparisons.length === 1 ? 'offer' : 'offers'} in the order received. Offers that do not meet your requirements remain visible and are clearly marked. Change your requirements above.
+          </div>
 
           {/* Section 25 Signature Side-by-Side Board */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

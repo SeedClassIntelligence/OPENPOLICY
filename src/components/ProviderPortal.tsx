@@ -2808,9 +2808,9 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
               <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-100">
                 <span className="text-slate-400 block font-medium">Rating Invariant</span>
                 <strong className="text-slate-800 text-sm font-semibold block mt-1">
-                  Flat-Fee Neutrality
+                  Provider Fees
                 </strong>
-                <span className="text-slate-500 text-[10px]">Zero % of premium • NRS 683A compliant</span>
+                <span className="text-slate-500 text-[10px]">Fees as set in your provider agreement</span>
               </div>
             </div>
 

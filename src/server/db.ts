@@ -429,8 +429,8 @@ export class PolicyChallengeDatabase {
     const reqId = 'REQ-NV-49281';
     const requirements: ConsumerRequirements = {
       id: reqId,
-      ruleSummary: 'Beat my current price without reducing my protection.',
-      minAnnualSavings: 150,
+      ruleSummary: 'Offers should cost less and not reduce my coverage.',
+      minAnnualSavings: 100,
       maxCollisionDeductible: 500,
       maxCompDeductible: 250,
       mustIncludeRental: true,
