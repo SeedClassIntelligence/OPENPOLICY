@@ -19,8 +19,8 @@ import { evaluateProviderEligibility, type EligibilityEvaluation } from './src/d
 import { evaluateOfferQualification, createOfferVersionSnapshot } from './src/domain/qualificationEngine';
 import {
   evaluateCompetitionRoundState,
-  calculateProviderMarketSignals,
-  advanceCompetitionRound,
+  getProviderOfferStatus,
+  closeSubmissionWindow,
   checkRoundDeadlineStatus,
   filterCompetitionActivityFeedForProvider,
   validateOfferRevision
@@ -723,12 +723,10 @@ app.post('/api/challenges/create', async (req, res) => {
     id: `COMP-${challengeId.replace('CHAL-', '')}`,
     challengeId,
     status: 'OPEN',
-    currentRound: 'ROUND_1_OPEN',
+    currentRound: 'OPEN',
     openedAt: openingTimestamp,
     closesAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
-    participantCount: 0,
-    improvementRoundEnabled: true,
-    finalRoundEnabled: true
+    participantCount: 0
   };
   const evaluations: EligibilityEvaluation[] = [];
   const createdInvitations: ChallengeInvitation[] = [];
@@ -1020,10 +1018,10 @@ app.post('/api/vault/upload', async (req, res) => {
 });
 
 // ==========================================
-// 10. Competition Engine: Final Round & Incumbent Defense
+// 10. Retired legacy simulation routes
 // ==========================================
 app.post('/api/challenges/:id/final-round', async (req, res) => {
-  res.status(410).json({ error: 'Legacy final-round route retired; use the canonical competition advance-round transition.' });
+  res.status(410).json({ error: 'Legacy final-round route retired; Open Policy now uses one submission window.' });
 });
 
 app.post('/api/challenges/:id/incumbent-defense', async (req, res) => {
@@ -1322,7 +1320,7 @@ app.post('/api/challenges/:id/compete', async (req, res) => {
 });
 
 // ==========================================
-// PM-2: Competition Engine & Multi-Round Lifecycle API
+// PM-2 / PR-2: Competition Engine & Single Submission Window API
 // ==========================================
 app.get('/api/marketplace/competition/:challengeId/status', async (req, res) => {
   try {
@@ -1336,33 +1334,40 @@ app.get('/api/marketplace/competition/:challengeId/status', async (req, res) => 
   }
 });
 
-app.get('/api/marketplace/competition/:challengeId/signals', async (req, res) => {
+app.get('/api/marketplace/competition/:challengeId/signals', (_req, res) => {
+  res.status(410).json({ error: 'Provider market signals were retired.' });
+});
+
+app.get('/api/marketplace/competition/:challengeId/offer-status', async (req, res) => {
   try {
     const orgId = await getAuthenticatedProviderOrgId(req);
-    const [challenge,competition,offers,invitations,participations]=await Promise.all([postgresStore.getChallenge(req.params.challengeId),postgresStore.getCompetitionForChallenge(req.params.challengeId),postgresStore.getOffers(req.params.challengeId),postgresStore.getAllInvitations(),postgresStore.getAllParticipations()]);
+    const [challenge,competition,offers,participations]=await Promise.all([postgresStore.getChallenge(req.params.challengeId),postgresStore.getCompetitionForChallenge(req.params.challengeId),postgresStore.getOffers(req.params.challengeId),postgresStore.getAllParticipations()]);
     if(!challenge||!competition)return res.status(404).json({error:'Challenge or competition not found'});
     if(!participations.some(p=>p.challengeId===challenge.id&&p.providerOrganizationId===orgId&&p.status!=='WITHDRAWN'))return res.status(403).json({error:'Access Denied: Provider is not an authorized participant'});
-    const signals=calculateProviderMarketSignals(competition,orgId,offers,challenge.baseline,invitations.filter(i=>i.challengeId===challenge.id).length);
-    res.json(signals);
+    res.json(getProviderOfferStatus(competition,orgId,offers,challenge.baseline));
   } catch (e: any) {
     res.status(e.statusCode || 400).json({ error: e.message });
   }
 });
 
-app.post('/api/marketplace/competition/:challengeId/advance-round', async (req, res) => {
-  const { targetRound, reason, customDurationHours } = req.body;
+app.post('/api/marketplace/competition/:challengeId/advance-round', (_req, res) => {
+  res.status(410).json({ error: 'Rounds were retired.' });
+});
+
+app.post('/api/marketplace/competition/:challengeId/begin-review', async (req, res) => {
   try {
+    const consumerId = getAuthenticatedConsumerId(req);
+    await authorizeChallengeResource(req, req.params.challengeId);
     const challenge=await postgresStore.getChallenge(req.params.challengeId);const competition=await postgresStore.getCompetitionForChallenge(req.params.challengeId);
     if(!challenge||!competition)return res.status(404).json({error:'Challenge or competition not found'});
-    const triggerReason=reason||`Advanced to ${targetRound} by operator`;
-    const candidate=advanceCompetitionRound(competition,targetRound,triggerReason,customDurationHours);
-    const updatedChallenge={...challenge,status:(targetRound==='BEST_AND_FINAL'||targetRound==='ROUND_3_BAFO')?'FINAL_ROUND':(targetRound==='CONSUMER_REVIEW'||targetRound==='CLOSED_PENDING_SELECTION')?'CONSUMER_REVIEW':'OPEN',isFinalRound:targetRound==='BEST_AND_FINAL'||targetRound==='ROUND_3_BAFO'} as Challenge;
+    const candidate=closeSubmissionWindow(competition,'CONSUMER_BEGAN_REVIEW');
+    const updatedChallenge={...challenge,status:'CONSUMER_REVIEW'} as Challenge;
     const timestamp=new Date().toISOString();
-    const updatedComp=await postgresStore.commitCompetitionAdvance({competition:candidate,challenge:updatedChallenge,actorId:req.openPolicyIdentity?.uid||'operator',activity:{id:`ACT-ROUND-${competition.id}-${candidate.currentRound}`,competitionId:competition.id,challengeId:challenge.id,timestamp,type:'ROUND_ADVANCED',actorRole:'ADMIN',summary:triggerReason,round:candidate.currentRound}});
+    const updatedComp=await postgresStore.commitCompetitionAdvance({competition:candidate,challenge:updatedChallenge,actorId:consumerId,activity:{id:`ACT-REVIEW-${competition.id}-${timestamp}`,competitionId:competition.id,challengeId:challenge.id,timestamp,type:'CONSUMER_REVIEW_ENTERED',actorRole:'CONSUMER',summary:'Policyholder began reviewing submitted offers',round:candidate.currentRound}});
     const summary=evaluateCompetitionRoundState(updatedComp,await postgresStore.getOffers(challenge.id),updatedChallenge.baseline);
     res.json({ success: true, competition: updatedComp, summary });
   } catch (e: any) {
-    res.status(400).json({ error: e.message });
+    res.status(e.statusCode || 400).json({ error: e.message });
   }
 });
 
@@ -1435,6 +1440,7 @@ app.post('/api/marketplace/competition/:challengeId/revise-offer/:offerId', asyn
     if(!originalOffer||!competition||!challenge)return res.status(404).json({error:'Offer, competition, or challenge not found'});
     if(originalOffer.challengeId!==challenge.id)return res.status(400).json({error:'Offer does not belong to challenge'});
     if(originalOffer.providerId!==orgId)return res.status(403).json({error:'Provider cannot revise another organization offer'});
+    if(Date.now()>=new Date(competition.closesAt).getTime())return res.status(400).json({error:'Offer updates are not permitted after the submission window closes.'});
     const validation=validateOfferRevision(originalOffer,req.body.revisedData,competition.currentRound);
     if(!validation.valid)return res.status(400).json({error:validation.errors.join('; ')});
     const version=(originalOffer.version||1)+1;const submittedAt=new Date().toISOString();
@@ -1443,7 +1449,7 @@ app.post('/api/marketplace/competition/:challengeId/revise-offer/:offerId', asyn
     const qualification=evaluateOfferQualification(revisedOffer,challenge.baseline,provider,relationships);
     revisedOffer.isQualified=qualification.isQualified;revisedOffer.qualifiedAt=qualification.evaluatedAt;revisedOffer.qualificationReasons=qualification.qualificationReasons;revisedOffer.disqualificationReasons=qualification.disqualificationReasons;
     const versionSnapshot=createOfferVersionSnapshot(revisedOffer,req.body.revisedData.revisionReason||`Revised during ${competition.currentRound}`);versionSnapshot.offerId=originalOffer.id;versionSnapshot.versionNumber=version;
-    const revisedOfferCommitted=await postgresStore.commitOfferRevision({original:originalOffer,revised:revisedOffer,version:versionSnapshot,actorId:orgId,activity:{id:`ACT-REV-${originalOffer.id}-v${version}`,competitionId:competition.id,challengeId:challenge.id,timestamp:submittedAt,type:'OFFER_REVISED',actorRole:'PROVIDER',providerOrganizationId:orgId,summary:`Provider revised ${revisedOffer.carrier} offer`,round:competition.currentRound,metadata:{offerId:revisedOffer.id,version}}});
+    const revisedOfferCommitted=await postgresStore.commitOfferRevision({original:originalOffer,revised:revisedOffer,version:versionSnapshot,actorId:orgId,activity:{id:`ACT-REV-${originalOffer.id}-v${version}`,competitionId:competition.id,challengeId:challenge.id,timestamp:submittedAt,type:'OFFER_REVISED',actorRole:'PROVIDER',providerOrganizationId:orgId,summary:`Provider updated its ${revisedOffer.carrier} offer`,round:competition.currentRound,metadata:{offerId:revisedOffer.id,version}}});
 
     // PR-0A shadow: re-evaluate jurisdiction coverage requirements for the revision (D4).
     await inShadow('offer-qualification', () => shadowOfferQualification(revisedOfferCommitted, challenge));
@@ -3210,12 +3216,10 @@ export async function synchronizeFixturePersistence(): Promise<void> {
       id: reference.competitionId,
       challengeId: reference.challengeId,
       status: 'OPEN',
-      currentRound: 'ROUND_1_OPEN',
+      currentRound: 'OPEN',
       openedAt,
       closesAt: new Date(new Date(openedAt).getTime() + 48 * 3600 * 1000).toISOString(),
-      participantCount: 1,
-      improvementRoundEnabled: true,
-      finalRoundEnabled: true
+      participantCount: 1
     });
     competitionIds.add(reference.competitionId);
   }

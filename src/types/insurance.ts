@@ -238,6 +238,7 @@ export type ChallengeStatus =
   | 'READY'
   | 'OPEN'
   | 'OFFERS_RECEIVED'
+  /** @deprecated Historical state only. */
   | 'FINAL_ROUND'
   | 'CONSUMER_REVIEW'
   | 'INCUMBENT_DEFENDED'
@@ -261,6 +262,7 @@ export interface Challenge {
   status: ChallengeStatus;
   disclosureLevel: 'MARKETPLACE_ANONYMOUS' | 'RATING_ELIGIBLE' | 'SELECTION_REVEALED';
   offersCount: number;
+  /** @deprecated Historical evidence only. */
   isFinalRound?: boolean;
   incumbentDefended?: boolean;
   // PR-0A (additive): regulatory anchoring for historical reconstruction.
@@ -270,16 +272,13 @@ export interface Challenge {
   regulatoryEvaluationDate?: string;
 }
 
-export type CompetitionRound = 
-  | 'OPEN'
-  | 'ROUND_1_OPEN' 
-  | 'IMPROVEMENT'
-  | 'ROUND_2_IMPROVEMENT' 
-  | 'BEST_AND_FINAL'
-  | 'ROUND_3_BAFO' 
-  | 'CLOSED'
-  | 'CONSUMER_REVIEW'
-  | 'CLOSED_PENDING_SELECTION';
+export type CompetitionRound = 'OPEN' | 'CLOSED' | 'CONSUMER_REVIEW' | 'CLOSED_PENDING_SELECTION'
+  | LegacyCompetitionRound;
+
+/** @deprecated Historical records only; migrations collapse these into live window states. */
+export type LegacyCompetitionRound =
+  | 'ROUND_1_OPEN' | 'IMPROVEMENT' | 'ROUND_2_IMPROVEMENT'
+  | 'BEST_AND_FINAL' | 'ROUND_3_BAFO';
 
 export interface Offer {
   id: string;
@@ -302,7 +301,7 @@ export interface Offer {
   discrepancyDetails?: string[];
   status: 'PENDING_VALIDATION' | 'VALIDATED' | 'DISCREPANCY_FLAGGED' | 'SELECTED' | 'REJECTED' | 'WITHDRAWN';
   // PM-2 Multi-Carrier & Multi-Round extensions
-  round?: CompetitionRound;
+  round?: CompetitionRound | LegacyCompetitionRound;
   version?: number;
   previousOfferId?: string;
   revisionReason?: string;
@@ -863,7 +862,9 @@ export type CompetitionStatus =
   | 'MATCHING'
   | 'INVITING'
   | 'OPEN'
+  /** @deprecated Historical state only. */
   | 'IMPROVEMENT'
+  /** @deprecated Historical state only. */
   | 'BEST_AND_FINAL'
   | 'CLOSED'
   | 'CONSUMER_REVIEW'
@@ -881,34 +882,33 @@ export interface Competition {
   openedAt: string;
   closesAt: string; // Default: 48 hours after opening
   participantCount: number;
-  improvementRoundEnabled: boolean;
-  finalRoundEnabled: boolean;
+  /** @deprecated Historical configuration only. */
+  improvementRoundEnabled?: boolean;
+  /** @deprecated Historical configuration only. */
+  finalRoundEnabled?: boolean;
   completedAt?: string;
   cancellationReason?: string;
-  // PM-2 & PM-3 Lifecycle Extensions
-  roundDeadlines?: { [key in CompetitionRound]?: string };
-  roundDurationsHours?: RoundDeadlineConfig;
-  roundOffersCount?: { [key in CompetitionRound]?: number };
-  roundHistory?: Array<{
-    round: CompetitionRound;
+  /** @deprecated Immutable historical evidence only. */
+  legacyRoundHistory?: Array<{
+    round: CompetitionRound | LegacyCompetitionRound;
     enteredAt: string;
     completedAt?: string;
     reason?: string;
   }>;
+  /** @deprecated Historical evidence only. */
+  roundDeadlines?: Partial<Record<CompetitionRound, string>>;
+  /** @deprecated Historical evidence only. */
+  roundDurationsHours?: RoundDeadlineConfig;
+  /** @deprecated Historical evidence only. */
+  roundOffersCount?: Partial<Record<CompetitionRound, number>>;
+  /** @deprecated Historical evidence only. */
+  roundHistory?: Array<{ round: CompetitionRound; enteredAt: string; completedAt?: string; reason?: string }>;
+  /** @deprecated Historical evidence only. */
   isBafoTriggered?: boolean;
 }
 
-export interface RoundDeadlineConfig {
-  [key: string]: number | undefined;
-  OPEN?: number;
-  ROUND_1_OPEN?: number;
-  IMPROVEMENT?: number;
-  ROUND_2_IMPROVEMENT?: number;
-  BEST_AND_FINAL?: number;
-  ROUND_3_BAFO?: number;
-  CLOSED?: number;
-  CONSUMER_REVIEW?: number;
-}
+/** @deprecated Historical round configuration only. */
+export interface RoundDeadlineConfig { [key: string]: number | undefined }
 
 export type CompetitionActivityType = 
   | 'COMPETITION_OPENED'
@@ -935,7 +935,7 @@ export interface CompetitionActivityEvent {
   actorName?: string;
   providerOrganizationId?: string;
   summary: string;
-  round: CompetitionRound;
+  round: CompetitionRound | LegacyCompetitionRound;
   metadata?: Record<string, any>;
 }
 
@@ -945,63 +945,25 @@ export interface RoundDeadlineStatus {
   isExpired: boolean;
   remainingSeconds: number;
   formattedRemaining: string;
-  nextRoundSuggested?: CompetitionRound;
 }
 
-// Canonical Sealed Provider Telemetry (PM-1 Mandatory Invariant)
-export interface ProviderOfferStanding {
+export interface ProviderOwnOfferStatus {
   offerId: string;
-  carrier: string;
-  tierLabel?: string;
+  version: number;
   annualPremium: number;
-  differenceFromCurrentPolicy: number;
-  savingsPercentage: number;
-  status: 'VALIDATED' | 'DISCREPANCY_FLAGGED';
-  classification: WholeOfferClassification;
-  meetsRequirements: boolean;
-  isVerified: boolean;
+  validationStatus: Offer['status'];
+  standard: OfferStandardResult;
   requiresAdditionalInfo: boolean;
-  canRevise: boolean;
 }
 
-export interface ProviderMarketSignal {
-  competitionId: string;
-  challengeId: string;
-  currentRound: CompetitionRound;
-  roundClosesAt: string;
-  roundTimeRemainingMs: number;
-  totalInvitedProviders: number;
-  totalParticipatingProviders: number;
-  totalSubmittedOffersInRound: number;
-  yourSubmittedOffersCount: number;
-  consumerRequestedImprovement: boolean;
-  statusMessage?: string;
-  yourOffers: ProviderOfferStanding[];
-  guidanceHint?: string;
-  nextRoundEligible: boolean;
-  // Legacy compatibility accessor (sealed to provider's own offer)
-  bestPosition?: {
-    offerId: string;
-    carrier: string;
-    annualSavings: number;
-    savingsPercentage: number;
-    guidanceHint: string;
-    meetsRequirements: boolean;
-    isVerified: boolean;
-  } | null;
-  allYourOffersSignals?: Array<{
-    offerId: string;
-    carrier: string;
-    tierLabel?: string;
-    annualPremium: number;
-    annualSavings: number;
-    savingsPercentage: number;
-    totalValidOffers: number;
-    status: 'VALIDATED' | 'DISCREPANCY_FLAGGED';
-    classification: WholeOfferClassification;
-    canRevise: boolean;
-  }>;
+export interface ProviderOfferStatus {
+  windowOpen: boolean;
+  windowClosesAt: string;
+  yourOffers: ProviderOwnOfferStatus[];
 }
+
+/** @deprecated Use ProviderOfferStatus. */
+export type ProviderMarketSignal = ProviderOfferStatus;
 
 /**
  * PM-2 Factual Offer Comparison (no platform-defined scoring or ranking).
@@ -1031,8 +993,6 @@ export interface CompetitionEvaluationSummary {
   maxAnnualSavings: number;
   averageAnnualSavings: number;
   advancementReadiness: {
-    canAdvanceToImprovement: boolean;
-    canAdvanceToBafo: boolean;
     canCloseForConsumerReview: boolean;
     reasons: string[];
   };
@@ -1178,7 +1138,7 @@ export interface OfferVersion {
   id: string;
   offerId: string;
   versionNumber: number;
-  round: CompetitionRound;
+  round: CompetitionRound | LegacyCompetitionRound;
   carrier: string;
   annualPremium: number;
   monthlyPremium: number;

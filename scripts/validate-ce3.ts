@@ -278,13 +278,8 @@ export async function runCE3ValidationSuite() {
     assert(!!initialProp, 'PROPOSITION_SUBMITTED event recorded in commercial ledger');
     assert(initialProp?.metadata?.versionNumber === 1, 'Metadata documents version 1 proposition');
 
-    // 1.5 Improvement Round Revision -> PROPOSITION_SUBMITTED
-    console.log('\n[1.5] Testing PROPOSITION_SUBMITTED on revised offer submission...');
-    // Advance competition to IMPROVEMENT
-    await request(server, 'POST', `/api/marketplace/competition/${createdChal.id}/advance-round`, {
-      targetRound: 'IMPROVEMENT',
-      reason: 'CE-3 improvement-round validation'
-    });
+    // 1.5 Provider-initiated update during the submission window -> PROPOSITION_SUBMITTED
+    console.log('\n[1.5] Testing PROPOSITION_SUBMITTED on provider-initiated offer update...');
 
     const reviseRes = await request(
       server,
@@ -296,19 +291,19 @@ export async function runCE3ValidationSuite() {
           annualPremium: 2350,
           monthlyPremium: 200,
           supportingQuoteDocName: 'Apex_Official_Quote_v2.pdf',
-          revisionReason: 'Lowered premium for improvement round competition'
+          revisionReason: 'PROVIDER_UPDATED_QUOTE'
         }
       },
       apexHeaders
     );
-    assert(reviseRes.status === 200, 'Offer revision succeeded in improvement round');
+    assert(reviseRes.status === 200, 'Provider-initiated offer update succeeded while the submission window was open');
 
     const allSubmittedProps = await commercialStore.getCommercialEvents({
       providerOrganizationId: testOrgId,
       eventType: 'PROPOSITION_SUBMITTED'
     });
     const revisionProp = allSubmittedProps.find(e => e.challengeId === createdChal.id && (e.metadata?.versionNumber as number) > 1);
-    assert(!!revisionProp, 'Separate PROPOSITION_SUBMITTED event recorded for improvement round version');
+    assert(!!revisionProp, 'Separate PROPOSITION_SUBMITTED event recorded for the updated immutable version');
 
     // 1.6 Consumer Selection -> CONSUMER_SELECTED
     console.log('\n[1.6] Testing CONSUMER_SELECTED on offer selection...');

@@ -1,7 +1,7 @@
 import { 
   evaluateCompetitionRoundState, 
-  calculateProviderMarketSignals, 
-  advanceCompetitionRound, 
+  getProviderOfferStatus,
+  closeSubmissionWindow,
   validateOfferRevision 
 } from './competitionEngine';
 import { 
@@ -124,7 +124,7 @@ export function runCompetitionEngineTestSuite(): { passed: number; failed: numbe
     id: 'comp_1',
     challengeId: 'chal_1',
     status: 'OPEN',
-    currentRound: 'ROUND_1_OPEN',
+    currentRound: 'OPEN',
     openedAt: '2026-09-20T12:00:00Z',
     closesAt: '2026-09-22T12:00:00Z',
     participantCount: 2,
@@ -271,8 +271,8 @@ export function runCompetitionEngineTestSuite(): { passed: number; failed: numbe
     'Independent broker can submit multiple distinct carrier appointments for the same challenge'
   );
 
-  // --- Test 4: Sealed Provider Market Signals (Zero Competitor Leakage) ---
-  const apexSignals = calculateProviderMarketSignals(
+  // --- Test 4: Provider Own-Offer Status (Zero Competitor Leakage) ---
+  const apexSignals = getProviderOfferStatus(
     baseCompetition,
     'org_apex',
     [offerTravelers, offerSafeco, offerProgressive],
@@ -285,12 +285,12 @@ export function runCompetitionEngineTestSuite(): { passed: number; failed: numbe
   const hasProhibitedRankWords = apexJson.includes('CURRENT_LEADER') || apexJson.includes('TOP_CONTENDER') || apexJson.includes('Rank #');
 
   test(
-    'Ensures zero competitor identity or price leakage in provider market signals',
+    'Ensures zero competitor identity or price leakage in provider offer status',
     'Anti-Collusion & Privacy Telemetry',
-    !leaksSierra && !leaksExactDollar && !hasProhibitedRankWords && apexSignals.totalParticipatingProviders >= 2,
+    !leaksSierra && !leaksExactDollar && !hasProhibitedRankWords && apexSignals.yourOffers.every(o => o.offerId !== offerTravelers.id && o.offerId !== offerSafeco.id),
     `leaksCompetitor=${leaksSierra}, leaksPrice=${leaksExactDollar}, hasProhibitedRank=${hasProhibitedRankWords}`,
     'leaksCompetitor=false, leaksPrice=false, hasProhibitedRank=false',
-    'Market signal gives Apex accurate sealed round telemetry without disclosing competitor carriers, quotes, or ranks'
+    'Status gives Apex only its own offer and window state without disclosing competitor carriers, quotes, or ranks'
   );
 
   // --- Test 5: Competition Round State & Advancement Readiness ---
@@ -301,49 +301,49 @@ export function runCompetitionEngineTestSuite(): { passed: number; failed: numbe
   );
 
   test(
-    'Calculates advancement readiness for Improvement Round when multiple quotes exist',
+    'Calculates readiness to close the submission window when documented offers exist',
     'Lifecycle State Machine',
-    stateRound1.advancementReadiness.canAdvanceToImprovement === true && stateRound1.validQualifiedOffersCount === 3,
-    `canAdvance=${stateRound1.advancementReadiness.canAdvanceToImprovement}, validCount=${stateRound1.advancementReadiness.canAdvanceToImprovement}`,
-    'canAdvance=true, validCount=true',
-    'Round 1 has 3 valid quotes, ready to open Improvement Round'
+    stateRound1.advancementReadiness.canCloseForConsumerReview === true && stateRound1.validQualifiedOffersCount === 3,
+    `canClose=${stateRound1.advancementReadiness.canCloseForConsumerReview}, validCount=${stateRound1.validQualifiedOffersCount}`,
+    'canClose=true, validCount=3',
+    'The open window has 3 valid offers available for policyholder review'
   );
 
   // --- Test 6: Round Advancement Execution ---
-  const advancedComp = advanceCompetitionRound(baseCompetition, 'ROUND_2_IMPROVEMENT', '3 qualified offers received');
+  const advancedComp = closeSubmissionWindow(baseCompetition, 'CONSUMER_BEGAN_REVIEW', new Date('2026-05-19T12:00:00Z'));
   test(
-    'Advances competition round to ROUND_2_IMPROVEMENT with auditable history',
+    'Closes the submission window for consumer review without an intermediate round',
     'Lifecycle State Machine',
-    advancedComp.currentRound === 'ROUND_2_IMPROVEMENT' && 
-    advancedComp.status === 'IMPROVEMENT' && 
-    (advancedComp.roundHistory?.length || 0) >= 2,
+    advancedComp.currentRound === 'CONSUMER_REVIEW' &&
+    advancedComp.status === 'CONSUMER_REVIEW' &&
+    advancedComp.closesAt === '2026-05-19T12:00:00.000Z',
     `currentRound=${advancedComp.currentRound}, status=${advancedComp.status}`,
-    'currentRound=ROUND_2_IMPROVEMENT, status=IMPROVEMENT',
-    'Records state transition, sets 24h deadline, and appends to roundHistory'
+    'currentRound=CONSUMER_REVIEW, status=CONSUMER_REVIEW',
+    'Records the policyholder transition directly from the open window to review'
   );
 
   // --- Test 7: Offer Revision Validation (Section 7 Improvement Semantics) ---
   // Attempt to submit revision outside allowed rounds (should fail)
   const invalidRoundRevision = validateOfferRevision(
     offerProgressive,
-    { annualPremium: 2850, carrier: 'Progressive Northern' },
-    'ROUND_1_OPEN'
+    { annualPremium: 2850, carrier: 'Progressive Northern', revisionReason: 'PROVIDER_UPDATED_QUOTE' },
+    'CONSUMER_REVIEW'
   );
 
   // Valid improvement round revision (supports multi-dimensional improvement or price sharpening)
   const validRevision = validateOfferRevision(
     offerProgressive,
-    { annualPremium: 2450, carrier: 'Progressive Northern' },
-    'ROUND_2_IMPROVEMENT'
+    { annualPremium: 2450, carrier: 'Progressive Northern', revisionReason: 'PROVIDER_UPDATED_QUOTE' },
+    'OPEN'
   );
 
   test(
-    'Enforces improvement round revision authorization per Section 7 semantics',
+    'Enforces submission-window offer-update authorization',
     'Revision Integrity Rules',
     invalidRoundRevision.valid === false && validRevision.valid === true,
     `invalidValid=${invalidRoundRevision.valid}, validValid=${validRevision.valid}`,
     'invalidValid=false, validValid=true',
-    'Revisions are restricted to Improvement or BAFO rounds and validate required carrier proposition data'
+    'Updates require an open submission window, a controlled reason, and required carrier data'
   );
 
   const passed = results.filter(r => r.passed).length;

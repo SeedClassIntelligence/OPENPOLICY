@@ -846,7 +846,18 @@ export class PostgresStore {
     id: string; challenge_id: string; status: string; current_round: string;
     participant_count: number; opened_at: string; closes_at: string; payload: string | null;
   }): Competition {
-    if (row.payload) return JSON.parse(row.payload) as Competition;
+    if (row.payload) {
+      const persisted = JSON.parse(row.payload) as Competition & { currentRound: string; status: string; roundHistory?: Competition['legacyRoundHistory'] };
+      const legacy = ['ROUND_1_OPEN', 'IMPROVEMENT', 'ROUND_2_IMPROVEMENT', 'BEST_AND_FINAL', 'ROUND_3_BAFO'].includes(persisted.currentRound);
+      if (!legacy) return persisted as Competition;
+      const windowOpen = new Date(persisted.closesAt).getTime() > Date.now();
+      return {
+        ...persisted,
+        currentRound: windowOpen ? 'OPEN' : 'CONSUMER_REVIEW',
+        status: windowOpen ? 'OPEN' : 'CONSUMER_REVIEW',
+        legacyRoundHistory: persisted.legacyRoundHistory || persisted.roundHistory
+      } as Competition;
+    }
     return {
       id: row.id,
       challengeId: row.challenge_id,
@@ -854,9 +865,7 @@ export class PostgresStore {
       currentRound: row.current_round as Competition['currentRound'],
       openedAt: row.opened_at,
       closesAt: row.closes_at,
-      participantCount: row.participant_count,
-      improvementRoundEnabled: true,
-      finalRoundEnabled: true
+      participantCount: row.participant_count
     };
   }
 
@@ -3667,12 +3676,10 @@ export class PostgresStore {
       id: 'COMP-NV-49281',
       challengeId: 'CHAL-NV-49281',
       status: 'OPEN',
-      currentRound: 'ROUND_1_OPEN',
+      currentRound: 'OPEN',
       openedAt: '2026-09-18T14:35:00Z',
       closesAt: '2026-09-20T14:35:00Z',
-      participantCount: 1,
-      improvementRoundEnabled: true,
-      finalRoundEnabled: true
+      participantCount: 1
     });
 
     await this.saveInvitation({

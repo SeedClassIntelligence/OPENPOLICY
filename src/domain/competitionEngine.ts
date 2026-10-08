@@ -3,19 +3,18 @@ import {
   CompetitionRound, 
   Offer, 
   CoverageBaseline, 
-  ProviderMarketSignal, 
-  ProviderOfferStanding,
+  ProviderOfferStatus,
   CompetitionEvaluationSummary,
   CompetitionActivityEvent,
   RoundDeadlineStatus
 } from '../types/insurance';
 import { compareOfferAgainstBaseline } from './comparisonEngine';
+import { evaluateOfferAgainstStandard } from './qualificationStandard';
 
 /**
  * Open Policy Competition Engine (PM-2)
  * 
- * Implements deterministic multi-round offer lifecycle and privacy protections.
- * market signals, and anti-collusion privacy protections.
+ * Implements the deterministic single submission-window lifecycle and privacy protections.
  * 
  * SECTION 40 COMPLIANCE NOTE:
  * Platform-defined whole-offer scoring, ranking, and winner labeling (scoreAndRankOffers,
@@ -59,22 +58,8 @@ export function evaluateCompetitionRoundState(
     ? Math.round(validQualified.reduce((sum, q) => sum + q.comparison.annualPremiumDifference, 0) / validQualified.length)
     : 0;
 
-  // Advancement rules:
-  // - Round 1 -> Round 2: Can advance if at least 2 qualified offers exist or Round 1 duration has elapsed
-  // - Round 2 -> Round 3 (BAFO): Can advance if competing offers are close (within 10% savings)
-  // - Close for Review: At least 1 qualified offer
   const reasons: string[] = [];
-  const canAdvanceToImprovement = competition.currentRound === 'ROUND_1_OPEN' && offers.length >= 2;
-  if (canAdvanceToImprovement) {
-    reasons.push(`${offers.length} initial offers received. Ready for Improvement Round.`);
-  }
-
-  const canAdvanceToBafo = competition.currentRound === 'ROUND_2_IMPROVEMENT' && validQualified.length >= 2;
-  if (canAdvanceToBafo) {
-    reasons.push(`Multiple qualified contenders in Improvement Round. Ready for Best and Final Offer (BAFO).`);
-  }
-
-  const canCloseForConsumerReview = validQualified.length >= 1;
+  const canCloseForConsumerReview = competition.status === 'OPEN';
   if (canCloseForConsumerReview) {
     reasons.push(`${validQualified.length} documented offer(s) are available for consumer review.`);
   } else {
@@ -99,8 +84,6 @@ export function evaluateCompetitionRoundState(
     maxAnnualSavings: maxSavings,
     averageAnnualSavings: averageSavings,
     advancementReadiness: {
-      canAdvanceToImprovement,
-      canAdvanceToBafo,
       canCloseForConsumerReview,
       reasons
     }
@@ -108,7 +91,7 @@ export function evaluateCompetitionRoundState(
 }
 
 /**
- * Calculates sealed relative market signals for a specific participating provider organization.
+ * Returns bounded status for a specific participating provider organization.
  * 
  * CRITICAL PRIVACY & ANTI-COLLUSION INVARIANT:
  * Zero competitor names, zero competitor prices, zero other agency identifiers are ever exposed.
@@ -120,184 +103,45 @@ export function evaluateCompetitionRoundState(
  * lowest competing premium, distance-to-leader, or competitor-derived scores.
  * Only factual marketplace-state telemetry and provider's own offer status are permitted.
  */
-export function calculateProviderMarketSignals(
+export function getProviderOfferStatus(
   competition: Competition,
   providerOrgId: string,
   allOffers: Offer[],
-  baseline: CoverageBaseline,
-  invitedCount: number = 0
-): ProviderMarketSignal {
+  baseline: CoverageBaseline
+): ProviderOfferStatus {
   const myOffers = allOffers.filter((o) => o.providerId === providerOrgId);
-  const now = new Date().getTime();
-  const closesAtTime = new Date(competition.closesAt).getTime();
-  const timeRemainingMs = Math.max(0, closesAtTime - now);
-  const isImprovementRound = competition.currentRound === 'ROUND_2_IMPROVEMENT';
-  const isBafoRound = competition.currentRound === 'ROUND_3_BAFO';
-
-  // Count participating providers safely
-  const uniqueProviders = new Set(allOffers.map((o) => o.providerId));
-  const participatingCount = Math.max(competition.participantCount, uniqueProviders.size);
-
-  const yourOffers: ProviderOfferStanding[] = myOffers.map((offer) => {
-    const comparison = compareOfferAgainstBaseline(baseline, offer);
-    const difference = baseline.baselineAnnualPremium - offer.annualPremium;
-    const savingsPercentage = Math.round((difference / baseline.baselineAnnualPremium) * 100);
-    const canRevise = isImprovementRound || isBafoRound;
-    const isVerified = offer.status !== 'DISCREPANCY_FLAGGED';
-    const meetsReqs = offer.isQualified !== false && offer.status !== 'DISCREPANCY_FLAGGED';
-
-    return {
-      offerId: offer.id,
-      carrier: offer.carrier,
-      tierLabel: offer.tierLabel,
-      annualPremium: offer.annualPremium,
-      differenceFromCurrentPolicy: difference,
-      savingsPercentage,
-      status: offer.status === 'DISCREPANCY_FLAGGED' ? 'DISCREPANCY_FLAGGED' : 'VALIDATED',
-      classification: comparison.classification,
-      meetsRequirements: meetsReqs,
-      isVerified,
-      requiresAdditionalInfo: offer.status === 'DISCREPANCY_FLAGGED',
-      canRevise
-    };
-  });
-
-  // Factual marketplace status message (Section 4 Canonical Specification)
-  let statusMessage = `${participatingCount} providers participating. `;
-  if (isImprovementRound) {
-    statusMessage += 'IMPROVEMENT ROUND active. The consumer has requested improved offers.';
-  } else if (isBafoRound) {
-    statusMessage += 'BEST AND FINAL ROUND active. Submit your most competitive proposition.';
-  } else {
-    statusMessage += 'OPEN ROUND active. Active offers are under consumer review.';
-  }
-
-  const bestOffer = yourOffers.length > 0 ? yourOffers[0] : null;
-
   return {
-    competitionId: competition.id,
-    challengeId: competition.challengeId,
-    currentRound: competition.currentRound,
-    roundClosesAt: competition.closesAt,
-    roundTimeRemainingMs: timeRemainingMs,
-    totalInvitedProviders: invitedCount > 0 ? invitedCount : Math.max(participatingCount, 2),
-    totalParticipatingProviders: participatingCount,
-    totalSubmittedOffersInRound: allOffers.length,
-    yourSubmittedOffersCount: myOffers.length,
-    consumerRequestedImprovement: isImprovementRound || isBafoRound,
-    statusMessage,
-    yourOffers,
-    guidanceHint: statusMessage,
-    nextRoundEligible: competition.currentRound !== 'CLOSED_PENDING_SELECTION',
-    bestPosition: bestOffer ? {
-      offerId: bestOffer.offerId,
-      carrier: bestOffer.carrier,
-      annualSavings: bestOffer.differenceFromCurrentPolicy,
-      savingsPercentage: bestOffer.savingsPercentage,
-      guidanceHint: statusMessage,
-      meetsRequirements: bestOffer.meetsRequirements,
-      isVerified: bestOffer.isVerified
-    } : null,
-    allYourOffersSignals: yourOffers.map(yo => ({
-      offerId: yo.offerId,
-      carrier: yo.carrier,
-      tierLabel: yo.tierLabel,
-      annualPremium: yo.annualPremium,
-      annualSavings: yo.differenceFromCurrentPolicy,
-      savingsPercentage: yo.savingsPercentage,
-      totalValidOffers: allOffers.filter(o => o.status !== 'DISCREPANCY_FLAGGED').length,
-      status: yo.status,
-      classification: yo.classification,
-      canRevise: yo.canRevise
+    windowOpen: competition.status === 'OPEN' && Date.now() < new Date(competition.closesAt).getTime(),
+    windowClosesAt: competition.closesAt,
+    yourOffers: myOffers.map((offer) => ({
+      offerId: offer.id,
+      version: offer.version || 1,
+      annualPremium: offer.annualPremium,
+      validationStatus: offer.status,
+      standard: evaluateOfferAgainstStandard(baseline, offer),
+      requiresAdditionalInfo: offer.status === 'DISCREPANCY_FLAGGED'
     }))
   };
 }
 
 /**
- * Advances a competition to a target round with auditable metadata and configurable duration.
- * Canonical Lifecycle: OPEN -> IMPROVEMENT -> BEST_AND_FINAL -> CLOSED -> CONSUMER_REVIEW
+ * Closes the submission window for policyholder review.
  */
-export function advanceCompetitionRound(
+export type SubmissionWindowCloseReason = 'DEADLINE' | 'CONSUMER_BEGAN_REVIEW';
+
+export function closeSubmissionWindow(
   competition: Competition,
-  targetRound: CompetitionRound,
-  triggerReason: string,
-  customDurationHours?: number,
+  reason: SubmissionWindowCloseReason,
   now: Date = new Date()
 ): Competition {
-  
-  // Canonical Round Durations:
-  // OPEN: 48h
-  // IMPROVEMENT: 24h
-  // BEST_AND_FINAL: 12h
-  // CLOSED: 0h
-  // CONSUMER_REVIEW: 72h
-  const configuredHours = competition.roundDurationsHours?.[targetRound];
-  let defaultDuration = 24;
-  if (targetRound === 'ROUND_1_OPEN' || targetRound === 'OPEN') {
-    defaultDuration = 48;
-  } else if (targetRound === 'ROUND_3_BAFO' || targetRound === 'BEST_AND_FINAL') {
-    defaultDuration = 12;
-  } else if (targetRound === 'CLOSED') {
-    defaultDuration = 0;
-  } else if (targetRound === 'CONSUMER_REVIEW' || targetRound === 'CLOSED_PENDING_SELECTION') {
-    defaultDuration = 72;
+  if (competition.status !== 'OPEN' || competition.currentRound !== 'OPEN') {
+    throw new Error('Submission window is not open.');
   }
-
-  const durationHours = customDurationHours !== undefined 
-    ? customDurationHours 
-    : (configuredHours !== undefined ? configuredHours : defaultDuration);
-
-  const newClosesAt = durationHours === 0 
-    ? now.toISOString() 
-    : new Date(now.getTime() + durationHours * 3600 * 1000).toISOString();
-
-  const history = competition.roundHistory ? [...competition.roundHistory] : [
-    {
-      round: competition.currentRound,
-      enteredAt: competition.openedAt,
-      completedAt: now.toISOString(),
-      reason: 'Round initialized'
-    }
-  ];
-
-  // Close previous round in history
-  if (history.length > 0) {
-    history[history.length - 1].completedAt = now.toISOString();
-  }
-
-  // Add new round
-  history.push({
-    round: targetRound,
-    enteredAt: now.toISOString(),
-    reason: triggerReason
-  });
-
-  const roundDeadlines = {
-    ...(competition.roundDeadlines || {}),
-    [targetRound]: newClosesAt
-  };
-
-  let newStatus = competition.status;
-  if (targetRound === 'ROUND_1_OPEN' || targetRound === 'OPEN') {
-    newStatus = 'OPEN';
-  } else if (targetRound === 'ROUND_2_IMPROVEMENT' || targetRound === 'IMPROVEMENT') {
-    newStatus = 'IMPROVEMENT';
-  } else if (targetRound === 'ROUND_3_BAFO' || targetRound === 'BEST_AND_FINAL') {
-    newStatus = 'BEST_AND_FINAL';
-  } else if (targetRound === 'CLOSED') {
-    newStatus = 'CLOSED';
-  } else if (targetRound === 'CONSUMER_REVIEW' || targetRound === 'CLOSED_PENDING_SELECTION') {
-    newStatus = 'CONSUMER_REVIEW';
-  }
-
   return {
     ...competition,
-    status: newStatus,
-    currentRound: targetRound,
-    closesAt: newClosesAt,
-    roundDeadlines,
-    roundHistory: history,
-    isBafoTriggered: targetRound === 'ROUND_3_BAFO' || targetRound === 'BEST_AND_FINAL' || competition.isBafoTriggered
+    status: 'CONSUMER_REVIEW',
+    currentRound: 'CONSUMER_REVIEW',
+    closesAt: reason === 'DEADLINE' ? competition.closesAt : now.toISOString()
   };
 }
 
@@ -319,9 +163,9 @@ export function checkRoundDeadlineStatus(
 
   let formattedRemaining = '';
   if (isExpired) {
-    formattedRemaining = 'Round Expired';
+    formattedRemaining = 'Submission window closed';
   } else if (competition.status === 'CLOSED') {
-    formattedRemaining = 'Competition Closed';
+    formattedRemaining = 'Submission window closed';
   } else if (competition.status === 'CONSUMER_REVIEW') {
     formattedRemaining = 'In Consumer Review';
   } else if (hours > 0) {
@@ -330,29 +174,17 @@ export function checkRoundDeadlineStatus(
     formattedRemaining = `${minutes}m remaining`;
   }
 
-  let nextRoundSuggested: CompetitionRound | undefined;
-  if (competition.currentRound === 'OPEN' || competition.currentRound === 'ROUND_1_OPEN') {
-    nextRoundSuggested = 'IMPROVEMENT';
-  } else if (competition.currentRound === 'IMPROVEMENT' || competition.currentRound === 'ROUND_2_IMPROVEMENT') {
-    nextRoundSuggested = competition.finalRoundEnabled ? 'BEST_AND_FINAL' : 'CLOSED';
-  } else if (competition.currentRound === 'BEST_AND_FINAL' || competition.currentRound === 'ROUND_3_BAFO') {
-    nextRoundSuggested = 'CLOSED';
-  } else if (competition.currentRound === 'CLOSED') {
-    nextRoundSuggested = 'CONSUMER_REVIEW';
-  }
-
   return {
     round: competition.currentRound,
     closesAt: competition.closesAt,
     isExpired,
     remainingSeconds,
-    formattedRemaining,
-    nextRoundSuggested
+    formattedRemaining
   };
 }
 
 /**
- * Validates an offer revision submitted during an Improvement or BAFO round.
+ * Validates an independently initiated provider update while the submission window is open.
  * PM-3 Section 40 Multi-Dimensional Improvement:
  * An insurance proposition may improve through lower premium, lower deductible,
  * higher liability limits, restored coverage, additional endorsements, or reduced exclusions.
@@ -365,19 +197,19 @@ export function validateOfferRevision(
 ): { valid: boolean; errors: string[]; improvementDimensions?: string[] } {
   const errors: string[] = [];
   const improvementDimensions: string[] = [];
-
-  const isImprovement = currentRound === 'ROUND_2_IMPROVEMENT' || currentRound === 'IMPROVEMENT';
-  const isBafo = currentRound === 'ROUND_3_BAFO' || currentRound === 'BEST_AND_FINAL';
-
-  if (!isImprovement && !isBafo) {
-    errors.push(`Revisions only permitted during Improvement or BAFO rounds. Current round: ${currentRound}`);
+  const allowedReasons = ['DATA_CORRECTION', 'DOCUMENT_UPDATED', 'PROVIDER_UPDATED_QUOTE'];
+  if (currentRound !== 'OPEN') {
+    errors.push('Offer updates are permitted only while the submission window is open.');
+  }
+  if (!revisedOffer.revisionReason || !allowedReasons.includes(revisedOffer.revisionReason)) {
+    errors.push(`Revision reason must be one of: ${allowedReasons.join(', ')}.`);
   }
 
   if (revisedOffer.annualPremium !== undefined) {
     if (revisedOffer.annualPremium <= 0) {
       errors.push('Revised premium must be greater than zero.');
     } else if (revisedOffer.annualPremium < originalOffer.annualPremium) {
-      improvementDimensions.push(`Lower annual premium ($${originalOffer.annualPremium} -> $${revisedOffer.annualPremium})`);
+      improvementDimensions.push(`Annual premium changed ($${originalOffer.annualPremium} -> $${revisedOffer.annualPremium})`);
     }
   }
 

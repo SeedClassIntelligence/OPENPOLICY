@@ -42,8 +42,7 @@ import {
   ProviderAppetite, 
   CarrierRelationship, 
   DeclineReason,
-  CompetitionRound,
-  ProviderMarketSignal,
+  ProviderOfferStatus,
   CompetitionEvaluationSummary,
   BindingHandoff,
   ConsentGrant,
@@ -135,14 +134,14 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
 
   // PM-2: Multi-Carrier & Competition State
   const [tierLabel, setTierLabel] = useState<string>('Primary Baseline Match');
-  const [marketSignals, setMarketSignals] = useState<ProviderMarketSignal | null>(null);
+  const [offerStatus, setOfferStatus] = useState<ProviderOfferStatus | null>(null);
   const [competitionEvaluation, setCompetitionEvaluation] = useState<CompetitionEvaluationSummary | null>(null);
   
   // PM-2: Revision Modal State
   const [reviseModalOpen, setReviseModalOpen] = useState(false);
   const [revisingOffer, setRevisingOffer] = useState<Offer | null>(null);
   const [revisedPremium, setRevisedPremium] = useState<number>(2300);
-  const [revisionReason, setRevisionReason] = useState<string>('Applied telematics tier discount & rate sharpening');
+  const [revisionReason, setRevisionReason] = useState<'DATA_CORRECTION' | 'DOCUMENT_UPDATED' | 'PROVIDER_UPDATED_QUOTE'>('PROVIDER_UPDATED_QUOTE');
   const [revisionError, setRevisionError] = useState<string | null>(null);
   const [revisionLoading, setRevisionLoading] = useState(false);
 
@@ -371,17 +370,17 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
         setWorkspaceData(null);
       }
 
-      // Fetch PM-2 competition market signals and evaluation
+      // Fetch the provider's own offer status and the authorized workspace evaluation
       try {
         const [signalsRes, evalRes] = await Promise.all([
-          apiFetch(`/api/marketplace/competition/${challengeId}/signals`, {
+          apiFetch(`/api/marketplace/competition/${challengeId}/offer-status`, {
             headers: authHeaders
           }),
           apiFetch(`/api/marketplace/competition/${challengeId}/status`)
         ]);
         if (signalsRes.ok) {
           const sig = await signalsRes.json();
-          setMarketSignals(sig);
+          setOfferStatus(sig);
         }
         if (evalRes.ok) {
           const ev = await evalRes.json();
@@ -586,27 +585,6 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
     }
   };
 
-  // Advance Competition Round (PM-2)
-  const handleAdvanceRound = async (targetRound: CompetitionRound, reason: string) => {
-    if (!workspaceData?.challenge?.id) return;
-    setActionLoading(`round-${targetRound}`);
-    try {
-      const res = await apiFetch(`/api/marketplace/competition/${workspaceData.challenge.id}/advance-round`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ targetRound, reason })
-      });
-      if (res.ok) {
-        await loadWorkspace(workspaceData.challenge.id);
-        await loadMarketplaceData();
-      }
-    } catch (e) {
-      console.error('Failed advancing round:', e);
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
   // Open Revision Modal with Multi-Dimensional Coverage Defaults
   const handleOpenReviseModal = (offer: Offer) => {
     setRevisingOffer(offer);
@@ -619,7 +597,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
     setRevisedCompDed(compCov?.deductible !== undefined ? compCov.deductible : 250);
     setRevisedRental(rentalCov?.isIncluded ?? true);
     setRevisedRoadside(roadCov?.isIncluded ?? true);
-    setRevisionReason('Applied telematics rate sharpening & coverage enhancement');
+    setRevisionReason('PROVIDER_UPDATED_QUOTE');
     setRevisionError(null);
     setReviseModalOpen(true);
   };
@@ -653,7 +631,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
             carrier: revisingOffer.carrier,
             annualPremium: Number(revisedPremium),
             monthlyPremium: Math.round(Number(revisedPremium) / 12),
-            tierLabel: `${revisingOffer.tierLabel || 'Rate'} (Improved Proposition)`,
+            tierLabel: `${revisingOffer.tierLabel || 'Offer'} (Updated)`,
             coverages: updatedCoverages,
             revisionReason
           }
@@ -1337,7 +1315,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                     </div>
                     <div>
                       <span className="text-slate-400 block text-[10px] uppercase font-bold">Provider Interest</span>
-                      <span className="text-slate-700">{c.competition.participantCount} providers reviewing</span>
+                      <span className="text-slate-700">Independent sealed submissions</span>
                     </div>
                   </div>
                 </div>
@@ -1600,10 +1578,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                   </div>
 
                   <div className="flex items-center space-x-2 text-xs">
-                    <span className="text-slate-500">Independent Review:</span>
-                    <span className="font-semibold text-slate-800 bg-slate-100 px-2 py-1 rounded">
-                      {workspaceData.competition.participantCount} Providers Reviewing
-                    </span>
+                    <span className="font-semibold text-slate-800 bg-slate-100 px-2 py-1 rounded">Independent, sealed submissions</span>
                   </div>
                 </div>
 
@@ -1686,20 +1661,8 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                         <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
                           Offer Submission Status
                         </span>
-                        <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold border ${
-                          (workspaceData.competition.currentRound === 'ROUND_1_OPEN' || workspaceData.competition.currentRound === 'OPEN')
-                            ? 'bg-blue-50 text-blue-700 border-blue-200'
-                            : (workspaceData.competition.currentRound === 'ROUND_2_IMPROVEMENT' || workspaceData.competition.currentRound === 'IMPROVEMENT')
-                            ? 'bg-amber-50 text-amber-700 border-amber-200'
-                            : (workspaceData.competition.currentRound === 'ROUND_3_BAFO' || workspaceData.competition.currentRound === 'BEST_AND_FINAL')
-                            ? 'bg-purple-50 text-purple-700 border-purple-200'
-                            : (workspaceData.competition.currentRound === 'CLOSED')
-                            ? 'bg-slate-200 text-slate-800 border-slate-300'
-                            : 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                        }`}>
-                          {(workspaceData.competition.currentRound === 'ROUND_1_OPEN' || workspaceData.competition.currentRound === 'OPEN') && 'Initial Offer Window'}
-                          {(workspaceData.competition.currentRound === 'ROUND_2_IMPROVEMENT' || workspaceData.competition.currentRound === 'IMPROVEMENT') && 'Offer Revision Window'}
-                          {(workspaceData.competition.currentRound === 'ROUND_3_BAFO' || workspaceData.competition.currentRound === 'BEST_AND_FINAL') && 'Final Offer Window'}
+                        <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold border ${workspaceData.competition.currentRound === 'OPEN' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-emerald-50 text-emerald-800 border-emerald-200'}`}>
+                          {workspaceData.competition.currentRound === 'OPEN' && 'Submission Window Open'}
                           {workspaceData.competition.currentRound === 'CLOSED' && 'Offer Window Closed'}
                           {(workspaceData.competition.currentRound === 'CONSUMER_REVIEW' || workspaceData.competition.currentRound === 'CLOSED_PENDING_SELECTION') && 'In Consumer Review'}
                         </span>
@@ -1711,7 +1674,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                         )}
                       </div>
                       <h4 className="text-base font-bold text-slate-900 mt-0.5">
-                        Multi-Round Market Telemetry & Anti-Collusion Signals
+                        Your Offer Submission Status
                       </h4>
                     </div>
                   </div>
@@ -1728,45 +1691,10 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                       Withdraw
                     </button>
 
-                    {(workspaceData.competition.currentRound === 'ROUND_1_OPEN' || workspaceData.competition.currentRound === 'OPEN') && (
-                      <button
-                        type="button"
-                        onClick={() => handleAdvanceRound('IMPROVEMENT', 'Initial offer window elapsed, opening a revision window')}
-                        disabled={actionLoading === 'round-IMPROVEMENT'}
-                        className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-colors"
-                      >
-                        <Sparkles className="h-3.5 w-3.5" />
-                        Open Revision Window
-                      </button>
-                    )}
-
-                    {(workspaceData.competition.currentRound === 'ROUND_2_IMPROVEMENT' || workspaceData.competition.currentRound === 'IMPROVEMENT') && (
-                      <button
-                        type="button"
-                        onClick={() => handleAdvanceRound('BEST_AND_FINAL', 'Revision window closed; final revisions requested')}
-                        disabled={actionLoading === 'round-BEST_AND_FINAL'}
-                        className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-colors"
-                      >
-                        <Award className="h-3.5 w-3.5" />
-                        Request Final Revisions
-                      </button>
-                    )}
-
-                    {(workspaceData.competition.currentRound === 'ROUND_3_BAFO' || workspaceData.competition.currentRound === 'BEST_AND_FINAL') && (
-                      <button
-                        type="button"
-                        onClick={() => handleAdvanceRound('CONSUMER_REVIEW', 'Final offer window concluded; offers ready for policyholder review')}
-                        disabled={actionLoading === 'round-CONSUMER_REVIEW'}
-                        className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-colors"
-                      >
-                        <Check className="h-3.5 w-3.5" />
-                        Finalize for Consumer Review
-                      </button>
-                    )}
                   </div>
                 </div>
 
-                {/* Sealed Market Signals (Canonical PM-1 Sections 3, 4 & 24) */}
+                {/* Provider-owned offer and submission-window status */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {/* Provider Offer Status */}
                   <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
@@ -1797,17 +1725,14 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                     </span>
                   </div>
 
-                  {/* Market Density & Round State */}
+                  {/* Provider-owned submission count */}
                   <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
                     <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">
-                      Offer Activity
+                      Your Submitted Offers
                     </span>
                     <div className="mt-1 flex items-baseline space-x-2">
                       <span className="text-xl font-bold text-slate-900">
-                        {workspaceData.competition.participantCount || 2} Providers
-                      </span>
-                      <span className="text-xs text-slate-500 font-medium">
-                        ({workspaceData.myOffers?.length || 0} from your agency)
+                        {workspaceData.myOffers?.length || 0}
                       </span>
                     </div>
                     <span className="text-[11px] text-slate-500 mt-2 block">
@@ -1816,18 +1741,16 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                     </span>
                   </div>
 
-                  {/* Competition Stage & Round Status */}
+                  {/* Submission-window status */}
                   <div className="p-4 bg-blue-50/70 rounded-xl border border-blue-200">
                     <span className="text-[10px] uppercase font-bold text-blue-700 block tracking-wider">
                       Offer Stage
                     </span>
                     <p className="text-xs text-blue-900 mt-1 font-medium leading-relaxed">
-                      {marketSignals?.statusMessage || marketSignals?.guidanceHint || 'Offer submission window in progress.'}
+                      {offerStatus?.windowOpen ? `Submission window open until ${new Date(offerStatus.windowClosesAt).toLocaleString()}.` : 'Submission window closed.'}
                     </p>
-                    {workspaceData.competition.currentRound !== 'ROUND_1_OPEN' && (
-                      <span className="text-[10px] text-blue-600 font-bold mt-2 block uppercase tracking-wide">
-                        ● Improvement round active: Revisions allowed
-                      </span>
+                    {offerStatus?.windowOpen && (
+                      <span className="text-[10px] text-blue-600 font-bold mt-2 block uppercase tracking-wide">Your agency may independently update its own offers while this window remains open.</span>
                     )}
                   </div>
                 </div>
@@ -1911,7 +1834,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                           </div>
 
                           {/* PM-3: Multi-Dimensional Revision & Keep Current Offer Actions */}
-                          {(workspaceData.competition.currentRound === 'IMPROVEMENT' || workspaceData.competition.currentRound === 'ROUND_2_IMPROVEMENT' || workspaceData.competition.currentRound === 'BEST_AND_FINAL' || workspaceData.competition.currentRound === 'ROUND_3_BAFO') && (
+                          {offerStatus?.windowOpen && (
                             <div className="flex items-center gap-2">
                               <button
                                 type="button"
@@ -1929,7 +1852,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                                 className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-colors shrink-0"
                               >
                                 <RotateCcw className="h-3.5 w-3.5" />
-                                Improve Offer
+                                Update Offer
                               </button>
                             </div>
                           )}
@@ -3071,7 +2994,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
         </div>
       )}
 
-      {/* PM-2: Offer Revision Modal (Improvement & BAFO Rounds) */}
+      {/* PM-2: Provider-initiated offer update while the submission window is open */}
       {reviseModalOpen && revisingOffer && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-200 space-y-4">
@@ -3079,7 +3002,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
               <div className="flex items-center space-x-2">
                 <RotateCcw className="h-4 w-4 text-blue-600" />
                 <h4 className="text-sm font-bold text-slate-900">
-                  Revise Provider Offer ({workspaceData?.competition?.currentRound === 'ROUND_3_BAFO' ? 'Final Offer Window' : 'Revision Window'})
+                  Update Provider Offer
                 </h4>
               </div>
               <button
@@ -3185,19 +3108,21 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                 <label className="block font-semibold text-slate-700 mb-1">
                   Revision Reason / Audit Justification
                 </label>
-                <input
-                  type="text"
+                <select
                   value={revisionReason}
-                  onChange={(e) => setRevisionReason(e.target.value)}
-                  placeholder="e.g. Lowered deductible & added roadside assistance endorsement"
+                  onChange={(e) => setRevisionReason(e.target.value as typeof revisionReason)}
                   className="w-full text-xs border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
-                />
+                >
+                  <option value="DATA_CORRECTION">Data correction</option>
+                  <option value="DOCUMENT_UPDATED">Supporting document updated</option>
+                  <option value="PROVIDER_UPDATED_QUOTE">Provider updated quote</option>
+                </select>
               </div>
 
               <div className="p-2.5 bg-blue-50 rounded-lg border border-blue-200 text-[11px] text-blue-700 flex items-start gap-1.5">
                 <Info className="h-3.5 w-3.5 text-blue-500 shrink-0 mt-0.5" />
                 <span>
-                  Section 40 Invariant: Propositions can improve through lower price, reduced deductibles, increased limits, or added endorsements.
+                  Updates are independently initiated by your organization and remain versioned for policyholder review.
                 </span>
               </div>
             </div>

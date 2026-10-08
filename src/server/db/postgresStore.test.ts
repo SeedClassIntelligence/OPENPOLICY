@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { PostgresStore } from './postgresStore';
+import { runMigrations, SQL_MIGRATION_V12 } from './migrate';
 import {
   createSelection,
   initiateBindingHandoff,
@@ -17,6 +18,31 @@ import {
   reconcileIssuedPolicy,
   activateVerifiedPolicyToVault
 } from '../../domain/pm5ReconciliationEngine';
+
+test('PR-2 migration collapses legacy rounds idempotently while retaining legacy evidence', async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openpolicy-pr2-migration-'));
+  const database = await runMigrations(dataDir);
+  try {
+    const payload = JSON.stringify({ currentRound: 'BEST_AND_FINAL', status: 'BEST_AND_FINAL', roundHistory: [{ round: 'IMPROVEMENT' }], isBafoTriggered: true });
+    await database.query(
+      `INSERT INTO competitions (id, challenge_id, jurisdiction, line_of_business, status, current_round, participant_count, opened_at, closes_at, rules, payload)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      ['COMP-PR2-LEGACY', 'CHAL-PR2-LEGACY', 'NV', 'PERSONAL_AUTO', 'BEST_AND_FINAL', 'BEST_AND_FINAL', 1, '2026-01-01T00:00:00.000Z', '2026-01-02T00:00:00.000Z', '{}', payload]
+    );
+    await database.exec(SQL_MIGRATION_V12);
+    await database.exec(SQL_MIGRATION_V12);
+    const migrated = await database.query<any>(`SELECT status, current_round, legacy_round_state, payload FROM competitions WHERE id='COMP-PR2-LEGACY'`);
+    assert.equal(migrated.rows[0].status, 'CONSUMER_REVIEW');
+    assert.equal(migrated.rows[0].current_round, 'CONSUMER_REVIEW');
+    assert.equal(migrated.rows[0].legacy_round_state, 'BEST_AND_FINAL');
+    assert.deepEqual(JSON.parse(migrated.rows[0].payload).legacyRoundHistory, [{ round: 'IMPROVEMENT' }]);
+    const audits = await database.query<any>(`SELECT count(*)::int AS count FROM audit_events WHERE id='AUDIT-PR2-COMP-PR2-LEGACY'`);
+    assert.equal(audits.rows[0].count, 1);
+  } finally {
+    await database.close();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
 
 test('required durable storage fails closed instead of falling back to PGlite', () => {
   const before = { ...process.env };
@@ -98,9 +124,8 @@ test('foundation records survive an empty-process restart and continue mutating 
     };
     const competition = {
       id: 'COMP-RESTART-1', challengeId: challenge.id, status: 'OPEN' as const,
-      currentRound: 'ROUND_1_OPEN' as const, openedAt: challenge.openingTimestamp,
-      closesAt: '2026-01-03T00:00:00.000Z', participantCount: 0,
-      improvementRoundEnabled: true, finalRoundEnabled: true
+      currentRound: 'OPEN' as const, openedAt: challenge.openingTimestamp,
+      closesAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(), participantCount: 0
     };
     const invitation = {
       id: 'INV-RESTART-1', challengeId: challenge.id, competitionId: competition.id,
@@ -131,7 +156,10 @@ test('foundation records survive an empty-process restart and continue mutating 
     assert.deepEqual(await second.getCoverageBaseline(baseline.id), baseline);
     assert.deepEqual(await second.getConsumerRequirements(requirements.id), requirements);
     assert.deepEqual(await second.getChallenge(challenge.id), challenge);
-    assert.deepEqual(await second.getCompetition(competition.id), competition);
+    const restartedCompetition = await second.getCompetition(competition.id);
+    assert.equal(restartedCompetition?.status, 'OPEN');
+    assert.equal(restartedCompetition?.currentRound, 'OPEN');
+    assert.equal(restartedCompetition?.closesAt, competition.closesAt);
     assert.deepEqual(await second.getInvitation(invitation.id), invitation);
     assert.equal((await second.getCompetitionActivity(challenge.id))[0]?.id, 'ACT-RESTART-1');
     const accepted = await second.acceptInvitation(invitation.id, 'org_sierra');

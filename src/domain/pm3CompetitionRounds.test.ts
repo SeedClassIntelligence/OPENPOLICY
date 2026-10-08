@@ -1,12 +1,10 @@
 /**
- * PM-3: Competition Rounds, Multi-Dimensional Improvements & Sealed Telemetry Test Suite
+ * PM-3 / PR-2: Single Submission Window, Offer Updates & Sealed Telemetry Test Suite
  * 
  * Verifies canonical specifications:
- *   1. Canonical round lifecycle progression:
- *      OPEN -> IMPROVEMENT -> BEST_AND_FINAL -> CLOSED -> CONSUMER_REVIEW
+ *   1. Canonical lifecycle: OPEN -> CONSUMER_REVIEW
  *   2. Configurable round deadlines and countdown status evaluation
- *   3. Section 40 Multi-Dimensional Improvement:
- *      Validates improvements across deductibles, limits, endorsements, and price (never price-only bidding)
+ *   3. Factual update detection across deductibles, limits, endorsements, and price
  *   4. "Keep Current Offer" confirmation mechanics
  *   5. Provider withdrawal mechanics (status transition, offer suppression, participant count)
  *   6. "Keep Current Policy" incumbent defense mechanics
@@ -14,7 +12,7 @@
  */
 
 import {
-  advanceCompetitionRound,
+  closeSubmissionWindow,
   checkRoundDeadlineStatus,
   validateOfferRevision,
   filterCompetitionActivityFeedForProvider,
@@ -199,91 +197,33 @@ export function runPM3AcceptanceTestSuite(): { passed: number; failed: number; t
   };
 
   // -------------------------------------------------------------
-  // TEST SUITE 1: Canonical Lifecycle Transitions & Round Duration
+  // TEST SUITE 1: Canonical Single-Window Lifecycle & Preserved Duration
   // -------------------------------------------------------------
 
-  test('Canonical Lifecycle: OPEN -> IMPROVEMENT transition updates round, status, and history', () => {
-    const advanced = advanceCompetitionRound(
-      initialCompetition,
-      'IMPROVEMENT',
-      'Advanced to Improvement Round after receiving multiple broker proposals'
-    );
-
-    assert(advanced.currentRound === 'IMPROVEMENT', 'currentRound should be IMPROVEMENT');
-    assert(advanced.status === 'IMPROVEMENT', 'status should be IMPROVEMENT');
-    assert(advanced.roundHistory !== undefined && advanced.roundHistory.length >= 2, 'History must contain prior and new round');
-    const latestHistory = advanced.roundHistory![advanced.roundHistory!.length - 1];
-    assert(latestHistory.round === 'IMPROVEMENT', 'Latest history entry should be IMPROVEMENT');
-    assert(advanced.roundDeadlines?.IMPROVEMENT !== undefined, 'Deadline for IMPROVEMENT must be recorded');
-  });
-
-  test('Canonical Lifecycle: IMPROVEMENT -> BEST_AND_FINAL triggers BAFO flag and 12-hour default', () => {
-    const impComp: Competition = {
-      ...initialCompetition,
-      currentRound: 'IMPROVEMENT',
-      status: 'IMPROVEMENT'
-    };
-
-    const advanced = advanceCompetitionRound(
-      impComp,
-      'BEST_AND_FINAL',
-      'Contenders within competitive tolerance: invoking Best and Final Offer round'
-    );
-
-    assert(advanced.currentRound === 'BEST_AND_FINAL', 'currentRound should be BEST_AND_FINAL');
-    assert(advanced.status === 'BEST_AND_FINAL', 'status should be BEST_AND_FINAL');
-    assert(advanced.isBafoTriggered === true, 'isBafoTriggered must be true');
-    assert(advanced.roundDeadlines?.BEST_AND_FINAL !== undefined, 'BAFO deadline must exist');
-  });
-
-  test('Canonical Lifecycle: BEST_AND_FINAL -> CLOSED transitions to closed state', () => {
-    const bafoComp: Competition = {
-      ...initialCompetition,
-      currentRound: 'BEST_AND_FINAL',
-      status: 'BEST_AND_FINAL',
-      isBafoTriggered: true
-    };
-
-    const advanced = advanceCompetitionRound(
-      bafoComp,
-      'CLOSED',
-      'BAFO round deadline reached. Marketplace bidding closed.'
-    );
-
-    assert(advanced.currentRound === 'CLOSED', 'currentRound should be CLOSED');
-    assert(advanced.status === 'CLOSED', 'status should be CLOSED');
-  });
-
-  test('Canonical Lifecycle: CLOSED -> CONSUMER_REVIEW opens consumer selection window', () => {
-    const closedComp: Competition = {
-      ...initialCompetition,
-      currentRound: 'CLOSED',
-      status: 'CLOSED'
-    };
-
-    const advanced = advanceCompetitionRound(
-      closedComp,
-      'CONSUMER_REVIEW',
-      'All bids locked; consumer reviewing qualified offers'
-    );
-
+  test('Canonical Lifecycle: policyholder can end OPEN early and begin CONSUMER_REVIEW', () => {
+    const advanced = closeSubmissionWindow(initialCompetition, 'CONSUMER_BEGAN_REVIEW', new Date('2026-09-21T12:00:00Z'));
     assert(advanced.currentRound === 'CONSUMER_REVIEW', 'currentRound should be CONSUMER_REVIEW');
     assert(advanced.status === 'CONSUMER_REVIEW', 'status should be CONSUMER_REVIEW');
+    assert(advanced.closesAt === '2026-09-21T12:00:00.000Z', 'early close time must be recorded');
   });
 
-  test('Configurable Round Durations: Custom duration hours overrides defaults', () => {
-    const now = new Date('2026-09-21T12:00:00Z');
-    const customHours = 6;
-    const advanced = advanceCompetitionRound(
-      initialCompetition,
-      'IMPROVEMENT',
-      'Operator set expedited 6-hour improvement round',
-      customHours,
-      now
-    );
+  test('Canonical Lifecycle: deadline close preserves configured submission-window duration', () => {
+    const advanced = closeSubmissionWindow(initialCompetition, 'DEADLINE');
+    assert(advanced.currentRound === 'CONSUMER_REVIEW', 'deadline should enter review');
+    assert(advanced.closesAt === initialCompetition.closesAt, 'configured closesAt must be preserved');
+  });
 
-    const expectedClosesAt = new Date(now.getTime() + 6 * 3600 * 1000).toISOString();
-    assert(advanced.closesAt === expectedClosesAt, `Expected closesAt ${expectedClosesAt}, got ${advanced.closesAt}`);
+  test('Canonical Lifecycle: repeated close fails closed', () => {
+    let rejected = false;
+    try {
+      closeSubmissionWindow({ ...initialCompetition, currentRound: 'CONSUMER_REVIEW', status: 'CONSUMER_REVIEW' }, 'CONSUMER_BEGAN_REVIEW');
+    } catch { rejected = true; }
+    assert(rejected, 'closed window must not transition again');
+  });
+
+  test('Canonical Lifecycle: status evaluation does not mutate the configured close time', () => {
+    checkRoundDeadlineStatus(initialCompetition, new Date('2026-09-21T12:00:00Z'));
+    assert(initialCompetition.closesAt === '2026-09-22T10:00:00Z', 'status reads must not alter closesAt');
   });
 
   // -------------------------------------------------------------
@@ -301,7 +241,6 @@ export function runPM3AcceptanceTestSuite(): { passed: number; failed: number; t
     assert(!deadlineStatus.isExpired, 'Round should not be expired');
     assert(deadlineStatus.remainingSeconds === 4 * 3600 + 15 * 60, 'Remaining seconds should match');
     assert(deadlineStatus.formattedRemaining.includes('4h 15m'), 'Formatted remaining should display hours and minutes');
-    assert(deadlineStatus.nextRoundSuggested === 'IMPROVEMENT', 'Next round suggested should be IMPROVEMENT');
   });
 
   test('Deadline Evaluation: Expired round detects expiration and suggests next round', () => {
@@ -310,8 +249,7 @@ export function runPM3AcceptanceTestSuite(): { passed: number; failed: number; t
 
     assert(deadlineStatus.isExpired === true, 'Round should be detected as expired');
     assert(deadlineStatus.remainingSeconds === 0, 'Remaining seconds should be 0');
-    assert(deadlineStatus.formattedRemaining === 'Round Expired', 'Formatted string should indicate Round Expired');
-    assert(deadlineStatus.nextRoundSuggested === 'IMPROVEMENT', 'Should suggest transitioning to IMPROVEMENT');
+    assert(deadlineStatus.formattedRemaining === 'Submission window closed', 'Formatted string should indicate submission closure');
   });
 
   test('Deadline Evaluation: CLOSED status displays Competition Closed', () => {
@@ -322,25 +260,25 @@ export function runPM3AcceptanceTestSuite(): { passed: number; failed: number; t
     };
 
     const deadlineStatus = checkRoundDeadlineStatus(closedComp, new Date());
-    assert(deadlineStatus.formattedRemaining === 'Competition Closed', 'Should format as Competition Closed');
-    assert(deadlineStatus.nextRoundSuggested === 'CONSUMER_REVIEW', 'Should suggest CONSUMER_REVIEW');
+    assert(deadlineStatus.formattedRemaining === 'Submission window closed', 'Should format as submission window closed');
   });
 
   // -------------------------------------------------------------
-  // TEST SUITE 3: Section 40 Multi-Dimensional Offer Improvements
+  // TEST SUITE 3: Factual Offer-Update Differences
   // -------------------------------------------------------------
 
   test('Multi-Dimensional Improvement: Price reduction is recognized as improvement', () => {
     const revised: Partial<Offer> = {
       carrier: baseOffer.carrier,
+      revisionReason: 'PROVIDER_UPDATED_QUOTE',
       annualPremium: 2600, // Reduced from $2,800
       coverages: baseOffer.coverages
     };
 
-    const result = validateOfferRevision(baseOffer, revised, 'IMPROVEMENT');
+    const result = validateOfferRevision(baseOffer, revised, 'OPEN');
     assert(result.valid === true, 'Revision should be valid');
     assert(result.improvementDimensions !== undefined && result.improvementDimensions.length > 0, 'Should have improvement dimensions');
-    assert(result.improvementDimensions!.some(d => d.includes('Lower annual premium')), 'Must include Lower annual premium dimension');
+    assert(result.improvementDimensions!.some(d => d.includes('Annual premium changed')), 'Must record the factual annual premium change');
   });
 
   test('Multi-Dimensional Improvement: Lower deductible is valid improvement even without price reduction', () => {
@@ -351,11 +289,12 @@ export function runPM3AcceptanceTestSuite(): { passed: number; failed: number; t
 
     const revised: Partial<Offer> = {
       carrier: baseOffer.carrier,
+      revisionReason: 'PROVIDER_UPDATED_QUOTE',
       annualPremium: 2800, // Same premium
       coverages: revisedCoverages
     };
 
-    const result = validateOfferRevision(baseOffer, revised, 'IMPROVEMENT');
+    const result = validateOfferRevision(baseOffer, revised, 'OPEN');
     assert(result.valid === true, 'Revision must be valid');
     assert(result.improvementDimensions!.some(d => d.includes('Lower collision deductible')), 'Must identify lower collision deductible as an improvement');
   });
@@ -368,11 +307,12 @@ export function runPM3AcceptanceTestSuite(): { passed: number; failed: number; t
 
     const revised: Partial<Offer> = {
       carrier: baseOffer.carrier,
+      revisionReason: 'PROVIDER_UPDATED_QUOTE',
       annualPremium: 2800,
       coverages: revisedCoverages
     };
 
-    const result = validateOfferRevision(baseOffer, revised, 'IMPROVEMENT');
+    const result = validateOfferRevision(baseOffer, revised, 'OPEN');
     assert(result.valid === true, 'Revision should be valid');
     assert(result.improvementDimensions!.some(d => d.includes('Higher bodily injury')), 'Must identify bodily injury increase');
   });
@@ -398,19 +338,21 @@ export function runPM3AcceptanceTestSuite(): { passed: number; failed: number; t
 
     const revised: Partial<Offer> = {
       carrier: baseOffer.carrier,
+      revisionReason: 'PROVIDER_UPDATED_QUOTE',
       annualPremium: 2850, // Slight premium adjustment for added coverage
       coverages: revisedCoverages
     };
 
-    const result = validateOfferRevision(baseOffer, revised, 'BEST_AND_FINAL');
+    const result = validateOfferRevision(baseOffer, revised, 'OPEN');
     assert(result.valid === true, 'Revision should be valid');
     assert(result.improvementDimensions!.some(d => d.includes('rental reimbursement')), 'Must identify rental endorsement');
     assert(result.improvementDimensions!.some(d => d.includes('roadside assistance')), 'Must identify roadside endorsement');
   });
 
-  test('Offer Revision Invariant: Revisions rejected outside Improvement or BAFO rounds', () => {
+  test('Offer Revision Invariant: Updates are rejected after the submission window closes', () => {
     const revised: Partial<Offer> = {
       carrier: baseOffer.carrier,
+      revisionReason: 'PROVIDER_UPDATED_QUOTE',
       annualPremium: 2500,
       coverages: baseOffer.coverages
     };
@@ -425,17 +367,19 @@ export function runPM3AcceptanceTestSuite(): { passed: number; failed: number; t
   test('Offer Revision Invariant: Non-positive premium or missing carrier rejected', () => {
     const zeroPremium: Partial<Offer> = {
       carrier: baseOffer.carrier,
+      revisionReason: 'DATA_CORRECTION',
       annualPremium: 0,
       coverages: baseOffer.coverages
     };
-    const resZero = validateOfferRevision(baseOffer, zeroPremium, 'IMPROVEMENT');
+    const resZero = validateOfferRevision(baseOffer, zeroPremium, 'OPEN');
     assert(resZero.valid === false, 'Zero premium must be rejected');
 
     const missingCarrier: Partial<Offer> = {
+      revisionReason: 'DATA_CORRECTION',
       annualPremium: 2500,
       coverages: baseOffer.coverages
     };
-    const resMissing = validateOfferRevision(baseOffer, missingCarrier, 'IMPROVEMENT');
+    const resMissing = validateOfferRevision(baseOffer, missingCarrier, 'OPEN');
     assert(resMissing.valid === false, 'Missing carrier must be rejected');
   });
 
@@ -523,7 +467,6 @@ export function runPM3AcceptanceTestSuite(): { passed: number; failed: number; t
 
     assert(evalSummary.totalOffersSubmitted === 2, 'Total offers should be 2');
     assert(evalSummary.validQualifiedOffersCount === 2, 'Both offers should qualify');
-    assert(evalSummary.advancementReadiness.canAdvanceToImprovement === true, 'Ready for Improvement round');
     assert(evalSummary.advancementReadiness.canCloseForConsumerReview === true, 'Ready for Consumer Review');
   });
 

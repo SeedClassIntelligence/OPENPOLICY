@@ -1135,6 +1135,36 @@ CREATE TABLE IF NOT EXISTS policy_document_classifications (
 );
 `;
 
+export const SQL_MIGRATION_V12 = `
+-- PR-2: collapse retired live rounds into one submission window without deleting history.
+ALTER TABLE competitions ADD COLUMN IF NOT EXISTS legacy_round_state TEXT;
+
+INSERT INTO audit_events (id, timestamp, event_type, actor_role, actor_id, details, hash)
+SELECT 'AUDIT-PR2-' || id, CURRENT_TIMESTAMP::text, 'LEGACY_ROUND_COLLAPSED', 'SYSTEM',
+       'pr2_migration', 'Competition ' || id || ' migrated from ' || current_round,
+       'PR2-LEGACY-ROUND-' || id
+FROM competitions
+WHERE current_round IN ('ROUND_1_OPEN','IMPROVEMENT','ROUND_2_IMPROVEMENT','BEST_AND_FINAL','ROUND_3_BAFO')
+ON CONFLICT (id) DO NOTHING;
+
+UPDATE competitions
+SET legacy_round_state = COALESCE(legacy_round_state, current_round),
+    current_round = CASE WHEN closes_at::timestamptz > CURRENT_TIMESTAMP THEN 'OPEN' ELSE 'CONSUMER_REVIEW' END,
+    status = CASE WHEN closes_at::timestamptz > CURRENT_TIMESTAMP THEN 'OPEN' ELSE 'CONSUMER_REVIEW' END,
+    payload = CASE WHEN payload IS NULL THEN NULL ELSE
+      ((payload::jsonb - 'currentRound' - 'status' - 'isBafoTriggered' - 'roundDeadlines' - 'roundDurationsHours' - 'roundOffersCount') ||
+       jsonb_build_object('currentRound', CASE WHEN closes_at::timestamptz > CURRENT_TIMESTAMP THEN 'OPEN' ELSE 'CONSUMER_REVIEW' END,
+                          'status', CASE WHEN closes_at::timestamptz > CURRENT_TIMESTAMP THEN 'OPEN' ELSE 'CONSUMER_REVIEW' END,
+                          'legacyRoundHistory', COALESCE(payload::jsonb->'roundHistory', '[]'::jsonb)))::text END
+WHERE current_round IN ('ROUND_1_OPEN','IMPROVEMENT','ROUND_2_IMPROVEMENT','BEST_AND_FINAL','ROUND_3_BAFO');
+
+UPDATE challenges
+SET status = 'CONSUMER_REVIEW',
+    payload = CASE WHEN payload IS NULL THEN NULL ELSE
+      ((payload::jsonb - 'status' - 'isFinalRound') || jsonb_build_object('status','CONSUMER_REVIEW'))::text END
+WHERE status = 'FINAL_ROUND';
+`;
+
 export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR || './data/openpolicy_pg') {
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
@@ -1187,7 +1217,11 @@ export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR ||
     await pglite.query(
       `INSERT INTO _migrations (name) VALUES ('0011_production_document_intelligence') ON CONFLICT (name) DO NOTHING;`
     );
-    console.log(`[Open Policy DB] Migrations 0001 through 0011 applied successfully.`);
+    await pglite.exec(SQL_MIGRATION_V12);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0012_single_submission_window') ON CONFLICT (name) DO NOTHING;`
+    );
+    console.log(`[Open Policy DB] Migrations 0001 through 0012 applied successfully.`);
     return pglite;
   } catch (error) {
     console.error(`[Open Policy DB] Migration error:`, error);

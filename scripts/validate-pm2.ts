@@ -23,7 +23,7 @@ import path from 'path';
 import { PGlite } from '@electric-sql/pglite';
 import { PostgresStore } from '../src/server/db/postgresStore';
 import { db } from '../src/server/db';
-import { app } from '../server';
+import { app, synchronizeFixturePersistence } from '../server';
 import {
   evaluateOfferQualification,
   flagDuplicateCarrierOffers,
@@ -32,7 +32,6 @@ import {
 } from '../src/domain/qualificationEngine';
 import {
   evaluateCompetitionRoundState,
-  calculateProviderMarketSignals
 } from '../src/domain/competitionEngine';
 import { runComparisonEngineTestSuite } from '../src/domain/comparisonEngine.test';
 import { runEligibilityEngineTestSuite } from '../src/domain/eligibilityEngine.test';
@@ -240,6 +239,14 @@ async function runPM2Validation() {
   // ===========================================================================
   console.log('\n--- 2. PM-2 HTTP BOUNDARY & WORKFLOW INTEGRATION TESTS ---');
 
+  const activeCompetition = db.getCompetitionForChallenge('CHAL-NV-49281');
+  if (activeCompetition) {
+    activeCompetition.status = 'OPEN';
+    activeCompetition.currentRound = 'OPEN';
+    activeCompetition.closesAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+    await synchronizeFixturePersistence();
+  }
+
   const testServer = http.createServer(app);
   await new Promise<void>((resolve) => {
     testServer.listen(0, '127.0.0.1', () => resolve());
@@ -380,15 +387,7 @@ async function runPM2Validation() {
     assert(secondOfferRes.status === 200, 'Provider can submit multi-carrier quote under single participation', `Status: ${secondOfferRes.status}`);
     assert(secondOfferRes.body.offer.carrier === 'Safeco Insurance', 'Safeco quote submitted successfully');
 
-    // 2.7 Section 28: Offer Revision snapshots prior version into immutable OfferVersion
-    // First advance round to ROUND_2_IMPROVEMENT to permit revisions per Section 40 rules
-    await makeRequest(
-      port,
-      'POST',
-      '/api/marketplace/competition/CHAL-NV-49281/advance-round',
-      {},
-      { targetRound: 'ROUND_2_IMPROVEMENT', reason: 'Advancing to improvement round for revision testing' }
-    );
+    // 2.7 PR-2: provider-initiated offer update snapshots the prior immutable version while the window is open
 
     const originalOfferA = db.getOffer('OFFER-A')!;
     const originalPremium = originalOfferA.annualPremium;
@@ -403,11 +402,11 @@ async function runPM2Validation() {
           carrier: originalOfferA.carrier,
           annualPremium: originalPremium - 120,
           monthlyPremium: Math.round((originalPremium - 120) / 12),
-          revisionReason: 'Lowered premium during active competition'
+          revisionReason: 'PROVIDER_UPDATED_QUOTE'
         }
       }
     );
-    assert(revisionRes.status === 200, 'Provider can revise offer during competition round', `Status: ${revisionRes.status}`);
+    assert(revisionRes.status === 200, 'Provider can update its own offer while the submission window is open', `Status: ${revisionRes.status}`);
 
     const versionsRes = await makeRequest(port, 'GET', '/api/marketplace/offers/OFFER-A/versions');
     assert(versionsRes.status === 200, 'Can retrieve offer version history');

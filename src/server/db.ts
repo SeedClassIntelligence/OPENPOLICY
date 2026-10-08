@@ -25,7 +25,7 @@ import {
   ChallengeParticipation,
   OpportunityPreview,
   DeclineReason,
-  ProviderMarketSignal,
+  ProviderOfferStatus,
   CompetitionEvaluationSummary,
   BindingHandoffDossier,
   DetailedPostBindReconciliation,
@@ -44,7 +44,6 @@ import {
   QualifiedOffer,
   CompetitionActivityEvent,
   RoundDeadlineStatus,
-  RoundDeadlineConfig,
   CompetitionActivityType,
   Selection,
   ConsentGrant,
@@ -69,8 +68,8 @@ import { compareOfferAgainstBaseline } from '../domain/comparisonEngine';
 import { evaluateProviderEligibility, EligibilityEvaluation } from '../domain/eligibilityEngine';
 import { 
   evaluateCompetitionRoundState, 
-  calculateProviderMarketSignals, 
-  advanceCompetitionRound as advanceCompRoundLogic, 
+  getProviderOfferStatus,
+  closeSubmissionWindow,
   validateOfferRevision,
   checkRoundDeadlineStatus,
   filterCompetitionActivityFeedForProvider
@@ -447,12 +446,10 @@ export class PolicyChallengeDatabase {
       id: compId,
       challengeId,
       status: 'OPEN',
-      currentRound: 'ROUND_1_OPEN',
+      currentRound: 'OPEN',
       openedAt: '2026-09-18T14:35:00Z',
       closesAt: '2026-09-20T14:35:00Z',
-      participantCount: 1,
-      improvementRoundEnabled: true,
-      finalRoundEnabled: true
+      participantCount: 1
     };
     this.competitions.set(compId, comp);
 
@@ -2009,46 +2006,9 @@ export class PolicyChallengeDatabase {
   }
 
   public initiateFinalRound(challengeId: string): Challenge {
-    const challenge = this.challenges.get(challengeId);
-    if (!challenge) throw new Error('Challenge not found');
-
-    challenge.status = 'FINAL_ROUND';
-    challenge.isFinalRound = true;
-
-    // Sharpen existing offers in the final round
-    const offerA = this.offers.get('OFFER-A');
-    if (offerA) {
-      offerA.annualPremium = 2580; // reduced from 2712
-      offerA.monthlyPremium = 215;
-    }
-
-    const offerB = this.offers.get('OFFER-B');
-    if (offerB) {
-      offerB.annualPremium = 2388; // reduced from 2448
-      offerB.monthlyPremium = 199; // below $200!
-    }
-
-    this.recordAudit(
-      'FINAL_ROUND_INITIATED',
-      'CONSUMER',
-      challenge.consumerId,
-      `Consumer initiated Best & Final round. Providers notified to submit their sharpened rates.`
-    );
-
-    this.addNotification({
-      id: `NOTIF-${Date.now()}`,
-      type: 'FINAL_ROUND_OPENED',
-      title: 'Best & Final Improvement Round Active',
-      message: 'Providers have submitted sharpened final rates. Travelers reduced to $199/mo ($2,388/yr) while maintaining upgraded limits.',
-      timestamp: new Date().toISOString(),
-      read: false,
-      recipientType: 'CONSUMER',
-      recipientConsumerId: challenge.consumerId,
-      createdFromEvent: `FINAL_ROUND:${challenge.id}`,
-      actionTarget: 'COMPETITION_ROOM'
-    });
-
-    return challenge;
+    const error: any = new Error(`Final-round simulation is retired for challenge ${challengeId}; Open Policy uses one submission window.`);
+    error.statusCode = 410;
+    throw error;
   }
 
   public requestIncumbentDefense(challengeId: string): Offer {
@@ -2214,12 +2174,10 @@ export class PolicyChallengeDatabase {
         id: compId,
         challengeId,
         status: 'OPEN',
-        currentRound: 'ROUND_1_OPEN',
+        currentRound: 'OPEN',
         openedAt: new Date().toISOString(),
         closesAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(), // 48 hours default (Section 22)
-        participantCount: 0,
-        improvementRoundEnabled: true,
-        finalRoundEnabled: true
+        participantCount: 0
       };
       this.competitions.set(newComp.id, newComp);
       comp = newComp;
@@ -2620,14 +2578,6 @@ export class PolicyChallengeDatabase {
       }
     };
 
-    const invitedCount = Array.from(this.challengeInvitations.values()).filter(
-      i => i.challengeId === challengeId
-    ).length;
-
-    const participatingCount = Array.from(this.challengeParticipations.values()).filter(
-      p => p.challengeId === challengeId && p.status !== 'WITHDRAWN'
-    ).length;
-
     // Mask direct consumer identity in baseline object per Progressive Disclosure Stage B
     const sanitizedBaseline: CoverageBaseline = {
       ...challenge.baseline,
@@ -2661,9 +2611,7 @@ export class PolicyChallengeDatabase {
         currentRound: competition.currentRound,
         status: competition.status,
         openedAt: competition.openedAt,
-        closesAt: competition.closesAt,
-        participantCount: participatingCount,
-        invitedCount
+        closesAt: competition.closesAt
       },
       consumerObjective: "Compare the provider's documented offer with the consumer's verified existing policy.",
       baseline: sanitizedBaseline,
@@ -2682,10 +2630,9 @@ export class PolicyChallengeDatabase {
   }
 
   /**
-   * PM-2: Returns sealed provider market signals for the active provider.
-   * Strictly respects Section 12 & 24: zero competitor leakage.
+   * PR-2: Returns only the active provider's own offers and submission-window status.
    */
-  public getCompetitionMarketSignals(challengeId: string, orgId: string): ProviderMarketSignal {
+  public getProviderOfferStatus(challengeId: string, orgId: string): ProviderOfferStatus {
     const challenge = this.challenges.get(challengeId);
     if (!challenge) {
       const err: any = new Error(`Challenge ${challengeId} not found`);
@@ -2700,7 +2647,7 @@ export class PolicyChallengeDatabase {
       throw err;
     }
 
-    // Tenant Isolation: Only participating providers can access sealed market signals
+    // Tenant isolation: only participating providers can access their own status.
     const participation = Array.from(this.challengeParticipations.values()).find(
       p => p.challengeId === challengeId && p.providerOrganizationId === orgId && p.status !== 'WITHDRAWN'
     );
@@ -2711,19 +2658,11 @@ export class PolicyChallengeDatabase {
     }
 
     const allOffers = Array.from(this.offers.values()).filter(o => o.challengeId === challengeId);
-    const invitedCount = Array.from(this.challengeInvitations.values()).filter(i => i.challengeId === challengeId).length;
-
-    return calculateProviderMarketSignals(
-      competition,
-      orgId,
-      allOffers,
-      challenge.baseline,
-      invitedCount
-    );
+    return getProviderOfferStatus(competition, orgId, allOffers, challenge.baseline);
   }
 
   /**
-   * PM-2: Evaluates overall competition state, readiness, and deterministic ranking
+   * PM-2: Evaluates factual offer state without ranking.
    */
   public getCompetitionEvaluation(challengeId: string): CompetitionEvaluationSummary {
     const challenge = this.challenges.get(challengeId);
@@ -2797,15 +2736,9 @@ export class PolicyChallengeDatabase {
   }
 
   /**
-   * PM-3: Advances competition round with state validation and canonical lifecycle:
-   * OPEN -> IMPROVEMENT -> BEST_AND_FINAL -> CLOSED -> CONSUMER_REVIEW
+   * PR-2: Policyholder closes the single submission window and begins review.
    */
-  public advanceCompetition(
-    challengeId: string,
-    targetRound: CompetitionRound,
-    reason: string,
-    customDurationHours?: number
-  ): Competition {
+  public beginConsumerReview(challengeId: string): Competition {
     const challenge = this.challenges.get(challengeId);
     if (!challenge) {
       throw new Error(`Challenge ${challengeId} not found`);
@@ -2816,22 +2749,10 @@ export class PolicyChallengeDatabase {
       throw new Error(`Competition not found for challenge ${challengeId}`);
     }
 
-    const updatedComp = advanceCompRoundLogic(comp, targetRound, reason, customDurationHours);
+    const updatedComp = closeSubmissionWindow(comp, 'CONSUMER_BEGAN_REVIEW');
     this.competitions.set(comp.id, updatedComp);
 
-    // Update challenge status to match round per canonical lifecycle
-    if (targetRound === 'OPEN' || targetRound === 'ROUND_1_OPEN') {
-      challenge.status = 'OPEN';
-    } else if (targetRound === 'IMPROVEMENT' || targetRound === 'ROUND_2_IMPROVEMENT') {
-      challenge.status = 'OPEN';
-    } else if (targetRound === 'BEST_AND_FINAL' || targetRound === 'ROUND_3_BAFO') {
-      challenge.status = 'FINAL_ROUND';
-      challenge.isFinalRound = true;
-    } else if (targetRound === 'CLOSED') {
-      challenge.status = 'OPEN';
-    } else if (targetRound === 'CONSUMER_REVIEW' || targetRound === 'CLOSED_PENDING_SELECTION') {
-      challenge.status = 'CONSUMER_REVIEW';
-    }
+    challenge.status = 'CONSUMER_REVIEW';
     this.challenges.set(challenge.id, challenge);
 
     postgresStore.saveCompetition(updatedComp).catch(err => {
@@ -2839,18 +2760,14 @@ export class PolicyChallengeDatabase {
     });
 
     this.recordAudit(
-      'COMPETITION_ROUND_ADVANCED',
-      'SYSTEM',
-      'COMPETITION_ENGINE',
-      `Competition ${comp.id} advanced to ${targetRound}. Reason: ${reason}`
+      'COMPETITION_ROUND_ADVANCED', 'CONSUMER', challenge.consumerId,
+      `Policyholder began reviewing offers for ${comp.id}`
     );
 
     this.recordCompetitionActivity(challengeId, {
-      type: 'ROUND_ADVANCED',
-      actorRole: 'SYSTEM',
-      summary: `Competition round advanced to ${targetRound}. Deadline: ${updatedComp.closesAt}`,
-      round: targetRound,
-      metadata: { targetRound, reason, customDurationHours, closesAt: updatedComp.closesAt }
+      type: 'CONSUMER_REVIEW_ENTERED', actorRole: 'CONSUMER',
+      summary: 'Policyholder began reviewing submitted offers',
+      round: 'CONSUMER_REVIEW', metadata: { closesAt: updatedComp.closesAt }
     });
 
     const participantOrgIds = Array.from(new Set(Array.from(this.challengeParticipations.values())
@@ -2859,14 +2776,14 @@ export class PolicyChallengeDatabase {
     for (const providerOrganizationId of participantOrgIds) {
       this.addNotification({
         id: `NOTIF-${Date.now()}-${providerOrganizationId}`,
-        type: (targetRound === 'ROUND_3_BAFO' || targetRound === 'BEST_AND_FINAL') ? 'FINAL_ROUND_OPENED' : 'COMPETITION_UPDATE',
-        title: (targetRound === 'ROUND_3_BAFO' || targetRound === 'BEST_AND_FINAL') ? 'BAFO Final Round Initiated' : `Competition Advanced: ${targetRound}`,
-        message: `Challenge #${challenge.referenceNumber} entered ${targetRound}. Participating providers notified.`,
+        type: 'COMPETITION_UPDATE',
+        title: 'Submission window closed',
+        message: `The policyholder began reviewing submitted offers for ${challenge.referenceNumber}.`,
         timestamp: new Date().toISOString(),
         read: false,
         recipientType: 'PROVIDER_ORGANIZATION',
         recipientProviderOrganizationId: providerOrganizationId,
-        createdFromEvent: `COMPETITION_ROUND:${updatedComp.id}:${targetRound}`
+        createdFromEvent: `CONSUMER_REVIEW:${updatedComp.id}`
       });
     }
 

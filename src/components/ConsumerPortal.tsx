@@ -52,7 +52,6 @@ import {
   VaultDocument,
   BindingHandoffDossier,
   DetailedPostBindReconciliation,
-  CompetitionRound,
   CompetitionActivityEvent,
   RoundDeadlineStatus,
   CompetitionEvaluationSummary
@@ -165,7 +164,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
   const [competitionEvaluation, setCompetitionEvaluation] = useState<CompetitionEvaluationSummary | null>(null);
   const [activityFeed, setActivityFeed] = useState<CompetitionActivityEvent[]>([]);
   const [retainingCurrentPolicy, setRetainingCurrentPolicy] = useState<boolean>(false);
-  const [advancingRound, setAdvancingRound] = useState<string | null>(null);
+  const [beginningReview, setBeginningReview] = useState(false);
   const [showActivityFeed, setShowActivityFeed] = useState<boolean>(true);
 
   const fetchCompetitionDetails = async () => {
@@ -193,17 +192,16 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
     }
   };
 
-  const handleAdvanceCompetitionRound = async (targetRound: CompetitionRound, reason: string) => {
+  const handleBeginReview = async () => {
     if (!challenge?.id) return;
-    setAdvancingRound(targetRound);
+    setBeginningReview(true);
     try {
-      const res = await apiFetch(`/api/marketplace/competition/${challenge.id}/advance-round`, {
+      const res = await apiFetch(`/api/marketplace/competition/${challenge.id}/begin-review`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ targetRound, reason })
+        headers: { 'Content-Type': 'application/json' }
       });
       if (res.ok) {
-        setActionToast(`Offer review stage changed to ${targetRound.replace(/_/g, ' ')}.`);
+        setActionToast('The submission window is closed. You can now review every submitted offer.');
         setTimeout(() => setActionToast(null), 3500);
         await fetchCompetitionDetails();
         onRefreshData();
@@ -211,7 +209,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
     } catch (e) {
       console.error(e);
     } finally {
-      setAdvancingRound(null);
+      setBeginningReview(false);
     }
   };
 
@@ -239,17 +237,13 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
     }
   };
 
-  const normalizeCanonicalRound = (r?: string): string => {
+  const normalizeCanonicalRound = (r?: string): 'OPEN' | 'CONSUMER_REVIEW' => {
     if (!r) return 'OPEN';
-    if (r === 'ROUND_1_OPEN') return 'OPEN';
-    if (r === 'ROUND_2_IMPROVEMENT') return 'IMPROVEMENT';
-    if (r === 'ROUND_3_BAFO') return 'BEST_AND_FINAL';
-    if (r === 'CLOSED_PENDING_SELECTION') return 'CONSUMER_REVIEW';
-    return r;
+    return r === 'OPEN' || r === 'ROUND_1_OPEN' ? 'OPEN' : 'CONSUMER_REVIEW';
   };
 
   const currentCanonicalRound = normalizeCanonicalRound(
-    competitionEvaluation?.currentRound || (challenge?.isFinalRound ? 'BEST_AND_FINAL' : 'OPEN')
+    competitionEvaluation?.currentRound || (challenge?.status === 'CONSUMER_REVIEW' ? 'CONSUMER_REVIEW' : 'OPEN')
   );
 
   useEffect(() => {
@@ -1451,7 +1445,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
             </div>
           </div>
 
-          {/* PM-3: Canonical Competition Lifecycle & Multi-Round Stepper */}
+          {/* PR-2: one submission window followed by policyholder review */}
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-5">
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-100">
               <div className="flex items-center space-x-3">
@@ -1461,23 +1455,14 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                 <div>
                   <div className="flex items-center space-x-2">
                     <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                      Offer Submission Stages
+                      Offer Submission Window
                     </span>
                     <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold border ${
                       currentCanonicalRound === 'OPEN'
                         ? 'bg-blue-50 text-blue-700 border-blue-200'
-                        : currentCanonicalRound === 'IMPROVEMENT'
-                        ? 'bg-amber-50 text-amber-700 border-amber-200'
-                        : currentCanonicalRound === 'BEST_AND_FINAL'
-                        ? 'bg-purple-50 text-purple-700 border-purple-200'
-                        : currentCanonicalRound === 'CLOSED'
-                        ? 'bg-slate-200 text-slate-800 border-slate-300'
                         : 'bg-emerald-50 text-emerald-800 border-emerald-200'
                     }`}>
-                      {currentCanonicalRound === 'OPEN' && 'Initial Offer Window'}
-                      {currentCanonicalRound === 'IMPROVEMENT' && 'Offer Revision Window'}
-                      {currentCanonicalRound === 'BEST_AND_FINAL' && 'Final Offer Window'}
-                      {currentCanonicalRound === 'CLOSED' && 'Offer Window Closed'}
+                      {currentCanonicalRound === 'OPEN' && 'Open for Offers'}
                       {currentCanonicalRound === 'CONSUMER_REVIEW' && 'Policyholder Review'}
                     </span>
                     {deadlineStatus?.formattedRemaining && (
@@ -1488,12 +1473,12 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                     )}
                   </div>
                   <h3 className="text-base font-bold text-slate-900 mt-0.5">
-                    Structured Offer Submission Lifecycle
+                    Providers submit offers independently while the window is open
                   </h3>
                 </div>
               </div>
 
-              {/* Action Buttons: Keep Current Policy & Round Advancement */}
+              {/* Policyholder controls */}
               <div className="flex flex-wrap items-center gap-2">
                 {/* Keep Current Policy (Incumbent Defended) Button */}
                 {challenge?.status === 'INCUMBENT_DEFENDED' ? (
@@ -1514,49 +1499,15 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                   </button>
                 )}
 
-                {/* Progression buttons */}
                 {currentCanonicalRound === 'OPEN' && (
                   <button
-                    onClick={() => handleAdvanceCompetitionRound('IMPROVEMENT', 'Policyholder opened an offer revision window')}
-                    disabled={advancingRound === 'IMPROVEMENT'}
-                    className="flex items-center space-x-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white transition shadow-xs"
-                  >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>{advancingRound === 'IMPROVEMENT' ? 'Opening...' : 'Request Offer Revisions'}</span>
-                  </button>
-                )}
-
-                {(currentCanonicalRound === 'OPEN' || currentCanonicalRound === 'IMPROVEMENT') && (
-                  <button
-                    id="btn-final-round"
-                    onClick={() => handleAdvanceCompetitionRound('BEST_AND_FINAL', 'Policyholder requested final offer revisions')}
-                    disabled={advancingRound === 'BEST_AND_FINAL' || challenge?.isFinalRound}
-                    className="flex items-center space-x-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white transition shadow-xs"
-                  >
-                    <Award className="w-3.5 h-3.5" />
-                    <span>{advancingRound === 'BEST_AND_FINAL' ? 'Opening...' : 'Request Final Revisions'}</span>
-                  </button>
-                )}
-
-                {currentCanonicalRound === 'BEST_AND_FINAL' && (
-                  <button
-                    onClick={() => handleAdvanceCompetitionRound('CLOSED', 'Policyholder closed the offer window')}
-                    disabled={advancingRound === 'CLOSED'}
-                    className="flex items-center space-x-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white transition shadow-xs"
-                  >
-                    <Lock className="w-3.5 h-3.5" />
-                    <span>{advancingRound === 'CLOSED' ? 'Closing...' : 'Close Offer Window'}</span>
-                  </button>
-                )}
-
-                {currentCanonicalRound === 'CLOSED' && (
-                  <button
-                    onClick={() => handleAdvanceCompetitionRound('CONSUMER_REVIEW', 'Entering final consumer review stage')}
-                    disabled={advancingRound === 'CONSUMER_REVIEW'}
+                    id="btn-begin-review"
+                    onClick={handleBeginReview}
+                    disabled={beginningReview}
                     className="flex items-center space-x-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition shadow-xs"
                   >
                     <CheckCircle className="w-3.5 h-3.5" />
-                    <span>{advancingRound === 'CONSUMER_REVIEW' ? 'Entering...' : 'Enter Consumer Review'}</span>
+                    <span>{beginningReview ? 'Closing Window...' : 'Review Offers Now'}</span>
                   </button>
                 )}
 
@@ -1577,16 +1528,12 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
               </div>
             </div>
 
-            {/* Stepper Pipeline */}
-            <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 pt-1">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
               {[
-                { id: 'OPEN', stepNum: '1', title: 'Initial Offers', subtitle: 'Providers may send offers' },
-                { id: 'IMPROVEMENT', stepNum: '2', title: 'Revisions', subtitle: 'Providers may revise their offers' },
-                { id: 'BEST_AND_FINAL', stepNum: '3', title: 'Final Revisions', subtitle: 'Last offer update window' },
-                { id: 'CLOSED', stepNum: '4', title: 'Offers Closed', subtitle: 'Submissions complete' },
-                { id: 'CONSUMER_REVIEW', stepNum: '5', title: 'Policyholder Review', subtitle: 'Compare and choose' }
+                { id: 'OPEN', stepNum: '1', title: 'Submission Window', subtitle: 'Providers may submit or independently update their own offers' },
+                { id: 'CONSUMER_REVIEW', stepNum: '2', title: 'Policyholder Review', subtitle: 'Review every valid submitted offer and decide' }
               ].map((st) => {
-                const roundKeys = ['OPEN', 'IMPROVEMENT', 'BEST_AND_FINAL', 'CLOSED', 'CONSUMER_REVIEW'];
+                const roundKeys = ['OPEN', 'CONSUMER_REVIEW'];
                 const curIdx = roundKeys.indexOf(currentCanonicalRound);
                 const stepIdx = roundKeys.indexOf(st.id);
                 const isPassed = curIdx > stepIdx;
@@ -1615,7 +1562,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                       </span>
                       {isCurrent && (
                         <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded">
-                          Active Round
+                          Current Stage
                         </span>
                       )}
                     </div>
