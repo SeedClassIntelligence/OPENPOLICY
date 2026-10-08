@@ -186,7 +186,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
         {mode === 'SIGN_UP' && (
           <div className="px-6 pt-4 pb-1 shrink-0">
             <label className="text-[11px] font-mono uppercase tracking-wider text-slate-500 font-semibold block mb-1.5">
-              Select Your Marketplace Role
+              Choose Your Account Type
             </label>
             <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl">
               <button
@@ -234,7 +234,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
                   <span>Instant Evaluation Personas</span>
                 </div>
                 <p className="text-xs text-emerald-700 leading-relaxed">
-                  Skip registration to test the end-to-end competition architecture with pre-seeded canonical marketplace profiles.
+                  Skip registration to test the end-to-end offer review flow with pre-seeded demonstration profiles.
                 </p>
               </div>
 
@@ -253,7 +253,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
                         Consumer: Jane Doe · 2024 Toyota Camry
                       </div>
                       <div className="text-[11px] text-slate-500 font-mono">
-                        Active Challenge #NV-49281 • $2,964 Baseline • 3 Carrier Bids
+                        Shared Policy #NV-49281 • $2,964 Current Premium • 3 Provider Offers
                       </div>
                     </div>
                   </div>
@@ -274,7 +274,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
                         Provider: Sierra Brokerage Group LLC
                       </div>
                       <div className="text-[11px] text-slate-500 font-mono">
-                        NV Auto Licensed Agency • Quoting Desk • Active Round 2
+                        Nevada personal auto provider • Offer workspace
                       </div>
                     </div>
                   </div>
@@ -401,7 +401,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
                 disabled={loading}
                 className="w-full mt-2 py-3 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 font-bold text-xs rounded-xl shadow-md transition cursor-pointer flex items-center justify-center space-x-2"
               >
-                <span>{loading ? 'Creating Account...' : 'Create Consumer Account & Start Challenge'}</span>
+                <span>{loading ? 'Creating Account...' : 'Create Policyholder Account'}</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
             </form>

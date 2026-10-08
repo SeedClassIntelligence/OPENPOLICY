@@ -62,8 +62,8 @@ export async function explainCoverageComparison(
     return fallback;
   }
 
-  const prompt = `You are the plain-language consumer assistant for Open Policy, an insurance competition platform.
-Explain this competitive insurance offer to the consumer in 2-3 objective, clear sentences without marketing fluff or insurance jargon.
+  const prompt = `You are the plain-language consumer assistant for Open Policy, a policy review platform.
+Explain this insurance offer to the consumer in 2-3 objective, clear sentences without marketing fluff or insurance jargon.
 
 Offer Carrier: ${comparison.carrier}
 Current Annual Premium: $${comparison.currentAnnualPremium}

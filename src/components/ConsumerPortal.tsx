@@ -204,7 +204,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
         body: JSON.stringify({ targetRound, reason })
       });
       if (res.ok) {
-        setActionToast(`Competition progressed to ${targetRound.replace(/_/g, ' ')}!`);
+        setActionToast(`Offer review stage changed to ${targetRound.replace(/_/g, ' ')}.`);
         setTimeout(() => setActionToast(null), 3500);
         await fetchCompetitionDetails();
         onRefreshData();
@@ -228,7 +228,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
         })
       });
       if (res.ok) {
-        setActionToast('Current policy retained! Challenge marked INCUMBENT_DEFENDED and competition closed.');
+        setActionToast('Your current policy was retained and the offer review was closed.');
         setTimeout(() => setActionToast(null), 4000);
         await fetchCompetitionDetails();
         onRefreshData();
@@ -311,7 +311,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
       const res = await apiFetch(`/api/challenges/${challenge.id}/final-round`, { method: 'POST' });
       if (res.ok) {
         onRefreshData();
-        setActionToast('Best & Final Round activated! Challengers submitted sharpened rates.');
+        setActionToast('Final offer window opened. Providers may submit a final revision.');
         setTimeout(() => setActionToast(null), 4000);
       }
     } catch (e) {
@@ -328,7 +328,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
       const res = await apiFetch(`/api/challenges/${challenge.id}/incumbent-defense`, { method: 'POST' });
       if (res.ok) {
         onRefreshData();
-        setActionToast('Current company (GEICO) defense initiated! Retention offer entered the competition.');
+        setActionToast('Your current provider was invited to send a retention offer.');
         setTimeout(() => setActionToast(null), 4000);
       }
     } catch (e) {
@@ -952,7 +952,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
             }`}
           >
             <span className="w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center text-[10px] font-bold">4</span>
-            <span className="font-semibold text-emerald-800">Competition Room</span>
+            <span className="font-semibold text-emerald-800">Offer Review</span>
           </button>
 
           <ChevronRight className="w-3.5 h-3.5 text-slate-300 shrink-0" />
@@ -1045,10 +1045,10 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
         <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-6 md:p-8 space-y-6">
           <div className="max-w-2xl">
             <h2 className="text-2xl font-bold text-slate-900 tracking-tight">
-              Make Insurance Compete For You
+              Share Your Policy Once
             </h2>
             <p className="mt-1 text-slate-600 text-sm leading-relaxed">
-              Upload your existing auto insurance declarations page. We extract your exact protection baseline and current premium so licensed carriers compete to beat it — <strong className="text-slate-900 font-medium">without you filling out repeated forms</strong>.
+              Upload your existing auto insurance declarations page. We extract your current coverage and premium so eligible providers can independently review it and send offers — <strong className="text-slate-900 font-medium">without you filling out repeated forms</strong>.
             </p>
           </div>
 
@@ -1207,7 +1207,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                 Verify Your Policy Baseline
               </h2>
               <p className="text-sm text-slate-600">
-                Review the extracted terms from <span className="font-semibold text-slate-800">{activePolicy.sourceDocumentName}</span>. Every field is verified against source evidence before challengers can compete.
+                Review the extracted terms from <span className="font-semibold text-slate-800">{activePolicy.sourceDocumentName}</span>. Confirm or correct the information before providers can review it.
               </p>
             </div>
 
@@ -1349,13 +1349,13 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
         <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-6 md:p-8 space-y-6">
           <div>
             <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-              CONSUMER-CONTROLLED COMPETITION ENGINE
+              POLICYHOLDER REQUIREMENTS
             </span>
             <h2 className="text-2xl font-bold text-slate-900 mt-1">
-              Set Your Challenge Requirements
+              Set Your Offer Requirements
             </h2>
             <p className="text-sm text-slate-600">
-              CoverageBaseline is what you currently have. ConsumerRequirements is what you will accept from challengers.
+              Your current coverage is the reference point. Your requirements state what you want an offer to include.
             </p>
           </div>
 
@@ -1481,7 +1481,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
               className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm px-8 py-3 rounded-xl transition shadow-md shadow-emerald-900/20"
             >
               <Sparkles className="w-5 h-5" />
-              <span>MAKE THEM COMPETE</span>
+              <span>SHARE MY POLICY</span>
             </button>
           </div>
         </div>
@@ -1497,18 +1497,18 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
             <div>
               <div className="flex items-center space-x-2">
                 <span className="text-xs font-mono font-bold bg-slate-900 text-white px-2 py-0.5 rounded">
-                  {challenge?.referenceNumber || 'CHALLENGE #NV-49281'}
+                  {challenge?.referenceNumber || 'POLICY REVIEW #NV-49281'}
                 </span>
                 <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 flex items-center space-x-1">
                   <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                  <span>MARKETPLACE ACTIVE</span>
+                  <span>OFFERS OPEN</span>
                 </span>
               </div>
               <h2 className="text-2xl font-bold text-slate-900 mt-1">
-                The Competition Room
+                Your Offers
               </h2>
               <p className="text-xs text-slate-600">
-                Challengers competing against your verified baseline. <strong className="text-slate-800 font-semibold">Protection and price are separated</strong> so cheaper quotes cannot conceal coverage reductions.
+                Providers review the same verified policy information independently. <strong className="text-slate-800 font-semibold">Coverage and price are shown separately</strong> so a lower price cannot conceal a coverage reduction.
               </p>
             </div>
 
@@ -1539,7 +1539,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
               <div>
                 <div className="flex items-center space-x-2">
                   <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">
-                    Progressive Disclosure: Level 0 (Marketplace Anonymous)
+                    Contact details withheld during provider review
                   </span>
                   <span className="text-[10px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded font-mono">
                     Zero Direct Contact Shared
@@ -1553,7 +1553,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
 
             <div className="flex items-center space-x-2 shrink-0">
               <span className="text-[11px] font-semibold text-emerald-400 bg-emerald-950/80 px-2.5 py-1 rounded-lg border border-emerald-800">
-                Sealed Anti-Collusion Mode Active
+                Other providers’ offers are not visible
               </span>
             </div>
           </div>
@@ -1568,7 +1568,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                 <div>
                   <div className="flex items-center space-x-2">
                     <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                      Competition Rounds (Canonical PM-3)
+                      Offer Submission Stages
                     </span>
                     <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold border ${
                       currentCanonicalRound === 'OPEN'
@@ -1581,11 +1581,11 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                         ? 'bg-slate-200 text-slate-800 border-slate-300'
                         : 'bg-emerald-50 text-emerald-800 border-emerald-200'
                     }`}>
-                      {currentCanonicalRound === 'OPEN' && 'Round 1: Open Bidding'}
-                      {currentCanonicalRound === 'IMPROVEMENT' && 'Round 2: Improvement Window'}
-                      {currentCanonicalRound === 'BEST_AND_FINAL' && 'Round 3: Best & Final Offer (BAFO)'}
-                      {currentCanonicalRound === 'CLOSED' && 'Round 4: Bidding Closed'}
-                      {currentCanonicalRound === 'CONSUMER_REVIEW' && 'Round 5: Consumer Review & Selection'}
+                      {currentCanonicalRound === 'OPEN' && 'Initial Offer Window'}
+                      {currentCanonicalRound === 'IMPROVEMENT' && 'Offer Revision Window'}
+                      {currentCanonicalRound === 'BEST_AND_FINAL' && 'Final Offer Window'}
+                      {currentCanonicalRound === 'CLOSED' && 'Offer Window Closed'}
+                      {currentCanonicalRound === 'CONSUMER_REVIEW' && 'Policyholder Review'}
                     </span>
                     {deadlineStatus?.formattedRemaining && (
                       <span className="text-[11px] font-semibold text-slate-700 bg-amber-50 px-2.5 py-0.5 rounded-md flex items-center gap-1 border border-amber-200">
@@ -1595,7 +1595,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                     )}
                   </div>
                   <h3 className="text-base font-bold text-slate-900 mt-0.5">
-                    Structured Multi-Round Bidding Lifecycle
+                    Structured Offer Submission Lifecycle
                   </h3>
                 </div>
               </div>
@@ -1606,7 +1606,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                 {challenge?.status === 'INCUMBENT_DEFENDED' ? (
                   <div className="flex items-center gap-1.5 bg-emerald-950 text-emerald-300 border border-emerald-700/60 px-3.5 py-2 rounded-lg text-xs font-bold shadow-xs">
                     <CheckCircle className="w-4 h-4 text-emerald-400" />
-                    <span>✓ Incumbent Policy Retained (Incumbent Defended)</span>
+                    <span>✓ Current Policy Retained</span>
                   </div>
                 ) : (
                   <button
@@ -1614,45 +1614,45 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                     onClick={handleKeepCurrentPolicy}
                     disabled={retainingCurrentPolicy}
                     className="flex items-center space-x-1.5 text-xs font-bold px-3.5 py-2 rounded-lg border border-blue-600 bg-blue-600 hover:bg-blue-700 text-white shadow-sm transition"
-                    title="Retain current baseline policy without forced concession (marks challenge INCUMBENT_DEFENDED)"
+                    title="Keep your current policy and close this offer review"
                   >
                     <ShieldAlert className="w-3.5 h-3.5 text-white" />
-                    <span>{retainingCurrentPolicy ? 'Retaining Policy...' : 'KEEP CURRENT POLICY (INCUMBENT DEFENDED)'}</span>
+                    <span>{retainingCurrentPolicy ? 'Retaining Policy...' : 'KEEP CURRENT POLICY'}</span>
                   </button>
                 )}
 
                 {/* Progression buttons */}
                 {currentCanonicalRound === 'OPEN' && (
                   <button
-                    onClick={() => handleAdvanceCompetitionRound('IMPROVEMENT', 'Consumer requested round 2 improvement window')}
+                    onClick={() => handleAdvanceCompetitionRound('IMPROVEMENT', 'Policyholder opened an offer revision window')}
                     disabled={advancingRound === 'IMPROVEMENT'}
                     className="flex items-center space-x-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white transition shadow-xs"
                   >
                     <Sparkles className="w-3.5 h-3.5" />
-                    <span>{advancingRound === 'IMPROVEMENT' ? 'Advancing...' : 'Request Improvement Round'}</span>
+                    <span>{advancingRound === 'IMPROVEMENT' ? 'Opening...' : 'Request Offer Revisions'}</span>
                   </button>
                 )}
 
                 {(currentCanonicalRound === 'OPEN' || currentCanonicalRound === 'IMPROVEMENT') && (
                   <button
                     id="btn-final-round"
-                    onClick={() => handleAdvanceCompetitionRound('BEST_AND_FINAL', 'Consumer requested Best & Final offer round')}
+                    onClick={() => handleAdvanceCompetitionRound('BEST_AND_FINAL', 'Policyholder requested final offer revisions')}
                     disabled={advancingRound === 'BEST_AND_FINAL' || challenge?.isFinalRound}
                     className="flex items-center space-x-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white transition shadow-xs"
                   >
                     <Award className="w-3.5 h-3.5" />
-                    <span>{advancingRound === 'BEST_AND_FINAL' ? 'Advancing...' : 'Request Best & Final'}</span>
+                    <span>{advancingRound === 'BEST_AND_FINAL' ? 'Opening...' : 'Request Final Revisions'}</span>
                   </button>
                 )}
 
                 {currentCanonicalRound === 'BEST_AND_FINAL' && (
                   <button
-                    onClick={() => handleAdvanceCompetitionRound('CLOSED', 'Consumer closed competition bidding')}
+                    onClick={() => handleAdvanceCompetitionRound('CLOSED', 'Policyholder closed the offer window')}
                     disabled={advancingRound === 'CLOSED'}
                     className="flex items-center space-x-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white transition shadow-xs"
                   >
                     <Lock className="w-3.5 h-3.5" />
-                    <span>{advancingRound === 'CLOSED' ? 'Closing...' : 'Close Bidding Window'}</span>
+                    <span>{advancingRound === 'CLOSED' ? 'Closing...' : 'Close Offer Window'}</span>
                   </button>
                 )}
 
@@ -1676,10 +1676,10 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                       ? 'bg-blue-950 text-blue-300 border-blue-700/60 cursor-default'
                       : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300 shadow-xs'
                   }`}
-                  title="Invite existing carrier to submit a retention counter-offer"
+                  title="Invite your current provider to send an offer"
                 >
                   <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
-                  <span>{challenge?.incumbentDefended ? '✓ Incumbent Retention Entered' : 'Invite Incumbent to Defend'}</span>
+                  <span>{challenge?.incumbentDefended ? '✓ Current Provider Offer Received' : 'Invite Current Provider'}</span>
                 </button>
               </div>
             </div>
@@ -1687,11 +1687,11 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
             {/* Stepper Pipeline */}
             <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 pt-1">
               {[
-                { id: 'OPEN', stepNum: '1', title: 'Open Bidding', subtitle: 'Initial market quotes' },
-                { id: 'IMPROVEMENT', stepNum: '2', title: 'Improvement', subtitle: 'Multi-dimensional revisions' },
-                { id: 'BEST_AND_FINAL', stepNum: '3', title: 'Best & Final', subtitle: 'Sharpened terms' },
-                { id: 'CLOSED', stepNum: '4', title: 'Bidding Closed', subtitle: 'Submissions sealed' },
-                { id: 'CONSUMER_REVIEW', stepNum: '5', title: 'Consumer Review', subtitle: 'Selection & defense' }
+                { id: 'OPEN', stepNum: '1', title: 'Initial Offers', subtitle: 'Providers may send offers' },
+                { id: 'IMPROVEMENT', stepNum: '2', title: 'Revisions', subtitle: 'Providers may revise their offers' },
+                { id: 'BEST_AND_FINAL', stepNum: '3', title: 'Final Revisions', subtitle: 'Last offer update window' },
+                { id: 'CLOSED', stepNum: '4', title: 'Offers Closed', subtitle: 'Submissions complete' },
+                { id: 'CONSUMER_REVIEW', stepNum: '5', title: 'Policyholder Review', subtitle: 'Compare and choose' }
               ].map((st) => {
                 const roundKeys = ['OPEN', 'IMPROVEMENT', 'BEST_AND_FINAL', 'CLOSED', 'CONSUMER_REVIEW'];
                 const curIdx = roundKeys.indexOf(currentCanonicalRound);
@@ -1825,7 +1825,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                 <div className="flex items-center space-x-2">
                   <Clock className="w-4 h-4 text-blue-600" />
                   <h4 className="text-sm font-bold text-slate-900">
-                    Competition Activity & Telemetry Timeline
+                    Offer Activity Timeline
                   </h4>
                   <span className="text-[10px] bg-blue-100 text-blue-700 font-bold px-2 py-0.5 rounded-full font-mono">
                     Transparent Event Ledger
@@ -2228,7 +2228,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
               onClick={() => setCurrentStep('COMPETITION_ROOM')}
               className="text-xs text-slate-600 hover:text-slate-900"
             >
-              ← Back to Competition Room
+              ← Back to Offers
             </button>
             <button
               onClick={() => handleInitiateSelectOffer(selectedComparison.offerId)}
@@ -2306,13 +2306,13 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                     <span>Designated Producer & License Verification</span>
                   </div>
                   <p className="text-slate-600">
-                    Broker: <span className="font-semibold text-slate-800">{bindingDossier.winningBroker.designatedAgentName}</span>
+                    Provider contact: <span className="font-semibold text-slate-800">{bindingDossier.winningBroker.designatedAgentName}</span>
                   </p>
                   <p className="text-slate-600">
                     Jurisdiction License: <span className="font-mono font-semibold text-slate-800">{bindingDossier.winningBroker.licenseNumber} ({bindingDossier.winningBroker.jurisdiction})</span>
                   </p>
                   <p className="text-slate-500 text-[10px]">
-                    Non-winning market participants cannot access your name, email, phone, or VIN.
+                    Providers you did not choose cannot access your name, email, phone, or VIN.
                   </p>
                 </div>
 
@@ -2900,14 +2900,14 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
               <span className="text-xs font-mono text-slate-400">Renewal in 58 Days</span>
             </div>
             <p className="text-xs text-slate-300">
-              When this policy approaches renewal, the platform notifies you. If a renewal increase is detected, you can place your policy right back into competition with a single click — no re-typing required.
+              When this policy approaches renewal, the platform notifies you. You can share the policy again for providers to review without retyping the policy information.
             </p>
             <button
               onClick={() => setCurrentStep('SET_REQUIREMENTS')}
               className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-2 rounded-lg transition"
             >
               <RefreshCw className="w-3.5 h-3.5" />
-              <span>PUT MY POLICY BACK UP FOR COMPETITION</span>
+              <span>SHARE MY POLICY AGAIN</span>
             </button>
           </div>
         </div>
@@ -3124,7 +3124,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
               <span>Section 4: Vault Confidentiality Guarantee</span>
             </div>
             <p className="text-slate-300 leading-relaxed">
-              Documents placed in the Private Policy Vault are encrypted and tamper-evident. Insurers competing in the marketplace never receive direct copies of your documents. Only verified, sanitized baseline variables are broadcast during competition.
+              Documents placed in the Private Policy Vault are encrypted and tamper-evident. Providers reviewing your policy do not receive direct copies of your documents. Only the permitted policy details are shared during offer review.
             </p>
           </div>
         </div>

@@ -358,7 +358,7 @@ export const ArchitectureDocs: React.FC = () => {
                 </span>
               </div>
               <p className="text-xs text-slate-700">
-                Inverted marketplace lifecycle (PM-2): Anonymous multi-round bidding, market signals (spread, lead, percentile), and blind round transitions.
+                Provider-offer lifecycle (PM-2): independent submissions, revision windows, status signals, and policyholder review transitions.
               </p>
               <div className="text-[11px] text-slate-500 font-mono">
                 Dependencies: @policy-challenge/comparison-engine

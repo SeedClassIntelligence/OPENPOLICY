@@ -1017,7 +1017,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
               onClick={() => loadMarketplaceData()}
               disabled={loading}
               className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl border border-slate-700/60 text-xs flex items-center gap-1.5 transition-colors"
-              title="Refresh Marketplace State"
+              title="Refresh Provider Account"
             >
               <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin text-blue-400' : ''}`} />
             </button>
@@ -1029,7 +1029,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
           <div className="flex items-center space-x-4">
             <span className="text-slate-400 flex items-center gap-1.5">
               <ShieldCheck className="h-4 w-4 text-emerald-400" />
-              Status: <strong className="text-slate-200">{activeOrg?.marketplaceStatus}</strong>
+              Account status: <strong className="text-slate-200">{activeOrg?.marketplaceStatus}</strong>
             </span>
             <span className="text-slate-400 flex items-center gap-1.5">
               <Compass className="h-4 w-4 text-blue-400" />
@@ -1075,7 +1075,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
           }`}
         >
           <Clock className="h-4 w-4" />
-          My Competitions
+          My Offer Reviews
           {competitions.length > 0 && (
             <span className="ml-1 px-2 py-0.5 text-xs rounded-full bg-emerald-100 text-emerald-700 font-bold">
               {competitions.length}
@@ -1095,7 +1095,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
           }`}
         >
           <FileText className="h-4 w-4" />
-          Challenge Rating Workspace
+          Provider Offer Workspace
           {workspaceData && (
             <span className="ml-1 px-2 py-0.5 text-xs rounded-full bg-purple-100 text-purple-700 font-bold">
               Active
@@ -1142,7 +1142,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
               <strong className="font-semibold block text-sm mb-0.5">
                 Stage 0 & 1: Privacy-Preserving Opportunity Distribution
               </strong>
-              Opportunities represent verified coverage challenges distributed to this provider based on
+              Opportunities are shared policies made available to this provider based on
               matching jurisdiction licensing, active appetite, and line of business. Prior to acceptance,
               zero consumer direct contact information is revealed.
             </div>
@@ -1158,7 +1158,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
               </h3>
               <p className="text-xs text-slate-500 max-w-md mx-auto">
                 {activeOrg?.id === 'org_buckeye'
-                  ? 'Buckeye State Insurance is licensed in Ohio (OH) only. Challenge #NV-49281 originated in Nevada (NV), so it was filtered out by the deterministic Eligibility Engine with zero data leakage.'
+                  ? 'Buckeye State Insurance is configured for Ohio only. Shared policy #NV-49281 is from Nevada, so it was not made available to this provider.'
                   : 'You have reviewed or accepted all open opportunities matching your configured appetite.'}
               </p>
               {activeOrg?.id === 'org_buckeye' && (
@@ -1189,14 +1189,14 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
 
                     <div className="flex items-center space-x-2 text-xs text-slate-500">
                       <Clock className="h-3.5 w-3.5 text-slate-400" />
-                      <span>Round 1 Initial Window Closes in 48h</span>
+                      <span>Initial offer window closes in 48 hours</span>
                     </div>
                   </div>
 
                   {/* Stage 1 Anonymized Ratings Grid */}
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 bg-slate-50 p-4 rounded-xl text-xs">
                     <div>
-                      <span className="text-slate-400 uppercase block font-semibold text-[10px]">Benchmark to Beat</span>
+                      <span className="text-slate-400 uppercase block font-semibold text-[10px]">Current Annual Premium</span>
                       <span className="text-base font-bold text-slate-900">
                         ${opp.currentAnnualPremium.toLocaleString()}/yr
                       </span>
@@ -1220,7 +1220,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                     </div>
 
                     <div>
-                      <span className="text-slate-400 uppercase block font-semibold text-[10px]">Competition Field</span>
+                      <span className="text-slate-400 uppercase block font-semibold text-[10px]">Provider Interest</span>
                       <span className="font-bold text-blue-700 block text-xs">
                         {opp.invitedProvidersCount} Invited • {opp.participatingProvidersCount} Active
                       </span>
@@ -1262,7 +1262,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                         ) : (
                           <Check className="h-3.5 w-3.5" />
                         )}
-                        Accept & Enter Competition
+                        Accept & Review Policy
                       </button>
                     </div>
                   </div>
@@ -1278,10 +1278,10 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-bold text-slate-900">
-              Active Challenge Participations for {activeOrg?.displayName}
+              Active Policy Reviews for {activeOrg?.displayName}
             </h3>
             <span className="text-xs text-slate-500">
-              {competitions.length} Active Challenges
+              {competitions.length} Active Reviews
             </span>
           </div>
 
@@ -1290,9 +1290,9 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
               <div className="h-12 w-12 rounded-full bg-slate-100 flex items-center justify-center mx-auto text-slate-400">
                 <Clock className="h-6 w-6" />
               </div>
-              <h4 className="text-sm font-bold text-slate-800">No Active Competitions</h4>
+              <h4 className="text-sm font-bold text-slate-800">No Active Policy Reviews</h4>
               <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                Accept an opportunity from the Opportunities tab to begin rating and submit quotes for consumer challenges.
+                Accept an opportunity to review shared policy details and decide whether to submit an offer.
               </p>
               <button
                 onClick={() => setActiveTab('OPPORTUNITIES')}
@@ -1315,11 +1315,11 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                           {c.challenge.referenceNumber}
                         </span>
                         <span className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded font-semibold">
-                          ROUND: {c.competition.currentRound}
+                          STAGE: {c.competition.currentRound.replace(/ROUND_[0-9]_?/g, '').replace(/_/g, ' ')}
                         </span>
                       </div>
                       <h4 className="text-base font-bold text-slate-900 mt-1">
-                        {c.challenge.baseline?.vehicle ? `${c.challenge.baseline.vehicle.year} ${c.challenge.baseline.vehicle.make} ${c.challenge.baseline.vehicle.model}` : 'Personal Auto Challenge'}
+                        {c.challenge.baseline?.vehicle ? `${c.challenge.baseline.vehicle.year} ${c.challenge.baseline.vehicle.make} ${c.challenge.baseline.vehicle.model}` : 'Personal Auto Policy'}
                       </h4>
                     </div>
 
@@ -1343,7 +1343,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
 
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-3.5 rounded-xl text-xs">
                     <div>
-                      <span className="text-slate-400 block text-[10px] uppercase font-bold">Target to Beat</span>
+                      <span className="text-slate-400 block text-[10px] uppercase font-bold">Current Annual Premium</span>
                       <span className="font-bold text-slate-800">${c.challenge.baseline?.baselineAnnualPremium}/yr</span>
                     </div>
                     <div>
@@ -1355,8 +1355,8 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                       <span className="text-slate-700">{new Date(c.participation.acceptedAt).toLocaleDateString()}</span>
                     </div>
                     <div>
-                      <span className="text-slate-400 block text-[10px] uppercase font-bold">Total Competitors</span>
-                      <span className="text-slate-700">{c.competition.participantCount} active brokers</span>
+                      <span className="text-slate-400 block text-[10px] uppercase font-bold">Provider Interest</span>
+                      <span className="text-slate-700">{c.competition.participantCount} providers reviewing</span>
                     </div>
                   </div>
                 </div>
@@ -1371,7 +1371,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
         <div className="space-y-6">
           {!workspaceData ? (
             <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-500 text-xs">
-              No active challenge workspace selected. Select an accepted challenge from "My Competitions".
+              No policy review selected. Choose an accepted opportunity from "My Offer Reviews".
             </div>
           ) : (
             <>
@@ -1619,9 +1619,9 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                   </div>
 
                   <div className="flex items-center space-x-2 text-xs">
-                    <span className="text-slate-500">Sealed Competition Mode:</span>
+                    <span className="text-slate-500">Independent Review:</span>
                     <span className="font-semibold text-slate-800 bg-slate-100 px-2 py-1 rounded">
-                      {workspaceData.competition.participantCount} Competing Providers
+                      {workspaceData.competition.participantCount} Providers Reviewing
                     </span>
                   </div>
                 </div>
@@ -1639,7 +1639,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                 {/* Rating Factors Grid */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 bg-slate-50/80 p-4 rounded-xl text-xs">
                   <div>
-                    <span className="text-slate-400 uppercase block font-semibold text-[10px]">Target to Beat</span>
+                    <span className="text-slate-400 uppercase block font-semibold text-[10px]">Current Annual Premium</span>
                     <span className="text-base font-bold text-slate-900">
                       ${workspaceData.baseline.baselineAnnualPremium.toLocaleString()}/yr
                     </span>
@@ -1703,7 +1703,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                     <div>
                       <div className="flex items-center space-x-2">
                         <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                          Competition Engine (PM-2)
+                          Offer Submission Status
                         </span>
                         <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold border ${
                           (workspaceData.competition.currentRound === 'ROUND_1_OPEN' || workspaceData.competition.currentRound === 'OPEN')
@@ -1716,10 +1716,10 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                             ? 'bg-slate-200 text-slate-800 border-slate-300'
                             : 'bg-emerald-50 text-emerald-800 border-emerald-200'
                         }`}>
-                          {(workspaceData.competition.currentRound === 'ROUND_1_OPEN' || workspaceData.competition.currentRound === 'OPEN') && 'Round 1: Open Bidding'}
-                          {(workspaceData.competition.currentRound === 'ROUND_2_IMPROVEMENT' || workspaceData.competition.currentRound === 'IMPROVEMENT') && 'Round 2: Improvement Window'}
-                          {(workspaceData.competition.currentRound === 'ROUND_3_BAFO' || workspaceData.competition.currentRound === 'BEST_AND_FINAL') && 'Round 3: Best & Final Offer (BAFO)'}
-                          {workspaceData.competition.currentRound === 'CLOSED' && 'Bidding Closed'}
+                          {(workspaceData.competition.currentRound === 'ROUND_1_OPEN' || workspaceData.competition.currentRound === 'OPEN') && 'Initial Offer Window'}
+                          {(workspaceData.competition.currentRound === 'ROUND_2_IMPROVEMENT' || workspaceData.competition.currentRound === 'IMPROVEMENT') && 'Offer Revision Window'}
+                          {(workspaceData.competition.currentRound === 'ROUND_3_BAFO' || workspaceData.competition.currentRound === 'BEST_AND_FINAL') && 'Final Offer Window'}
+                          {workspaceData.competition.currentRound === 'CLOSED' && 'Offer Window Closed'}
                           {(workspaceData.competition.currentRound === 'CONSUMER_REVIEW' || workspaceData.competition.currentRound === 'CLOSED_PENDING_SELECTION') && 'In Consumer Review'}
                         </span>
                         {workspaceData.deadlineStatus?.formattedRemaining && (
@@ -1741,7 +1741,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                       type="button"
                       onClick={() => setWithdrawModalOpen(true)}
                       className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors"
-                      title="Formally withdraw from this challenge competition"
+                      title="Withdraw from this policy review"
                     >
                       <X className="h-3.5 w-3.5" />
                       Withdraw
@@ -1752,40 +1752,40 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                       onClick={handleSeedCompetitors}
                       disabled={actionLoading === 'seed-competitors'}
                       className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors"
-                      title="Seed realistic competing quote from Apex Insurance (Progressive $2,540/yr) to test market ranking dynamics"
+                      title="Add a demonstration offer for local testing"
                     >
                       <Zap className="h-3.5 w-3.5 text-amber-600" />
-                      {actionLoading === 'seed-competitors' ? 'Simulating...' : 'Seed Competitor Bid (Apex)'}
+                      {actionLoading === 'seed-competitors' ? 'Simulating...' : 'Add Demo Offer'}
                     </button>
 
                     {(workspaceData.competition.currentRound === 'ROUND_1_OPEN' || workspaceData.competition.currentRound === 'OPEN') && (
                       <button
                         type="button"
-                        onClick={() => handleAdvanceRound('IMPROVEMENT', 'Initial bidding window elapsed, opening 24h improvement round')}
+                        onClick={() => handleAdvanceRound('IMPROVEMENT', 'Initial offer window elapsed, opening a revision window')}
                         disabled={actionLoading === 'round-IMPROVEMENT'}
                         className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-colors"
                       >
                         <Sparkles className="h-3.5 w-3.5" />
-                        Advance to Round 2 (Improvement)
+                        Open Revision Window
                       </button>
                     )}
 
                     {(workspaceData.competition.currentRound === 'ROUND_2_IMPROVEMENT' || workspaceData.competition.currentRound === 'IMPROVEMENT') && (
                       <button
                         type="button"
-                        onClick={() => handleAdvanceRound('BEST_AND_FINAL', 'Improvement window closed, initiating Best & Final Offer round')}
+                        onClick={() => handleAdvanceRound('BEST_AND_FINAL', 'Revision window closed; final revisions requested')}
                         disabled={actionLoading === 'round-BEST_AND_FINAL'}
                         className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-colors"
                       >
                         <Award className="h-3.5 w-3.5" />
-                        Trigger Round 3 (BAFO)
+                        Request Final Revisions
                       </button>
                     )}
 
                     {(workspaceData.competition.currentRound === 'ROUND_3_BAFO' || workspaceData.competition.currentRound === 'BEST_AND_FINAL') && (
                       <button
                         type="button"
-                        onClick={() => handleAdvanceRound('CONSUMER_REVIEW', 'BAFO concluded, competition closed for consumer selection')}
+                        onClick={() => handleAdvanceRound('CONSUMER_REVIEW', 'Final offer window concluded; offers ready for policyholder review')}
                         disabled={actionLoading === 'round-CONSUMER_REVIEW'}
                         className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-colors"
                       >
@@ -1830,7 +1830,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                   {/* Market Density & Round State */}
                   <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
                     <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">
-                      Marketplace State
+                      Offer Activity
                     </span>
                     <div className="mt-1 flex items-baseline space-x-2">
                       <span className="text-xl font-bold text-slate-900">
@@ -1842,17 +1842,17 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                     </div>
                     <span className="text-[11px] text-slate-500 mt-2 block">
                       <Lock className="h-3 w-3 inline mr-1 text-slate-400" />
-                      Sealed competition: Competitor quotes and rankings strictly confidential.
+                      Independent review: You cannot see other providers’ identities, prices, or offers.
                     </span>
                   </div>
 
                   {/* Competition Stage & Round Status */}
                   <div className="p-4 bg-blue-50/70 rounded-xl border border-blue-200">
                     <span className="text-[10px] uppercase font-bold text-blue-700 block tracking-wider">
-                      Competition Stage
+                      Offer Stage
                     </span>
                     <p className="text-xs text-blue-900 mt-1 font-medium leading-relaxed">
-                      {marketSignals?.statusMessage || marketSignals?.guidanceHint || 'Active competition round in progress. Offers under consumer review.'}
+                      {marketSignals?.statusMessage || marketSignals?.guidanceHint || 'Offer submission window in progress.'}
                     </p>
                     {workspaceData.competition.currentRound !== 'ROUND_1_OPEN' && (
                       <span className="text-[10px] text-blue-600 font-bold mt-2 block uppercase tracking-wide">
@@ -1875,12 +1875,12 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                         </span>
                       </h4>
                       <p className="text-xs text-slate-500 mt-0.5">
-                        Independent brokers can submit multiple carrier appointments for the same challenge.
+                        An authorized provider may submit offers for its applicable carrier relationships.
                       </p>
                     </div>
 
                     <span className="text-xs text-slate-400 font-normal">
-                      (Competitor quotes strictly sealed)
+                      (Other providers’ offers are not visible)
                     </span>
                   </div>
 
@@ -2033,7 +2033,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                 {infoRequests && infoRequests.length > 0 && (
                   <div className="pt-3 border-t border-slate-100 space-y-2">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
-                      Information Requests for this Competition
+                      Information Requests for this Policy Review
                     </span>
                     <div className="space-y-2">
                       {infoRequests.map((req: any) => (
@@ -2071,7 +2071,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                     <div className="flex items-center space-x-2">
                       <Clock className="h-4 w-4 text-slate-500" />
                       <h4 className="text-sm font-bold text-slate-900">
-                        Competition Activity Timeline
+                        Offer Activity Timeline
                       </h4>
                       <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-mono">
                         Sealed Provider View
@@ -2121,7 +2121,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                   <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 p-4 rounded-xl text-xs flex items-center gap-2">
                     <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
                     <div>
-                      <strong>Quote proposal submitted to the marketplace!</strong> The consumer can now compare your offer against their baseline.
+                      <strong>Your offer was submitted.</strong> The policyholder can now compare it with the current policy.
                     </div>
                   </div>
                 )}
@@ -2331,7 +2331,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                     ) : (
                       <Send className="h-4 w-4" />
                     )}
-                    Submit Offer into Competition
+                    Submit Offer
                   </button>
                 </div>
               </form>
@@ -2436,9 +2436,9 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                 </span>
               </div>
               <p className="text-xs text-slate-300 max-w-2xl">
-                Commercial membership grants marketplace capacity and operational scale. Under no circumstances
+                Commercial membership grants policy-review capacity and operational scale. Under no circumstances
                 can commercial tier, subscription fees, or spend influence opportunity distribution, consumer ranking,
-                or competition outcomes.
+                or how offers are displayed.
               </p>
             </div>
             <div className="flex items-center space-x-3 shrink-0">
@@ -2466,7 +2466,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                 </h3>
                 <p className="text-xs text-slate-500">
                   {commercialAgreement
-                    ? (commercialPlan?.description || 'Active commercial agreement governing marketplace capacity.')
+                    ? (commercialPlan?.description || 'Active commercial agreement governing policy-review capacity.')
                     : 'This provider organization is currently unconfigured. Commercial capacity must be provisioned through explicit enrollment.'}
                 </p>
               </div>
@@ -2528,7 +2528,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
           {/* 3. Marketplace Capacity & Entitlements */}
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
             <div>
-              <h3 className="text-base font-bold text-slate-900">Purchased Marketplace Capacity</h3>
+              <h3 className="text-base font-bold text-slate-900">Provider Account Capacity</h3>
               <p className="text-xs text-slate-500">
                 Capacity limits derived from active commercial agreement. Entitlements gate volume and access without modifying evaluation neutrality.
               </p>
@@ -2570,8 +2570,8 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                       <p className="text-[11px] text-slate-500">
                         {ent.entitlementType === 'VPO_CAPACITY' && 'Maximum verified opportunities that can be engaged concurrently.'}
                         {ent.entitlementType === 'PRODUCER_SEATS' && 'Licensed producers authorized to draft and submit binding quotes.'}
-                        {ent.entitlementType === 'ACTIVE_JURISDICTIONS' && 'States where marketplace distribution is commercially enabled.'}
-                        {ent.entitlementType === 'CONCURRENT_COMPETITIONS' && 'Simultaneous active consumer competitions in progress.'}
+                        {ent.entitlementType === 'ACTIVE_JURISDICTIONS' && 'States where policy-review access is enabled.'}
+                        {ent.entitlementType === 'CONCURRENT_COMPETITIONS' && 'Simultaneous active policy reviews.'}
                         {ent.entitlementType === 'AUTHORIZED_CONNECTION_INCLUDED' && 'Included PM-4 authorized disclosures before usage overage.'}
                       </p>
                     </div>
@@ -3049,8 +3049,8 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
             </div>
 
             <p className="text-xs text-slate-500">
-              Please select a structured reason for declining this challenge opportunity. This provides
-              closed-loop marketplace signals without exposing consumer identity.
+              Select a reason for declining this policy review opportunity. This provides
+              operational information without exposing policyholder identity.
             </p>
 
             <div className="space-y-3 text-xs">
@@ -3062,7 +3062,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                   className="w-full text-xs border border-slate-300 rounded-lg p-2.5 bg-white"
                 >
                   <option value="OUTSIDE_APPETITE">Out of Appetite / Risk Tier Unfavorable</option>
-                  <option value="NO_COMPETITIVE_MARKET">Cannot Beat Existing Premium ($2,964/yr)</option>
+                  <option value="NO_COMPETITIVE_MARKET">Cannot offer a lower premium than $2,964/year</option>
                   <option value="CAPACITY">Broker Capacity Temporarily Full</option>
                   <option value="CARRIER_RESTRICTION">Carrier Rating Restriction in Territory</option>
                   <option value="INSUFFICIENT_INFORMATION">Insufficient Information to Underwrite</option>
@@ -3075,7 +3075,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                 <textarea
                   value={declineNotes}
                   onChange={(e) => setDeclineNotes(e.target.value)}
-                  placeholder="e.g. Current rating tier in 89101 not competitive under current rate filings."
+                  placeholder="e.g. Current filed rates in 89101 do not support an offer for this policy."
                   className="w-full text-xs border border-slate-300 rounded-lg p-2.5 h-20"
                 />
               </div>
@@ -3109,7 +3109,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
               <div className="flex items-center space-x-2">
                 <RotateCcw className="h-4 w-4 text-blue-600" />
                 <h4 className="text-sm font-bold text-slate-900">
-                  Sharpen Carrier Rate ({workspaceData?.competition?.currentRound === 'ROUND_3_BAFO' ? 'BAFO Final Round' : 'Improvement Window'})
+                  Revise Provider Offer ({workspaceData?.competition?.currentRound === 'ROUND_3_BAFO' ? 'Final Offer Window' : 'Revision Window'})
                 </h4>
               </div>
               <button
@@ -3262,7 +3262,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
               <div className="flex items-center space-x-2">
                 <AlertTriangle className="h-4 w-4 text-rose-600" />
                 <h4 className="text-sm font-bold text-slate-900">
-                  Withdraw from Competition
+                Withdraw Offer
                 </h4>
               </div>
               <button
@@ -3274,7 +3274,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
             </div>
 
             <p className="text-xs text-slate-600 leading-relaxed">
-              Formally withdraw your brokerage participation from this competition. Your active unselected offers will be suppressed from consumer evaluation.
+              Withdraw from this policy review. Your active unselected offers will no longer be shown to the policyholder.
             </p>
 
             <div className="space-y-3 text-xs">
@@ -3285,7 +3285,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                   onChange={(e) => setWithdrawReason(e.target.value)}
                   className="w-full text-xs border border-slate-300 rounded-lg p-2.5 bg-white"
                 >
-                  <option value="UNABLE_TO_MEET_TARGET">Unable to Beat Target Pricing / Terms</option>
+                  <option value="UNABLE_TO_MEET_TARGET">Unable to offer the requested pricing or terms</option>
                   <option value="CAPACITY_CONSTRAINT">Underwriting Capacity Limit Reached</option>
                   <option value="CARRIER_DECLINED">Carrier Declined Risk in Territory</option>
                   <option value="OUTSIDE_APPETITE">Outside Preferred Risk Appetite</option>
@@ -3413,7 +3413,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
               </div>
 
               <div className="bg-blue-50 p-3 rounded-xl border border-blue-200 text-blue-900 text-[11px] leading-relaxed">
-                <strong>Reusable Data Rule (Section 18):</strong> Once answered, the consumer's response is shared with all active brokers in this competition so the policyholder is never asked twice.
+                <strong>Reusable response:</strong> Once answered, the policyholder’s response can be made available to authorized providers reviewing the same policy so the policyholder is not asked twice.
               </div>
 
               <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100">

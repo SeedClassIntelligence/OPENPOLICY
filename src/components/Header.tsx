@@ -47,7 +47,7 @@ export const PERSPECTIVES: PerspectiveMeta[] = [
     id: 'LANDING',
     title: 'Landing Page & Doctrine',
     label: 'Overview',
-    description: 'Front-facing introduction: inverted competition model, live simulator, comparison table, and product doctrine.',
+    description: 'Public introduction to policy sharing, provider offers, factual comparison, and policyholder choice.',
     icon: Globe,
     color: 'text-teal-400',
     badgeBg: 'bg-teal-600'
@@ -490,19 +490,19 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Scrollable Body */}
           <div className="p-5 sm:p-6 overflow-y-auto space-y-4 flex-1">
             <p className="text-sm text-slate-600 leading-relaxed italic border-l-2 border-emerald-500 pl-3">
-              "This platform reverses the conventional insurance-shopping relationship. The consumer begins with: Here is the insurance I already have. Here is what I am paying. Compete for my business without disguising reduced protection as savings."
+              "The policyholder shares the insurance they have and what they currently pay. Providers review that information independently and may send an offer. Open Policy shows the differences without choosing for the policyholder."
             </p>
 
             <div className="space-y-2 text-sm">
               {[
                 { n: 1, title: 'Consumer Sovereignty', desc: 'The consumer owns the policy, the information and the decision.' },
                 { n: 2, title: 'Friction Reduction', desc: 'The platform reduces the work required to bring that policy to market.' },
-                { n: 3, title: 'Inverted Competition', desc: 'Providers compete for the consumer rather than forcing the consumer to repeatedly shop providers.' },
+                { n: 3, title: 'Independent Offers', desc: 'Providers review a shared policy independently and decide whether to send an offer.' },
                 { n: 4, title: 'Protection-Price Separation', desc: 'Lower price alone does not constitute a better offer.' },
                 { n: 5, title: 'Visible Differences', desc: 'Coverage differences must be visible.' },
                 { n: 6, title: 'Epistemic Humility', desc: 'Unknown information must remain unknown. AI may never invent missing coverage.' },
                 { n: 7, title: 'Deliberate Progressive Disclosure', desc: 'Personal information is disclosed deliberately rather than indiscriminately distributed.' },
-                { n: 8, title: 'Commercial Neutrality', desc: 'Providers cannot purchase an undisclosed advantage in competitive results.' },
+                { n: 8, title: 'Commercial Neutrality', desc: 'Provider fees do not change how offers are displayed.' },
                 { n: 9, title: 'Deterministic Control', desc: 'The platform explains the market; the consumer controls the outcome.' },
               ].map(({ n, title, desc }) => (
                 <div key={n} className="p-3 rounded-lg bg-slate-50 border border-slate-200 flex items-start space-x-2.5">

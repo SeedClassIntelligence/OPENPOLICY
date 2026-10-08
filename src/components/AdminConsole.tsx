@@ -466,7 +466,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
                           onClick={() => {
                             setSelectedTicket(item);
                             setResolutionAction('REJECT');
-                            setResolutionNotes('Discrepancy confirmed. Submitting quote terms rejected from active competition.');
+                            setResolutionNotes('Discrepancy confirmed. Submitted offer terms were rejected from policyholder review.');
                           }}
                           className="bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs px-3 py-1.5 rounded-lg transition shadow-xs"
                         >
