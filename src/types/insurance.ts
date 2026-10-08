@@ -218,7 +218,7 @@ export interface CoverageBaseline {
 
 export interface ConsumerRequirements {
   id: string;
-  ruleSummary: string; // Default: "Beat my current price without reducing my protection"
+  ruleSummary: string; // Default: "Offers should cost less and not reduce my coverage."
   minAnnualSavings: number; // e.g. 100
   maxCollisionDeductible: number; // e.g. 500
   maxCompDeductible: number; // e.g. 250
