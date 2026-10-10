@@ -273,8 +273,8 @@ export function compareCoverageItem(
 
 export function formatClassification(c: WholeOfferClassification): string {
   switch (c) {
-    case 'BASELINE_MATCH': return 'BASELINE MATCH';
-    case 'BASELINE_PLUS': return 'BASELINE PLUS';
+    case 'BASELINE_MATCH': return 'MATCHES CURRENT COVERAGE';
+    case 'BASELINE_PLUS': return 'ADDITIONAL STATED COVERAGE';
     case 'COVERAGE_CHANGED': return 'COVERAGE CHANGED';
     case 'REVIEW_REQUIRED': return 'REVIEW REQUIRED';
   }

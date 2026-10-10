@@ -518,6 +518,9 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
     if (!bindingHandoff) return;
     setIsReconciling(true);
     setBindingActionError(null);
+    const selectedOffer = workspaceData?.myOffers?.find((offer: Offer) =>
+      offer.id === (bindingHandoff.offerId || bindingHandoff.selectedOfferId)
+    ) || workspaceData?.myOffers?.[0];
     try {
       // 1. Upload Document Evidence
       const uploadRes = await apiFetch(`/api/marketplace/binding/${bindingHandoff.id}/upload-issued-policy`, {
@@ -532,10 +535,10 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
           extractedTerms: {
             carrier: bindingHandoff.carrier,
             policyNumber: issuedPolicyNum || bindingHandoff.policyNumber || 'POL-ISSUED-8829',
-            annualPremium: Number(issuedAnnualPremium) || (workspaceData?.offers?.[0]?.annualPremium ?? 2400),
+            annualPremium: Number(issuedAnnualPremium) || (selectedOffer?.annualPremium ?? 2400),
             effectiveDate: '2026-10-01',
             expirationDate: '2027-10-01',
-            coverages: workspaceData?.offers?.[0]?.coverages || []
+            coverages: selectedOffer?.coverages || []
           }
         })
       });
@@ -1251,7 +1254,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                     <div>
                       <div className="flex items-center space-x-2">
                         <span className="text-xs font-mono font-bold text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded border border-blue-200">
-                          {c.challenge.referenceNumber}
+                          {c.challenge.referenceNumber.replace(/^CHALLENGE/i, 'POLICY REVIEW')}
                         </span>
                         <span className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded font-semibold">
                           STAGE: {c.competition.currentRound.replace(/ROUND_[0-9]_?/g, '').replace(/_/g, ' ')}
@@ -1295,7 +1298,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                     </div>
                     <div>
                       <span className="text-slate-400 block text-[10px] uppercase font-bold">Provider Interest</span>
-                      <span className="text-slate-700">Independent sealed submissions</span>
+                      <span className="text-slate-700">Independent offer submissions</span>
                     </div>
                   </div>
                 </div>
@@ -1331,7 +1334,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                         Policy Binding & Progressive Disclosure Console
                       </h3>
                       <p className="text-xs text-slate-600">
-                        Consumer selected your {bindingHandoff.carrier} quote. Manage Stage C disclosure execution, underwriting adjustments, and policy binding.
+                        Consumer selected your {bindingHandoff.carrier} quote. Manage Stage C disclosure execution and record application, underwriting, and policy-binding status.
                       </p>
                     </div>
 
@@ -1529,7 +1532,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                   <div>
                     <div className="flex items-center space-x-2">
                       <span className="text-xs font-mono font-bold text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded border border-blue-200">
-                        {workspaceData.challenge.referenceNumber}
+                        {workspaceData.challenge.referenceNumber.replace(/^CHALLENGE/i, 'POLICY REVIEW')}
                       </span>
                       <span className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded font-semibold">
                         Authorized Rating Information (Stage B)
@@ -1541,7 +1544,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                   </div>
 
                   <div className="flex items-center space-x-2 text-xs">
-                    <span className="font-semibold text-slate-800 bg-slate-100 px-2 py-1 rounded">Independent, sealed submissions</span>
+                    <span className="font-semibold text-slate-800 bg-slate-100 px-2 py-1 rounded">Independent offer submissions</span>
                   </div>
                 </div>
 
@@ -1593,7 +1596,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                 {/* Baseline Coverages Reference */}
                 <div className="p-4 bg-blue-50/50 rounded-xl border border-blue-100 text-xs">
                   <span className="font-bold text-blue-900 block mb-2">
-                    Required Baseline Terms (Must Meet or Exceed to Qualify as Valid Alternative):
+                    Current Policy Reference Terms (For Factual Comparison):
                   </span>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-slate-700">
                     <span className="bg-white p-2 rounded border border-blue-200/60 font-medium">
@@ -1624,10 +1627,8 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                         <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
                           Offer Submission Status
                         </span>
-                        <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold border ${workspaceData.competition.currentRound === 'OPEN' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-emerald-50 text-emerald-800 border-emerald-200'}`}>
-                          {workspaceData.competition.currentRound === 'OPEN' && 'Submission Window Open'}
-                          {workspaceData.competition.currentRound === 'CLOSED' && 'Offer Window Closed'}
-                          {(workspaceData.competition.currentRound === 'CONSUMER_REVIEW' || workspaceData.competition.currentRound === 'CLOSED_PENDING_SELECTION') && 'In Consumer Review'}
+                        <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold border ${offerStatus?.windowOpen ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-slate-100 text-slate-700 border-slate-200'}`}>
+                          {offerStatus?.windowOpen ? 'Submission Window Open' : 'Submission Window Closed'}
                         </span>
                         {workspaceData.deadlineStatus?.formattedRemaining && (
                           <span className="text-[11px] font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md flex items-center gap-1 border border-slate-200">
@@ -1684,7 +1685,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                       )}
                     </div>
                     <span className="text-[11px] text-slate-500 mt-2 block">
-                      Quotes are verified against policy declarations and consumer requirements.
+                      Offer documentation and stated terms are verified for factual comparison.
                     </span>
                   </div>
 
@@ -1755,7 +1756,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                               v{o.version || 1}
                             </span>
                             <span className="px-2 py-0.5 bg-purple-50 text-purple-700 border border-purple-200 rounded text-[10px] font-semibold">
-                              {o.round || 'ROUND_1_OPEN'}
+                              SUBMISSION WINDOW
                             </span>
                             {o.isQualified ? (
                               <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded font-bold text-[10px] flex items-center gap-1 border border-emerald-300">
@@ -1966,10 +1967,10 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
               <form onSubmit={handleSubmitOffer} className="bg-white rounded-2xl border border-slate-200 shadow-xs p-6 space-y-6">
                 <div className="border-b border-slate-100 pb-4">
                   <h4 className="text-base font-bold text-slate-900">
-                    Enter Carrier Quote Proposal
+                    Enter Carrier Offer
                   </h4>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Select an appointed carrier, enter the binding rate, and attach supporting documentation.
+                    Select an appointed carrier, enter its stated annual premium and coverage terms, and attach supporting documentation.
                   </p>
                 </div>
 
@@ -2150,7 +2151,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                       className="rounded text-amber-600 focus:ring-amber-500 h-4 w-4"
                     />
                     <span>
-                      <strong>Demonstrate Document Discrepancy Interception:</strong> Simulate quote sheet having higher deductible than entered form fields
+                      <strong>Test supporting-document comparison:</strong> Simulate a quote sheet with terms that differ from the entered offer
                     </span>
                   </label>
 

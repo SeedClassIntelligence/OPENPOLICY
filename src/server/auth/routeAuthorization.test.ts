@@ -82,6 +82,20 @@ test('real policy-document ingestion is consumer-only and never public or provid
   assert.equal(invoke('GET', '/policy-documents/DOC-1', consumer).next, true);
 });
 
+test('verified sample policy upload supports the advertised consumer demo without admitting providers', () => {
+  assert.equal(invoke('POST', '/documents/upload-sample').status, 401);
+  assert.equal(invoke('POST', '/documents/upload-sample', provider).status, 403);
+  assert.equal(invoke('POST', '/documents/upload-sample', consumer).next, true);
+  assert.equal(invoke('POST', '/documents/upload-sample', admin).next, true);
+});
+
+test('coverage baseline confirmation supports the consumer flow without admitting providers', () => {
+  assert.equal(invoke('POST', '/baselines/create').status, 401);
+  assert.equal(invoke('POST', '/baselines/create', provider).status, 403);
+  assert.equal(invoke('POST', '/baselines/create', consumer).next, true);
+  assert.equal(invoke('POST', '/baselines/create', admin).next, true);
+});
+
 test('founder-approved directory and notification route policies are enforced', () => {
   assert.equal(invoke('GET', '/marketplace/users', provider).status, 403);
   assert.equal(invoke('GET', '/marketplace/users', admin).next, true);

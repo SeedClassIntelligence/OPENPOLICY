@@ -19,7 +19,9 @@ const rules: RouteRule[] = [
   { pattern: /^\/notifications(?:\/[^/]+\/read)?$/, roles: ['CONSUMER', 'PROVIDER', 'ADMIN'] },
 
   { pattern: /^\/(?:tests\/run|metrics|jurisdiction-evaluations|audit-events|reset)$/, roles: ['ADMIN'] },
-  { methods: ['POST'], pattern: /^\/(?:documents\/upload-sample|policies\/[^/]+\/verify|baselines\/create)$/, roles: ['ADMIN'] },
+  { methods: ['POST'], pattern: /^\/documents\/upload-sample$/, roles: ['CONSUMER', 'ADMIN'] },
+  { methods: ['POST'], pattern: /^\/baselines\/create$/, roles: ['CONSUMER', 'ADMIN'] },
+  { methods: ['POST'], pattern: /^\/policies\/[^/]+\/verify$/, roles: ['ADMIN'] },
   { methods: ['POST'], pattern: /^\/challenges\/[^/]+\/(?:compete|final-round|incumbent-defense)$/, roles: ['ADMIN'] },
   { methods: ['POST'], pattern: /^\/marketplace\/offers\/[^/]+\/verify-document$/, roles: ['PROVIDER'] },
   { methods: ['GET'], pattern: /^\/marketplace\/offers\/[^/]+\/qualification$/, roles: ['CONSUMER', 'PROVIDER', 'ADMIN'] },

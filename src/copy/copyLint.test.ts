@@ -50,6 +50,29 @@ test('live interfaces do not restore retired marketplace or subjective offer lan
   }
 });
 
+test('consumer and provider interfaces use factual review labels rather than legacy challenge or superiority language', () => {
+  const consumer = readFileSync(new URL('../components/ConsumerPortal.tsx', import.meta.url), 'utf8');
+  const provider = readFileSync(new URL('../components/ProviderPortal.tsx', import.meta.url), 'utf8');
+  for (const source of [consumer, provider]) {
+    assert.doesNotMatch(source, /Economic & Protection Benchmark|Material Protection Upgrade|PROMINENT WARNING: Coverage Cut|significantly reduced|>CHALLENGE #/i);
+  }
+  assert.match(consumer, /Current Policy Reference/);
+  assert.match(consumer, /Additional Stated Coverage/);
+  assert.match(consumer, /This lower-priced offer states these coverage differences/);
+});
+
+test('consumer policy verification visibly presents the extracted policy term', () => {
+  const consumer = readFileSync(new URL('../components/ConsumerPortal.tsx', import.meta.url), 'utf8');
+  assert.match(consumer, /Policy Term/);
+  assert.match(consumer, /activePolicy\.effectiveDate/);
+  assert.match(consumer, /activePolicy\.expirationDate/);
+  assert.doesNotMatch(consumer, /api\/reconciliation\/verify|handleReconcileIssued|Simulate Canonical Issued Dec Page/);
+  const provider = readFileSync(new URL('../components/ProviderPortal.tsx', import.meta.url), 'utf8');
+  assert.match(provider, /selectedOffer\?\.coverages \|\| \[\]/);
+  assert.doesNotMatch(provider, /workspaceData\?\.offers\?\.\[0\]\?\.coverages/);
+  assert.match(consumer, /selection-binding/);
+  assert.match(consumer, /setHandoffResult\(bindingData\.handoff\)/);
+});
 test('public copy preserves the founder-approved operating boundaries', () => {
   const landing = readFileSync(new URL('../components/LandingPage.tsx', import.meta.url), 'utf8')
     + readFileSync(new URL('./landing.ts', import.meta.url), 'utf8');

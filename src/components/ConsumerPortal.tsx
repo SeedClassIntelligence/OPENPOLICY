@@ -1,23 +1,23 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  UploadCloud, 
-  FileCheck2, 
-  Shield, 
+import {
+  UploadCloud,
+  FileCheck2,
+  Shield,
   ShieldCheck,
-  ArrowRight, 
-  CheckCircle2, 
-  AlertTriangle, 
-  AlertCircle, 
-  Sparkles, 
-  Car, 
-  Calendar, 
-  DollarSign, 
-  Layers, 
-  Info, 
-  Lock, 
-  Check, 
-  X, 
-  SlidersHorizontal, 
+  ArrowRight,
+  CheckCircle2,
+  AlertTriangle,
+  AlertCircle,
+  Sparkles,
+  Car,
+  Calendar,
+  DollarSign,
+  Layers,
+  Info,
+  Lock,
+  Check,
+  X,
+  SlidersHorizontal,
   ChevronRight,
   RefreshCw,
   ExternalLink,
@@ -35,12 +35,12 @@ import {
   Radio,
   CheckCircle
 } from 'lucide-react';
-import { 
-  Policy, 
-  CoverageBaseline, 
-  Challenge, 
-  Offer, 
-  OfferComparison, 
+import {
+  Policy,
+  CoverageBaseline,
+  Challenge,
+  Offer,
+  OfferComparison,
   FieldComparison,
   BindingHandoff,
   Selection,
@@ -71,14 +71,14 @@ interface ConsumerPortalProps {
   initialStep?: ConsumerStep;
 }
 
-type ConsumerStep = 
+type ConsumerStep =
   | 'ACCOUNT_DASHBOARD'
-  | 'UPLOAD_EXTRACT' 
-  | 'VERIFY_POLICY' 
-  | 'SET_REQUIREMENTS' 
-  | 'COMPETITION_ROOM' 
-  | 'COMPARISON_DEEP_DIVE' 
-  | 'BINDING_HANDOFF' 
+  | 'UPLOAD_EXTRACT'
+  | 'VERIFY_POLICY'
+  | 'SET_REQUIREMENTS'
+  | 'COMPETITION_ROOM'
+  | 'COMPARISON_DEEP_DIVE'
+  | 'BINDING_HANDOFF'
   | 'RECONCILIATION_VAULT'
   | 'PRIVATE_VAULT';
 
@@ -355,6 +355,37 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
   const [disputeNotes, setDisputeNotes] = useState<string>('');
   const [isVerifyingReconciliation, setIsVerifyingReconciliation] = useState<boolean>(false);
 
+  useEffect(() => {
+    if (!challenge?.id) return;
+    let cancelled = false;
+
+    const hydrateDurableSelection = async () => {
+      try {
+        const bindingResponse = await apiFetch(`/api/marketplace/challenges/${challenge.id}/selection-binding`);
+        if (!bindingResponse.ok) return;
+        const bindingData = await bindingResponse.json();
+        if (cancelled || !bindingData.handoff) return;
+
+        setHandoffResult(bindingData.handoff);
+        if (bindingData.selection?.offerId) setSelectedOfferId(bindingData.selection.offerId);
+        const activeGrant = (bindingData.consentGrants || []).find((grant: ConsentGrant) => !grant.revokedAt)
+          || bindingData.consentGrants?.[0]
+          || null;
+        setActiveConsentGrant(activeGrant);
+
+        const reconciliationResponse = await apiFetch(`/api/marketplace/binding/${bindingData.handoff.id}/reconciliation`);
+        if (reconciliationResponse.ok) {
+          const reconciliationData = await reconciliationResponse.json();
+          if (!cancelled) setPm5Report(reconciliationData.latestReport || reconciliationData.report || null);
+        }
+      } catch (error) {
+        console.error('Failed to restore durable consumer selection state:', error);
+      }
+    };
+
+    hydrateDurableSelection();
+    return () => { cancelled = true; };
+  }, [challenge?.id]);
   // Evidence inspection drawer
   const [inspectingEvidence, setInspectingEvidence] = useState<{
     fieldName: string;
@@ -498,7 +529,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
   // Confirm extracted policy and create baseline
   const handleConfirmPolicy = async () => {
     if (!activePolicy) return;
-    
+
     // Create baseline
     const res = await apiFetch('/api/baselines/create', {
       method: 'POST',
@@ -655,8 +686,8 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
         const rRes = await apiFetch(`/api/marketplace/binding/${hid}/reconciliation`);
         if (rRes.ok) {
           const rData = await rRes.json();
-          if (rData.success && rData.report) {
-            setPm5Report(rData.report);
+          if (rData.success && (rData.latestReport || rData.report)) {
+            setPm5Report(rData.latestReport || rData.report);
           }
         }
       }
@@ -692,58 +723,11 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
     }
   };
 
-  // Reconcile issued policy (PM-3 Detailed Post-Bind Reconciliation)
-  const handleReconcileIssued = async (isDiscrepantSimulation: boolean) => {
-    if (!handoffResult) return;
-    const selectedOffer = offers.find(o => o.id === handoffResult.selectedOfferId);
-    if (!selectedOffer) return;
-
-    const baseCoverages = selectedOffer.coverages.map(c => ({
-      code: c.code,
-      name: c.name,
-      category: c.category,
-      perPersonLimit: c.perPersonLimit,
-      perAccidentLimit: c.perAccidentLimit,
-      propertyLimit: c.propertyLimit,
-      deductible: c.deductible,
-      isIncluded: c.isIncluded
-    }));
-
-    const issuedCoverages = isDiscrepantSimulation
-      ? baseCoverages.map(c => {
-          if (c.code === 'COLLISION') return { ...c, deductible: 1000 }; // Stealth increase!
-          if (c.code === 'RENTAL_REIMBURSEMENT') return { ...c, isIncluded: false }; // Endorsement dropped!
-          return c;
-        })
-      : baseCoverages;
-
-    const issuedData = {
-      policyNumber: 'ISSUED-CARRIER-78912',
-      annualPremium: isDiscrepantSimulation ? selectedOffer.annualPremium + 180 : selectedOffer.annualPremium,
-      collisionDeductible: isDiscrepantSimulation ? 1000 : (selectedOffer.coverages.find(c => c.code === 'COLLISION')?.deductible || 500),
-      rentalIncluded: isDiscrepantSimulation ? false : (selectedOffer.coverages.find(c => c.code === 'RENTAL_REIMBURSEMENT')?.isIncluded ?? true),
-      coverages: issuedCoverages
-    };
-
-    const res = await apiFetch('/api/reconciliation/verify', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        handoffId: handoffResult.id,
-        dossierId: bindingDossier?.id,
-        issuedData
-      })
-    });
-    const data = await res.json();
-    if (data.success) {
-      if (data.isDetailed) {
-        setDetailedReconciliation(data.report);
-      }
-      setReconciliationReport(data.report);
-      setCurrentStep('RECONCILIATION_VAULT');
-      onRefreshData();
-    }
-  };
+  const selectedHandoffOffer = handoffResult
+    ? offers.find(offer => offer.id === (handoffResult.offerId || handoffResult.selectedOfferId))
+    : undefined;
+  const selectedProviderName = handoffResult?.providerName || selectedHandoffOffer?.providerName || 'Selected provider';
+  const selectedConsumerName = handoffResult?.consumerName || activePolicy?.namedInsured || 'Policyholder';
 
   return (
     <div className="space-y-6">
@@ -983,9 +967,9 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
             <div className="mt-4 flex items-center justify-center space-x-3">
               <label className="cursor-pointer bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs px-4 py-2 rounded-lg transition shadow-xs">
                 <span>Select File from Computer</span>
-                <input 
-                  type="file" 
-                  className="hidden" 
+                <input
+                  type="file"
+                  className="hidden"
                   accept=".pdf,.png,.jpg,.jpeg"
                   onChange={event => handleRealPolicyUpload(event.target.files?.[0])}
                 />
@@ -1080,7 +1064,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
             </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {SAMPLE_DECLARATIONS_PAGES.map(sample => (
-                <div 
+                <div
                   key={sample.id}
                   onClick={() => handleSelectSample(sample.id)}
                   className="border border-slate-200 hover:border-emerald-500 bg-white hover:bg-emerald-50/30 rounded-lg p-4 cursor-pointer transition flex items-start space-x-3 group"
@@ -1139,7 +1123,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
           </div>
 
           {/* Policy Overview Summary Card */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
             <div>
               <p className="text-xs text-slate-500 uppercase font-medium">Current Carrier</p>
               <p className="text-sm font-bold text-slate-900 mt-0.5">{activePolicy.carrier}</p>
@@ -1156,6 +1140,13 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                 ${activePolicy.annualPremium.toLocaleString()}/yr
               </p>
               <p className="text-xs text-slate-500">(${activePolicy.monthlyPremium}/month)</p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-500 uppercase font-medium">Policy Term</p>
+              <p className="text-sm font-bold text-slate-900 mt-0.5">
+                {activePolicy.effectiveDate}
+              </p>
+              <p className="text-xs text-slate-500">through {activePolicy.expirationDate}</p>
             </div>
             <div>
               <p className="text-xs text-slate-500 uppercase font-medium">Insured Vehicle</p>
@@ -1318,7 +1309,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
             <div>
               <div className="flex items-center space-x-2">
                 <span className="text-xs font-mono font-bold bg-slate-900 text-white px-2 py-0.5 rounded">
-                  {challenge?.referenceNumber || 'POLICY REVIEW #NV-49281'}
+                  {(challenge?.referenceNumber || 'POLICY REVIEW #NV-49281').replace(/^CHALLENGE/i, 'POLICY REVIEW')}
                 </span>
                 <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 flex items-center space-x-1">
                   <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
@@ -1692,7 +1683,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
               </div>
 
               <div className="mt-6 pt-3 border-t border-slate-800/80 text-[11px] text-slate-400 text-center font-mono">
-                Economic & Protection Benchmark
+                Current Policy Reference
               </div>
             </div>
 
@@ -1708,11 +1699,11 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
               if (comp.classification === 'COVERAGE_CHANGED') badgeColor = 'bg-rose-50 text-rose-800 border-rose-300';
 
               return (
-                <div 
+                <div
                   key={comp.offerId}
                   className={`bg-white rounded-xl p-5 border flex flex-col justify-between transition-all relative ${
-                    isSelected 
-                      ? 'border-emerald-600 shadow-md ring-2 ring-emerald-500/20' 
+                    isSelected
+                      ? 'border-emerald-600 shadow-md ring-2 ring-emerald-500/20'
                       : 'border-slate-200 hover:border-slate-300 shadow-xs'
                   }`}
                 >
@@ -1789,7 +1780,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                         <div className="p-2.5 rounded bg-blue-50 text-blue-900 text-[11px] leading-tight space-y-1">
                           <div className="flex items-start space-x-1.5 font-semibold text-blue-800">
                             <Sparkles className="w-3.5 h-3.5 text-blue-600 shrink-0 mt-0.5" />
-                            <span>Material Protection Upgrade:</span>
+                            <span>Additional Stated Coverage:</span>
                           </div>
                           {comp.materialImprovements.map((m, i) => (
                             <div key={i} className="text-blue-700 pl-5">
@@ -1803,10 +1794,10 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                         <div className="p-2.5 rounded bg-rose-50 border border-rose-200 text-rose-900 text-[11px] leading-tight space-y-1.5">
                           <div className="flex items-start space-x-1.5 font-bold text-rose-700">
                             <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-                            <span>PROMINENT WARNING: Coverage Cut!</span>
+                            <span>Coverage Differences</span>
                           </div>
                           <p className="text-[11px] text-rose-800 font-medium">
-                            Price is lower, but your protection was significantly reduced:
+                            This lower-priced offer states these coverage differences:
                           </p>
                           {comp.materialReductions.map((r, i) => (
                             <div key={i} className="text-rose-700 pl-3 font-semibold">
@@ -2008,7 +1999,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
               Licensed Binding Handoff Dossier
             </h2>
             <p className="text-xs text-slate-600">
-              You selected <strong className="text-slate-800">{handoffResult.carrier}</strong> through <strong className="text-slate-800">{handoffResult.providerName}</strong>. 
+              You selected <strong className="text-slate-800">{handoffResult.carrier}</strong> through <strong className="text-slate-800">{selectedProviderName}</strong>.
               Under progressive disclosure rules, only this licensed provider is authorized to receive your contact information to bind the policy.
             </p>
           </div>
@@ -2035,11 +2026,11 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-3 border-t border-slate-200 text-xs">
               <div>
                 <span className="text-slate-500 block">Named Insured:</span>
-                <span className="font-semibold text-slate-800">{handoffResult.consumerName}</span>
+                <span className="font-semibold text-slate-800">{selectedConsumerName}</span>
               </div>
               <div>
                 <span className="text-slate-500 block">Authorized Provider:</span>
-                <span className="font-semibold text-slate-800">{handoffResult.providerName}</span>
+                <span className="font-semibold text-slate-800">{selectedProviderName}</span>
               </div>
               <div>
                 <span className="text-slate-500 block">Carrier & Quote:</span>
@@ -2136,7 +2127,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                 )}
               </div>
               <p className="text-xs text-slate-600">
-                Under Open Policy statutory privacy rules, your Stage C PII is sealed. Selecting an offer does not automatically release your data. Authorize disclosure of only the fields required for binding to <strong className="text-slate-800">{handoffResult.providerName}</strong>.
+                Your contact information remains withheld until you authorize disclosure. Only <strong className="text-slate-800">{selectedProviderName}</strong> receives the fields you approve for the policy handoff.
               </p>
 
               {(!activeConsentGrant || activeConsentGrant.revokedAt) && (
@@ -2175,7 +2166,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                     className="flex items-center space-x-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs px-4 py-2 rounded-lg transition disabled:opacity-50"
                   >
                     <Check className="w-3.5 h-3.5" />
-                    <span>{isGrantingConsent ? 'Authorizing...' : `Authorize Controlled Disclosure to ${handoffResult.providerName}`}</span>
+                    <span>{isGrantingConsent ? 'Authorizing...' : `Authorize Controlled Disclosure to ${selectedProviderName}`}</span>
                   </button>
                 </div>
               )}
@@ -2213,28 +2204,15 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
           <div className="border-t border-slate-200 pt-5 space-y-4">
             <div className="flex items-center space-x-2 text-slate-900 font-bold text-sm">
               <FileSearch className="w-4 h-4 text-emerald-600" />
-              <span>Step 7 Preview: Issued Policy Reconciliation & Stealth Creep Audit</span>
+              <span>Step 7 Preview: Issued Policy Reconciliation</span>
             </div>
             <p className="text-xs text-slate-600 max-w-xl">
-              Once your licensed agent binds your policy, the carrier will issue the declarations page. Open Policy reconciles the issued document against the agreed offer dossier to ensure no stealth terms, rate creep, or deductible inflation were altered.
+              Once the licensed provider completes the insurance transaction, Open Policy compares the issued declarations page with the selected offer and displays any factual premium, deductible, limit, or coverage differences.
             </p>
 
-            <div className="flex flex-wrap items-center gap-3">
-              <button
-                onClick={() => handleReconcileIssued(false)}
-                className="flex items-center space-x-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs px-4 py-2.5 rounded-lg transition"
-              >
-                <Check className="w-4 h-4" />
-                <span>Simulate Canonical Issued Dec Page (100% Match)</span>
-              </button>
-
-              <button
-                onClick={() => handleReconcileIssued(true)}
-                className="flex items-center space-x-1.5 bg-rose-600 hover:bg-rose-700 text-white font-medium text-xs px-4 py-2.5 rounded-lg transition"
-              >
-                <AlertTriangle className="w-4 h-4" />
-                <span>Simulate Stealth Discrepancy (Rate Creep & Deductible Inflation)</span>
-              </button>
+            <div className="flex items-start space-x-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900">
+              <Clock className="mt-0.5 h-4 w-4 shrink-0 text-blue-700" />
+              <p>The selected licensed provider completes application, underwriting, and issuance outside Open Policy. When issued-policy evidence is provided, return to Reconciliation to review the factual comparison.</p>
             </div>
           </div>
         </div>
@@ -2253,7 +2231,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
               Issued Policy Reconciliation & Private Vault
             </h2>
             <p className="text-xs text-slate-600">
-              We independently reconcile the issued policy document against the accepted binding dossier to expose post-bind stealth creep.
+              Open Policy compares the issued policy document with the selected offer and displays the factual differences.
             </p>
           </div>
 
@@ -2461,8 +2439,8 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
             </div>
           ) : detailedReconciliation ? (
             <div className={`p-5 rounded-xl border ${
-              detailedReconciliation.isCompliant 
-                ? 'bg-emerald-50/50 border-emerald-300' 
+              detailedReconciliation.isCompliant
+                ? 'bg-emerald-50/50 border-emerald-300'
                 : 'bg-rose-50/60 border-rose-300'
             } space-y-4`}>
               <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
@@ -2476,9 +2454,9 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                     <h3 className={`text-base font-bold ${
                       detailedReconciliation.isCompliant ? 'text-emerald-900' : 'text-rose-900'
                     }`}>
-                      {detailedReconciliation.isCompliant 
-                        ? 'Reconciliation Success: Issued Policy Matches Binding Dossier with 100% Fidelity' 
-                        : 'ALERT: Stealth Discrepancies Detected In Issued Policy!'}
+                      {detailedReconciliation.isCompliant
+                        ? 'Reconciliation Success: Issued Policy Matches Binding Dossier with 100% Fidelity'
+                        : 'Issued Policy Differences Detected'}
                     </h3>
                     <p className="text-xs text-slate-600">
                       Audit Verdict: <span className="font-semibold">{detailedReconciliation.reconciliationAuditVerdict}</span>
@@ -2490,8 +2468,8 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                     Policy #{detailedReconciliation.issuedPolicyNumber}
                   </span>
                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                    detailedReconciliation.isCompliant 
-                      ? 'bg-emerald-100 text-emerald-800' 
+                    detailedReconciliation.isCompliant
+                      ? 'bg-emerald-100 text-emerald-800'
                       : 'bg-rose-100 text-rose-800'
                   }`}>
                     VERDICT: {detailedReconciliation.reconciliationAuditVerdict}
@@ -2552,8 +2530,8 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
             </div>
           ) : reconciliationReport ? (
             <div className={`p-5 rounded-xl border ${
-              reconciliationReport.isIdentical 
-                ? 'bg-emerald-50/50 border-emerald-300' 
+              reconciliationReport.isIdentical
+                ? 'bg-emerald-50/50 border-emerald-300'
                 : 'bg-rose-50/60 border-rose-300'
             }`}>
               <div className="flex items-start justify-between">
@@ -2566,8 +2544,8 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                   <h3 className={`text-base font-bold ${
                     reconciliationReport.isIdentical ? 'text-emerald-900' : 'text-rose-900'
                   }`}>
-                    {reconciliationReport.isIdentical 
-                      ? 'Reconciliation Success: Issued Policy Matches Agreed Quote' 
+                    {reconciliationReport.isIdentical
+                      ? 'Reconciliation Success: Issued Policy Matches Agreed Quote'
                       : 'ALERT: The Policy Issued Differs From The Offer You Selected!'}
                   </h3>
                 </div>
@@ -2925,7 +2903,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                 <FileSearch className="w-5 h-5 text-emerald-600" />
                 <h3 className="text-sm font-bold text-slate-900">Source Evidence Provenance</h3>
               </div>
-              <button 
+              <button
                 onClick={() => setInspectingEvidence(null)}
                 className="text-slate-400 hover:text-slate-600"
               >
@@ -2992,7 +2970,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                     </h3>
                   </div>
                 </div>
-                <button 
+                <button
                   onClick={() => setShowInformedConsentModal(false)}
                   className="text-slate-400 hover:text-slate-600"
                 >
@@ -3002,8 +2980,8 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
 
               <div className="space-y-3 text-xs text-slate-700">
                 <p className="leading-relaxed">
-                  You are selecting <strong className="text-slate-900">{pendingOffer.carrier}</strong> ({pendingOffer.quoteNumber}) 
-                  at <strong className="text-emerald-700">${pendingOffer.annualPremium.toLocaleString()}/yr</strong>. 
+                  You are selecting <strong className="text-slate-900">{pendingOffer.carrier}</strong> ({pendingOffer.quoteNumber})
+                  at <strong className="text-emerald-700">${pendingOffer.annualPremium.toLocaleString()}/yr</strong>.
                   This offer's annual premium is <strong className="text-emerald-700">${Math.abs(pendingComp.annualPremiumDifference).toLocaleString()} {pendingComp.annualPremiumDifference >= 0 ? 'lower' : 'higher'}</strong>, and
                   our comparison engine verified that it <span className="font-semibold text-rose-700 underline">reduces your baseline protection</span> in the following areas:
                 </p>
@@ -3016,7 +2994,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                     {materialReductions.map((reduction) => {
                       const isChecked = acknowledgedVariations.includes(reduction.fieldCode);
                       return (
-                        <label 
+                        <label
                           key={reduction.fieldCode}
                           className={`flex items-start space-x-2.5 p-2 rounded cursor-pointer transition border ${
                             isChecked ? 'bg-white border-emerald-400 shadow-xs' : 'bg-white/50 border-amber-200 hover:bg-white'

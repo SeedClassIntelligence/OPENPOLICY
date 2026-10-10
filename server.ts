@@ -570,7 +570,7 @@ app.post('/api/documents/upload-sample', async (req, res) => {
 
   await postgresStore.commitPolicyWithAudit(policy, [
     {
-      eventType: 'POLICY_UPLOADED', actorRole: 'ADMIN', actorId: req.openPolicyIdentity!.uid,
+      eventType: 'POLICY_UPLOADED', actorRole: req.openPolicyIdentity!.role, actorId: req.openPolicyIdentity!.uid,
       details: `Policy ${policy.id} stored in private vault`
     },
     {

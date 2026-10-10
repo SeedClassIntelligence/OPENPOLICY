@@ -84,7 +84,8 @@ try {
 
   process.env.OPENPOLICY_AUTH_MODE = 'firebase';
   process.env.NODE_ENV = 'production';
-  await probe('production synthetic seeding unavailable', '/api/marketplace/competition/CHAL-NV-49281/seed-competitors', [404], {
+  // Authentication may reject the anonymous request before the fixture-only route gate; both boundaries fail closed.
+  await probe('production synthetic seeding unavailable', '/api/marketplace/competition/CHAL-NV-49281/seed-competitors', [401, 404], {
     method: 'POST'
   });
 
