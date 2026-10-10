@@ -242,6 +242,9 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
   const currentCanonicalRound = normalizeCanonicalRound(
     competitionEvaluation?.currentRound || (challenge?.status === 'CONSUMER_REVIEW' ? 'CONSUMER_REVIEW' : 'OPEN')
   );
+  const submissionWindowOpen = currentCanonicalRound === 'OPEN' && deadlineStatus?.isExpired !== true;
+  const effectiveCanonicalRound: 'OPEN' | 'CONSUMER_REVIEW' = submissionWindowOpen ? 'OPEN' : 'CONSUMER_REVIEW';
+  const submissionWindowLabel = submissionWindowOpen ? 'Open for Offers' : 'Policyholder Review';
 
   useEffect(() => {
     fetchVaultDocs();
@@ -352,6 +355,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
   // PM-5 Issued Policy Reconciliation & Policy Vault States
   const [pm5Report, setPm5Report] = useState<ReconciliationReport | null>(null);
   const [policyVaultItems, setPolicyVaultItems] = useState<PolicyVaultItem[]>([]);
+  const vaultRecordCount = vaultDocs.length + policyVaultItems.length;
   const [disputeNotes, setDisputeNotes] = useState<string>('');
   const [isVerifyingReconciliation, setIsVerifyingReconciliation] = useState<boolean>(false);
 
@@ -1311,9 +1315,13 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                 <span className="text-xs font-mono font-bold bg-slate-900 text-white px-2 py-0.5 rounded">
                   {(challenge?.referenceNumber || 'POLICY REVIEW #NV-49281').replace(/^CHALLENGE/i, 'POLICY REVIEW')}
                 </span>
-                <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 flex items-center space-x-1">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                  <span>OFFERS OPEN</span>
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded border flex items-center space-x-1 ${
+                  submissionWindowOpen
+                    ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                    : 'text-slate-700 bg-slate-100 border-slate-200'
+                }`}>
+                  <span className={`w-2 h-2 rounded-full ${submissionWindowOpen ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`}></span>
+                  <span>{submissionWindowOpen ? 'OFFERS OPEN' : 'OFFERS CLOSED'}</span>
                 </span>
               </div>
               <h2 className="text-2xl font-bold text-slate-900 mt-1">
@@ -1383,12 +1391,11 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                       Offer Submission Window
                     </span>
                     <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold border ${
-                      currentCanonicalRound === 'OPEN'
+                      submissionWindowOpen
                         ? 'bg-blue-50 text-blue-700 border-blue-200'
                         : 'bg-emerald-50 text-emerald-800 border-emerald-200'
                     }`}>
-                      {currentCanonicalRound === 'OPEN' && 'Open for Offers'}
-                      {currentCanonicalRound === 'CONSUMER_REVIEW' && 'Policyholder Review'}
+                      {submissionWindowLabel}
                     </span>
                     {deadlineStatus?.formattedRemaining && (
                       <span className="text-[11px] font-semibold text-slate-700 bg-amber-50 px-2.5 py-0.5 rounded-md flex items-center gap-1 border border-amber-200">
@@ -1424,7 +1431,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                   </button>
                 )}
 
-                {currentCanonicalRound === 'OPEN' && (
+                {submissionWindowOpen && (
                   <button
                     id="btn-begin-review"
                     onClick={handleBeginReview}
@@ -1445,7 +1452,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                 { id: 'CONSUMER_REVIEW', stepNum: '2', title: 'Policyholder Review', subtitle: 'Review every valid submitted offer and decide' }
               ].map((st) => {
                 const roundKeys = ['OPEN', 'CONSUMER_REVIEW'];
-                const curIdx = roundKeys.indexOf(currentCanonicalRound);
+                const curIdx = roundKeys.indexOf(effectiveCanonicalRound);
                 const stepIdx = roundKeys.indexOf(st.id);
                 const isPassed = curIdx > stepIdx;
                 const isCurrent = curIdx === stepIdx;
@@ -2645,8 +2652,8 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
           {/* Vault Metadata Summary */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs">
             <div>
-              <span className="text-slate-500 block">Stored Documents</span>
-              <span className="text-lg font-bold text-slate-900">{vaultDocs.length} Active Records</span>
+              <span className="text-slate-500 block">Vault Records</span>
+              <span className="text-lg font-bold text-slate-900">{vaultRecordCount} Active Records</span>
             </div>
             <div>
               <span className="text-slate-500 block">Integrity State</span>

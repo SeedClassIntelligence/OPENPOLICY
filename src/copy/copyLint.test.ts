@@ -73,6 +73,19 @@ test('consumer policy verification visibly presents the extracted policy term', 
   assert.match(consumer, /selection-binding/);
   assert.match(consumer, /setHandoffResult\(bindingData\.handoff\)/);
 });
+
+test('consumer acceptance status labels reflect authoritative lifecycle state', () => {
+  const consumer = readFileSync(new URL('../components/ConsumerPortal.tsx', import.meta.url), 'utf8');
+  assert.match(consumer, /currentCanonicalRound === 'OPEN' && deadlineStatus\?\.isExpired !== true/);
+  assert.match(consumer, /effectiveCanonicalRound: 'OPEN' \| 'CONSUMER_REVIEW' = submissionWindowOpen \? 'OPEN' : 'CONSUMER_REVIEW'/);
+  assert.match(consumer, /submissionWindowLabel/);
+  assert.match(consumer, /submissionWindowOpen \? 'Open for Offers' : 'Policyholder Review'/);
+  assert.match(consumer, /submissionWindowOpen \? 'OFFERS OPEN' : 'OFFERS CLOSED'/);
+  assert.match(consumer, /\{submissionWindowOpen && \(/);
+  assert.match(consumer, /vaultDocs\.length \+ policyVaultItems\.length/);
+  assert.match(consumer, /Vault Records/);
+});
+
 test('public copy preserves the founder-approved operating boundaries', () => {
   const landing = readFileSync(new URL('../components/LandingPage.tsx', import.meta.url), 'utf8')
     + readFileSync(new URL('./landing.ts', import.meta.url), 'utf8');
