@@ -504,7 +504,11 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
       for (const fieldPath of reviewFieldPaths) {
         const raw = (policyReviewValues[fieldPath] || '').trim();
         if (!raw) throw new Error(`Please complete ${fieldPath}.`);
-        const afterValue = numericReviewFields.has(fieldPath) ? Number(raw) : raw;
+        const afterValue = numericReviewFields.has(fieldPath)
+          ? Number(raw)
+          : (fieldPath === 'vehicle.usage' || fieldPath === 'vehicle.ownership' || fieldPath === 'jurisdiction')
+            ? raw.toUpperCase()
+            : raw;
         if (numericReviewFields.has(fieldPath) && !Number.isFinite(afterValue as number)) {
           throw new Error(`${fieldPath} must be a valid number.`);
         }
@@ -522,8 +526,10 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
       if (!verification.ok) throw new Error(result.message || result.error || 'Policy verification failed');
       setVerifiedBaseline({policyId:result.policy.id, baselineId:result.baseline.id});
       setActivePolicy(result.policy);
+      setActiveBaseline(result.baseline);
       setDocumentProcessing(null);
       onRefreshData();
+      setCurrentStep('SET_REQUIREMENTS');
     } catch (error:any) {
       setDocumentProcessing(null);
       setDocumentProcessingError(error?.message || 'Policy verification failed');

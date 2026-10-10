@@ -23,8 +23,13 @@ export function validatePolicyFieldCorrection(input: unknown): {
     return { fieldPath, afterValue: value.afterValue };
   }
   if (typeof value.afterValue !== 'string') throw Object.assign(new Error('Corrected value must be text.'), { statusCode: 400 });
-  const afterValue = value.afterValue.trim();
+  let afterValue = value.afterValue.trim();
   if (!afterValue || afterValue.length > 200) throw Object.assign(new Error('Corrected value has an invalid length.'), { statusCode: 400 });
+  // These fields are controlled enums. Accept normal human capitalization at
+  // the API boundary, then persist one canonical representation.
+  if (fieldPath === 'vehicle.usage' || fieldPath === 'vehicle.ownership' || fieldPath === 'jurisdiction') {
+    afterValue = afterValue.toUpperCase();
+  }
   if (fieldPath === 'vehicle.vin' && !/^[A-HJ-NPR-Z0-9]{17}$/.test(afterValue.toUpperCase())) {
     throw Object.assign(new Error('VIN must contain 17 valid characters.'), { statusCode: 400 });
   }

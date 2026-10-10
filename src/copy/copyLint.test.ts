@@ -74,6 +74,14 @@ test('consumer policy verification visibly presents the extracted policy term', 
   assert.match(consumer, /setHandoffResult\(bindingData\.handoff\)/);
 });
 
+test('successful real-policy verification advances with the durable baseline', () => {
+  const consumer = readFileSync(new URL('../components/ConsumerPortal.tsx', import.meta.url), 'utf8');
+  assert.match(consumer, /setActiveBaseline\(result\.baseline\)/);
+  assert.match(consumer, /setCurrentStep\('SET_REQUIREMENTS'\)/);
+  assert.match(consumer, /fieldPath === 'vehicle\.ownership'/);
+  assert.match(consumer, /raw\.toUpperCase\(\)/);
+});
+
 test('consumer acceptance status labels reflect authoritative lifecycle state', () => {
   const consumer = readFileSync(new URL('../components/ConsumerPortal.tsx', import.meta.url), 'utf8');
   assert.match(consumer, /currentCanonicalRound === 'OPEN' && deadlineStatus\?\.isExpired !== true/);
