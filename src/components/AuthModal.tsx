@@ -21,9 +21,17 @@ import { JurisdictionSelectOptions } from './JurisdictionSelectOptions';
 
 interface AuthModalProps {
   onSuccess?: (role: UserRole) => void;
+  variant?: 'modal' | 'inline';
+  initialRole?: 'CONSUMER' | 'PROVIDER';
+  initialMode?: 'SIGN_IN' | 'SIGN_UP' | 'DEMO';
 }
 
-export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
+export const AuthModal: React.FC<AuthModalProps> = ({
+  onSuccess,
+  variant = 'modal',
+  initialRole,
+  initialMode
+}) => {
   const { 
     authModalOpen, 
     closeAuthModal, 
@@ -35,8 +43,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
     useDemoAccount 
   } = useAuth();
 
-  const [mode, setMode] = useState<'SIGN_IN' | 'SIGN_UP' | 'DEMO'>(authModalInitialMode || 'SIGN_UP');
-  const [role, setRole] = useState<'CONSUMER' | 'PROVIDER'>(authModalInitialRole || 'CONSUMER');
+  const isInline = variant === 'inline';
+  const [mode, setMode] = useState<'SIGN_IN' | 'SIGN_UP' | 'DEMO'>(initialMode || authModalInitialMode || 'SIGN_UP');
+  const [role, setRole] = useState<'CONSUMER' | 'PROVIDER'>(initialRole || authModalInitialRole || 'CONSUMER');
 
   // Consumer form state
   const [consumerName, setConsumerName] = useState('');
@@ -61,14 +70,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (authModalOpen) {
-      setMode(authModalInitialMode || 'SIGN_UP');
-      setRole(authModalInitialRole || 'CONSUMER');
+    if (authModalOpen || isInline) {
+      setMode(initialMode || authModalInitialMode || 'SIGN_UP');
+      setRole(initialRole || authModalInitialRole || 'CONSUMER');
       setError(null);
     }
-  }, [authModalOpen, authModalInitialRole, authModalInitialMode]);
+  }, [authModalOpen, authModalInitialRole, authModalInitialMode, initialMode, initialRole, isInline]);
 
-  if (!authModalOpen) return null;
+  if (!isInline && !authModalOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -116,9 +125,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-fade-in">
+    <div className={isInline
+      ? 'flex w-full items-center justify-center'
+      : 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-fade-in'}>
       <div 
-        className="relative w-full max-w-lg bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden animate-scale-up max-h-[92vh] flex flex-col"
+        className={`relative w-full max-w-lg bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden flex flex-col ${isInline ? '' : 'animate-scale-up max-h-[92vh]'}`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header Ribbon */}
@@ -136,12 +147,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
               </span>
             </div>
           </div>
-          <button
-            onClick={closeAuthModal}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          {!isInline && (
+            <button
+              onClick={closeAuthModal}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
         </div>
 
         {/* Tab Selector (Sign In vs Create Account vs Fast Demo) */}

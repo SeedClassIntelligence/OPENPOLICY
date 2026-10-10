@@ -86,6 +86,21 @@ test('consumer acceptance status labels reflect authoritative lifecycle state', 
   assert.match(consumer, /Vault Records/);
 });
 
+test('landing opt-in reuses the canonical account form and role-routing boundaries', () => {
+  const landing = readFileSync(new URL('../components/LandingPage.tsx', import.meta.url), 'utf8');
+  const authModal = readFileSync(new URL('../components/AuthModal.tsx', import.meta.url), 'utf8');
+  assert.match(landing, /<AuthModal/);
+  assert.match(landing, /variant="inline"/);
+  assert.match(landing, /onSuccess=\{handleInlineAuthSuccess\}/);
+  assert.doesNotMatch(landing, /<form/);
+  assert.match(authModal, /variant\?: 'modal' \| 'inline'/);
+  assert.match(authModal, /Create Account/);
+  assert.match(authModal, /Sign In/);
+  assert.match(authModal, /Fast Demo/);
+  assert.match(authModal, /Choose Your Account Type/);
+  assert.match(authModal, /<JurisdictionSelectOptions \/>/);
+});
+
 test('public copy preserves the founder-approved operating boundaries', () => {
   const landing = readFileSync(new URL('../components/LandingPage.tsx', import.meta.url), 'utf8')
     + readFileSync(new URL('./landing.ts', import.meta.url), 'utf8');
