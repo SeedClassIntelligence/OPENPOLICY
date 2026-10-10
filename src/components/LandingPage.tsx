@@ -46,6 +46,7 @@ import { AuthModal } from './AuthModal';
 interface LandingPageProps {
   onNavigateConsumer: () => void;
   onNavigateProvider: () => void;
+  onAuthSuccess: (role: 'CONSUMER' | 'PROVIDER' | 'ADMIN') => void;
   onNavigateAdmin: () => void;
   onNavigateTelemetry: () => void;
   onNavigateArchitecture: () => void;
@@ -54,6 +55,7 @@ interface LandingPageProps {
 export const LandingPage: React.FC<LandingPageProps> = ({
   onNavigateConsumer,
   onNavigateProvider,
+  onAuthSuccess,
   onNavigateAdmin,
   onNavigateTelemetry,
   onNavigateArchitecture
@@ -61,10 +63,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   const { isAuthenticated, userRole, openAuthModal } = useAuth();
 
   const [landingSignupRole, setLandingSignupRole] = useState<'CONSUMER' | 'PROVIDER'>('CONSUMER');
-
-  const handleInlineAuthSuccess = (role: 'CONSUMER' | 'PROVIDER' | 'ADMIN') => {
-    role === 'PROVIDER' ? onNavigateProvider() : onNavigateConsumer();
-  };
 
   const handleStartPolicyReviewClick = () => {
     if (isAuthenticated && userRole === 'CONSUMER') {
@@ -773,7 +771,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           variant="inline"
           initialRole={landingSignupRole}
           initialMode="SIGN_UP"
-          onSuccess={handleInlineAuthSuccess}
+          onSuccess={onAuthSuccess}
         />
       </section>
       {/* 3. The Structural Breakdown: Conventional Model vs. Open Policy */}

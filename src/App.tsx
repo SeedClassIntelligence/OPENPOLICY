@@ -147,6 +147,7 @@ function MainApp() {
               <LandingPage
                 onNavigateConsumer={() => handlePerspectiveChange('CONSUMER', 'UPLOAD_EXTRACT')}
                 onNavigateProvider={() => handlePerspectiveChange('PROVIDER')}
+                onAuthSuccess={handleAuthSuccess}
                 onNavigateAdmin={() => handlePerspectiveChange('ADMIN_AUDIT')}
                 onNavigateTelemetry={() => handlePerspectiveChange('TELEMETRY')}
                 onNavigateArchitecture={() => handlePerspectiveChange('ARCHITECTURE_TESTS')}

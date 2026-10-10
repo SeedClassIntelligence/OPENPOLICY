@@ -89,9 +89,11 @@ test('consumer acceptance status labels reflect authoritative lifecycle state', 
 test('landing opt-in reuses the canonical account form and role-routing boundaries', () => {
   const landing = readFileSync(new URL('../components/LandingPage.tsx', import.meta.url), 'utf8');
   const authModal = readFileSync(new URL('../components/AuthModal.tsx', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');
   assert.match(landing, /<AuthModal/);
   assert.match(landing, /variant="inline"/);
-  assert.match(landing, /onSuccess=\{handleInlineAuthSuccess\}/);
+  assert.match(landing, /onSuccess=\{onAuthSuccess\}/);
+  assert.match(app, /onAuthSuccess=\{handleAuthSuccess\}/);
   assert.doesNotMatch(landing, /<form/);
   assert.match(authModal, /variant\?: 'modal' \| 'inline'/);
   assert.match(authModal, /Create Account/);
