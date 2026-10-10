@@ -114,6 +114,8 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
   const [policyReviewValues, setPolicyReviewValues] = useState<Record<string, string>>({});
   const [policyEvidenceAttested, setPolicyEvidenceAttested] = useState(false);
   const [verifiedBaseline, setVerifiedBaseline] = useState<{ policyId:string; baselineId:string } | null>(null);
+  const [flowActionPending, setFlowActionPending] = useState(false);
+  const [flowActionError, setFlowActionError] = useState<string | null>(null);
 
   const reviewFieldPaths: NormalizedPolicyFieldPath[] = [
     'policyNumber','carrier','namedInsured','jurisdiction','effectiveDate','expirationDate','annualPremium',
@@ -529,7 +531,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
       setActiveBaseline(result.baseline);
       setDocumentProcessing(null);
       onRefreshData();
-      setCurrentStep('SET_REQUIREMENTS');
+      setCurrentStep('VERIFY_POLICY');
     } catch (error:any) {
       setDocumentProcessing(null);
       setDocumentProcessingError(error?.message || 'Policy verification failed');
@@ -540,36 +542,57 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
   const handleConfirmPolicy = async () => {
     if (!activePolicy) return;
 
-    // Create baseline
-    const res = await apiFetch('/api/baselines/create', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        policyId: activePolicy.id,
-        verifiedBy: activePolicy.namedInsured
-      })
-    });
-    const data = await res.json();
-    if (data.success) {
+    setFlowActionError(null);
+
+    // Real document verification creates the immutable baseline atomically.
+    // Step 2 reviews that result; it must not attempt to create it again.
+    if (activeBaseline) {
+      setCurrentStep('SET_REQUIREMENTS');
+      return;
+    }
+
+    setFlowActionPending(true);
+    try {
+      const res = await apiFetch('/api/baselines/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          policyId: activePolicy.id,
+          verifiedBy: activePolicy.namedInsured
+        })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.message || data.error || 'Could not create the verified baseline.');
       setActiveBaseline(data.baseline);
       setCurrentStep('SET_REQUIREMENTS');
+    } catch (error:any) {
+      setFlowActionError(error?.message || 'Could not create the verified baseline.');
+    } finally {
+      setFlowActionPending(false);
     }
   };
 
   // Launch challenge
   const handleLaunchChallenge = async () => {
     if (!activeBaseline) return;
-    const res = await apiFetch('/api/challenges/create', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        baselineId: activeBaseline.id
-      })
-    });
-    const data = await res.json();
-    if (data.success) {
-      onRefreshData();
+    setFlowActionError(null);
+    setFlowActionPending(true);
+    try {
+      const res = await apiFetch('/api/challenges/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          baselineId: activeBaseline.id
+        })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.message || data.error || 'Could not share this policy for provider offers.');
+      await Promise.resolve(onRefreshData());
       setCurrentStep('COMPETITION_ROOM');
+    } catch (error:any) {
+      setFlowActionError(error?.message || 'Could not share this policy for provider offers.');
+    } finally {
+      setFlowActionPending(false);
     }
   };
 
@@ -1124,10 +1147,11 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
             <div className="flex items-center space-x-3 shrink-0">
               <button
                 onClick={handleConfirmPolicy}
-                className="flex items-center space-x-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs px-5 py-2.5 rounded-lg transition shadow-xs"
+                disabled={flowActionPending}
+                className="flex items-center space-x-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs px-5 py-2.5 rounded-lg transition shadow-xs disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Check className="w-4 h-4" />
-                <span>CONFIRM POLICY</span>
+                <span>{activeBaseline ? 'CONTINUE' : 'CONFIRM POLICY'}</span>
               </button>
             </div>
           </div>
@@ -1250,12 +1274,14 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
             </button>
             <button
               onClick={handleConfirmPolicy}
-              className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs px-6 py-2.5 rounded-lg transition shadow-xs"
+              disabled={flowActionPending}
+              className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs px-6 py-2.5 rounded-lg transition shadow-xs disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <span>CONFIRM POLICY & CREATE BASELINE</span>
+              <span>{flowActionPending ? 'SAVING…' : activeBaseline ? 'CONTINUE TO POLICY SHARING' : 'CONFIRM POLICY & CREATE BASELINE'}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </div>
+          {flowActionError && <p role="alert" className="text-sm font-semibold text-red-700">{flowActionError}</p>}
         </div>
       )}
 
@@ -1300,12 +1326,14 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
             </button>
             <button
               onClick={handleLaunchChallenge}
-              className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm px-8 py-3 rounded-xl transition shadow-md shadow-emerald-900/20"
+              disabled={flowActionPending}
+              className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm px-8 py-3 rounded-xl transition shadow-md shadow-emerald-900/20 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Sparkles className="w-5 h-5" />
-              <span>SHARE MY POLICY</span>
+              <span>{flowActionPending ? 'SHARING…' : 'SHARE MY POLICY'}</span>
             </button>
           </div>
+          {flowActionError && <p role="alert" className="text-sm font-semibold text-red-700">{flowActionError}</p>}
         </div>
       )}
 

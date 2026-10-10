@@ -77,7 +77,10 @@ test('consumer policy verification visibly presents the extracted policy term', 
 test('successful real-policy verification advances with the durable baseline', () => {
   const consumer = readFileSync(new URL('../components/ConsumerPortal.tsx', import.meta.url), 'utf8');
   assert.match(consumer, /setActiveBaseline\(result\.baseline\)/);
-  assert.match(consumer, /setCurrentStep\('SET_REQUIREMENTS'\)/);
+  assert.match(consumer, /setCurrentStep\('VERIFY_POLICY'\)/);
+  assert.match(consumer, /if \(activeBaseline\) \{\s*setCurrentStep\('SET_REQUIREMENTS'\)/);
+  assert.match(consumer, /CONTINUE TO POLICY SHARING/);
+  assert.match(consumer, /Could not share this policy for provider offers/);
   assert.match(consumer, /fieldPath === 'vehicle\.ownership'/);
   assert.match(consumer, /raw\.toUpperCase\(\)/);
 });
