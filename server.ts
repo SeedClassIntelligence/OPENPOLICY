@@ -3169,8 +3169,23 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
+    app.use(express.static(distPath, {
+      index: false,
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith('index.html')) {
+          res.setHeader('Cache-Control', 'no-store');
+        } else if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        }
+      }
+    }));
+    // Never answer a missing hashed asset request with index.html. Doing so
+    // turns an ordinary stale-cache miss into an opaque blank React page.
+    app.get('/assets/*', (_req, res) => {
+      res.status(404).type('text/plain').send('Asset not found');
+    });
     app.get('*', async (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }

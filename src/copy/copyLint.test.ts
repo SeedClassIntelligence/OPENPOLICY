@@ -85,6 +85,15 @@ test('successful real-policy verification advances with the durable baseline', (
   assert.match(consumer, /raw\.toUpperCase\(\)/);
 });
 
+test('production application shell cannot strand clients on stale build assets', () => {
+  const server = readFileSync(new URL('../../server.ts', import.meta.url), 'utf8');
+  assert.match(server, /index: false/);
+  assert.match(server, /Cache-Control', 'no-store'/);
+  assert.match(server, /Cache-Control', 'public, max-age=31536000, immutable'/);
+  assert.match(server, /app\.get\('\/assets\/\*'/);
+  assert.match(server, /status\(404\).*Asset not found/);
+});
+
 test('consumer acceptance status labels reflect authoritative lifecycle state', () => {
   const consumer = readFileSync(new URL('../components/ConsumerPortal.tsx', import.meta.url), 'utf8');
   assert.match(consumer, /currentCanonicalRound === 'OPEN' && deadlineStatus\?\.isExpired !== true/);
