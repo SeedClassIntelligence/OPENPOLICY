@@ -85,6 +85,16 @@ test('successful real-policy verification advances with the durable baseline', (
   assert.match(consumer, /raw\.toUpperCase\(\)/);
 });
 
+test('downstream consumer stages explain unmet provider lifecycle prerequisites', () => {
+  const consumer = readFileSync(new URL('../components/ConsumerPortal.tsx', import.meta.url), 'utf8');
+  assert.match(consumer, /No offer is available for field-by-field comparison/);
+  assert.match(consumer, /No provider handoff has been authorized/);
+  assert.match(consumer, /Reconciliation has not started/);
+  assert.match(consumer, /currentStep === 'COMPARISON_DEEP_DIVE' && !selectedComparison/);
+  assert.match(consumer, /currentStep === 'BINDING_HANDOFF' && !handoffResult/);
+  assert.match(consumer, /currentStep === 'RECONCILIATION_VAULT' && !handoffResult/);
+});
+
 test('production application shell cannot strand clients on stale build assets', () => {
   const server = readFileSync(new URL('../../server.ts', import.meta.url), 'utf8');
   assert.match(server, /index: false/);

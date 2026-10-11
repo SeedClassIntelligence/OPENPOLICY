@@ -1901,6 +1901,26 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
       {/* ========================================================================= */}
       {/* STEP 5: DEEP FIELD-BY-FIELD COMPARISON MATRIX                             */}
       {/* ========================================================================= */}
+      {currentStep === 'COMPARISON_DEEP_DIVE' && !selectedComparison && (
+        <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-6 md:p-8 space-y-5">
+          <div className="flex items-start gap-3">
+            <Clock className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <span className="text-[11px] font-bold text-amber-700 uppercase tracking-wider">Waiting for a provider offer</span>
+              <h2 className="text-2xl font-bold text-slate-900 mt-1">No offer is available for field-by-field comparison</h2>
+              <p className="text-xs text-slate-600 mt-2 max-w-2xl">
+                Your verified policy baseline is complete. This matrix becomes available after an authorized provider submits a documented offer. Open Policy will then compare that offer with your existing policy field by field.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setCurrentStep('COMPETITION_ROOM')}
+            className="text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 px-4 py-2 rounded-lg transition"
+          >
+            Return to Offer Review
+          </button>
+        </div>
+      )}
       {currentStep === 'COMPARISON_DEEP_DIVE' && selectedComparison && (
         <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-6 md:p-8 space-y-6">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-200">
@@ -2030,6 +2050,26 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
       {/* ========================================================================= */}
       {/* STEP 6: BINDING HANDOFF & PROGRESSIVE DISCLOSURE                          */}
       {/* ========================================================================= */}
+      {currentStep === 'BINDING_HANDOFF' && !handoffResult && (
+        <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-6 md:p-8 space-y-5">
+          <div className="flex items-start gap-3">
+            <ShieldCheck className="w-5 h-5 text-slate-500 shrink-0 mt-0.5" />
+            <div>
+              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Selection required</span>
+              <h2 className="text-2xl font-bold text-slate-900 mt-1">No provider handoff has been authorized</h2>
+              <p className="text-xs text-slate-600 mt-2 max-w-2xl">
+                Binding handoff begins only after you review and select a submitted provider offer. Until then, your identity and contact information remain withheld from providers.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setCurrentStep('COMPETITION_ROOM')}
+            className="text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 px-4 py-2 rounded-lg transition"
+          >
+            Return to Offer Review
+          </button>
+        </div>
+      )}
       {currentStep === 'BINDING_HANDOFF' && handoffResult && (
         <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-6 md:p-8 space-y-6">
           <div className="max-w-2xl">
@@ -2262,7 +2302,27 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
       {/* ========================================================================= */}
       {/* STEP 7: ISSUED POLICY RECONCILIATION & POLICY VAULT                       */}
       {/* ========================================================================= */}
-      {currentStep === 'RECONCILIATION_VAULT' && (
+      {currentStep === 'RECONCILIATION_VAULT' && !handoffResult && (
+        <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-6 md:p-8 space-y-5">
+          <div className="flex items-start gap-3">
+            <FileSearch className="w-5 h-5 text-slate-500 shrink-0 mt-0.5" />
+            <div>
+              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Issued policy required</span>
+              <h2 className="text-2xl font-bold text-slate-900 mt-1">Reconciliation has not started</h2>
+              <p className="text-xs text-slate-600 mt-2 max-w-2xl">
+                Reconciliation occurs after you select an offer, authorize the provider handoff, and the licensed provider supplies the issued policy. Open Policy then displays factual differences between the selected offer and the issued policy.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setCurrentStep('COMPETITION_ROOM')}
+            className="text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 px-4 py-2 rounded-lg transition"
+          >
+            Return to Offer Review
+          </button>
+        </div>
+      )}
+      {currentStep === 'RECONCILIATION_VAULT' && handoffResult && (
         <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-6 md:p-8 space-y-6">
           <div>
             <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
