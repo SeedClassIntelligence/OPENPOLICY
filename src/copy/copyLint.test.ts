@@ -95,6 +95,14 @@ test('downstream consumer stages explain unmet provider lifecycle prerequisites'
   assert.match(consumer, /currentStep === 'RECONCILIATION_VAULT' && !handoffResult/);
 });
 
+test('consumer session loads the most recently opened policy review', () => {
+  const app = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');
+  assert.match(app, /const latestChallenge = \[\.\.\.challenges\]\.sort/);
+  assert.match(app, /Date\.parse\(right\.openingTimestamp\) - Date\.parse\(left\.openingTimestamp\)/);
+  assert.match(app, /challenges\/\$\{latestChallenge\.id\}/);
+  assert.doesNotMatch(app, /challenges\/\$\{challenges\[0\]\.id\}/);
+});
+
 test('production application shell cannot strand clients on stale build assets', () => {
   const server = readFileSync(new URL('../../server.ts', import.meta.url), 'utf8');
   assert.match(server, /index: false/);

@@ -37,7 +37,10 @@ function MainApp() {
       const res = await apiFetch('/api/challenges');
       const challenges: Challenge[] = await res.json();
       if (challenges.length > 0) {
-        const chalRes = await apiFetch(`/api/challenges/${challenges[0].id}`);
+        const latestChallenge = [...challenges].sort((left, right) =>
+          Date.parse(right.openingTimestamp) - Date.parse(left.openingTimestamp)
+        )[0];
+        const chalRes = await apiFetch(`/api/challenges/${latestChallenge.id}`);
         const chalData = await chalRes.json();
         setChallenge(chalData.challenge);
         setOffers(chalData.offers);
