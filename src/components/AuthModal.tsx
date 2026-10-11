@@ -38,6 +38,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     authModalInitialRole,
     authModalInitialMode,
     signInWithEmail, 
+    sendPasswordReset,
     signUpAsConsumer,
     signUpAsProvider,
     useDemoAccount 
@@ -67,6 +68,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [signInPassword, setSignInPassword] = useState('');
 
   const [error, setError] = useState<string | null>(null);
+  const [resetStatus, setResetStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -74,6 +76,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setMode(initialMode || authModalInitialMode || 'SIGN_UP');
       setRole(initialRole || authModalInitialRole || 'CONSUMER');
       setError(null);
+      setResetStatus(null);
     }
   }, [authModalOpen, authModalInitialRole, authModalInitialMode, initialMode, initialRole, isInline]);
 
@@ -122,6 +125,24 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const handleDemoSelect = (selectedRole: 'CONSUMER' | 'PROVIDER', alias?: string) => {
     useDemoAccount(selectedRole, alias);
     if (onSuccess) onSuccess(selectedRole);
+  };
+
+  const handlePasswordReset = async () => {
+    setError(null);
+    setResetStatus(null);
+    setLoading(true);
+    try {
+      await sendPasswordReset(signInEmail);
+      setResetStatus('If an Open Policy account exists for this email, Firebase sent a password-reset link.');
+    } catch (err: any) {
+      if (err?.code === 'auth/invalid-email') {
+        setError('Enter a valid account email address.');
+      } else {
+        setError(err?.message || 'Password reset could not be requested. Please try again.');
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -239,6 +260,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </div>
           )}
 
+          {resetStatus && (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs flex items-start space-x-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+              <span>{resetStatus}</span>
+            </div>
+          )}
+
           {mode === 'DEMO' ? (
             <div className="space-y-4">
               <div className="p-4 bg-emerald-50/70 border border-emerald-200 rounded-2xl space-y-1.5">
@@ -309,6 +337,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     placeholder="name@example.com"
                     className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
                   />
+                </div>
+                <div className="flex justify-end pt-1">
+                  <button
+                    type="button"
+                    onClick={handlePasswordReset}
+                    disabled={loading}
+                    className="text-[11px] font-semibold text-emerald-700 hover:text-emerald-800 disabled:opacity-50 cursor-pointer"
+                  >
+                    Forgot password?
+                  </button>
                 </div>
               </div>
 

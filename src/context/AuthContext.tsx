@@ -7,7 +7,8 @@ import {
   signOut,
   updateProfile,
   signInWithPopup,
-  GoogleAuthProvider
+  GoogleAuthProvider,
+  sendPasswordResetEmail
 } from 'firebase/auth';
 import { auth } from '../firebase/config';
 import { createUserProfile, loadUserProfile, FirestoreUserProfile } from '../services/userService';
@@ -31,6 +32,7 @@ export interface AuthContextType {
   signUpAsConsumer: (name: string, email: string, pass: string, state?: string, currentCarrier?: string) => Promise<UserRole>;
   signUpAsProvider: (name: string, agencyName: string, license: string, state: string, email: string, pass: string) => Promise<UserRole>;
   signInWithEmail: (email: string, pass: string) => Promise<UserRole>;
+  sendPasswordReset: (email: string) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
   signOutUser: () => Promise<void>;
   useDemoAccount: (role?: 'CONSUMER' | 'PROVIDER', alias?: string) => void;
@@ -232,6 +234,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const sendPasswordReset = async (email: string) => {
+    const normalizedEmail = email.trim();
+    if (!normalizedEmail) {
+      throw new Error('Enter your account email address first.');
+    }
+    await sendPasswordResetEmail(auth, normalizedEmail);
+  };
+
   const signOutUser = async () => {
     try {
       await signOut(auth);
@@ -280,6 +290,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         signUpAsConsumer,
         signUpAsProvider,
         signInWithEmail,
+        sendPasswordReset,
         signInWithGoogle,
         signOutUser,
         useDemoAccount

@@ -123,6 +123,15 @@ test('landing opt-in reuses the canonical account form and role-routing boundari
   assert.match(authModal, /<JurisdictionSelectOptions \/>/);
 });
 
+test('sign-in provides privacy-preserving Firebase password recovery', () => {
+  const authModal = readFileSync(new URL('../components/AuthModal.tsx', import.meta.url), 'utf8');
+  const authContext = readFileSync(new URL('../context/AuthContext.tsx', import.meta.url), 'utf8');
+  assert.match(authContext, /sendPasswordResetEmail/);
+  assert.match(authModal, /Forgot password\?/);
+  assert.match(authModal, /If an Open Policy account exists for this email/);
+  assert.doesNotMatch(authModal, /No account exists|Email not found/);
+});
+
 test('public copy preserves the founder-approved operating boundaries', () => {
   const landing = readFileSync(new URL('../components/LandingPage.tsx', import.meta.url), 'utf8')
     + readFileSync(new URL('./landing.ts', import.meta.url), 'utf8');
