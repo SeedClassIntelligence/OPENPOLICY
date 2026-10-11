@@ -19,7 +19,7 @@ import { canEnterMarketplaceDestination, destinationForRole } from './auth/roleA
 import { apiFetch } from './services/apiClient';
 
 function MainApp() {
-  const { isAuthenticated, userRole, userProfile, isDemoUser, openAuthModal } = useAuth();
+  const { isAuthenticated, userRole, userProfile, isDemoUser, loading: authLoading, openAuthModal } = useAuth();
   const [activePerspective, setActivePerspective] = useState<ActivePerspective>('LANDING');
   const [consumerInitialStep, setConsumerInitialStep] = useState<'UPLOAD_EXTRACT' | 'ACCOUNT_DASHBOARD'>('UPLOAD_EXTRACT');
   const [challenge, setChallenge] = useState<Challenge | null>(null);
@@ -35,6 +35,7 @@ function MainApp() {
   const loadData = async () => {
     try {
       const res = await apiFetch('/api/challenges');
+      if (!res.ok) throw new Error(`Could not load consumer policy reviews (${res.status})`);
       const challenges: Challenge[] = await res.json();
       if (challenges.length > 0) {
         const latestChallenge = [...challenges].sort((left, right) =>
@@ -44,6 +45,9 @@ function MainApp() {
         const chalData = await chalRes.json();
         setChallenge(chalData.challenge);
         setOffers(chalData.offers);
+      } else {
+        setChallenge(null);
+        setOffers([]);
       }
     } catch (e) {
       console.error('Failed to load initial challenges:', e);
@@ -53,8 +57,16 @@ function MainApp() {
   };
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (authLoading) return;
+    if (!isAuthenticated || userRole !== 'CONSUMER') {
+      setChallenge(null);
+      setOffers([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    void loadData();
+  }, [authLoading, isAuthenticated, userRole, userProfile?.id]);
 
   const handlePerspectiveChange = (
     perspective: ActivePerspective, 

@@ -101,6 +101,10 @@ test('consumer session loads the most recently opened policy review', () => {
   assert.match(app, /Date\.parse\(right\.openingTimestamp\) - Date\.parse\(left\.openingTimestamp\)/);
   assert.match(app, /challenges\/\$\{latestChallenge\.id\}/);
   assert.doesNotMatch(app, /challenges\/\$\{challenges\[0\]\.id\}/);
+  assert.match(app, /loading: authLoading/);
+  assert.match(app, /if \(authLoading\) return/);
+  assert.match(app, /userRole !== 'CONSUMER'/);
+  assert.match(app, /\[authLoading, isAuthenticated, userRole, userProfile\?\.id\]/);
 });
 
 test('production application shell cannot strand clients on stale build assets', () => {
