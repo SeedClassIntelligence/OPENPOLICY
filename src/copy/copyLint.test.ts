@@ -107,6 +107,14 @@ test('consumer session loads the most recently opened policy review', () => {
   assert.match(app, /\[authLoading, isAuthenticated, userRole, userProfile\?\.id\]/);
 });
 
+test('provider appetite updates derive organization authority from the authenticated session', () => {
+  const server = readFileSync(new URL('../../server.ts', import.meta.url), 'utf8');
+  assert.match(server, /app\.patch\('\/api\/marketplace\/my-provider\/appetite'/);
+  assert.match(server, /const orgId = await getAuthenticatedProviderOrgId\(req\)/);
+  assert.match(server, /providerOrganizationId: orgId/);
+  assert.doesNotMatch(server, /providerOrganizationId:\s*req\.body/);
+});
+
 test('production application shell cannot strand clients on stale build assets', () => {
   const server = readFileSync(new URL('../../server.ts', import.meta.url), 'utf8');
   assert.match(server, /index: false/);

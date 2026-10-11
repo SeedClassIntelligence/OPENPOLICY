@@ -1423,7 +1423,11 @@ export class PostgresStore {
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        ON CONFLICT (provider_organization_id) DO UPDATE SET
          jurisdictions = EXCLUDED.jurisdictions,
-         lines_of_business = EXCLUDED.lines_of_business;`,
+         lines_of_business = EXCLUDED.lines_of_business,
+         target_vehicle_years_min = EXCLUDED.target_vehicle_years_min,
+         target_vehicle_years_max = EXCLUDED.target_vehicle_years_max,
+         preferred_risk_tiers = EXCLUDED.preferred_risk_tiers,
+         excluded_vehicle_types = EXCLUDED.excluded_vehicle_types;`,
       [
         appetite.providerOrganizationId,
         JSON.stringify(appetite.jurisdictions),

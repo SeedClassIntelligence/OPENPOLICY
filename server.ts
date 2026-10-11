@@ -1083,6 +1083,30 @@ app.get('/api/marketplace/my-provider', async (req, res) => {
   }
 });
 
+app.patch('/api/marketplace/my-provider/appetite', async (req, res) => {
+  try {
+    const orgId = await getAuthenticatedProviderOrgId(req);
+    const current = await postgresStore.getProviderAppetite(orgId);
+    if (!current) return res.status(404).json({ error: 'Provider appetite profile not found' });
+
+    const min = Number(req.body?.renewalWindowDays?.min);
+    const max = Number(req.body?.renewalWindowDays?.max);
+    if (!Number.isInteger(min) || !Number.isInteger(max) || min < 0 || max < min || max > 730) {
+      return res.status(400).json({ error: 'renewalWindowDays must contain whole-number min/max values with 0 <= min <= max <= 730' });
+    }
+
+    const updated = {
+      ...current,
+      providerOrganizationId: orgId,
+      renewalWindowDays: { min, max }
+    };
+    await postgresStore.saveProviderAppetite(updated);
+    res.json({ success: true, appetite: await postgresStore.getProviderAppetite(orgId) });
+  } catch (e: any) {
+    res.status(e.statusCode || 400).json({ error: e.message });
+  }
+});
+
 // Legacy route alias for compatibility — resolves from session, not from client param
 app.get('/api/marketplace/active-provider', async (req, res) => {
   try {
