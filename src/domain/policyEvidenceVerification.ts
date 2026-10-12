@@ -5,7 +5,9 @@ const REQUIRED: NormalizedPolicyFieldPath[] = [
   'policyNumber','carrier','namedInsured','jurisdiction','effectiveDate','expirationDate','annualPremium',
   'vehicle.vin','vehicle.year','vehicle.make','vehicle.model','vehicle.usage','vehicle.annualMileage',
   'vehicle.garagingZip','vehicle.ownership','coverage.bodilyInjury.perPersonLimit',
-  'coverage.bodilyInjury.perAccidentLimit','coverage.propertyDamage.propertyLimit'
+  'coverage.bodilyInjury.perAccidentLimit','coverage.propertyDamage.propertyLimit',
+  'coverage.medicalPayments.included','coverage.rentalReimbursement.included','coverage.umUim.included',
+  'coverage.comprehensive.included','coverage.collision.included','coverage.roadsideAssistance.included'
 ];
 const stableId = (prefix: string, value: string) => `${prefix}-${crypto.createHash('sha256').update(value).digest('hex').slice(0, 24)}`;
 
@@ -43,7 +45,13 @@ export function buildVerifiedPolicyAndBaseline(input: {
       { id:stableId('COV', `${policyId}:BODILY_INJURY`),code:'BODILY_INJURY',name:'Bodily Injury Liability',category:'LIABILITY',isIncluded:true,
         perPersonLimit:number('coverage.bodilyInjury.perPersonLimit'),perAccidentLimit:number('coverage.bodilyInjury.perAccidentLimit') },
       { id:stableId('COV', `${policyId}:PROPERTY_DAMAGE`),code:'PROPERTY_DAMAGE',name:'Property Damage Liability',category:'LIABILITY',isIncluded:true,
-        propertyLimit:number('coverage.propertyDamage.propertyLimit') }
+        propertyLimit:number('coverage.propertyDamage.propertyLimit') },
+      { id:stableId('COV', `${policyId}:MEDICAL_PAYMENTS`),code:'MEDICAL_PAYMENTS',name:'Medical Payments',category:'MEDICAL',isIncluded:number('coverage.medicalPayments.included') === 1 },
+      { id:stableId('COV', `${policyId}:RENTAL_REIMBURSEMENT`),code:'RENTAL_REIMBURSEMENT',name:'Rental Reimbursement',category:'ADDITIONAL',isIncluded:number('coverage.rentalReimbursement.included') === 1 },
+      { id:stableId('COV', `${policyId}:UM_UIM`),code:'UM_UIM',name:'Uninsured/Underinsured Motorist',category:'LIABILITY',isIncluded:number('coverage.umUim.included') === 1 },
+      { id:stableId('COV', `${policyId}:COMPREHENSIVE`),code:'COMPREHENSIVE',name:'Comprehensive Coverage',category:'PHYSICAL_DAMAGE',isIncluded:number('coverage.comprehensive.included') === 1 },
+      { id:stableId('COV', `${policyId}:COLLISION`),code:'COLLISION',name:'Collision Coverage',category:'PHYSICAL_DAMAGE',isIncluded:number('coverage.collision.included') === 1 },
+      { id:stableId('COV', `${policyId}:ROADSIDE_ASSISTANCE`),code:'ROADSIDE_ASSISTANCE',name:'Roadside Assistance',category:'ADDITIONAL',isIncluded:number('coverage.roadsideAssistance.included') === 1 }
     ]
   };
   const baseline: CoverageBaseline = {

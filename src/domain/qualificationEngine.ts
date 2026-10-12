@@ -128,12 +128,10 @@ export function evaluateOfferQualification(
             normalizedCarrier.includes(rel.carrierName.toLowerCase()))
   );
 
-  if (carrierRelationships.length > 0 && !matchingRel) {
+  if (!matchingRel) {
     disqualificationReasons.push(`Provider '${offer.providerName}' does not have an active appointment or broker authorization for carrier '${offer.carrier}'.`);
   } else if (matchingRel) {
     qualificationReasons.push(`Carrier '${offer.carrier}' appointment verified (${matchingRel.relationshipType}).`);
-  } else {
-    qualificationReasons.push(`Carrier '${offer.carrier}' stated with broker representation.`);
   }
 
   // 3. Supporting Quote Document Association (Section 30)

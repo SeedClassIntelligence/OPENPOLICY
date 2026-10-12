@@ -5,7 +5,9 @@ const allowed = new Set<NormalizedPolicyFieldPath>([
   'effectiveDate', 'expirationDate', 'annualPremium'
   ,'vehicle.vin','vehicle.year','vehicle.make','vehicle.model','vehicle.usage','vehicle.annualMileage',
   'vehicle.garagingZip','vehicle.ownership','coverage.bodilyInjury.perPersonLimit',
-  'coverage.bodilyInjury.perAccidentLimit','coverage.propertyDamage.propertyLimit'
+  'coverage.bodilyInjury.perAccidentLimit','coverage.propertyDamage.propertyLimit',
+  'coverage.medicalPayments.included','coverage.rentalReimbursement.included','coverage.umUim.included',
+  'coverage.comprehensive.included','coverage.collision.included','coverage.roadsideAssistance.included'
 ]);
 
 export function validatePolicyFieldCorrection(input: unknown): {
@@ -19,6 +21,9 @@ export function validatePolicyFieldCorrection(input: unknown): {
   if (fieldPath === 'annualPremium' || fieldPath === 'vehicle.year' || fieldPath === 'vehicle.annualMileage' || fieldPath.startsWith('coverage.')) {
     if (typeof value.afterValue !== 'number' || !Number.isFinite(value.afterValue) || value.afterValue < 0 || value.afterValue > 1_000_000) {
       throw Object.assign(new Error('Annual premium must be a valid non-negative number.'), { statusCode: 400 });
+    }
+    if (fieldPath.endsWith('.included') && value.afterValue !== 0 && value.afterValue !== 1) {
+      throw Object.assign(new Error('Coverage inclusion must be 0 (not included) or 1 (included).'), { statusCode: 400 });
     }
     return { fieldPath, afterValue: value.afterValue };
   }

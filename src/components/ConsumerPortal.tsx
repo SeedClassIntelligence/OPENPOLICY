@@ -82,6 +82,20 @@ type ConsumerStep =
   | 'RECONCILIATION_VAULT'
   | 'PRIVATE_VAULT';
 
+const formatCoverageAmount = (amount?: number) => {
+  if (amount === undefined) return undefined;
+  return amount >= 1000 && amount % 1000 === 0 ? `$${amount / 1000}k` : `$${amount.toLocaleString()}`;
+};
+
+const formatBaselineCoverage = (coverage: CoverageItem) => {
+  if (coverage.perPersonLimit !== undefined && coverage.perAccidentLimit !== undefined) {
+    return `${formatCoverageAmount(coverage.perPersonLimit)} / ${formatCoverageAmount(coverage.perAccidentLimit)}`;
+  }
+  if (coverage.propertyLimit !== undefined) return formatCoverageAmount(coverage.propertyLimit);
+  if (coverage.deductible !== undefined) return `${formatCoverageAmount(coverage.deductible)} deductible`;
+  return coverage.isIncluded ? 'Included' : 'Not included';
+};
+
 export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
   challenge,
   offers,
@@ -121,11 +135,19 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
     'policyNumber','carrier','namedInsured','jurisdiction','effectiveDate','expirationDate','annualPremium',
     'vehicle.vin','vehicle.year','vehicle.make','vehicle.model','vehicle.usage','vehicle.annualMileage',
     'vehicle.garagingZip','vehicle.ownership','coverage.bodilyInjury.perPersonLimit',
-    'coverage.bodilyInjury.perAccidentLimit','coverage.propertyDamage.propertyLimit'
+    'coverage.bodilyInjury.perAccidentLimit','coverage.propertyDamage.propertyLimit',
+    'coverage.medicalPayments.included','coverage.rentalReimbursement.included','coverage.umUim.included',
+    'coverage.comprehensive.included','coverage.collision.included','coverage.roadsideAssistance.included'
   ];
   const numericReviewFields = new Set<NormalizedPolicyFieldPath>([
     'annualPremium','vehicle.year','vehicle.annualMileage','coverage.bodilyInjury.perPersonLimit',
-    'coverage.bodilyInjury.perAccidentLimit','coverage.propertyDamage.propertyLimit'
+    'coverage.bodilyInjury.perAccidentLimit','coverage.propertyDamage.propertyLimit',
+    'coverage.medicalPayments.included','coverage.rentalReimbursement.included','coverage.umUim.included',
+    'coverage.comprehensive.included','coverage.collision.included','coverage.roadsideAssistance.included'
+  ]);
+  const inclusionReviewFields = new Set<NormalizedPolicyFieldPath>([
+    'coverage.medicalPayments.included','coverage.rentalReimbursement.included','coverage.umUim.included',
+    'coverage.comprehensive.included','coverage.collision.included','coverage.roadsideAssistance.included'
   ]);
 
   const fetchVaultDocs = async () => {
@@ -1047,17 +1069,33 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                       {reviewFieldPaths.map(fieldPath => (
                         <label key={fieldPath} className="text-xs font-semibold text-slate-700">
                           <span className="block mb-1">{fieldPath}</span>
-                          <input
-                            aria-label={fieldPath}
-                            type={numericReviewFields.has(fieldPath) ? 'number' : fieldPath.endsWith('Date') ? 'date' : 'text'}
-                            value={policyReviewValues[fieldPath] || ''}
-                            onChange={event => {
-                              setPolicyReviewValues(current => ({...current, [fieldPath]:event.target.value}));
-                              setPolicyEvidenceAttested(false);
-                            }}
-                            placeholder={fieldPath === 'vehicle.usage' ? 'COMMUTE, PLEASURE, or BUSINESS' : fieldPath === 'vehicle.ownership' ? 'OWNED, FINANCED, or LEASED' : undefined}
-                            className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-slate-900"
-                          />
+                          {inclusionReviewFields.has(fieldPath) ? (
+                            <select
+                              aria-label={fieldPath}
+                              value={policyReviewValues[fieldPath] || ''}
+                              onChange={event => {
+                                setPolicyReviewValues(current => ({...current, [fieldPath]:event.target.value}));
+                                setPolicyEvidenceAttested(false);
+                              }}
+                              className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-slate-900"
+                            >
+                              <option value="">Confirm from policy</option>
+                              <option value="1">Included</option>
+                              <option value="0">Declined / not included</option>
+                            </select>
+                          ) : (
+                            <input
+                              aria-label={fieldPath}
+                              type={numericReviewFields.has(fieldPath) ? 'number' : fieldPath.endsWith('Date') ? 'date' : 'text'}
+                              value={policyReviewValues[fieldPath] || ''}
+                              onChange={event => {
+                                setPolicyReviewValues(current => ({...current, [fieldPath]:event.target.value}));
+                                setPolicyEvidenceAttested(false);
+                              }}
+                              placeholder={fieldPath === 'vehicle.usage' ? 'COMMUTE, PLEASURE, or BUSINESS' : fieldPath === 'vehicle.ownership' ? 'OWNED, FINANCED, or LEASED' : undefined}
+                              className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-slate-900"
+                            />
+                          )}
                         </label>
                       ))}
                     </div>
@@ -1686,7 +1724,9 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                   {challenge?.baseline.carrier || 'GEICO Advantage'}
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  2024 Toyota Camry XLE
+                  {challenge?.baseline.vehicle
+                    ? `${challenge.baseline.vehicle.year} ${challenge.baseline.vehicle.make} ${challenge.baseline.vehicle.model}`
+                    : 'Vehicle details not verified'}
                 </p>
 
                 <div className="my-5 p-3 rounded-lg bg-slate-800/80 border border-slate-700/60">
@@ -1700,26 +1740,14 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                 </div>
 
                 <div className="space-y-2 text-xs border-t border-slate-800 pt-3">
-                  <div className="flex justify-between text-slate-300">
-                    <span>Bodily Injury:</span>
-                    <span className="font-semibold text-white">100k / 300k</span>
-                  </div>
-                  <div className="flex justify-between text-slate-300">
-                    <span>Property Damage:</span>
-                    <span className="font-semibold text-white">$100,000</span>
-                  </div>
-                  <div className="flex justify-between text-slate-300">
-                    <span>Collision Deductible:</span>
-                    <span className="font-semibold text-white">$500</span>
-                  </div>
-                  <div className="flex justify-between text-slate-300">
-                    <span>Comp Deductible:</span>
-                    <span className="font-semibold text-white">$250</span>
-                  </div>
-                  <div className="flex justify-between text-slate-300">
-                    <span>Rental / Roadside:</span>
-                    <span className="font-semibold text-emerald-400">Included</span>
-                  </div>
+                  {challenge?.baseline.coverages?.length ? challenge.baseline.coverages.map(coverage => (
+                    <div key={coverage.id || coverage.code} className="flex justify-between gap-3 text-slate-300">
+                      <span>{coverage.name}:</span>
+                      <span className="font-semibold text-white text-right">{formatBaselineCoverage(coverage)}</span>
+                    </div>
+                  )) : (
+                    <div className="text-slate-400">No coverage details have been verified.</div>
+                  )}
                 </div>
               </div>
 

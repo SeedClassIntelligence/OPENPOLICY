@@ -189,6 +189,36 @@ export function runPM2AcceptanceTestSuite(): { passed: number; failed: number; t
     }
   });
 
+  test('PM2-QUAL-2b: Disqualifies an offer when the provider has no carrier relationships at all', () => {
+    const offerWithoutCarrierAuthority: Offer = {
+      id: 'OFF-NO-CARRIER-AUTHORITY',
+      challengeId: 'CHAL-TEST-1',
+      providerId: 'org_sierra',
+      providerName: 'Sierra Brokerage Group',
+      providerLicense: 'NV-LIC-902188',
+      carrier: 'Unverified Carrier',
+      quoteNumber: 'NO-AUTH-1',
+      annualPremium: 2300,
+      monthlyPremium: 191,
+      termMonths: 12,
+      effectiveDate: '2026-11-18',
+      expirationDate: '2027-11-18',
+      coverages: [
+        { id: 'C1', code: 'BODILY_INJURY', name: 'Bodily Injury', category: 'LIABILITY', perPersonLimit: 100000, perAccidentLimit: 300000, isIncluded: true },
+        { id: 'C2', code: 'PROPERTY_DAMAGE', name: 'Property Damage', category: 'LIABILITY', propertyLimit: 100000, isIncluded: true }
+      ],
+      supportingQuoteDocName: 'Unverified_Quote.pdf',
+      submittedAt: '2026-09-19T10:00:00Z',
+      discrepanciesDetected: false,
+      status: 'VALIDATED'
+    };
+
+    const result = evaluateOfferQualification(offerWithoutCarrierAuthority, mockBaseline, mockProviderOrg, []);
+    if (result.isQualified || !result.disqualificationReasons.some(reason => reason.includes('appointment or broker authorization'))) {
+      throw new Error(`Offer without carrier authority must fail closed: ${result.disqualificationReasons.join('; ')}`);
+    }
+  });
+
   test('PM2-QUAL-3: Disqualifies offer missing mandatory statutory coverages', () => {
     const missingCoveragesOffer: Offer = {
       id: 'OFF-NO-BI',

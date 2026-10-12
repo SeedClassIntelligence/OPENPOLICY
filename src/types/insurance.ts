@@ -112,7 +112,10 @@ export type NormalizedPolicyFieldPath =
   | 'vehicle.vin' | 'vehicle.year' | 'vehicle.make' | 'vehicle.model'
   | 'vehicle.usage' | 'vehicle.annualMileage' | 'vehicle.garagingZip' | 'vehicle.ownership'
   | 'coverage.bodilyInjury.perPersonLimit' | 'coverage.bodilyInjury.perAccidentLimit'
-  | 'coverage.propertyDamage.propertyLimit';
+  | 'coverage.propertyDamage.propertyLimit'
+  | 'coverage.medicalPayments.included' | 'coverage.rentalReimbursement.included'
+  | 'coverage.umUim.included' | 'coverage.comprehensive.included'
+  | 'coverage.collision.included' | 'coverage.roadsideAssistance.included';
 
 export interface NormalizedPolicyFieldCandidate {
   fieldPath: NormalizedPolicyFieldPath;

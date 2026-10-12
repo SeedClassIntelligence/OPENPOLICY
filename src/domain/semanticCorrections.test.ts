@@ -17,6 +17,7 @@ import { activateVerifiedPolicyToVault } from './pm5ReconciliationEngine';
 import { evaluateOfferQualification } from './qualificationEngine';
 import {
   BindingHandoff,
+  CarrierRelationship,
   Challenge,
   CoverageBaseline,
   IssuedPolicyDocument,
@@ -117,6 +118,16 @@ export function runSemanticCorrectionsTestSuite(): {
     riskMarkets: ['STANDARD'],
     renewalWindowDays: { min: 0, max: 100000 },
     active: true
+  };
+  const nvCarrierRelationship: CarrierRelationship = {
+    id: 'rel_d6',
+    providerOrganizationId: 'org_d6',
+    carrierId: 'carrier_d6',
+    carrierName: 'Test Carrier',
+    jurisdiction: 'NV',
+    lineOfBusiness: 'PERSONAL_AUTO',
+    relationshipType: 'AUTHORIZED_BROKER',
+    status: 'ACTIVE'
   };
   const challengeWith = (jurisdiction: string | undefined): Challenge => ({
     id: 'CHAL-D6',
@@ -247,7 +258,7 @@ export function runSemanticCorrectionsTestSuite(): {
     discrepanciesDetected: false,
     status: 'VALIDATED'
   };
-  const qual = evaluateOfferQualification(lowLimitOffer, baselineWith('NV'), org, []);
+  const qual = evaluateOfferQualification(lowLimitOffer, baselineWith('NV'), org, [nvCarrierRelationship]);
   const allReasons = [...qual.qualificationReasons, ...qual.disqualificationReasons];
   test(
     'D6-3a: Qualification never claims statutory minimums/limits were verified',
