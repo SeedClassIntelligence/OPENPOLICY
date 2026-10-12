@@ -1399,7 +1399,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
                         <div>
                           <span className="text-slate-400 block text-[10px] uppercase font-bold">Named Insured</span>
-                          <span className="font-bold text-slate-800">{disclosedData?.namedInsured || 'Jane Doe'}</span>
+                          <span className="font-bold text-slate-800">{disclosedData?.namedInsured || 'Not disclosed'}</span>
                         </div>
                         <div>
                           <span className="text-slate-400 block text-[10px] uppercase font-bold">Full VIN</span>

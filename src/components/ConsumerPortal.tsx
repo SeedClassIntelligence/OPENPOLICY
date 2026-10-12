@@ -842,7 +842,9 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
     ? offers.find(offer => offer.id === (handoffResult.offerId || handoffResult.selectedOfferId))
     : undefined;
   const selectedProviderName = handoffResult?.providerName || selectedHandoffOffer?.providerName || 'Selected provider';
-  const selectedConsumerName = handoffResult?.consumerName || activePolicy?.namedInsured || 'Policyholder';
+  // The verified policy is authoritative for the insured's display name. Older
+  // handoff rows may retain fixture-era consumer labels and must not override it.
+  const selectedConsumerName = activePolicy?.namedInsured || handoffResult?.consumerName || 'Policyholder';
 
   return (
     <div className="space-y-6">
