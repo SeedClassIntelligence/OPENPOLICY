@@ -337,6 +337,34 @@ export class PostgresStore {
     return result.rows[0] ? JSON.parse(result.rows[0].payload) as PolicyDocumentRecord : undefined;
   }
 
+  public async getLatestVerifiedPolicyBaseline(ownerId: string): Promise<{
+    document: PolicyDocumentRecord;
+    policy: Policy;
+    baseline: CoverageBaseline;
+  } | undefined> {
+    await this.ensureReady();
+    const result = await this.sql!.query<{
+      document_payload: string;
+      policy_payload: string;
+      baseline_payload: string;
+    }>(
+      `SELECT d.payload AS document_payload, p.payload AS policy_payload, b.payload AS baseline_payload
+       FROM policy_documents d
+       JOIN policies p ON p.payload::jsonb->>'sourceDocumentId'=d.id
+       JOIN coverage_baselines b ON b.policy_id=p.id
+       WHERE d.owner_id=$1 AND d.status='BASELINE_CREATED'
+       ORDER BY d.updated_at DESC, b.version DESC
+       LIMIT 1;`,
+      [ownerId]
+    );
+    if (!result.rows[0]) return undefined;
+    return {
+      document: JSON.parse(result.rows[0].document_payload) as PolicyDocumentRecord,
+      policy: JSON.parse(result.rows[0].policy_payload) as Policy,
+      baseline: JSON.parse(result.rows[0].baseline_payload) as CoverageBaseline
+    };
+  }
+
   public async recordPolicyDocumentMalwareDisposition(input: {
     documentId: string; objectGeneration: string; sourceSha256: string;
     status: 'CLEAN' | 'REJECTED_MALICIOUS' | 'SCAN_FAILED'; scanner: string; scannerVersion: string;

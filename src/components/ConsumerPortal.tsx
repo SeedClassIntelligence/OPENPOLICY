@@ -349,6 +349,31 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
   } : null);
 
   const [activeBaseline, setActiveBaseline] = useState<CoverageBaseline | null>(challenge ? challenge.baseline : null);
+
+  useEffect(() => {
+    if (challenge || activeBaseline) return;
+    let cancelled = false;
+
+    const restoreVerifiedBaseline = async () => {
+      try {
+        const response = await apiFetch('/api/policy-documents/current-baseline');
+        if (response.status === 404) return;
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const restored = await response.json();
+        if (cancelled) return;
+        setRealDocumentId(restored.documentId);
+        setVerifiedBaseline({ policyId: restored.policy.id, baselineId: restored.baseline.id });
+        setActivePolicy(restored.policy);
+        setActiveBaseline(restored.baseline);
+        setCurrentStep('VERIFY_POLICY');
+      } catch (error) {
+        console.error('Failed to restore durable verified policy baseline:', error);
+      }
+    };
+
+    restoreVerifiedBaseline();
+    return () => { cancelled = true; };
+  }, [challenge, activeBaseline]);
   // Selected Offer for detail view & handoff
   const [selectedOfferId, setSelectedOfferId] = useState<string>('OFFER-B');
   const [handoffResult, setHandoffResult] = useState<BindingHandoff | null>(null);

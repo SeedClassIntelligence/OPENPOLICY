@@ -80,6 +80,7 @@ test('real policy-document ingestion is consumer-only and never public or provid
   assert.equal(invoke('POST', '/policy-documents/DOC-1/verify', consumer).next, true);
   assert.equal(invoke('GET', '/policy-documents/DOC-1', provider).status, 403);
   assert.equal(invoke('GET', '/policy-documents/DOC-1', consumer).next, true);
+  assert.equal(invoke('GET', '/policy-documents/current-baseline', consumer).next, true);
 });
 
 test('verified sample policy upload supports the advertised consumer demo without admitting providers', () => {

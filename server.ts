@@ -439,6 +439,21 @@ app.post('/api/policy-documents/ingest', async (req, res) => {
   }
 });
 
+app.get('/api/policy-documents/current-baseline', async (req, res) => {
+  try {
+    const ownerId = getAuthenticatedConsumerId(req);
+    const result = await postgresStore.getLatestVerifiedPolicyBaseline(ownerId);
+    if (!result) return res.status(404).json({ error: 'No verified coverage baseline found' });
+    res.json({
+      documentId: result.document.id,
+      policy: result.policy,
+      baseline: result.baseline
+    });
+  } catch (error: any) {
+    res.status(error.statusCode || 403).json({ error: error.message });
+  }
+});
+
 app.get('/api/policy-documents/:documentId', async (req, res) => {
   try {
     const ownerId = getAuthenticatedConsumerId(req);
