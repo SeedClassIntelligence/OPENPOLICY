@@ -91,6 +91,22 @@ export function compareCoverageItem(
     };
   }
 
+  // A verified baseline records explicit exclusions. An offer may omit those
+  // excluded items entirely; that is still an equivalent absent coverage.
+  if ((!baselineItem || !baselineItem.isIncluded) && (!offerItem || !offerItem.isIncluded)) {
+    return {
+      fieldCode: code,
+      fieldName: name,
+      category,
+      baselineValueFormatted: 'Not Included',
+      offerValueFormatted: 'Not Included',
+      result: 'EQUIVALENT',
+      explanation: 'Neither policy includes this coverage.',
+      isMaterialReduction: false,
+      isMaterialImprovement: false
+    };
+  }
+
   // Both are included - compare specific terms
   const b = baselineItem!;
   const o = offerItem!;

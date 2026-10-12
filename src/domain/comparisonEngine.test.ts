@@ -175,6 +175,24 @@ export function runComparisonEngineTestSuite(): {
     'BETTER'
   );
 
+  const excludedCollision: CoverageItem = {
+    id: 'excluded-collision',
+    code: 'COLLISION',
+    name: 'Collision Coverage',
+    category: 'PHYSICAL_DAMAGE',
+    isIncluded: false
+  };
+  const rExcludedAndOmitted = compareCoverageItem(excludedCollision, undefined);
+  test(
+    'An explicitly excluded baseline coverage omitted by the offer remains equivalent',
+    'Excluded Coverage',
+    rExcludedAndOmitted.result === 'EQUIVALENT' &&
+      rExcludedAndOmitted.baselineValueFormatted === 'Not Included' &&
+      rExcludedAndOmitted.offerValueFormatted === 'Not Included',
+    rExcludedAndOmitted.result,
+    'EQUIVALENT'
+  );
+
   // 5. WHOLE OFFER CLASSIFICATION
   const dummyBaseline: CoverageBaseline = {
     id: 'bl-test',
