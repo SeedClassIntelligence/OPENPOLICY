@@ -351,7 +351,6 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
   const [activeBaseline, setActiveBaseline] = useState<CoverageBaseline | null>(challenge ? challenge.baseline : null);
 
   useEffect(() => {
-    if (challenge || activeBaseline) return;
     let cancelled = false;
 
     const restoreVerifiedBaseline = async () => {
@@ -365,7 +364,9 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
         setVerifiedBaseline({ policyId: restored.policy.id, baselineId: restored.baseline.id });
         setActivePolicy(restored.policy);
         setActiveBaseline(restored.baseline);
-        setCurrentStep('VERIFY_POLICY');
+        // A returning consumer with an active marketplace challenge should stay
+        // in that lifecycle; only a policy-only account resumes at verification.
+        if (!challenge) setCurrentStep('VERIFY_POLICY');
       } catch (error) {
         console.error('Failed to restore durable verified policy baseline:', error);
       }
@@ -373,7 +374,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
 
     restoreVerifiedBaseline();
     return () => { cancelled = true; };
-  }, [challenge, activeBaseline]);
+  }, [challenge?.id]);
   // Selected Offer for detail view & handoff
   const [selectedOfferId, setSelectedOfferId] = useState<string>('OFFER-B');
   const [handoffResult, setHandoffResult] = useState<BindingHandoff | null>(null);
