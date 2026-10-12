@@ -71,7 +71,7 @@ interface ConsumerPortalProps {
   initialStep?: ConsumerStep;
 }
 
-type ConsumerStep =
+export type ConsumerStep =
   | 'ACCOUNT_DASHBOARD'
   | 'UPLOAD_EXTRACT'
   | 'VERIFY_POLICY'

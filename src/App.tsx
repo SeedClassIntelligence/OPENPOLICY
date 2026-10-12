@@ -6,7 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { Header, ActivePerspective } from './components/Header';
 import { LandingPage } from './components/LandingPage';
-import { ConsumerPortal } from './components/ConsumerPortal';
+import { ConsumerPortal, type ConsumerStep } from './components/ConsumerPortal';
 import { ProviderPortal } from './components/ProviderPortal';
 import { AdminConsole } from './components/AdminConsole';
 import { TelemetryDashboard } from './components/TelemetryDashboard';
@@ -21,7 +21,7 @@ import { apiFetch } from './services/apiClient';
 function MainApp() {
   const { isAuthenticated, userRole, userProfile, isDemoUser, loading: authLoading, openAuthModal } = useAuth();
   const [activePerspective, setActivePerspective] = useState<ActivePerspective>('LANDING');
-  const [consumerInitialStep, setConsumerInitialStep] = useState<'UPLOAD_EXTRACT' | 'ACCOUNT_DASHBOARD'>('UPLOAD_EXTRACT');
+  const [consumerInitialStep, setConsumerInitialStep] = useState<ConsumerStep>('UPLOAD_EXTRACT');
   const [challenge, setChallenge] = useState<Challenge | null>(null);
   const [offers, setOffers] = useState<Offer[]>([]);
   const [loading, setLoading] = useState(true);
@@ -45,9 +45,11 @@ function MainApp() {
         const chalData = await chalRes.json();
         setChallenge(chalData.challenge);
         setOffers(chalData.offers);
+        setConsumerInitialStep('COMPETITION_ROOM');
       } else {
         setChallenge(null);
         setOffers([]);
+        setConsumerInitialStep('UPLOAD_EXTRACT');
       }
     } catch (e) {
       console.error('Failed to load initial challenges:', e);
@@ -70,7 +72,7 @@ function MainApp() {
 
   const handlePerspectiveChange = (
     perspective: ActivePerspective, 
-    step?: 'UPLOAD_EXTRACT' | 'ACCOUNT_DASHBOARD'
+    step?: ConsumerStep
   ) => {
     // Protected Perspectives: Consumers and Providers require authentication
     if (!isAuthenticated && (perspective === 'CONSUMER' || perspective === 'PROVIDER')) {
