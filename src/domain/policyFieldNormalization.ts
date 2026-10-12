@@ -61,7 +61,11 @@ const RULES: Rule[] = [
   ,{ fieldPath: 'coverage.rentalReimbursement.included', patterns: [/\bRental\b([\s\S]{0,120}?)(?=\bUninsured\/underinsured motorist bodily injury\b)/i], transform: coverageIncluded, confidence: .97 }
   ,{ fieldPath: 'coverage.umUim.included', patterns: [/\bUninsured\/underinsured motorist bodily injury\b([\s\S]{0,120}?)(?=\bComprehensive\b)/i], transform: coverageIncluded, confidence: .97 }
   ,{ fieldPath: 'coverage.comprehensive.included', patterns: [/\bComprehensive\b([\s\S]{0,120}?)(?=\bCollision\b)/i], transform: coverageIncluded, confidence: .97 }
-  ,{ fieldPath: 'coverage.collision.included', patterns: [/\bCollision\b([\s\S]{0,120}?)(?=\bPolicy number\b)/i], transform: coverageIncluded, confidence: .97 }
+  ,{ fieldPath: 'coverage.collision.included', patterns: [
+    /\bCollision\b([\s\S]{0,240}?\bDECLINED\b)/i,
+    /\bCollision\b([\s\S]{0,160}?\bPremium\s*:\s*\$?[\d,.]+)/i,
+    /\bCollision\b([\s\S]{0,240}?)(?=\bPolicy number\b)/i
+  ], transform: coverageIncluded, confidence: .97 }
   ,{ fieldPath: 'coverage.roadsideAssistance.included', patterns: [/\bRoadside\b([\s\S]{0,120}?)(?=\bRideshare\b|\bFees\b)/i], transform: coverageIncluded, confidence: .97 }
 ];
 
