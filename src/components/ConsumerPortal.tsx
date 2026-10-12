@@ -484,6 +484,45 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
     }
   };
 
+  const processRealPolicyDocument = async (documentId: string) => {
+      const withTimeout = async <T,>(promise: Promise<T>, message: string): Promise<T> => {
+        let timeoutId: number | undefined;
+        try {
+          return await Promise.race([
+            promise,
+            new Promise<T>((_, reject) => {
+              timeoutId = window.setTimeout(() => reject(new Error(message)), 30_000);
+            })
+          ]);
+        } finally {
+          if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+        }
+      };
+
+      setDocumentProcessing('Scanning policy evidence for malware…');
+      const scan = await withTimeout(
+        apiFetch(`/api/policy-documents/${documentId}/scan`, {method:'POST'}),
+        'The malware scan did not start in time. Your upload is preserved; retry processing below.'
+      );
+      const scanned = await scan.json();
+      if (!scan.ok || scanned.malwareStatus !== 'CLEAN') throw new Error(scanned.message || 'Document did not receive a CLEAN scan disposition');
+      setDocumentProcessing('Extracting policy evidence with Document AI…');
+      const extract = await withTimeout(
+        apiFetch(`/api/policy-documents/${documentId}/extract`, {method:'POST'}),
+        'Policy extraction did not start in time. Your clean upload is preserved; retry processing below.'
+      );
+      const extracted = await extract.json();
+      if (!extract.ok) throw new Error(extracted.message || extracted.error || 'Extraction failed');
+      setRealNormalization(extracted.normalization);
+      setPolicyReviewValues(Object.fromEntries(
+        reviewFieldPaths.map(fieldPath => [fieldPath,
+          String(extracted.normalization.fields.find((field: any) => field.fieldPath === fieldPath)?.value ?? '')])
+      ));
+      setPolicyEvidenceAttested(false);
+      setVerifiedBaseline(null);
+      setDocumentProcessing(null);
+  };
+
   const handleRealPolicyUpload = async (file?: File) => {
     if (!file) return;
     setDocumentProcessingError(null);
@@ -498,22 +537,18 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
       if (!ingest.ok) throw new Error(ingested.message || ingested.error || 'Upload failed');
       const documentId = ingested.document.id;
       setRealDocumentId(documentId);
-      setDocumentProcessing('Scanning policy evidence for malware…');
-      const scan = await apiFetch(`/api/policy-documents/${documentId}/scan`, {method:'POST'});
-      const scanned = await scan.json();
-      if (!scan.ok || scanned.malwareStatus !== 'CLEAN') throw new Error(scanned.message || 'Document did not receive a CLEAN scan disposition');
-      setDocumentProcessing('Extracting policy evidence with Document AI…');
-      const extract = await apiFetch(`/api/policy-documents/${documentId}/extract`, {method:'POST'});
-      const extracted = await extract.json();
-      if (!extract.ok) throw new Error(extracted.message || extracted.error || 'Extraction failed');
-      setRealNormalization(extracted.normalization);
-      setPolicyReviewValues(Object.fromEntries(
-        reviewFieldPaths.map(fieldPath => [fieldPath,
-          String(extracted.normalization.fields.find((field: any) => field.fieldPath === fieldPath)?.value ?? '')])
-      ));
-      setPolicyEvidenceAttested(false);
-      setVerifiedBaseline(null);
+      await processRealPolicyDocument(documentId);
+    } catch (error:any) {
       setDocumentProcessing(null);
+      setDocumentProcessingError(error?.message || 'Document processing failed');
+    }
+  };
+
+  const handleRetryRealPolicyProcessing = async () => {
+    if (!realDocumentId) return;
+    setDocumentProcessingError(null);
+    try {
+      await processRealPolicyDocument(realDocumentId);
     } catch (error:any) {
       setDocumentProcessing(null);
       setDocumentProcessingError(error?.message || 'Document processing failed');
@@ -1035,7 +1070,20 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
           {(documentProcessing || documentProcessingError || realNormalization) && (
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-5 space-y-3">
               {documentProcessing && <p className="text-sm font-semibold text-blue-700">{documentProcessing}</p>}
-              {documentProcessingError && <p className="text-sm font-semibold text-red-700">{documentProcessingError}</p>}
+              {documentProcessingError && (
+                <div className="space-y-2">
+                  <p className="text-sm font-semibold text-red-700">{documentProcessingError}</p>
+                  {realDocumentId && !realNormalization && (
+                    <button
+                      type="button"
+                      onClick={handleRetryRealPolicyProcessing}
+                      className="rounded-lg bg-blue-700 px-4 py-2 text-xs font-bold text-white hover:bg-blue-800"
+                    >
+                      Retry Processing Uploaded Policy
+                    </button>
+                  )}
+                </div>
+              )}
               {realNormalization && (
                 <>
                   <div className="flex items-center justify-between gap-3">
