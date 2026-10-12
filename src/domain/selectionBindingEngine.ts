@@ -281,13 +281,14 @@ export function validateAndExecuteDisclosure(params: ExecuteDisclosureParams): {
       disclosedData[field] = fullConsumerData[field];
     }
   }
+  const disclosedFieldNames = Object.keys(disclosedData).sort();
 
   // 4. Compute Factual SHA-256 Event Payload Hash
   const canonicalPayloadStr = JSON.stringify({
     handoffId: handoff.id,
     consentGrantId: consentGrant.id,
     recipientOrgId: requestingProviderOrgId,
-    fields: Array.from(authorizedFields).sort(),
+    fields: disclosedFieldNames,
     timestamp: now.toISOString()
   });
 
@@ -301,7 +302,7 @@ export function validateAndExecuteDisclosure(params: ExecuteDisclosureParams): {
     recipientProviderOrganizationId: requestingProviderOrgId,
     recipientProviderUserId: requestingProviderUserId || consentGrant.recipientUserId,
     disclosedAt: now.toISOString(),
-    disclosedFieldNames: Array.from(authorizedFields),
+    disclosedFieldNames,
     metadata: {
       recipientAgentName,
       recipientEmail

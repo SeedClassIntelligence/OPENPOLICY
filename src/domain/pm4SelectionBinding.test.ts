@@ -419,6 +419,10 @@ export function runPM4AcceptanceTestSuite(): { passed: number; failed: number; t
     assert(result.disclosedData.salary === undefined, 'Non-authorized salary must be excluded');
     assert(result.disclosedData.creditScore === undefined, 'Non-authorized credit score must be excluded');
     assert(result.disclosedData.phone === undefined, 'Non-authorized phone must be excluded');
+    assert(
+      result.disclosureEvent.disclosedFieldNames.join(',') === 'addressLine1,namedInsured,vin',
+      'Disclosure evidence records the fields actually disclosed'
+    );
 
     // Verify factual SHA-256 eventPayloadHash
     assert(result.disclosureEvent.eventPayloadHash.length === 64, 'Must compute 64-char SHA-256 hash');

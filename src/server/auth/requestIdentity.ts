@@ -90,6 +90,11 @@ function firebaseAdminApp() {
   });
 }
 
+export async function getFirebaseUserProfile(uid: string): Promise<Record<string, unknown> | undefined> {
+  const snapshot = await getFirestore(firebaseAdminApp()).collection('users').doc(uid).get();
+  return snapshot.exists ? snapshot.data() : undefined;
+}
+
 export async function resolveFirebaseIdentity(token: string): Promise<RequestIdentity> {
   const adminApp = firebaseAdminApp();
   const decoded = await getAuth(adminApp).verifyIdToken(token, true);

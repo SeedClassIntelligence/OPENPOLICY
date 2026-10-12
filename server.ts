@@ -45,7 +45,7 @@ import {
 } from './src/domain/pm5ReconciliationEngine';
 import { verifyCryptographicAuditChain, processReviewQueueResolution,
   generateRegulatoryAuditProof } from './src/domain/governanceAuditEngine';
-import { assertProductionAuthConfiguration, attachRequestIdentity } from './src/server/auth/requestIdentity';
+import { assertProductionAuthConfiguration, attachRequestIdentity, configuredAuthMode, getFirebaseUserProfile } from './src/server/auth/requestIdentity';
 import { assertBindingRelationship, assertChallengeRelationship, enforceApiAuthorization } from './src/server/auth/routeAuthorization';
 
 import { runComparisonEngineTestSuite } from './src/domain/comparisonEngine.test';
@@ -1855,17 +1855,34 @@ app.post('/api/marketplace/binding/:handoffId/execute-disclosure', async (req, r
     if (!consentGrant) return res.status(404).json({ error: `Consent grant not found: ${consentGrantId}` });
     const challenge = await postgresStore.getChallenge(handoff.challengeId);
     const baseline = challenge?.baseline;
+    const sourcePolicy = baseline ? await postgresStore.getPolicy(baseline.policyId) : undefined;
+    const fixtureMode = configuredAuthMode() === 'fixture';
+    if (!fixtureMode && customConsumerData !== undefined) {
+      return res.status(400).json({ error: 'Provider-supplied consumer data is forbidden for controlled disclosure.' });
+    }
+    if (!fixtureMode && !handoff.consumerId) {
+      return res.status(409).json({ error: 'Binding handoff has no authoritative consumer identity.' });
+    }
+    const consumerProfile = fixtureMode ? undefined : await getFirebaseUserProfile(handoff.consumerId!);
     const fullConsumerData: Record<string, any> = {
-      namedInsured: 'Jane Doe', email: 'jane.doe@example.com', phone: '702-555-0199',
-      addressLine1: '812 Horizon Ridge Pkwy', city: 'Henderson', state: 'NV', postalCode: '89012',
-      garagingAddress: '812 Horizon Ridge Pkwy, Henderson, NV 89012',
-      vin: baseline?.vehicle?.vin || '4T1B11HK5RU123498', driverLicenseNumber: 'NV-DL-8912781',
-      driverLicenseState: 'NV', dateOfBirth: '1988-04-12',
-      drivers: [{ name:'Jane Doe', licenseState:'NV', licenseNumber:'NV-DL-8912781', age:38, isPrimary:true }],
-      vehicles: [{ year:baseline?.vehicle?.year||2022, make:baseline?.vehicle?.make||'Toyota',
-        model:baseline?.vehicle?.model||'Camry', vin:baseline?.vehicle?.vin||'4T1B11HK5RU123498',
-        annualMileage:baseline?.vehicle?.annualMileage||12000, primaryUse:baseline?.vehicle?.usage||'COMMUTE' }],
-      ...(customConsumerData || {})
+      namedInsured: sourcePolicy?.namedInsured,
+      email: consumerProfile?.email,
+      phone: consumerProfile?.phone,
+      addressLine1: consumerProfile?.addressLine1,
+      city: consumerProfile?.city,
+      state: consumerProfile?.state,
+      postalCode: consumerProfile?.postalCode,
+      garagingAddress: consumerProfile?.garagingAddress,
+      driverLicenseNumber: consumerProfile?.driverLicenseNumber,
+      driverLicenseState: consumerProfile?.driverLicenseState,
+      dateOfBirth: consumerProfile?.dateOfBirth,
+      vin: baseline?.vehicle?.vin,
+      vehicles: baseline?.vehicle ? [{
+        year:baseline.vehicle.year, make:baseline.vehicle.make, model:baseline.vehicle.model,
+        vin:baseline.vehicle.vin, annualMileage:baseline.vehicle.annualMileage,
+        primaryUse:baseline.vehicle.usage
+      }] : undefined,
+      ...(fixtureMode ? (customConsumerData || {}) : {})
     };
     const computed = validateAndExecuteDisclosure({
       consentGrant, handoff, fullConsumerData, requestingProviderOrgId:providerOrgId,
