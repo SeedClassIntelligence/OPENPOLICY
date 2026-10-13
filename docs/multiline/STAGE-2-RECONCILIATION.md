@@ -30,9 +30,12 @@ records what was adopted, expanded, or rejected against the canonical branch.
   facts produce `REVIEW_REQUIRED`; they are not calculated or defaulted.
 - CGL and BOP share commercial extraction infrastructure but remain distinct:
   BOP includes commercial-property and business-income evidence; CGL does not.
-- Commercial lines remain fail-closed at the normalization boundary until
-  their dedicated normalizers and acceptance evidence are implemented. They
-  cannot fall through into the Personal Auto normalizer.
+- CGL and BOP now use a dedicated commercial normalizer. It records explicit
+  business identity, CGL limits, and—only for BOP—business-property,
+  business-income, extra-expense, and property-deductible evidence.
+- Commercial documents with missing required source facts remain
+  `REVIEW_REQUIRED`; they cannot fall through into the Personal Auto normalizer
+  or receive fabricated limits or inclusion flags.
 
 ## Rejected
 

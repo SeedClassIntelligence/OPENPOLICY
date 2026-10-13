@@ -50,8 +50,8 @@ transactions.
 | Homeowners | `DEVELOPMENT` | Canonical line, document classification, versioned policy schema, and source-backed field normalization exist. Comparison, offer, handoff, reconciliation, and full acceptance remain to be implemented. |
 | Renters | `DEVELOPMENT` | Canonical line, document classification, versioned policy schema, and source-backed field normalization exist. Dwelling coverage is never fabricated. Remaining lifecycle profiles and full acceptance remain to be implemented. |
 | Commercial Auto | `INTEREST_ONLY` | Account interest may be recorded; policy processing is not open. |
-| Commercial General Liability | `DEVELOPMENT` | Shares commercial document infrastructure with BOP but retains its own policy and comparison contract. |
-| Business Owners Policy | `DEVELOPMENT` | Property/liability package development; it is not modeled as renamed homeowners coverage. |
+| Commercial General Liability | `DEVELOPMENT` | Shares commercial document infrastructure with BOP and now has source-backed field normalization, while retaining its own policy and comparison contract. |
+| Business Owners Policy | `DEVELOPMENT` | Property/liability package normalization is distinct from Homeowners; remaining lifecycle profiles and full acceptance are not complete. |
 | Term Life | `LOCKED` | Represented in the canonical universe but not exposed for registration or processing. |
 | Individual Health | `LOCKED` | Represented in the canonical universe but not exposed for registration or processing. |
 
@@ -95,9 +95,10 @@ Moving a line to `ACCEPTANCE` still does not activate any jurisdiction for
 production.
 
 The normalization dispatcher is line-aware. Personal Auto retains its existing
-normalizer; Homeowners and Renters use the property-policy normalizer; every
-other unfinished line returns `REVIEW_REQUIRED` with no extracted business
-facts. This is an implementation safety boundary, not market authorization.
+normalizer; Homeowners and Renters use the property-policy normalizer; CGL and
+BOP use a distinct commercial normalizer. Every other unfinished line returns
+`REVIEW_REQUIRED` with no extracted business facts. This is an implementation
+safety boundary, not market authorization.
 
 ## Owner operations requirement
 

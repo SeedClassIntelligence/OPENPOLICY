@@ -38,11 +38,12 @@ test('renters extraction omits dwelling fields rather than writing zero or null'
   assert.equal(result.status,'READY_FOR_CONSUMER');
 });
 
-test('unfinished commercial lines cannot fall through into personal-auto normalization', () => {
+test('a commercial document cannot fall through into personal-auto normalization', () => {
   const result=normalizePolicyDocumentByLine({documentId:'D-CGL',insuranceLine:'COMMERCIAL_GENERAL_LIABILITY',ocr:ocr(
     'VIN: 1HGCM82633A004352\nYear, Make, and Model: 2022 Honda Accord'
   )});
   assert.equal(result.status,'REVIEW_REQUIRED');
   assert.equal(result.fields.length,0);
-  assert.match(result.criticalIssues[0],/not implemented for COMMERCIAL_GENERAL_LIABILITY/);
+  assert.equal(result.normalizer,'OPENPOLICY_COMMERCIAL_GENERAL_LIABILITY_FIELDS');
+  assert.match(result.criticalIssues[0],/Missing required field/);
 });
