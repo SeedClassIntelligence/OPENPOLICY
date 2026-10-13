@@ -1706,6 +1706,11 @@ export class PolicyChallengeDatabase {
 
     const bindingRef = `BIND-NV-${Math.floor(100000 + Math.random() * 900000)}`;
     const handoffId = `HND-${Date.now()}`;
+    if (!baseline.vehicle) {
+      const err: any = new Error('Personal Auto binding handoff requires a verified vehicle baseline.');
+      err.statusCode = 409;
+      throw err;
+    }
 
     const handoff: BindingHandoff = {
       id: handoffId,
@@ -2546,6 +2551,11 @@ export class PolicyChallengeDatabase {
     if (!competition) {
       const err: any = new Error(`Competition not found for challenge ${challengeId}`);
       err.statusCode = 404;
+      throw err;
+    }
+    if (!challenge.baseline.vehicle) {
+      const err: any = new Error('Personal Auto provider workspace requires a verified vehicle baseline.');
+      err.statusCode = 409;
       throw err;
     }
 

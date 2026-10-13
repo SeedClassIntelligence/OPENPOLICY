@@ -220,6 +220,8 @@ export interface Policy {
   drivers: Driver[];
   vehicles: Vehicle[];
   coverages: CoverageItem[];
+  /** Canonical, source-verified line facts for non-Auto and future line-aware workflows. */
+  verifiedFacts?: Partial<Record<NormalizedPolicyFieldPath, string | number>>;
   sourceDocumentId: string;
   sourceDocumentName: string;
   /** Historical records without this discriminator are personal auto. */
@@ -236,8 +238,11 @@ export interface CoverageBaseline {
   baselineAnnualPremium: number;
   baselineMonthlyPremium: number;
   jurisdiction?: string;
-  vehicle: Vehicle;
+  /** Present for Personal Auto; omitted for lines whose risk subject is not a vehicle. */
+  vehicle?: Vehicle;
   coverages: CoverageItem[];
+  /** Immutable factual snapshot used by line-specific comparison contracts. */
+  verifiedFacts?: Partial<Record<NormalizedPolicyFieldPath, string | number>>;
   verifiedAt: string;
   verifiedBy: string;
   /** Historical records without this discriminator are personal auto. */

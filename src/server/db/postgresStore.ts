@@ -634,7 +634,8 @@ export class PostgresStore {
       }));
       const verifiedAt = new Date().toISOString();
       const { policy, baseline } = buildVerifiedPolicyAndBaseline({
-        ownerId: input.ownerId, documentName: document.originalFileName, normalization, corrections, verifiedAt
+        ownerId: input.ownerId, documentName: document.originalFileName, normalization, corrections,
+        insuranceLine: document.insuranceLine || 'PERSONAL_AUTO', verifiedAt
       });
       await client.query(
         `INSERT INTO policies (id,policy_number,carrier,jurisdiction,named_insured,effective_date,expiration_date,annual_premium,status,payload)

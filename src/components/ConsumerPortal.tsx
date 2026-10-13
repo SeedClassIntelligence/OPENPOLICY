@@ -342,7 +342,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
       licenseNumberMasked: 'NV•••••8912',
       age: 38
     }],
-    vehicles: [challenge.baseline.vehicle],
+    vehicles: challenge.baseline.vehicle ? [challenge.baseline.vehicle] : [],
     coverages: challenge.baseline.coverages,
     sourceDocumentId: 'DOC-NV-49281',
     sourceDocumentName: 'GEICO_Auto_Dec_Page_NV49281.pdf'

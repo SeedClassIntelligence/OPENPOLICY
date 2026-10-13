@@ -223,7 +223,7 @@ export function runSemanticCorrectionsTestSuite(): {
   test(
     'D6-2e: Future baseline carries the prior baseline vehicle, not a substitute',
     'Vault',
-    priorNoJurisdiction.newBaseline?.vehicle.vin === vehicle.vin
+    priorNoJurisdiction.newBaseline?.vehicle?.vin === vehicle.vin
   );
   const priorCa = activate(baselineWith('CA'));
   test(

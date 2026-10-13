@@ -6,6 +6,7 @@ import path from 'node:path';
 import type { PolicyDocumentRecord } from '../types/insurance';
 import { applyClassificationReviewGate, extractAndClassifyPolicyDocument } from './policyDocumentExtraction';
 import { PostgresStore } from './db/postgresStore';
+import { getPolicyLineSchema } from '../domain/policyLineSchemas';
 
 const document = (overrides: Partial<PolicyDocumentRecord> = {}): PolicyDocumentRecord => ({
   id: 'DOC-1', ownerId: 'consumer-1', idempotencyKey: 'request-00000001', originalFileName: 'policy.pdf',
@@ -131,5 +132,59 @@ test('classification, normalized facts, workflow status, and audit survive resta
   } finally {
     await first.close();
     fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('a non-auto verified baseline preserves line facts across restart without a manufactured vehicle', async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openpolicy-home-baseline-restart-'));
+  const first = new PostgresStore(dataDir);
+  try {
+    const pending = document({
+      id:'DOC-HOME',ownerId:'consumer-home',idempotencyKey:'home-request-0001',
+      objectName:'quarantine/home/DOC-HOME/original.pdf',status:'UPLOAD_PENDING',objectGeneration:'PENDING',
+      malwareStatus:'PENDING_SCAN',insuranceLine:'HOMEOWNERS'
+    });
+    await first.beginPolicyDocumentIngestion(pending);
+    await first.completePolicyDocumentUpload({ownerId:pending.ownerId,documentId:pending.id,objectGeneration:'10'});
+    await first.recordPolicyDocumentMalwareDisposition({
+      documentId:pending.id,objectGeneration:'10',sourceSha256:pending.sha256,status:'CLEAN',scanner:'CLAMAV',scannerVersion:'test'
+    });
+    const schema = getPolicyLineSchema('HOMEOWNERS')!;
+    const fields = schema.fields.map((definition,index) => ({
+      fieldPath:definition.path as any,
+      value:definition.path==='effectiveDate'?'2027-01-01'
+        :definition.path==='expirationDate'?'2028-01-01'
+          :definition.kind==='MONEY'||definition.kind==='LIMIT'||definition.kind==='DEDUCTIBLE'||definition.kind==='INTEGER'?1000+index
+            :definition.kind==='BOOLEAN'?1
+              :definition.path==='jurisdiction'?'NV':`${definition.label} value`,
+      confidence:.99,evidence:{documentId:pending.id,documentName:pending.originalFileName,pageNumber:1,extractedSnippet:definition.label,confidence:.99,verifiedByConsumer:false}
+    }));
+    await first.commitPolicyDocumentExtraction({
+      id:'CLS-HOME',documentId:pending.id,documentGeneration:'10',sourceSha256:pending.sha256,
+      classification:'DECLARATIONS_PAGE',confidence:.99,classifier:'test',classifierVersion:'1',evidencePageNumbers:[1],
+      evidenceReferences:['HOME_DECLARATIONS'],requiresReview:false,classifiedAt:'2026-10-13T00:00:00Z',
+      lineAssessment:{declaredLine:'HOMEOWNERS',detectedLine:'HOMEOWNERS',disposition:'MATCH',confidence:.99,evidenceReferences:['HOME_DECLARATIONS']}
+    },{
+      extractionRunId:'OCR-HOME',documentId:pending.id,documentGeneration:'10',sourceSha256:pending.sha256,
+      normalizer:'OPENPOLICY_HOMEOWNERS_FIELDS',normalizerVersion:'1.0.0',fields,criticalIssues:[],
+      status:'READY_FOR_CONSUMER',normalizedAt:'2026-10-13T00:00:00Z'
+    });
+    const verified = await first.verifyPolicyDocumentEvidence({ownerId:pending.ownerId,documentId:pending.id});
+    assert.equal(verified.policy.insuranceLine,'HOMEOWNERS');
+    assert.deepEqual(verified.policy.vehicles,[]);
+    assert.equal(verified.baseline.vehicle,undefined);
+    assert.equal(verified.baseline.verifiedFacts?.['coverage.dwelling.limit'],1011);
+    await first.close();
+
+    const restarted = new PostgresStore(dataDir);
+    const restored = await restarted.verifyPolicyDocumentEvidence({ownerId:pending.ownerId,documentId:pending.id});
+    assert.equal(restored.policy.id,verified.policy.id);
+    assert.equal(restored.baseline.insuranceLine,'HOMEOWNERS');
+    assert.equal(restored.baseline.vehicle,undefined);
+    assert.equal(restored.baseline.verifiedFacts?.['coverage.dwelling.limit'],1011);
+    await restarted.close();
+  } finally {
+    await first.close();
+    fs.rmSync(dataDir,{recursive:true,force:true});
   }
 });

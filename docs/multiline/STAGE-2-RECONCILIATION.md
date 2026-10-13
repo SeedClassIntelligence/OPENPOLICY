@@ -64,6 +64,10 @@ schema, corrections retain durable history, and factual comparisons report
 comparison contract does not rank, recommend, or characterize either set of
 terms as better or worse.
 
+The durable baseline uses the same rule. Non-Auto facts are preserved under
+their canonical field paths; they are not forced into a Personal Auto vehicle
+or coverage object merely to satisfy the historical data shape.
+
 ### Second activation matrix
 
 The proposed `multiLineActivationMatrix` is rejected. It would duplicate the

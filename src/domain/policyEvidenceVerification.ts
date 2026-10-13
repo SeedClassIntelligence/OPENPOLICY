@@ -1,7 +1,9 @@
 import crypto from 'node:crypto';
 import type { CoverageBaseline, NormalizedPolicyFieldPath, Policy, PolicyFieldCorrection, PolicyNormalizationResult } from '../types/insurance';
+import type { InsuranceLine } from '../types/jurisdiction';
+import { getPolicyLineSchema } from './policyLineSchemas';
 
-const REQUIRED: NormalizedPolicyFieldPath[] = [
+const PERSONAL_AUTO_REQUIRED: NormalizedPolicyFieldPath[] = [
   'policyNumber','carrier','namedInsured','jurisdiction','effectiveDate','expirationDate','annualPremium',
   'vehicle.vin','vehicle.year','vehicle.make','vehicle.model','vehicle.usage','vehicle.annualMileage',
   'vehicle.garagingZip','vehicle.ownership','coverage.bodilyInjury.perPersonLimit',
@@ -13,8 +15,9 @@ const stableId = (prefix: string, value: string) => `${prefix}-${crypto.createHa
 
 export function buildVerifiedPolicyAndBaseline(input: {
   ownerId: string; documentName: string; normalization: PolicyNormalizationResult;
-  corrections: PolicyFieldCorrection[]; verifiedAt?: string;
+  corrections: PolicyFieldCorrection[]; insuranceLine?: InsuranceLine; verifiedAt?: string;
 }): { policy: Policy; baseline: CoverageBaseline } {
+  const insuranceLine = input.insuranceLine || 'PERSONAL_AUTO';
   const values = new Map<NormalizedPolicyFieldPath, string | number>();
   for (const field of input.normalization.fields) values.set(field.fieldPath, field.value);
   for (const correction of input.corrections) {
@@ -22,7 +25,15 @@ export function buildVerifiedPolicyAndBaseline(input: {
       values.set(correction.fieldPath as NormalizedPolicyFieldPath, correction.afterValue as string | number);
     }
   }
-  const missing = REQUIRED.filter(field => !values.has(field));
+  const required = insuranceLine === 'PERSONAL_AUTO'
+    ? PERSONAL_AUTO_REQUIRED
+    : (getPolicyLineSchema(insuranceLine)?.fields
+      .filter(field => field.requiredForBaseline)
+      .map(field => field.path as NormalizedPolicyFieldPath) || []);
+  if (insuranceLine !== 'PERSONAL_AUTO' && required.length === 0) {
+    throw Object.assign(new Error(`Verified baseline creation is not implemented for ${insuranceLine}.`), { statusCode: 422 });
+  }
+  const missing = required.filter(field => !values.has(field));
   if (missing.length) throw Object.assign(new Error(`Consumer verification requires: ${missing.join(', ')}`), { statusCode: 422 });
   const text = (field: NormalizedPolicyFieldPath) => String(values.get(field));
   const number = (field: NormalizedPolicyFieldPath) => Number(values.get(field));
@@ -33,13 +44,19 @@ export function buildVerifiedPolicyAndBaseline(input: {
   }
   const verifiedAt = input.verifiedAt || new Date().toISOString();
   const policyId = stableId('POL', `${input.ownerId}:${input.normalization.documentId}:${input.normalization.extractionRunId}`);
-  const policy: Policy = {
+  const commonPolicy: Policy = {
     id: policyId, policyNumber: text('policyNumber'), carrier: text('carrier'), jurisdiction: text('jurisdiction'),
     namedInsured: text('namedInsured'), effectiveDate, expirationDate,
     termMonths: Math.max(1, Math.round((new Date(expirationDate).getTime() - new Date(effectiveDate).getTime()) / 2629800000)),
     annualPremium: number('annualPremium'), monthlyPremium: Math.round(number('annualPremium') / 12 * 100) / 100,
     status: 'VERIFIED', drivers: [], sourceDocumentId: input.normalization.documentId, sourceDocumentName: input.documentName,
-    insuranceLine: 'PERSONAL_AUTO',
+    insuranceLine,
+    verifiedFacts: Object.fromEntries(values) as Partial<Record<NormalizedPolicyFieldPath, string | number>>,
+    vehicles: [],
+    coverages: []
+  };
+  const policy: Policy = insuranceLine !== 'PERSONAL_AUTO' ? commonPolicy : {
+    ...commonPolicy,
     vehicles: [{ vin:text('vehicle.vin').toUpperCase(), year:number('vehicle.year'), make:text('vehicle.make'), model:text('vehicle.model'),
       usage:text('vehicle.usage') as any, annualMileage:number('vehicle.annualMileage'), garagingZip:text('vehicle.garagingZip'), ownership:text('vehicle.ownership') as any }],
     coverages: [
@@ -58,8 +75,8 @@ export function buildVerifiedPolicyAndBaseline(input: {
   const baseline: CoverageBaseline = {
     id:stableId('BL', `${policyId}:1`),policyId,version:1,carrier:policy.carrier,effectiveDate,expirationDate,
     baselineAnnualPremium:policy.annualPremium,baselineMonthlyPremium:policy.monthlyPremium,jurisdiction:policy.jurisdiction,
-    vehicle:policy.vehicles[0],coverages:policy.coverages,verifiedAt,verifiedBy:input.ownerId,
-    insuranceLine: policy.insuranceLine
+    vehicle:policy.vehicles[0],coverages:policy.coverages,verifiedFacts:policy.verifiedFacts,verifiedAt,verifiedBy:input.ownerId,
+    insuranceLine
   };
   return { policy, baseline };
 }

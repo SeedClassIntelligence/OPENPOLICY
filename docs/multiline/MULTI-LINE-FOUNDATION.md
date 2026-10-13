@@ -108,6 +108,12 @@ factual only, limits its matrix to coverage terms, and keeps premium differences
 separate from those field differences. Policy identifiers, carrier names, dates,
 and risk-address metadata are not misclassified as coverage-term differences.
 
+Verified policy and baseline creation is also line-aware. Personal Auto retains
+its vehicle and coverage representation. Homeowners, Renters, CGL, and BOP
+persist an immutable `verifiedFacts` snapshot from their own schema and do not
+receive a manufactured vehicle or translated Auto coverage. Baseline creation
+for a line without an implemented evidence schema fails closed.
+
 ## Owner operations requirement
 
 The existing audit console is the starting surface for an owner backend, not a

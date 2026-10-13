@@ -598,7 +598,7 @@ export function runPM2AcceptanceTestSuite(): { passed: number; failed: number; t
     const unconfiguredBaseline: CoverageBaseline = {
       ...mockBaseline,
       jurisdiction: 'WY',
-      vehicle: { ...mockBaseline.vehicle, garagingZip: '82001' }
+      vehicle: { ...mockBaseline.vehicle!, garagingZip: '82001' }
     };
     const validWyOffer: Offer = {
       id: 'OFF-WY',
