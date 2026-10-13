@@ -93,6 +93,15 @@ export interface PolicyDocumentClassificationResult {
   evidenceReferences: string[];
   requiresReview: boolean;
   classifiedAt: string;
+  lineAssessment?: InsuranceLineAssessment;
+}
+
+export interface InsuranceLineAssessment {
+  declaredLine: import('./jurisdiction').InsuranceLine;
+  detectedLine?: import('./jurisdiction').InsuranceLine;
+  disposition: 'MATCH' | 'CONFLICT' | 'INDETERMINATE';
+  confidence: number;
+  evidenceReferences: string[];
 }
 
 export interface PolicyExtractionRun {

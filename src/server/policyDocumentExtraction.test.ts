@@ -90,7 +90,10 @@ test('classification, normalized facts, workflow status, and audit survive resta
       ['vehicle.vin','1HGCM82633A004352'],['vehicle.year',2022],['vehicle.make','Honda'],['vehicle.model','Accord'],
       ['vehicle.usage','COMMUTE'],['vehicle.annualMileage',10000],['vehicle.garagingZip','89101'],['vehicle.ownership','OWNED'],
       ['coverage.bodilyInjury.perPersonLimit',100000],['coverage.bodilyInjury.perAccidentLimit',300000],
-      ['coverage.propertyDamage.propertyLimit',100000]
+      ['coverage.propertyDamage.propertyLimit',100000],
+      ['coverage.medicalPayments.included',1],['coverage.rentalReimbursement.included',1],
+      ['coverage.umUim.included',1],['coverage.comprehensive.included',1],
+      ['coverage.collision.included',1],['coverage.roadsideAssistance.included',0]
     ] as const) await first.recordPolicyFieldCorrection({ ownerId:pending.ownerId,documentId:pending.id,fieldPath,afterValue });
     const verified = await first.verifyPolicyDocumentEvidence({ ownerId:pending.ownerId,documentId:pending.id });
     const retried = await first.verifyPolicyDocumentEvidence({ ownerId:pending.ownerId,documentId:pending.id });

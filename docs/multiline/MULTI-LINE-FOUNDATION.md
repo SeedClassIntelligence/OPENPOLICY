@@ -115,3 +115,24 @@ This checkpoint restricts owner/audit, telemetry, architecture, and reset UI
 controls to authenticated administrators and adds rollout visibility to the
 owner console. Administrative mutation workflows require their own explicit,
 audited commands and are not implied by a dashboard button.
+
+## Property and small-commercial document contracts
+
+The next development cohort now has versioned, line-specific evidence schemas:
+
+- Homeowners records residence, dwelling, other-structures, personal-property,
+  loss-of-use, liability, medical-payments, and deductible evidence.
+- Renters records residence, personal-property, loss-of-use, liability,
+  medical-payments, and deductible evidence without inventing dwelling coverage.
+- Commercial General Liability records the insured business, locations and
+  classifications plus occurrence, aggregate, products-completed-operations,
+  advertising-injury, and medical-expense evidence.
+- Business Owners Policy records commercial property, business income, extra
+  expense, liability limits, business identity and locations, and deductible
+  evidence.
+
+The classifier can identify evidence supporting these line families and marks
+a declared-line/document-line conflict for review. Ambiguous evidence stays
+`INDETERMINATE`; filenames, signup selections, and account preferences cannot
+convert a document into policy truth. The lines remain in `DEVELOPMENT` and
+cannot enter the live Personal Auto pipeline.
