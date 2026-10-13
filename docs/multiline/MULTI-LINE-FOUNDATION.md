@@ -50,8 +50,8 @@ transactions.
 | Homeowners | `DEVELOPMENT` | Canonical line exists; line-specific document, policy, comparison, offer, handoff, and reconciliation profiles remain to be implemented. |
 | Renters | `DEVELOPMENT` | Canonical line exists; line-specific profiles remain to be implemented. |
 | Commercial Auto | `INTEREST_ONLY` | Account interest may be recorded; policy processing is not open. |
-| Commercial General Liability | `INTEREST_ONLY` | Account interest may be recorded; policy processing is not open. |
-| Business Owners Policy | `INTEREST_ONLY` | Account interest may be recorded; policy processing is not open. |
+| Commercial General Liability | `DEVELOPMENT` | Shares commercial document infrastructure with BOP but retains its own policy and comparison contract. |
+| Business Owners Policy | `DEVELOPMENT` | Property/liability package development; it is not modeled as renamed homeowners coverage. |
 | Term Life | `LOCKED` | Represented in the canonical universe but not exposed for registration or processing. |
 | Individual Health | `LOCKED` | Represented in the canonical universe but not exposed for registration or processing. |
 
@@ -93,3 +93,25 @@ qualification, controlled disclosure, handoff, issued-policy reconciliation,
 tests, and regulatory corpus before its status can advance to `ACCEPTANCE`.
 Moving a line to `ACCEPTANCE` still does not activate any jurisdiction for
 production.
+
+## Owner operations requirement
+
+The existing audit console is the starting surface for an owner backend, not a
+complete master administration system. Owner operations must remain available
+only to server-authorized `ADMIN` identities; public signup can never create an
+administrator. The owner surface must ultimately govern and evidence:
+
+- insurance-line implementation status and rollout visibility;
+- regional rollout configuration and state-by-line activation status;
+- provider organizations, users, licenses, appointments, appetites, and access;
+- document-processing health and review queues;
+- regulatory source, ruleset, verification, publication, and activation state;
+- commercial agreements, capacity, billing, and settlement oversight without
+  influencing provider eligibility or offer presentation;
+- identity/access review, audit-chain verification, incident controls, and
+  controlled rollback or suspension operations.
+
+This checkpoint restricts owner/audit, telemetry, architecture, and reset UI
+controls to authenticated administrators and adds rollout visibility to the
+owner console. Administrative mutation workflows require their own explicit,
+audited commands and are not implied by a dashboard button.

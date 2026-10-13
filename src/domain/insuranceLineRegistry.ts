@@ -49,11 +49,19 @@ export const INSURANCE_LINE_REGISTRY = Object.freeze({
   }),
   HOMEOWNERS: Object.freeze({
     code: 'HOMEOWNERS', displayName: 'Homeowners', family: 'PERSONAL', version: 1,
-    implementationStatus: 'DEVELOPMENT', supportedDocumentClasses: []
+    implementationStatus: 'DEVELOPMENT', supportedDocumentClasses: ['DECLARATIONS_PAGE', 'FULL_POLICY', 'ENDORSEMENT', 'PROVIDER_QUOTE', 'ISSUED_POLICY'],
+    policySchemaRef: 'policy-schema/homeowners/v1', extractionProfileRef: 'document-intelligence/property/v1',
+    comparisonProfileRef: 'comparison/homeowners/v1', disclosureProfileRef: 'disclosure/property/v1',
+    providerAuthorityProfileRef: 'provider-authority/property/v1', offerQualificationProfileRef: 'qualification/homeowners/v1',
+    handoffProfileRef: 'handoff/property/v1', reconciliationProfileRef: 'reconciliation/homeowners/v1'
   }),
   RENTERS: Object.freeze({
     code: 'RENTERS', displayName: 'Renters', family: 'PERSONAL', version: 1,
-    implementationStatus: 'DEVELOPMENT', supportedDocumentClasses: []
+    implementationStatus: 'DEVELOPMENT', supportedDocumentClasses: ['DECLARATIONS_PAGE', 'FULL_POLICY', 'ENDORSEMENT', 'PROVIDER_QUOTE', 'ISSUED_POLICY'],
+    policySchemaRef: 'policy-schema/renters/v1', extractionProfileRef: 'document-intelligence/property/v1',
+    comparisonProfileRef: 'comparison/renters/v1', disclosureProfileRef: 'disclosure/property/v1',
+    providerAuthorityProfileRef: 'provider-authority/property/v1', offerQualificationProfileRef: 'qualification/renters/v1',
+    handoffProfileRef: 'handoff/property/v1', reconciliationProfileRef: 'reconciliation/renters/v1'
   }),
   COMMERCIAL_AUTO: Object.freeze({
     code: 'COMMERCIAL_AUTO', displayName: 'Commercial Auto', family: 'COMMERCIAL', version: 1,
@@ -61,11 +69,19 @@ export const INSURANCE_LINE_REGISTRY = Object.freeze({
   }),
   COMMERCIAL_GENERAL_LIABILITY: Object.freeze({
     code: 'COMMERCIAL_GENERAL_LIABILITY', displayName: 'Commercial General Liability', family: 'COMMERCIAL', version: 1,
-    implementationStatus: 'INTEREST_ONLY', supportedDocumentClasses: []
+    implementationStatus: 'DEVELOPMENT', supportedDocumentClasses: ['DECLARATIONS_PAGE', 'FULL_POLICY', 'ENDORSEMENT', 'PROVIDER_QUOTE', 'ISSUED_POLICY'],
+    policySchemaRef: 'policy-schema/commercial-general-liability/v1', extractionProfileRef: 'document-intelligence/commercial-property-liability/v1',
+    comparisonProfileRef: 'comparison/commercial-general-liability/v1', disclosureProfileRef: 'disclosure/commercial/v1',
+    providerAuthorityProfileRef: 'provider-authority/commercial/v1', offerQualificationProfileRef: 'qualification/commercial-general-liability/v1',
+    handoffProfileRef: 'handoff/commercial/v1', reconciliationProfileRef: 'reconciliation/commercial-general-liability/v1'
   }),
   BUSINESS_OWNERS_POLICY: Object.freeze({
     code: 'BUSINESS_OWNERS_POLICY', displayName: 'Business Owners Policy', family: 'COMMERCIAL', version: 1,
-    implementationStatus: 'INTEREST_ONLY', supportedDocumentClasses: []
+    implementationStatus: 'DEVELOPMENT', supportedDocumentClasses: ['DECLARATIONS_PAGE', 'FULL_POLICY', 'ENDORSEMENT', 'PROVIDER_QUOTE', 'ISSUED_POLICY'],
+    policySchemaRef: 'policy-schema/business-owners-policy/v1', extractionProfileRef: 'document-intelligence/commercial-property-liability/v1',
+    comparisonProfileRef: 'comparison/business-owners-policy/v1', disclosureProfileRef: 'disclosure/commercial/v1',
+    providerAuthorityProfileRef: 'provider-authority/commercial/v1', offerQualificationProfileRef: 'qualification/business-owners-policy/v1',
+    handoffProfileRef: 'handoff/commercial/v1', reconciliationProfileRef: 'reconciliation/business-owners-policy/v1'
   }),
   TERM_LIFE: Object.freeze({
     code: 'TERM_LIFE', displayName: 'Term Life', family: 'LIFE', version: 1,

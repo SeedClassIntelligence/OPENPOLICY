@@ -15,6 +15,18 @@ test('only accepted personal auto can enter the policy pipeline', () => {
   assert.equal(canEnterPolicyPipeline('COMMERCIAL_GENERAL_LIABILITY'), false);
 });
 
+test('property and core small-commercial lines are explicit development work, not active pipelines', () => {
+  for (const code of ['HOMEOWNERS', 'RENTERS', 'COMMERCIAL_GENERAL_LIABILITY', 'BUSINESS_OWNERS_POLICY'] as const) {
+    const line = INSURANCE_LINE_REGISTRY[code];
+    assert.equal(line.implementationStatus, 'DEVELOPMENT');
+    assert.equal(canEnterPolicyPipeline(code), false);
+    assert.ok(line.policySchemaRef);
+    assert.ok(line.extractionProfileRef);
+    assert.ok(line.comparisonProfileRef);
+    assert.ok(line.reconciliationProfileRef);
+  }
+});
+
 test('registry membership never represents production authority', () => {
   for (const line of INSURANCE_LINES) {
     assert.equal('productionAuthorized' in line, false);

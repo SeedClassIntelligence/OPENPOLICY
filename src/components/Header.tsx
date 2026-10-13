@@ -72,9 +72,9 @@ export const PERSPECTIVES: PerspectiveMeta[] = [
   },
   {
     id: 'ADMIN_AUDIT',
-    title: 'Audit & Review Queue',
-    label: 'Audit',
-    description: 'Operational review: quote validation, neutral offer display checks, and audit trails.',
+    title: 'Owner Operations',
+    label: 'Owner',
+    description: 'Restricted owner operations: rollout oversight, review queues, governance, and audit trails.',
     icon: FileText,
     color: 'text-amber-400',
     badgeBg: 'bg-amber-600'
@@ -217,6 +217,7 @@ export const Header: React.FC<HeaderProps> = ({
 
                   if (isAuthenticated && p.id === 'CONSUMER' && userRole !== 'CONSUMER') return null;
                   if (isAuthenticated && p.id === 'PROVIDER' && userRole !== 'PROVIDER') return null;
+                  if ((p.id === 'ADMIN_AUDIT' || p.id === 'TELEMETRY' || p.id === 'ARCHITECTURE_TESTS') && userRole !== 'ADMIN') return null;
 
                   // Primary perspectives always visible; secondary hidden below xl unless active
                   const isPrimary = p.id === 'LANDING' || p.id === 'CONSUMER' || p.id === 'PROVIDER';
@@ -276,6 +277,7 @@ export const Header: React.FC<HeaderProps> = ({
                     const Icon = p.icon;
                     if (isAuthenticated && p.id === 'CONSUMER' && userRole !== 'CONSUMER') return null;
                     if (isAuthenticated && p.id === 'PROVIDER' && userRole !== 'PROVIDER') return null;
+                    if ((p.id === 'ADMIN_AUDIT' || p.id === 'TELEMETRY' || p.id === 'ARCHITECTURE_TESTS') && userRole !== 'ADMIN') return null;
                     return (
                       <button
                         key={p.id}
@@ -442,16 +444,17 @@ export const Header: React.FC<HeaderProps> = ({
               </div>
             )}
 
-            {/* Reset Button */}
-            <button
-              id="reset-canonical-btn"
-              onClick={onReset}
-              title="Reset state to canonical baseline and sample offers"
-              className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 bg-slate-800/80 hover:bg-slate-700 px-2.5 py-1.5 rounded-lg border border-slate-700 transition"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span className="hidden md:inline">Reset</span>
-            </button>
+            {userRole === 'ADMIN' && (
+              <button
+                id="reset-canonical-btn"
+                onClick={onReset}
+                title="Reset state to canonical baseline and sample offers"
+                className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 bg-slate-800/80 hover:bg-slate-700 px-2.5 py-1.5 rounded-lg border border-slate-700 transition"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span className="hidden md:inline">Reset</span>
+              </button>
+            )}
           </div>
         </div>
       </div>

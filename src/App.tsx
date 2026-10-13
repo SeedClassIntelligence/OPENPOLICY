@@ -15,7 +15,7 @@ import { AuthProvider, useAuth, UserRole } from './context/AuthContext';
 import { AuthModal } from './components/AuthModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Challenge, Offer } from './types/insurance';
-import { canEnterMarketplaceDestination, destinationForRole } from './auth/roleAccess';
+import { canEnterMarketplaceDestination, canEnterOwnerDestination, destinationForRole } from './auth/roleAccess';
 import { apiFetch } from './services/apiClient';
 import { canEnterPolicyPipeline, getInsuranceLineDefinition } from './domain/insuranceLineRegistry';
 
@@ -77,6 +77,13 @@ function MainApp() {
     perspective: ActivePerspective, 
     step?: ConsumerStep
   ) => {
+    const ownerDestination = perspective === 'ADMIN_AUDIT' || perspective === 'TELEMETRY' || perspective === 'ARCHITECTURE_TESTS';
+    if (ownerDestination && !canEnterOwnerDestination(userRole, perspective)) {
+      if (!isAuthenticated) openAuthModal({ initialMode: 'SIGN_IN' });
+      showToast('Owner operations require an authenticated Open Policy administrator account.');
+      return;
+    }
+
     // Protected Perspectives: Consumers and Providers require authentication
     if (!isAuthenticated && (perspective === 'CONSUMER' || perspective === 'PROVIDER')) {
       const targetRole: 'CONSUMER' | 'PROVIDER' = perspective === 'PROVIDER' ? 'PROVIDER' : 'CONSUMER';
@@ -119,7 +126,10 @@ function MainApp() {
   };
 
   const handleAuthSuccess = (role: UserRole) => {
-    if (role === 'PROVIDER') {
+    if (role === 'ADMIN') {
+      setActivePerspective('ADMIN_AUDIT');
+      showToast('Owner identity loaded. Administrative controls are available.');
+    } else if (role === 'PROVIDER') {
       setActivePerspective('PROVIDER');
       showToast('Provider identity loaded. License verification determines desk access.');
     } else {
@@ -224,19 +234,19 @@ function MainApp() {
               </ErrorBoundary>
             )}
 
-            {activePerspective === 'ADMIN_AUDIT' && (
+            {activePerspective === 'ADMIN_AUDIT' && userRole === 'ADMIN' && (
               <ErrorBoundary fallbackTitle="Unable to Display Audit Console">
                 <AdminConsole onRefreshData={loadData} />
               </ErrorBoundary>
             )}
 
-            {activePerspective === 'TELEMETRY' && (
+            {activePerspective === 'TELEMETRY' && userRole === 'ADMIN' && (
               <ErrorBoundary fallbackTitle="Unable to Display Telemetry Dashboard">
                 <TelemetryDashboard />
               </ErrorBoundary>
             )}
 
-            {activePerspective === 'ARCHITECTURE_TESTS' && (
+            {activePerspective === 'ARCHITECTURE_TESTS' && userRole === 'ADMIN' && (
               <ErrorBoundary fallbackTitle="Unable to Display System Specifications">
                 <ArchitectureDocs />
               </ErrorBoundary>

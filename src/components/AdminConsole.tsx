@@ -23,7 +23,9 @@ import {
   Flame,
   AlertOctagon,
   Copy,
-  Layers
+  Layers,
+  Globe2,
+  Building2
 } from 'lucide-react';
 import { 
   AuditEvent, 
@@ -39,6 +41,8 @@ interface AdminConsoleProps {
 export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => {
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [insuranceLines, setInsuranceLines] = useState<any[]>([]);
+  const [jurisdictionLineEntries, setJurisdictionLineEntries] = useState<any[]>([]);
   const [filterType, setFilterType] = useState<string>('ALL');
   const [searchTerm, setSearchTerm] = useState<string>('');
   
@@ -65,19 +69,25 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [eventsRes, queueRes, verifyRes] = await Promise.all([
+      const [eventsRes, queueRes, verifyRes, linesRes, rolloutRes] = await Promise.all([
         apiFetch('/api/audit-events'),
         apiFetch('/api/admin/review-queue'),
-        apiFetch('/api/admin/audit-chain/verify')
+        apiFetch('/api/admin/audit-chain/verify'),
+        apiFetch('/api/insurance-lines'),
+        apiFetch('/api/rollout/jurisdiction-lines')
       ]);
 
       const eventsData = await eventsRes.json();
       const queueData = await queueRes.json();
       const verifyData = await verifyRes.json();
+      const linesData = await linesRes.json();
+      const rolloutData = await rolloutRes.json();
 
       setAuditEvents(eventsData);
       setReviewQueue(queueData);
       setVerificationResult(verifyData);
+      setInsuranceLines(linesData.insuranceLines || []);
+      setJurisdictionLineEntries(rolloutData.entries || []);
     } catch (e) {
       console.error('Failed to load admin audit console data:', e);
     } finally {
@@ -247,6 +257,50 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
             <span>Refresh</span>
           </button>
+        </div>
+      </div>
+
+      {/* Owner operations: insurance-line and regional rollout oversight. */}
+      <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-6 space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+          <div className="flex items-start gap-3">
+            <div className="p-2 rounded-lg bg-slate-900 text-emerald-400"><Globe2 className="w-5 h-5" /></div>
+            <div>
+              <p className="text-[10px] font-mono uppercase tracking-wider text-emerald-700">Owner operations</p>
+              <h3 className="text-base font-bold text-slate-900">Insurance Lines & Regional Rollout</h3>
+              <p className="text-xs text-slate-500 mt-1">Product availability is shown separately from state production authorization.</p>
+            </div>
+          </div>
+          <div className="flex gap-2 text-xs">
+            <span className="px-2.5 py-1.5 rounded-lg bg-slate-100 text-slate-700 font-semibold">{insuranceLines.length} lines</span>
+            <span className="px-2.5 py-1.5 rounded-lg bg-slate-100 text-slate-700 font-semibold">{new Set(jurisdictionLineEntries.map(entry => entry.jurisdictionCode)).size} jurisdictions</span>
+          </div>
+        </div>
+
+        <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-3">
+          {insuranceLines.map(line => (
+            <div key={line.code} className="rounded-xl border border-slate-200 p-3 bg-slate-50/60">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Building2 className="w-4 h-4 text-slate-500 shrink-0" />
+                  <span className="text-xs font-bold text-slate-900 truncate">{line.displayName}</span>
+                </div>
+                <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border ${
+                  line.implementationStatus === 'ACCEPTANCE' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                  line.implementationStatus === 'DEVELOPMENT' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                  'bg-slate-100 text-slate-600 border-slate-200'
+                }`}>{line.implementationStatus}</span>
+              </div>
+              <p className="text-[10px] text-slate-500 mt-2 font-mono">{line.code}</p>
+              <p className="text-[10px] text-slate-500 mt-1">
+                {jurisdictionLineEntries.filter(entry => entry.insuranceLine === line.code && entry.rolloutAvailable).length} rollout-visible jurisdictions · 0 statically authorized
+              </p>
+            </div>
+          ))}
+        </div>
+
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+          This console does not activate markets. Production authority remains a separate durable governance decision requiring verified rules, provider authority, and activation gates.
         </div>
       </div>
 
