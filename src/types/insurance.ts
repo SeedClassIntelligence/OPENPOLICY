@@ -68,6 +68,8 @@ export interface PolicyDocumentRecord {
   createdAt: string;
   updatedAt: string;
   rejectionCode?: string;
+  /** Historical records without this discriminator are personal auto. */
+  insuranceLine?: import('./jurisdiction').InsuranceLine;
 }
 
 export type InsuranceDocumentClassification =
@@ -201,6 +203,8 @@ export interface Policy {
   coverages: CoverageItem[];
   sourceDocumentId: string;
   sourceDocumentName: string;
+  /** Historical records without this discriminator are personal auto. */
+  insuranceLine?: import('./jurisdiction').InsuranceLine;
 }
 
 export interface CoverageBaseline {
@@ -217,6 +221,8 @@ export interface CoverageBaseline {
   coverages: CoverageItem[];
   verifiedAt: string;
   verifiedBy: string;
+  /** Historical records without this discriminator are personal auto. */
+  insuranceLine?: import('./jurisdiction').InsuranceLine;
 }
 
 /** @deprecated Historical evidence only. New challenges cannot accept consumer-authored terms. */
@@ -260,6 +266,8 @@ export interface Challenge {
   qualificationStandardVersion?: string;
   legacyRequirements?: LegacyConsumerRequirements;
   jurisdiction: string;
+  /** Defaults to PERSONAL_AUTO only for records created before multi-line support. */
+  insuranceLine?: import('./jurisdiction').InsuranceLine;
   openingTimestamp: string;
   closingTimestamp: string;
   status: ChallengeStatus;

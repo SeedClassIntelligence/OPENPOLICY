@@ -1824,7 +1824,7 @@ export class PostgresStore {
            current_round, participant_count, opened_at, closes_at, rules, payload)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
          ON CONFLICT (id) DO NOTHING;`,
-        [competition.id, competition.challengeId, challenge.jurisdiction, 'PERSONAL_AUTO',
+        [competition.id, competition.challengeId, challenge.jurisdiction, challenge.insuranceLine || 'PERSONAL_AUTO',
          competition.status, competition.currentRound, competition.participantCount,
          competition.openedAt, competition.closesAt, '{}', JSON.stringify(competition)]
       );

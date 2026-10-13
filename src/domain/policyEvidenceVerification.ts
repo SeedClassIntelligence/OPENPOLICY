@@ -39,6 +39,7 @@ export function buildVerifiedPolicyAndBaseline(input: {
     termMonths: Math.max(1, Math.round((new Date(expirationDate).getTime() - new Date(effectiveDate).getTime()) / 2629800000)),
     annualPremium: number('annualPremium'), monthlyPremium: Math.round(number('annualPremium') / 12 * 100) / 100,
     status: 'VERIFIED', drivers: [], sourceDocumentId: input.normalization.documentId, sourceDocumentName: input.documentName,
+    insuranceLine: 'PERSONAL_AUTO',
     vehicles: [{ vin:text('vehicle.vin').toUpperCase(), year:number('vehicle.year'), make:text('vehicle.make'), model:text('vehicle.model'),
       usage:text('vehicle.usage') as any, annualMileage:number('vehicle.annualMileage'), garagingZip:text('vehicle.garagingZip'), ownership:text('vehicle.ownership') as any }],
     coverages: [
@@ -57,7 +58,8 @@ export function buildVerifiedPolicyAndBaseline(input: {
   const baseline: CoverageBaseline = {
     id:stableId('BL', `${policyId}:1`),policyId,version:1,carrier:policy.carrier,effectiveDate,expirationDate,
     baselineAnnualPremium:policy.annualPremium,baselineMonthlyPremium:policy.monthlyPremium,jurisdiction:policy.jurisdiction,
-    vehicle:policy.vehicles[0],coverages:policy.coverages,verifiedAt,verifiedBy:input.ownerId
+    vehicle:policy.vehicles[0],coverages:policy.coverages,verifiedAt,verifiedBy:input.ownerId,
+    insuranceLine: policy.insuranceLine
   };
   return { policy, baseline };
 }

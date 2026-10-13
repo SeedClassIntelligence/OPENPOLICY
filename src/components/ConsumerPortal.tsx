@@ -557,6 +557,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
       setDocumentProcessing('Uploading immutable policy evidence…');
       const ingest = await apiFetch('/api/policy-documents/ingest', {
         method:'POST', headers:{'Content-Type':'application/pdf','X-Document-Filename':file.name,
+          'X-Insurance-Line':'PERSONAL_AUTO',
           'Idempotency-Key':crypto.randomUUID()}, body:file
       });
       const ingested = await ingest.json();

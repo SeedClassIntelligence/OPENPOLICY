@@ -21,6 +21,8 @@ test('direct browser collections are owner scoped and user profiles cannot self-
   assert.match(rules, /incoming\(\)\.role in \['CONSUMER', 'PROVIDER'\]/);
   assert.match(rules, /incoming\(\)\.role == existing\(\)\.role/);
   assert.match(rules, /affectedKeys\(\)\.hasOnly\(\['displayName', 'currentCarrier'\]\)/);
+  assert.match(rules, /requestedInsuranceLine/);
+  assert.match(rules, /'PERSONAL_AUTO', 'HOMEOWNERS', 'RENTERS'/);
   assert.doesNotMatch(rules, /'providerUserId'/);
   assert.doesNotMatch(rules, /'providerOrganizationId'/);
   assert.match(rules, /allow list: if false/);

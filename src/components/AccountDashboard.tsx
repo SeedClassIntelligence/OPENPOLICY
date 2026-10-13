@@ -256,11 +256,11 @@ export const AccountDashboard: React.FC<AccountDashboardProps> = ({
                   <div className="space-y-3">
                     <div className="flex items-start justify-between">
                       <div className="flex items-center space-x-2">
-                        {chal.insuranceType === 'AUTO' ? (
+                        {chal.insuranceType === 'PERSONAL_AUTO' ? (
                           <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
                             <Car className="w-4 h-4" />
                           </div>
-                        ) : chal.insuranceType === 'HOME' ? (
+                        ) : chal.insuranceType === 'HOMEOWNERS' || chal.insuranceType === 'RENTERS' ? (
                           <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
                             <HomeIcon className="w-4 h-4" />
                           </div>

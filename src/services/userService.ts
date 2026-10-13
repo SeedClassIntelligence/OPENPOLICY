@@ -69,6 +69,7 @@ export interface FirestoreUserProfile {
   state?: string;
   currentCarrier?: string;
   providerStatus?: 'PENDING_VERIFICATION' | 'ACTIVE' | 'REJECTED';
+  requestedInsuranceLine?: import('../types/jurisdiction').InsuranceLine;
 }
 
 export interface UserChallengeRecord {
@@ -76,7 +77,7 @@ export interface UserChallengeRecord {
   userId: string;
   referenceNumber: string;
   jurisdiction: string;
-  insuranceType: 'AUTO' | 'HOME' | 'COMMERCIAL';
+  insuranceType: import('../types/jurisdiction').InsuranceLine;
   status: 'OPEN' | 'EVALUATING' | 'OFFERS_RECEIVED' | 'BOUND' | 'ARCHIVED';
   baselineMonthlyPremium: number;
   baselineAnnualPremium: number;
@@ -149,7 +150,7 @@ export async function seedInitialUserChallenge(userId: string, userName: string)
       userId,
       referenceNumber: `POLICY REVIEW #NV-${Math.floor(10000 + Math.random() * 90000)}`,
       jurisdiction: 'NV',
-      insuranceType: 'AUTO',
+      insuranceType: 'PERSONAL_AUTO',
       status: 'OFFERS_RECEIVED',
       baselineMonthlyPremium: 247,
       baselineAnnualPremium: 2964,

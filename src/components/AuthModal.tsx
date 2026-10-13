@@ -18,6 +18,8 @@ import {
 } from 'lucide-react';
 import { useAuth, UserRole } from '../context/AuthContext';
 import { JurisdictionSelectOptions } from './JurisdictionSelectOptions';
+import { INSURANCE_LINES } from '../domain/insuranceLineRegistry';
+import type { InsuranceLine } from '../types/jurisdiction';
 
 interface AuthModalProps {
   onSuccess?: (role: UserRole) => void;
@@ -54,6 +56,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [consumerPassword, setConsumerPassword] = useState('');
   const [consumerState, setConsumerState] = useState('NV');
   const [currentCarrier, setCurrentCarrier] = useState('');
+  const [requestedInsuranceLine, setRequestedInsuranceLine] = useState<InsuranceLine>('PERSONAL_AUTO');
 
   // Provider form state
   const [agentName, setAgentName] = useState('');
@@ -96,7 +99,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           if (!consumerName.trim()) {
             throw new Error('Please enter your full name or preferred alias.');
           }
-          const createdRole = await signUpAsConsumer(consumerName, consumerEmail, consumerPassword, consumerState, currentCarrier);
+          const createdRole = await signUpAsConsumer(
+            consumerName, consumerEmail, consumerPassword, consumerState, currentCarrier, requestedInsuranceLine
+          );
           if (onSuccess) onSuccess(createdRole);
         } else {
           if (!agentName.trim() || !agencyName.trim() || !licenseNumber.trim()) {
@@ -429,6 +434,26 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-emerald-500"
                   />
                 </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-700">Insurance Type</label>
+                <select
+                  value={requestedInsuranceLine}
+                  onChange={(e) => setRequestedInsuranceLine(e.target.value as InsuranceLine)}
+                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-emerald-500"
+                >
+                  {INSURANCE_LINES.filter(line => line.implementationStatus !== 'LOCKED').map(line => (
+                    <option key={line.code} value={line.code}>
+                      {line.displayName}{line.implementationStatus === 'ACCEPTANCE' ? '' : ' — availability pending'}
+                    </option>
+                  ))}
+                </select>
+                {requestedInsuranceLine !== 'PERSONAL_AUTO' && (
+                  <p className="text-[11px] leading-relaxed text-amber-700">
+                    This insurance type is represented in Open Policy but is not yet accepted by the live document-processing pipeline. It will not be sent through personal-auto processing.
+                  </p>
+                )}
               </div>
 
               <div className="space-y-1">

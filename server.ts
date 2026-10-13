@@ -89,6 +89,9 @@ import { scanPolicyDocument } from './src/server/malwareDisposition';
 import { DocumentAiOcrProvider } from './src/server/documentAiOcrProvider';
 import { extractAndClassifyPolicyDocument } from './src/server/policyDocumentExtraction';
 import { validatePolicyFieldCorrection } from './src/domain/policyFieldCorrection';
+import { canEnterPolicyPipeline, INSURANCE_LINES } from './src/domain/insuranceLineRegistry';
+import { JURISDICTION_LINE_ROLLOUT_MATRIX } from './src/domain/jurisdictionLineAvailability';
+import type { InsuranceLine } from './src/types/jurisdiction';
 
 export const app = express();
 const DEFAULT_PORT = Number(process.env.PORT) || 3000;
@@ -334,6 +337,19 @@ app.get('/api/metrics', async (req, res) => {
   res.json(db.getMetrics());
 });
 
+// Canonical product capability registry. This describes implementation state;
+// it never grants jurisdictional or provider authority.
+app.get('/api/insurance-lines', (_req, res) => {
+  res.json({ insuranceLines: INSURANCE_LINES });
+});
+
+app.get('/api/rollout/jurisdiction-lines', (_req, res) => {
+  res.json({
+    warning: 'Rollout availability is not regulatory or production authorization.',
+    entries: JURISDICTION_LINE_ROLLOUT_MATRIX
+  });
+});
+
 // ==========================================
 // PR-0A: Jurisdiction framework (read-only)
 // Mutations (rulesets, publication, activation, gates) are store-level only until
@@ -370,7 +386,11 @@ app.get('/api/jurisdictions/:code/market', async (req, res) => {
     if (requested !== 'SANDBOX' && requested !== 'PRODUCTION') {
       return res.status(400).json({ error: 'environment must be SANDBOX or PRODUCTION' });
     }
-    const key = { jurisdictionCode: req.params.code.toUpperCase(), insuranceLine: 'PERSONAL_AUTO' as const, environment: requested as 'SANDBOX' | 'PRODUCTION' };
+    const insuranceLine = String(req.query.insuranceLine || 'PERSONAL_AUTO').toUpperCase() as InsuranceLine;
+    if (!INSURANCE_LINES.some(line => line.code === insuranceLine)) {
+      return res.status(400).json({ error: 'Unknown insuranceLine' });
+    }
+    const key = { jurisdictionCode: req.params.code.toUpperCase(), insuranceLine, environment: requested as 'SANDBOX' | 'PRODUCTION' };
     res.json({ ...(await jurisdictionStore.getMarketStatus(key)), events: await jurisdictionStore.getActivationEvents(key) });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
@@ -412,8 +432,19 @@ app.post('/api/policy-documents/ingest', async (req, res) => {
   try {
     const ownerId = getAuthenticatedConsumerId(req);
     const bytes = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    const insuranceLine = String(req.header('X-Insurance-Line') || '').toUpperCase() as InsuranceLine;
+    if (!INSURANCE_LINES.some(line => line.code === insuranceLine)) {
+      return res.status(400).json({ error: 'INSURANCE_LINE_REQUIRED', message: 'A canonical X-Insurance-Line header is required.' });
+    }
+    if (!canEnterPolicyPipeline(insuranceLine)) {
+      return res.status(409).json({
+        error: 'INSURANCE_LINE_NOT_AVAILABLE',
+        message: `${insuranceLine} is represented in Open Policy but is not accepted by the policy-processing pipeline yet.`
+      });
+    }
     const document = await ingestPolicyDocument({
       ownerId,
+      insuranceLine,
       idempotencyKey: String(req.header('Idempotency-Key') || ''),
       fileName: req.header('X-Document-Filename') || undefined,
       contentType: req.header('Content-Type') || undefined,
@@ -639,7 +670,8 @@ app.post('/api/baselines/create', async (req, res) => {
     vehicle: policy.vehicles[0],
     coverages: policy.coverages,
     verifiedAt: new Date().toISOString(),
-    verifiedBy: verifiedBy || 'Consumer'
+    verifiedBy: verifiedBy || 'Consumer',
+    insuranceLine: policy.insuranceLine || 'PERSONAL_AUTO'
   };
 
   await postgresStore.commitCoverageBaselineWithAudit(baseline, {
@@ -718,6 +750,7 @@ app.post('/api/challenges/create', async (req, res) => {
     baseline,
     qualificationStandardVersion: CURRENT_QUALIFICATION_STANDARD.version,
     jurisdiction,
+    insuranceLine: baseline.insuranceLine || 'PERSONAL_AUTO',
     jurisdictionDeterminationId: determination.id,
     openingTimestamp,
     closingTimestamp: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
@@ -779,7 +812,7 @@ app.post('/api/challenges/create', async (req, res) => {
     openingNotifications.push({
       id: `NOTIF-${challenge.id}-${org.id}`, type: 'OPPORTUNITY_RECEIVED',
       title: 'New Shared Policy Opportunity',
-      message: `New verified ${challenge.jurisdiction} Personal Auto opportunity: ${challenge.referenceNumber}. Current premium: $${challenge.baseline.baselineAnnualPremium}/yr.`,
+      message: `New verified ${challenge.jurisdiction} ${(challenge.insuranceLine || 'PERSONAL_AUTO').replaceAll('_', ' ').toLowerCase()} opportunity: ${challenge.referenceNumber}. Current premium: $${challenge.baseline.baselineAnnualPremium}/yr.`,
       timestamp: openingTimestamp, read: false, recipientType: 'PROVIDER_ORGANIZATION',
       recipientProviderOrganizationId: org.id, createdFromEvent: `INVITATION:${invitation.id}`,
       actionTarget: 'OPPORTUNITIES'

@@ -59,7 +59,9 @@ export function evaluateProviderEligibility(
   }
 
   // 3. Line of Business Support
-  const lineOfBusiness = 'PERSONAL_AUTO'; // Auto Insurance v1.0
+  // Historical records predate the canonical line discriminator. They remain
+  // personal auto; every newly created challenge must persist its line.
+  const lineOfBusiness = challenge.insuranceLine || 'PERSONAL_AUTO';
   const orgSupportsLOB = org.linesOfBusiness.includes(lineOfBusiness);
   if (!orgSupportsLOB) {
     reasons.push(`LINE_OF_BUSINESS: Organization does not service ${lineOfBusiness}`);

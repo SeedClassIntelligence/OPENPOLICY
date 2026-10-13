@@ -13,6 +13,7 @@ import {
 import { auth } from '../firebase/config';
 import { createUserProfile, loadUserProfile, FirestoreUserProfile } from '../services/userService';
 import { REAUTH_REQUIRED_EVENT } from '../services/apiClient';
+import type { InsuranceLine } from '../types/jurisdiction';
 
 export type UserRole = 'CONSUMER' | 'PROVIDER' | 'ADMIN';
 
@@ -29,7 +30,7 @@ export interface AuthContextType {
   openAuthModal: (options?: { initialRole?: 'CONSUMER' | 'PROVIDER'; initialMode?: 'SIGN_IN' | 'SIGN_UP' | 'DEMO' } | any) => void;
   closeAuthModal: () => void;
   signUpWithEmail: (email: string, pass: string, name: string) => Promise<UserRole>;
-  signUpAsConsumer: (name: string, email: string, pass: string, state?: string, currentCarrier?: string) => Promise<UserRole>;
+  signUpAsConsumer: (name: string, email: string, pass: string, state?: string, currentCarrier?: string, requestedInsuranceLine?: InsuranceLine) => Promise<UserRole>;
   signUpAsProvider: (name: string, agencyName: string, license: string, state: string, email: string, pass: string) => Promise<UserRole>;
   signInWithEmail: (email: string, pass: string) => Promise<UserRole>;
   sendPasswordReset: (email: string) => Promise<void>;
@@ -129,7 +130,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     email: string, 
     pass: string, 
     state?: string, 
-    currentCarrier?: string
+    currentCarrier?: string,
+    requestedInsuranceLine: InsuranceLine = 'PERSONAL_AUTO'
   ): Promise<UserRole> => {
     setLoading(true);
     try {
@@ -144,6 +146,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         role: 'CONSUMER',
         state: state || 'NV',
         currentCarrier: currentCarrier?.trim() || undefined,
+        requestedInsuranceLine,
         createdAt: new Date().toISOString()
       };
 

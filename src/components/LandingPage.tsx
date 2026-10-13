@@ -42,6 +42,7 @@ import {
 import { ActivePerspective } from './Header';
 import { useAuth } from '../context/AuthContext';
 import { AuthModal } from './AuthModal';
+import { INSURANCE_LINE_REGISTRY } from '../domain/insuranceLineRegistry';
 
 interface LandingPageProps {
   onNavigateConsumer: () => void;
@@ -314,11 +315,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       categoryLabel: 'Supported Insurance Lines',
       doctrineTag: 'Multi-Line Architecture',
       question: 'Which lines of insurance can be reviewed on Open Policy?',
-      answer: 'Open Policy currently supports Personal Auto, Homeowners (HO-3 / HO-5), and Commercial General Liability / Business Owner Policies (BOP). The underlying deterministic comparison engine adapts its 18-point rubric based on the specific statutory coverage requirements of each insurance category.',
+      answer: 'Personal Auto is the current acceptance-stage document and offer-review pipeline. Homeowners and Renters are in development, and commercial, life, and health lines are represented for governed expansion. A listed insurance type is not available for transactions until its line-specific and jurisdiction-specific gates pass.',
       keyPoints: [
-        'Personal Auto (Liability, Comp, Collision, UM/UIM, PIP)',
-        'Homeowners (Dwelling, Personal Property, Liability, Deductibles)',
-        'Commercial Lines (General Liability, Property, Business Interruption)'
+        'Personal Auto: acceptance-stage pipeline',
+        'Homeowners and Renters: in development',
+        'Every jurisdiction-line combination remains independently gated'
       ]
     }
   ];
@@ -491,27 +492,29 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setInsuranceType('HOME')}
+                  disabled
+                  title={`${INSURANCE_LINE_REGISTRY.HOMEOWNERS.displayName} processing is in development`}
                   className={`flex items-center justify-center space-x-2 py-2.5 px-3 rounded-xl text-xs font-medium border transition cursor-pointer ${
                     insuranceType === 'HOME'
                       ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
-                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                      : 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
                   }`}
                 >
                   <HomeIcon className="w-3.5 h-3.5" />
-                  <span>Homeowners</span>
+                  <span>Homeowners · In development</span>
                 </button>
                 <button
                   type="button"
-                  onClick={() => setInsuranceType('COMMERCIAL')}
+                  disabled
+                  title="Commercial-line processing is not yet available"
                   className={`flex items-center justify-center space-x-2 py-2.5 px-3 rounded-xl text-xs font-medium border transition cursor-pointer ${
                     insuranceType === 'COMMERCIAL'
                       ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
-                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                      : 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
                   }`}
                 >
                   <Building className="w-3.5 h-3.5" />
-                  <span>Commercial</span>
+                  <span>Commercial · Planned</span>
                 </button>
               </div>
             </div>

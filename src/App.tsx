@@ -17,6 +17,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { Challenge, Offer } from './types/insurance';
 import { canEnterMarketplaceDestination, destinationForRole } from './auth/roleAccess';
 import { apiFetch } from './services/apiClient';
+import { canEnterPolicyPipeline, getInsuranceLineDefinition } from './domain/insuranceLineRegistry';
 
 function MainApp() {
   const { isAuthenticated, userRole, userProfile, isDemoUser, loading: authLoading, openAuthModal } = useAuth();
@@ -26,6 +27,8 @@ function MainApp() {
   const [offers, setOffers] = useState<Offer[]>([]);
   const [loading, setLoading] = useState(true);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const requestedLine = userProfile?.requestedInsuranceLine || 'PERSONAL_AUTO';
+  const requestedLineAvailable = canEnterPolicyPipeline(requestedLine);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -171,7 +174,19 @@ function MainApp() {
               />
             )}
 
-            {activePerspective === 'CONSUMER' && (
+            {activePerspective === 'CONSUMER' && !requestedLineAvailable && (
+              <div className="max-w-2xl mx-auto bg-white border border-amber-200 rounded-3xl p-8 shadow-sm">
+                <p className="text-xs font-mono uppercase tracking-wider text-amber-700">Insurance-line availability</p>
+                <h2 className="text-xl font-bold text-slate-900 mt-2">
+                  {getInsuranceLineDefinition(requestedLine).displayName} processing is not open yet
+                </h2>
+                <p className="text-sm text-slate-600 mt-3 leading-relaxed">
+                  Your account and requested insurance type are recorded. Open Policy will not send this document type through the personal-auto pipeline. Availability requires line-specific document intelligence, regulatory approval, provider authority, and jurisdiction activation.
+                </p>
+              </div>
+            )}
+
+            {activePerspective === 'CONSUMER' && requestedLineAvailable && (
               <ErrorBoundary 
                 fallbackTitle="Unable to Display Consumer Experience" 
                 onReset={loadData}

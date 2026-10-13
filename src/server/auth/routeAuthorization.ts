@@ -7,6 +7,8 @@ type RouteRule = { methods?: string[]; pattern: RegExp; roles: IdentityRole[] | 
 const rules: RouteRule[] = [
   { pattern: /^\/health$/, roles: 'PUBLIC' },
   { pattern: /^\/jurisdictions(?:\/[^/]+\/(?:rulesets|market))?$/, roles: 'PUBLIC' },
+  { pattern: /^\/insurance-lines$/, roles: 'PUBLIC' },
+  { pattern: /^\/rollout\/jurisdiction-lines$/, roles: 'PUBLIC' },
   { pattern: /^\/documents\/samples$/, roles: 'PUBLIC' },
   { methods: ['POST'], pattern: /^\/offers\/validate-quote$/, roles: 'PUBLIC' },
   { methods: ['POST'], pattern: /^\/explain-comparison$/, roles: 'PUBLIC' },

@@ -41,6 +41,8 @@ const admin: RequestIdentity = { uid: 'admin-a', role: 'ADMIN', source: 'FIREBAS
 test('public routes do not require identity', () => {
   assert.equal(invoke('GET', '/health').next, true);
   assert.equal(invoke('GET', '/commercial/plans').next, true);
+  assert.equal(invoke('GET', '/insurance-lines').next, true);
+  assert.equal(invoke('GET', '/rollout/jurisdiction-lines').next, true);
 });
 
 test('sensitive routes reject anonymous callers', () => {

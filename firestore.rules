@@ -39,7 +39,12 @@ service cloud.firestore {
         && incoming().role in ['CONSUMER', 'PROVIDER']
         && incoming().keys().hasOnly([
           'id', 'email', 'displayName', 'createdAt', 'role', 'state',
-          'currentCarrier', 'agencyName', 'licenseNumber', 'providerStatus'
+          'currentCarrier', 'agencyName', 'licenseNumber', 'providerStatus',
+          'requestedInsuranceLine'
+        ])
+        && (!incoming().keys().hasAny(['requestedInsuranceLine']) || incoming().requestedInsuranceLine in [
+          'PERSONAL_AUTO', 'HOMEOWNERS', 'RENTERS', 'COMMERCIAL_AUTO',
+          'COMMERCIAL_GENERAL_LIABILITY', 'BUSINESS_OWNERS_POLICY', 'TERM_LIFE', 'INDIVIDUAL_HEALTH'
         ])
         && (incoming().role != 'PROVIDER' || incoming().providerStatus == 'PENDING_VERIFICATION');
       allow update: if isOwner(userId) 

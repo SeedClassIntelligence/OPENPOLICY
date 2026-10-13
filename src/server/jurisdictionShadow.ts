@@ -39,7 +39,9 @@ import { sha256Hex } from '../domain/jurisdiction/canonical';
 import { jurisdictionStore } from './db/jurisdictionStore';
 import { seedLegacyJurisdictionData } from './db/seeds/legacyJurisdictionSeed';
 
-const LINE = 'PERSONAL_AUTO' as const;
+function lineOf(challenge: Challenge | undefined) {
+  return challenge?.insuranceLine || 'PERSONAL_AUTO';
+}
 
 /** Deployment market environment. Defaults to SANDBOX; a PRODUCTION deployment must set it explicitly. */
 export function marketEnvironment(): MarketEnvironment {
@@ -119,10 +121,11 @@ export async function shadowChallengeOpen(challenge: Challenge): Promise<{
 }> {
   await ensureJurisdictionFramework();
   const environment = marketEnvironment();
-  const key = { jurisdictionCode: challenge.jurisdiction, insuranceLine: LINE, environment };
+  const insuranceLine = lineOf(challenge);
+  const key = { jurisdictionCode: challenge.jurisdiction, insuranceLine, environment };
   const { state, suspensionAction } = replayActivation(await jurisdictionStore.getActivationEvents(key), key);
   const decision = decideMarketTransition(state, suspensionAction, 'NEW_CHALLENGE');
-  const resolved = await jurisdictionStore.resolveEvaluationRuleSet(challenge.jurisdiction, LINE);
+  const resolved = await jurisdictionStore.resolveEvaluationRuleSet(challenge.jurisdiction, insuranceLine);
   const evaluationDate = transactionDateOf(challenge.openingTimestamp);
   const outcome: RuleOutcome = decision.disposition === 'ALLOWED' ? 'PASS' : 'BLOCK';
 
@@ -140,7 +143,7 @@ export async function shadowChallengeOpen(challenge: Challenge): Promise<{
       ruleId: 'MARKET_ACTIVATION',
       ruleCode: 'MARKET.NEW_CHALLENGE',
       outcome,
-      reasons: [`${environment} market ${challenge.jurisdiction}/${LINE} is ${state}: ${decision.reasons.join(' ')}`],
+      reasons: [`${environment} market ${challenge.jurisdiction}/${insuranceLine} is ${state}: ${decision.reasons.join(' ')}`],
       verificationStatus: 'VERIFIED',
       evaluationDate
     }],
@@ -196,14 +199,15 @@ export async function shadowOfferQualification(offer: Offer, challenge: Challeng
     });
   }
 
-  const resolved = await jurisdictionStore.resolveEvaluationRuleSet(jurisdictionCode, LINE);
+  const insuranceLine = lineOf(challenge);
+  const resolved = await jurisdictionStore.resolveEvaluationRuleSet(jurisdictionCode, insuranceLine);
   let outcome: RuleOutcome;
   let results: RuleEvaluationResult[];
   if (resolved.basis === 'NONE') {
     outcome = 'INDETERMINATE';
     results = [{
       ruleId: 'NONE', ruleCode: 'RULESET', outcome,
-      reasons: [`No ruleset exists for ${jurisdictionCode}/${LINE}; coverage requirements are unknown.`],
+      reasons: [`No ruleset exists for ${jurisdictionCode}/${insuranceLine}; coverage requirements are unknown.`],
       verificationStatus: 'UNVERIFIED'
     }];
   } else {
@@ -247,8 +251,9 @@ export async function shadowProviderAuthority(params: {
 }): Promise<JurisdictionRuleEvaluation> {
   await ensureJurisdictionFramework();
   const jurisdictionCode = params.challenge?.jurisdiction;
+  const insuranceLine = lineOf(params.challenge);
   const resolved = jurisdictionCode
-    ? await jurisdictionStore.resolveEvaluationRuleSet(jurisdictionCode, LINE)
+    ? await jurisdictionStore.resolveEvaluationRuleSet(jurisdictionCode, insuranceLine)
     : { basis: 'NONE' as const, rules: [], ruleSet: undefined, contentSha256: undefined };
 
   const authority = evaluateProviderJurisdictionAuthority({
@@ -257,7 +262,7 @@ export async function shadowProviderAuthority(params: {
     carrierRelationships: params.carrierRelationships,
     rules: resolved.rules,
     jurisdictionCode,
-    insuranceLine: LINE,
+    insuranceLine,
     evaluationDate: params.evaluationDate
   });
   const outcome: RuleOutcome =

@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import type { PolicyDocumentRecord } from '../types/insurance';
+import type { InsuranceLine } from '../types/jurisdiction';
 import { buildQuarantineObjectName, validateDeclarationsPdf } from '../domain/documentIntelligence';
 import type { DocumentObjectStore } from './documentObjectStore';
 
@@ -18,6 +19,8 @@ export async function ingestPolicyDocument(input: {
   bytes: Buffer;
   repository: PolicyDocumentRepository;
   objectStore: DocumentObjectStore;
+  /** HTTP boundary requires this; optional here only for historical internal callers/tests. */
+  insuranceLine?: InsuranceLine;
 }): Promise<PolicyDocumentRecord> {
   if (!/^[A-Za-z0-9._:-]{16,128}$/.test(input.idempotencyKey)) {
     throw Object.assign(new Error('A valid Idempotency-Key header is required.'), { statusCode: 400 });
@@ -45,7 +48,8 @@ export async function ingestPolicyDocument(input: {
     status: 'UPLOAD_PENDING',
     malwareStatus: 'PENDING_SCAN',
     createdAt: now,
-    updatedAt: now
+    updatedAt: now,
+    insuranceLine: input.insuranceLine || 'PERSONAL_AUTO'
   };
   const workflow = await input.repository.beginPolicyDocumentIngestion(proposed);
   if (workflow.sha256 !== validation.sha256 || workflow.byteLength !== validation.byteLength) {
