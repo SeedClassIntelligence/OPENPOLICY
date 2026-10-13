@@ -14,6 +14,26 @@ export interface PolicyDocumentClassificationRepository {
   ): Promise<{ classification: PolicyDocumentClassificationResult; normalization: PolicyNormalizationResult }>;
 }
 
+export function applyClassificationReviewGate(
+  classification: PolicyDocumentClassificationResult,
+  normalization: PolicyNormalizationResult
+): PolicyNormalizationResult {
+  if (!classification.requiresReview) return normalization;
+  const lineDisposition = classification.lineAssessment?.disposition;
+  const issue = lineDisposition === 'CONFLICT'
+    ? `Declared insurance line ${classification.lineAssessment?.declaredLine} conflicts with document evidence for ${classification.lineAssessment?.detectedLine}.`
+    : lineDisposition === 'INDETERMINATE'
+      ? `Document evidence did not establish the declared insurance line ${classification.lineAssessment?.declaredLine}.`
+      : `Document classification ${classification.classification} requires review.`;
+  return {
+    ...normalization,
+    status: 'REVIEW_REQUIRED',
+    criticalIssues: normalization.criticalIssues.includes(issue)
+      ? normalization.criticalIssues
+      : [...normalization.criticalIssues, issue]
+  };
+}
+
 export async function extractAndClassifyPolicyDocument(input: {
   document: PolicyDocumentRecord;
   objectReader: ExactDocumentReader;
@@ -41,7 +61,10 @@ export async function extractAndClassifyPolicyDocument(input: {
     pages: ocr.pages.map(page => ({ pageNumber: page.pageNumber, text: page.text })),
     classifierVersion: '1.0.0'
   });
-  const normalization = normalizePolicyFields({ documentId: input.document.id, ocr });
+  const normalization = applyClassificationReviewGate(
+    proposed,
+    normalizePolicyFields({ documentId: input.document.id, ocr })
+  );
   const committed = await input.repository.commitPolicyDocumentExtraction(proposed, normalization);
   return { ocr, ...committed };
 }

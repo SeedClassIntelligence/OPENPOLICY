@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { PolicyDocumentRecord } from '../types/insurance';
-import { extractAndClassifyPolicyDocument } from './policyDocumentExtraction';
+import { applyClassificationReviewGate, extractAndClassifyPolicyDocument } from './policyDocumentExtraction';
 import { PostgresStore } from './db/postgresStore';
 
 const document = (overrides: Partial<PolicyDocumentRecord> = {}): PolicyDocumentRecord => ({
@@ -12,6 +12,19 @@ const document = (overrides: Partial<PolicyDocumentRecord> = {}): PolicyDocument
   mimeType: 'application/pdf', byteLength: 4, sha256: 'a'.repeat(64), storageBucket: 'evidence',
   objectName: 'quarantine/x/DOC-1/original.pdf', objectGeneration: '9', status: 'UPLOADED',
   malwareStatus: 'CLEAN', createdAt: '', updatedAt: '', ...overrides
+});
+
+test('line conflict forces the durable extraction disposition to review required', () => {
+  const gated = applyClassificationReviewGate({
+    id:'C1',documentId:'D1',documentGeneration:'1',sourceSha256:'a'.repeat(64),classification:'DECLARATIONS_PAGE',
+    confidence:.99,classifier:'test',classifierVersion:'1',evidencePageNumbers:[1],evidenceReferences:[],requiresReview:true,
+    classifiedAt:'2026-10-12T00:00:00Z',lineAssessment:{declaredLine:'HOMEOWNERS',detectedLine:'COMMERCIAL_GENERAL_LIABILITY',disposition:'CONFLICT',confidence:.95,evidenceReferences:['LINE_CGL_TITLE']}
+  }, {
+    extractionRunId:'E1',documentId:'D1',documentGeneration:'1',sourceSha256:'a'.repeat(64),normalizer:'test',normalizerVersion:'1',
+    fields:[],criticalIssues:[],status:'READY_FOR_CONSUMER',normalizedAt:'2026-10-12T00:00:00Z'
+  });
+  assert.equal(gated.status, 'REVIEW_REQUIRED');
+  assert.match(gated.criticalIssues[0], /conflicts with document evidence/);
 });
 
 test('reads the exact clean generation, classifies provider-neutral OCR, and commits once', async () => {

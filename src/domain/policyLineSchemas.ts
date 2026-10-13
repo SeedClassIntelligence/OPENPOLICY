@@ -1,6 +1,6 @@
 import type { InsuranceLine } from '../types/jurisdiction';
 
-export type LineFieldKind = 'TEXT' | 'DATE' | 'MONEY' | 'LIMIT' | 'DEDUCTIBLE' | 'BOOLEAN' | 'ENUM';
+export type LineFieldKind = 'TEXT' | 'INTEGER' | 'DATE' | 'MONEY' | 'LIMIT' | 'DEDUCTIBLE' | 'PERCENT_OR_MONEY' | 'BOOLEAN' | 'ENUM';
 
 export interface LineFieldDefinition {
   path: string;
@@ -37,13 +37,18 @@ export const POLICY_LINE_SCHEMAS = Object.freeze({
     insuranceLine: 'HOMEOWNERS', version: 1, fields: Object.freeze([...COMMON,
       field('property.address', 'Insured residence address', 'TEXT'),
       field('property.occupancy', 'Occupancy', 'ENUM'),
+      field('property.yearBuilt', 'Year built', 'INTEGER', false),
+      field('property.constructionType', 'Construction type', 'TEXT', false),
       field('coverage.dwelling.limit', 'Dwelling limit', 'LIMIT'),
       field('coverage.otherStructures.limit', 'Other structures limit', 'LIMIT', false),
       field('coverage.personalProperty.limit', 'Personal property limit', 'LIMIT'),
       field('coverage.lossOfUse.limit', 'Loss of use limit', 'LIMIT', false),
       field('coverage.personalLiability.limit', 'Personal liability limit', 'LIMIT'),
       field('coverage.medicalPayments.limit', 'Medical payments limit', 'LIMIT', false),
-      field('coverage.property.deductible', 'Property deductible', 'DEDUCTIBLE')
+      field('coverage.property.deductible', 'Property deductible', 'DEDUCTIBLE'),
+      field('coverage.windHail.deductible', 'Wind or hail deductible', 'PERCENT_OR_MONEY', false),
+      field('coverage.waterBackup.included', 'Water backup coverage shown', 'BOOLEAN', false),
+      field('coverage.waterBackup.limit', 'Water backup limit', 'LIMIT', false)
     ])
   }),
   RENTERS: Object.freeze({
@@ -53,7 +58,9 @@ export const POLICY_LINE_SCHEMAS = Object.freeze({
       field('coverage.lossOfUse.limit', 'Loss of use limit', 'LIMIT', false),
       field('coverage.personalLiability.limit', 'Personal liability limit', 'LIMIT'),
       field('coverage.medicalPayments.limit', 'Medical payments limit', 'LIMIT', false),
-      field('coverage.property.deductible', 'Property deductible', 'DEDUCTIBLE')
+      field('coverage.property.deductible', 'Property deductible', 'DEDUCTIBLE'),
+      field('coverage.waterBackup.included', 'Water backup coverage shown', 'BOOLEAN', false),
+      field('coverage.waterBackup.limit', 'Water backup limit', 'LIMIT', false)
     ])
   }),
   COMMERCIAL_GENERAL_LIABILITY: Object.freeze({
