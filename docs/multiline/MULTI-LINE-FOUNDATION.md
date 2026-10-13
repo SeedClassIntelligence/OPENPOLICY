@@ -100,6 +100,14 @@ BOP use a distinct commercial normalizer. Every other unfinished line returns
 `REVIEW_REQUIRED` with no extracted business facts. This is an implementation
 safety boundary, not market authorization.
 
+Consumer corrections for the development cohort are bounded by the same
+versioned line schema. A Homeowners correction cannot introduce an Auto field,
+a Renters correction cannot introduce dwelling coverage, and a CGL correction
+cannot introduce BOP property coverage. The line-level comparison contract is
+factual only, limits its matrix to coverage terms, and keeps premium differences
+separate from those field differences. Policy identifiers, carrier names, dates,
+and risk-address metadata are not misclassified as coverage-term differences.
+
 ## Owner operations requirement
 
 The existing audit console is the starting surface for an owner backend, not a

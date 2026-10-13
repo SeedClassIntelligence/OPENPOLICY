@@ -46,6 +46,24 @@ Renters dwelling values written as `null` or `0` are rejected. Open Policy must
 record what the source document says. Missing, absent, not applicable, excluded,
 and zero are different facts and cannot be collapsed into one value.
 
+This also rejects the later proposed `PropertyExtractionEngine` implementation:
+its blank `findTokenByCoordinates`/`findTextString` methods do not perform an
+extraction, it initializes missing limits to zero, sets Renters dwelling fields
+to zero, and calculates Coverage B as ten percent of Coverage A. Coordinate-
+aware OCR may be added behind the provider-neutral evidence contract, but it
+cannot change these source-truth rules.
+
+### UI structure described as a legal conclusion
+
+A bounded verification form is useful product behavior, but its shape alone
+does not establish that Open Policy is outside any insurance-licensing or
+negotiation rule. The implemented contract is narrower and testable: consumers
+may correct only fields belonging to the document's declared insurance-line
+schema, corrections retain durable history, and factual comparisons report
+`MATCH`, `DIFFERENT`, `BASELINE_ONLY`, `OFFER_ONLY`, or `NOT_STATED`. The
+comparison contract does not rank, recommend, or characterize either set of
+terms as better or worse.
+
 ### Second activation matrix
 
 The proposed `multiLineActivationMatrix` is rejected. It would duplicate the

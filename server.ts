@@ -564,7 +564,9 @@ app.get('/api/policy-documents/:documentId/corrections', async (req, res) => {
 app.post('/api/policy-documents/:documentId/corrections', async (req, res) => {
   try {
     const ownerId = getAuthenticatedConsumerId(req);
-    const correction = validatePolicyFieldCorrection(req.body);
+    const document = await postgresStore.getPolicyDocument(ownerId, req.params.documentId);
+    if (!document) return res.status(404).json({ error: 'Policy document not found' });
+    const correction = validatePolicyFieldCorrection(req.body, document.insuranceLine || 'PERSONAL_AUTO');
     const committed = await postgresStore.recordPolicyFieldCorrection({ ownerId, documentId: req.params.documentId, ...correction });
     res.status(201).json({ correction: committed });
   } catch (error: any) {
