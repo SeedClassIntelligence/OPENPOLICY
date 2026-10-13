@@ -25,8 +25,14 @@ records what was adopted, expanded, or rejected against the canonical branch.
   because field normalization succeeded.
 - Homeowners and Renters share extraction infrastructure but not field
   requirements. Renters does not receive fabricated dwelling coverage.
+- Homeowners and Renters now have a line-aware field normalizer that records
+  only facts supported by page-level OCR evidence. Missing required baseline
+  facts produce `REVIEW_REQUIRED`; they are not calculated or defaulted.
 - CGL and BOP share commercial extraction infrastructure but remain distinct:
   BOP includes commercial-property and business-income evidence; CGL does not.
+- Commercial lines remain fail-closed at the normalization boundary until
+  their dedicated normalizers and acceptance evidence are implemented. They
+  cannot fall through into the Personal Auto normalizer.
 
 ## Rejected
 

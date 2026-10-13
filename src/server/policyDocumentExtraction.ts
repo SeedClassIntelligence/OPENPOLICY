@@ -1,7 +1,7 @@
 import type { PolicyDocumentClassificationResult, PolicyDocumentRecord, PolicyNormalizationResult } from '../types/insurance';
 import { classifyCleanPolicyDocument } from '../domain/documentClassification';
 import type { DocumentAiOcrProvider, ProviderNeutralOcrDocument } from './documentAiOcrProvider';
-import { normalizePolicyFields } from '../domain/policyFieldNormalization';
+import { normalizePolicyDocumentByLine } from '../domain/policyLineNormalization';
 
 export interface ExactDocumentReader {
   readQuarantinedPdf(objectName: string, generation: string, sha256: string): Promise<Buffer>;
@@ -63,7 +63,11 @@ export async function extractAndClassifyPolicyDocument(input: {
   });
   const normalization = applyClassificationReviewGate(
     proposed,
-    normalizePolicyFields({ documentId: input.document.id, ocr })
+    normalizePolicyDocumentByLine({
+      documentId: input.document.id,
+      insuranceLine: input.document.insuranceLine || 'PERSONAL_AUTO',
+      ocr
+    })
   );
   const committed = await input.repository.commitPolicyDocumentExtraction(proposed, normalization);
   return { ocr, ...committed };

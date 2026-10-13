@@ -126,7 +126,17 @@ export type NormalizedPolicyFieldPath =
   | 'coverage.propertyDamage.propertyLimit'
   | 'coverage.medicalPayments.included' | 'coverage.rentalReimbursement.included'
   | 'coverage.umUim.included' | 'coverage.comprehensive.included'
-  | 'coverage.collision.included' | 'coverage.roadsideAssistance.included';
+  | 'coverage.collision.included' | 'coverage.roadsideAssistance.included'
+  | 'property.address' | 'property.occupancy' | 'property.yearBuilt' | 'property.constructionType'
+  | 'coverage.dwelling.limit' | 'coverage.otherStructures.limit' | 'coverage.personalProperty.limit'
+  | 'coverage.lossOfUse.limit' | 'coverage.personalLiability.limit' | 'coverage.medicalPayments.limit'
+  | 'coverage.property.deductible' | 'coverage.windHail.deductible'
+  | 'coverage.waterBackup.included' | 'coverage.waterBackup.limit'
+  | 'business.legalName' | 'business.location' | 'business.classification'
+  | 'coverage.cgl.eachOccurrence' | 'coverage.cgl.generalAggregate'
+  | 'coverage.cgl.productsCompletedOperationsAggregate' | 'coverage.cgl.personalAdvertisingInjury'
+  | 'coverage.cgl.medicalExpense' | 'coverage.businessProperty.limit'
+  | 'coverage.businessIncome.included' | 'coverage.extraExpense.included';
 
 export interface NormalizedPolicyFieldCandidate {
   fieldPath: NormalizedPolicyFieldPath;

@@ -47,8 +47,8 @@ transactions.
 | Insurance line | Current status | Meaning |
 | --- | --- | --- |
 | Personal Auto | `ACCEPTANCE` | Existing end-to-end pipeline remains available for acceptance testing. |
-| Homeowners | `DEVELOPMENT` | Canonical line exists; line-specific document, policy, comparison, offer, handoff, and reconciliation profiles remain to be implemented. |
-| Renters | `DEVELOPMENT` | Canonical line exists; line-specific profiles remain to be implemented. |
+| Homeowners | `DEVELOPMENT` | Canonical line, document classification, versioned policy schema, and source-backed field normalization exist. Comparison, offer, handoff, reconciliation, and full acceptance remain to be implemented. |
+| Renters | `DEVELOPMENT` | Canonical line, document classification, versioned policy schema, and source-backed field normalization exist. Dwelling coverage is never fabricated. Remaining lifecycle profiles and full acceptance remain to be implemented. |
 | Commercial Auto | `INTEREST_ONLY` | Account interest may be recorded; policy processing is not open. |
 | Commercial General Liability | `DEVELOPMENT` | Shares commercial document infrastructure with BOP but retains its own policy and comparison contract. |
 | Business Owners Policy | `DEVELOPMENT` | Property/liability package development; it is not modeled as renamed homeowners coverage. |
@@ -93,6 +93,11 @@ qualification, controlled disclosure, handoff, issued-policy reconciliation,
 tests, and regulatory corpus before its status can advance to `ACCEPTANCE`.
 Moving a line to `ACCEPTANCE` still does not activate any jurisdiction for
 production.
+
+The normalization dispatcher is line-aware. Personal Auto retains its existing
+normalizer; Homeowners and Renters use the property-policy normalizer; every
+other unfinished line returns `REVIEW_REQUIRED` with no extracted business
+facts. This is an implementation safety boundary, not market authorization.
 
 ## Owner operations requirement
 
