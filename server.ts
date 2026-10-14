@@ -1331,6 +1331,7 @@ app.post('/api/marketplace/invitations/:id/accept', async (req, res) => {
       }
 
       // CE-3: Instrument VPO_ENGAGED only after authoritative marketplace participation successfully created
+      const engagementChallenge = await postgresStore.getChallenge(result.participation.challengeId);
       await commercialStore.projectMarketplaceEvent({
         eventType: 'VPO_ENGAGED',
         sourceEntityType: 'CHALLENGE_PARTICIPATION',
@@ -1338,7 +1339,9 @@ app.post('/api/marketplace/invitations/:id/accept', async (req, res) => {
         providerOrganizationId: result.participation.providerOrganizationId,
         challengeId: result.participation.challengeId,
         competitionId: result.participation.competitionId,
-        occurredAt: result.participation.acceptedAt
+        occurredAt: result.participation.acceptedAt,
+        idempotencyKey: `evt:VPO_ENGAGED:${result.participation.providerOrganizationId}:${result.participation.challengeId}`,
+        metadata: { insuranceLine: engagementChallenge?.insuranceLine || engagementChallenge?.baseline.insuranceLine || 'PERSONAL_AUTO' }
       }).catch(err => console.warn('[CommercialEvent Error]', err));
     } catch (mpErr) {
       // Marketplace failure: rollback usage record to prevent phantom commercial consumption
@@ -2029,6 +2032,7 @@ app.post('/api/marketplace/binding/:handoffId/execute-disclosure', async (req, r
     };
 
     // CE-3: Instrument AUTHORIZED_CONNECTION only upon successful controlled disclosure
+    const connectionChallenge = await postgresStore.getChallenge(result.disclosureEvent.challengeId);
     await commercialStore.projectMarketplaceEvent({
       eventType: 'AUTHORIZED_CONNECTION',
       sourceEntityType: 'DISCLOSURE_EVENT',
@@ -2036,9 +2040,11 @@ app.post('/api/marketplace/binding/:handoffId/execute-disclosure', async (req, r
       providerOrganizationId: result.disclosureEvent.recipientProviderOrganizationId,
       challengeId: result.disclosureEvent.challengeId,
       occurredAt: result.disclosureEvent.disclosedAt,
+      idempotencyKey: `evt:AUTHORIZED_CONNECTION:${result.disclosureEvent.bindingHandoffId}`,
       metadata: {
         consentGrantId: result.disclosureEvent.consentGrantId,
-        bindingHandoffId: result.disclosureEvent.bindingHandoffId
+        bindingHandoffId: result.disclosureEvent.bindingHandoffId,
+        insuranceLine: connectionChallenge?.insuranceLine || connectionChallenge?.baseline.insuranceLine || 'PERSONAL_AUTO'
       }
     }).catch(err => console.warn('[CommercialEvent Error]', err));
 
@@ -2595,6 +2601,29 @@ app.post('/api/commercial/agreements/enroll', async (req, res) => {
   } catch (e: any) {
     const status = e.statusCode || 400;
     res.status(status).json({ error: e.message });
+  }
+});
+
+// Platform financial administration. This is deliberately separate from
+// provider self-enrollment and is protected by the centralized /admin rule.
+app.post('/api/admin/commercial/agreements/enroll', async (req, res) => {
+  try {
+    const { providerOrganizationId, planId, planCode, planVersionId, customTerms, enforcementPolicy } = req.body || {};
+    if (!providerOrganizationId) return res.status(400).json({ error: 'providerOrganizationId is required.' });
+    let targetPlanId = planId;
+    if (!targetPlanId && planCode) {
+      const plan = await commercialStore.getCommercialPlanByCode(planCode);
+      if (!plan) return res.status(404).json({ error: `Commercial plan with code '${planCode}' not found` });
+      targetPlanId = plan.id;
+    }
+    if (!targetPlanId) return res.status(400).json({ error: 'planId or planCode is required.' });
+    const enrolled = await commercialStore.enrollCommercialAgreement({
+      providerOrgId: providerOrganizationId, planId: targetPlanId, planVersionId,
+      customTerms, enforcementPolicy, actorRole: 'ADMIN'
+    });
+    res.status(201).json({ success: true, ...enrolled });
+  } catch (e: any) {
+    res.status(e.statusCode || 400).json({ error: e.message });
   }
 });
 

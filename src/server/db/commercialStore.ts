@@ -44,6 +44,7 @@ import {
   calculateAuthoritativeAccountBalance,
   buildRefundRecord
 } from '../../domain/commercialEconomicsEngine';
+import { OPEN_POLICY_PREMIUM_PRICE_BOOK_V1 } from '../../domain/commercialPriceBook';
 
 /**
  * CommercialStore — Persistence layer for Open Policy Commercial Economics (CE-1 through CE-5).
@@ -807,9 +808,10 @@ export class CommercialStore {
       competitionId?: string;
       occurredAt?: string;
       metadata?: Record<string, unknown>;
+      idempotencyKey?: string;
     }) => {
       scanned++;
-      const key = `evt:${params.eventType}:${params.sourceEntityId}`;
+      const key = params.idempotencyKey || `evt:${params.eventType}:${params.sourceEntityId}`;
       const existing = await this.getCommercialEventByIdempotencyKey(key);
       if (existing) {
         alreadyExisted++;
@@ -867,6 +869,7 @@ export class CommercialStore {
     // 2. Scan Participations -> VPO_ENGAGED
     const participations = await postgresStore.getAllParticipations();
     for (const part of participations) {
+      const challenge = await postgresStore.getChallenge(part.challengeId);
       await projectOne({
         eventType: 'VPO_ENGAGED',
         sourceEntityType: 'CHALLENGE_PARTICIPATION',
@@ -874,7 +877,9 @@ export class CommercialStore {
         providerOrganizationId: part.providerOrganizationId,
         challengeId: part.challengeId,
         competitionId: part.competitionId,
-        occurredAt: part.acceptedAt
+        occurredAt: part.acceptedAt,
+        metadata: { insuranceLine: challenge?.insuranceLine || challenge?.baseline.insuranceLine || 'PERSONAL_AUTO' },
+        idempotencyKey: `evt:VPO_ENGAGED:${part.providerOrganizationId}:${part.challengeId}`
       });
     }
 
@@ -926,6 +931,7 @@ export class CommercialStore {
     const disclosures = await postgresStore.getDisclosureEvents();
     for (const disc of disclosures) {
       if (disc.recipientProviderOrganizationId) {
+        const challenge = await postgresStore.getChallenge(disc.challengeId);
         await projectOne({
           eventType: 'AUTHORIZED_CONNECTION',
           sourceEntityType: 'DISCLOSURE_EVENT',
@@ -933,9 +939,11 @@ export class CommercialStore {
           providerOrganizationId: disc.recipientProviderOrganizationId,
           challengeId: disc.challengeId,
           occurredAt: disc.disclosedAt,
+          idempotencyKey: `evt:AUTHORIZED_CONNECTION:${disc.bindingHandoffId}`,
           metadata: {
             consentGrantId: disc.consentGrantId,
-            bindingHandoffId: disc.bindingHandoffId
+            bindingHandoffId: disc.bindingHandoffId,
+            insuranceLine: challenge?.insuranceLine || challenge?.baseline.insuranceLine || 'PERSONAL_AUTO'
           }
         });
       }
@@ -2207,10 +2215,16 @@ export class CommercialStore {
   }): Promise<{ agreement: CommercialAgreement; entitlements: ProviderEntitlement[]; planVersion: CommercialPlanVersion }> {
     const { providerOrgId, customTerms, enforcementPolicy, now = new Date().toISOString(), actorRole = 'PROVIDER' } = params;
     const rates = (customTerms?.rates || {}) as Record<string, unknown>;
+    const lineConnectionPrices = (customTerms?.authorizedConnectionCentsByInsuranceLine || {}) as Record<string, unknown>;
     const pricedOutcomeTerms = [rates.BOUND_ACQUISITION_CENTS, rates.VERIFIED_BOUND_OUTCOME_CENTS,
       rates.AUTHORIZED_CONNECTION_CENTS, customTerms?.boundAcquisitionUnitPriceCents,
-      customTerms?.authorizedConnectionUnitPriceCents].some(value => typeof value === 'number' && value > 0);
-    if (customTerms && actorRole !== 'ADMIN' && (pricedOutcomeTerms || 'rates' in customTerms)) {
+      customTerms?.authorizedConnectionUnitPriceCents, ...Object.values(lineConnectionPrices)]
+      .some(value => typeof value === 'number' && value > 0);
+    const financialTerms = customTerms && [
+      'rates', 'recurringFeeCents', 'qualifiedEngagementUnitPriceCents',
+      'authorizedConnectionCentsByInsuranceLine', 'recurringAddOns', 'selectedRecurringAddOns', 'implementationServices'
+    ].some(key => key in customTerms);
+    if (customTerms && actorRole !== 'ADMIN' && (pricedOutcomeTerms || financialTerms)) {
       throw Object.assign(new Error('Only an administrator may attach priced commercial terms.'), { statusCode: 403 });
     }
     if (pricedOutcomeTerms && !(customTerms?.compensationDeterminationApproved === true &&
@@ -2243,22 +2257,32 @@ export class CommercialStore {
       const latest = await this.getLatestPlanVersion(planId);
       const nextVersion = (latest?.version ?? 0) + 1;
       const versionId = `cpv_${planId}_v${nextVersion}_${Date.now()}`;
+      const mergedTerms = {
+        includedProducerSeats: 1,
+        includedJurisdictions: 1,
+        includedVpoCapacity: 10,
+        includedEngagementCapacity: 10,
+        ...(latest?.termsSnapshot || {}),
+        ...customTerms,
+        capacityEnforcementPolicy: enforcementPolicy || customTerms.capacityEnforcementPolicy ||
+          latest?.termsSnapshot.capacityEnforcementPolicy || 'HARD_BLOCK'
+      };
+      const selectedAddOns = (mergedTerms.selectedRecurringAddOns || {}) as Record<string, unknown>;
+      const addOnCatalog = (mergedTerms.recurringAddOns || {}) as Record<string, unknown>;
+      for (const [code, quantity] of Object.entries(selectedAddOns)) {
+        if (!(code in addOnCatalog) || !Number.isInteger(quantity) || Number(quantity) <= 0) {
+          throw new Error(`Invalid contracted recurring add-on selection: ${code}`);
+        }
+      }
       planVersion = {
         id: versionId,
         planId,
         version: nextVersion,
         effectiveFrom: now,
         billingInterval: 'MONTHLY',
-        recurringFeeCents: customTerms.recurringFeeCents ?? 0,
+        recurringFeeCents: customTerms.recurringFeeCents ?? latest?.recurringFeeCents ?? 0,
         currency: 'USD',
-        termsSnapshot: {
-          includedProducerSeats: 1,
-          includedJurisdictions: 1,
-          includedVpoCapacity: 10,
-          includedEngagementCapacity: 10,
-          ...customTerms,
-          capacityEnforcementPolicy: enforcementPolicy || customTerms.capacityEnforcementPolicy || 'HARD_BLOCK'
-        },
+        termsSnapshot: mergedTerms,
         createdAt: now
       };
       await this.saveCommercialPlanVersion(planVersion);
@@ -2392,6 +2416,50 @@ export class CommercialStore {
         providerSegment: 'ENTERPRISE',
         status: 'ACTIVE',
         createdAt: '2026-01-01T00:00:00Z'
+      });
+    }
+
+    let premiumPlan = await this.getCommercialPlanByCode('PLAN_OPEN_POLICY_PREMIUM');
+    if (!premiumPlan) {
+      premiumPlan = {
+        id: 'plan_open_policy_premium',
+        code: 'PLAN_OPEN_POLICY_PREMIUM',
+        displayName: 'Open Policy Premium',
+        providerSegment: 'AGENCY',
+        status: 'ACTIVE',
+        createdAt: OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.effectiveFrom
+      };
+      await this.saveCommercialPlan(premiumPlan);
+    }
+    const premiumVersionId = 'cpv_open_policy_premium_v1';
+    if (!(await this.getCommercialPlanVersion(premiumVersionId))) {
+      await this.saveCommercialPlanVersion({
+        id: premiumVersionId,
+        planId: premiumPlan.id,
+        version: 1,
+        effectiveFrom: OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.effectiveFrom,
+        billingInterval: 'MONTHLY',
+        recurringFeeCents: OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.providerMembershipCentsMonthly,
+        currency: 'USD',
+        termsSnapshot: {
+          priceBookId: OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.id,
+          includedProducerSeats: OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.includedProducerSeats,
+          includedJurisdictions: OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.includedJurisdictions,
+          recurringAddOns: { ...OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.recurringAddOns },
+          selectedRecurringAddOns: {},
+          implementationServices: { ...OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.implementationServices },
+          qualifiedEngagementUnitPriceCents: OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.qualifiedEngagementCents,
+          authorizedConnectionCentsByInsuranceLine: { ...OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.authorizedConnectionCentsByInsuranceLine },
+          rates: {
+            VPO_ENGAGED_CENTS: OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.qualifiedEngagementCents
+          },
+          // Price publication is not a legal compensation determination. An authorized
+          // administrator must create a later contracted version with an approved reference.
+          compensationDeterminationApproved: false,
+          unpricedOutcomeEvents: [...OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.unpricedOutcomeEvents],
+          capacityEnforcementPolicy: 'ALLOW_OVERAGE'
+        },
+        createdAt: OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.effectiveFrom
       });
     }
   }

@@ -1370,6 +1370,7 @@ export interface CommercialPlan {
 export type BillingInterval = 'MONTHLY' | 'ANNUAL' | 'CUSTOM';
 
 export interface CommercialPlanTermsSnapshot {
+  priceBookId?: string;
   includedProducerSeats?: number;
   includedJurisdictions?: number;
   includedVpoCapacity?: number;
@@ -1377,6 +1378,11 @@ export interface CommercialPlanTermsSnapshot {
   includedAuthorizedConnections?: number;
   authorizedConnectionUnitPriceCents?: number;
   boundAcquisitionUnitPriceCents?: number;
+  qualifiedEngagementUnitPriceCents?: number;
+  authorizedConnectionCentsByInsuranceLine?: Record<string, number>;
+  recurringAddOns?: Record<string, number>;
+  selectedRecurringAddOns?: Record<string, number>;
+  implementationServices?: Record<string, unknown>;
   overageRules?: Record<string, unknown>;
   [key: string]: unknown;
 }
