@@ -39,6 +39,8 @@ const rules: RouteRule[] = [
   { pattern: /^\/marketplace\/(?:vault\/|challenges\/[^/]+\/select-version|supplemental-facts\/[^/]+\/consent)/, roles: ['CONSUMER'] },
   { methods: ['POST'], pattern: /^\/marketplace\/competition\/[^/]+\/keep-current-policy$/, roles: ['CONSUMER'] },
   { methods: ['POST'], pattern: /^\/marketplace\/competition\/[^/]+\/begin-review$/, roles: ['CONSUMER'] },
+  { methods: ['POST'], pattern: /^\/marketplace\/competition\/[^/]+\/request-additional-offers$/, roles: ['CONSUMER'] },
+  { methods: ['GET'], pattern: /^\/marketplace\/competition\/[^/]+\/offer-cohorts$/, roles: ['CONSUMER'] },
   { methods: ['POST'], pattern: /^\/marketplace\/binding\/[^/]+\/(?:grant-consent|revoke-consent|resolve-modification|accept-modification|reject-modification|consumer-verify)$/, roles: ['CONSUMER'] },
 
   { pattern: /^\/marketplace\/(?:my-provider|active-provider|opportunities|invitations\/|competitions|workspace\/)/, roles: ['PROVIDER'] },

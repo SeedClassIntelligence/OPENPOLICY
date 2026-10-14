@@ -53,7 +53,8 @@ import {
   DetailedPostBindReconciliation,
   CompetitionActivityEvent,
   RoundDeadlineStatus,
-  CompetitionEvaluationSummary
+  CompetitionEvaluationSummary,
+  OfferCohortStatus
   ,PolicyNormalizationResult
 } from '../types/insurance';
 import { SAMPLE_DECLARATIONS_PAGES } from '../domain/policyIntelligence';
@@ -181,15 +182,18 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
   const [activityFeed, setActivityFeed] = useState<CompetitionActivityEvent[]>([]);
   const [retainingCurrentPolicy, setRetainingCurrentPolicy] = useState<boolean>(false);
   const [beginningReview, setBeginningReview] = useState(false);
+  const [offerCohortStatus, setOfferCohortStatus] = useState<OfferCohortStatus | null>(null);
+  const [requestingAdditionalOffers, setRequestingAdditionalOffers] = useState(false);
   const [showActivityFeed, setShowActivityFeed] = useState<boolean>(true);
 
   const fetchCompetitionDetails = async () => {
     if (!challenge?.id) return;
     try {
-      const [deadRes, evalRes, feedRes] = await Promise.all([
+      const [deadRes, evalRes, feedRes, cohortRes] = await Promise.all([
         apiFetch(`/api/marketplace/competition/${challenge.id}/deadline-status`),
         apiFetch(`/api/marketplace/competition/${challenge.id}/status`),
-        apiFetch(`/api/marketplace/competition/${challenge.id}/activity-feed`)
+        apiFetch(`/api/marketplace/competition/${challenge.id}/activity-feed`),
+        apiFetch(`/api/marketplace/competition/${challenge.id}/offer-cohorts`)
       ]);
       if (deadRes.ok) {
         const deadData = await deadRes.json();
@@ -203,8 +207,35 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
         const feedData = await feedRes.json();
         setActivityFeed(feedData.events || []);
       }
+      if (cohortRes.ok) setOfferCohortStatus(await cohortRes.json());
     } catch (err) {
       console.error('Failed fetching competition details:', err);
+    }
+  };
+
+  const handleRequestAdditionalOffers = async () => {
+    if (!challenge?.id || !offerCohortStatus?.canRequestAdditionalOffers) return;
+    setRequestingAdditionalOffers(true);
+    try {
+      const res = await apiFetch(`/api/marketplace/competition/${challenge.id}/request-additional-offers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expectedActiveCohort: offerCohortStatus.activeCohort })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Additional providers could not be activated.');
+      setOfferCohortStatus(data.status);
+      setActionToast(data.activated.length > 0
+        ? `${data.activated.length} additional eligible providers can now independently review your policy opportunity.`
+        : 'Your additional-offer request was already processed.');
+      setTimeout(() => setActionToast(null), 5000);
+      await fetchCompetitionDetails();
+      onRefreshData();
+    } catch (error: any) {
+      setActionToast(error.message || 'Additional providers could not be activated.');
+      setTimeout(() => setActionToast(null), 5000);
+    } finally {
+      setRequestingAdditionalOffers(false);
     }
   };
 
@@ -1591,8 +1622,32 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                   </button>
                 )}
 
+                {submissionWindowOpen && offerCohortStatus?.canRequestAdditionalOffers && (
+                  <button
+                    id="btn-request-additional-offers"
+                    onClick={handleRequestAdditionalOffers}
+                    disabled={requestingAdditionalOffers}
+                    className="flex items-center space-x-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 transition shadow-xs"
+                    title="Invite another eligible provider cohort without sharing prior offers or your reasons"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>{requestingAdditionalOffers ? 'Requesting...' : 'Request Additional Offers'}</span>
+                  </button>
+                )}
+
               </div>
             </div>
+
+            {offerCohortStatus && (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-700">
+                <strong>Offer availability:</strong> {offerCohortStatus.currentOfferCount} submitted offer{offerCohortStatus.currentOfferCount === 1 ? '' : 's'} available;{' '}
+                {offerCohortStatus.activatedProviderCount} eligible provider{offerCohortStatus.activatedProviderCount === 1 ? '' : 's'} activated.
+                {offerCohortStatus.standbyProviderCount > 0 && submissionWindowOpen
+                  ? ` ${offerCohortStatus.standbyProviderCount} eligible provider${offerCohortStatus.standbyProviderCount === 1 ? '' : 's'} remain in standby and receive no policy access unless you request additional offers.`
+                  : ''}
+                <span className="block mt-1 text-slate-500">Providers prepare offers independently and cannot see other providers' terms or your reasons for requesting more offers.</span>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
               {[

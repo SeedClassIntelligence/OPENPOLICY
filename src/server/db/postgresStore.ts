@@ -1524,6 +1524,105 @@ export class PostgresStore {
     });
   }
 
+  public async getOfferCohortStatus(challengeId: string) {
+    await this.ensureReady();
+    const [competition, invitations, offers] = await Promise.all([
+      this.getCompetitionForChallenge(challengeId),
+      this.getInvitationsForChallenge(challengeId),
+      this.getOffers(challengeId)
+    ]);
+    if (!competition) throw Object.assign(new Error('Offer-submission window not found'), { statusCode: 404 });
+    const activated = invitations.filter(inv => inv.status !== 'STANDBY' && inv.eligibilityResult === 'ELIGIBLE');
+    const standby = invitations.filter(inv => inv.status === 'STANDBY');
+    const maximum = competition.maximumActivatedProviders || 30;
+    const submissionWindowOpen = competition.status === 'OPEN' && Date.now() < new Date(competition.closesAt).getTime();
+    return {
+      challengeId,
+      submissionWindowOpen,
+      activeCohort: competition.activeOfferCohort || 1,
+      cohortSize: competition.offerCohortSize || 10,
+      activatedProviderCount: activated.length,
+      standbyProviderCount: standby.length,
+      currentOfferCount: offers.filter(offer => offer.status !== 'WITHDRAWN').length,
+      canRequestAdditionalOffers: submissionWindowOpen && standby.length > 0 && activated.length < maximum
+    };
+  }
+
+  public async commitAdditionalOfferCohort(input: {
+    challengeId: string;
+    consumerId: string;
+    expectedActiveCohort: number;
+  }): Promise<{ status: Awaited<ReturnType<PostgresStore['getOfferCohortStatus']>>; activated: ChallengeInvitation[] }> {
+    await this.ensureReady();
+    const activated = await this.sql!.transaction(async client => {
+      const competitionResult = await client.query<any>(`SELECT * FROM competitions WHERE challenge_id=$1 FOR UPDATE;`, [input.challengeId]);
+      if (!competitionResult.rows[0]) throw Object.assign(new Error('Offer-submission window not found'), { statusCode: 404 });
+      const competition = this._mapCompetition(competitionResult.rows[0]);
+      if (competition.status !== 'OPEN' || Date.now() >= new Date(competition.closesAt).getTime()) {
+        throw Object.assign(new Error('Additional providers cannot be activated after the submission window closes.'), { statusCode: 409 });
+      }
+      const currentCohort = competition.activeOfferCohort || 1;
+      if (input.expectedActiveCohort !== currentCohort) return [];
+
+      const invitationResult = await client.query<any>(`SELECT * FROM challenge_invitations WHERE challenge_id=$1 FOR UPDATE;`, [input.challengeId]);
+      const invitations = invitationResult.rows.map((row: any) => this._mapInvitation(row));
+      const currentlyActivated = invitations.filter(inv => inv.status !== 'STANDBY' && inv.eligibilityResult === 'ELIGIBLE').length;
+      const maximum = competition.maximumActivatedProviders || 30;
+      const remainingCapacity = Math.max(0, maximum - currentlyActivated);
+      const cohortSize = Math.min(competition.offerCohortSize || 10, remainingCapacity);
+      const next = invitations
+        .filter(inv => inv.status === 'STANDBY')
+        .sort((a, b) => (a.standbyPosition || Number.MAX_SAFE_INTEGER) - (b.standbyPosition || Number.MAX_SAFE_INTEGER) || a.id.localeCompare(b.id))
+        .slice(0, cohortSize);
+      if (next.length === 0) return [];
+
+      const now = new Date().toISOString();
+      const nextCohort = currentCohort + 1;
+      for (const invitation of next) {
+        invitation.status = 'INVITED';
+        invitation.offerCohort = nextCohort;
+        invitation.activatedAt = now;
+        await client.query(
+          `UPDATE challenge_invitations SET status='INVITED', invited_at=$2, payload=$3, version=version+1 WHERE id=$1;`,
+          [invitation.id, now, JSON.stringify(invitation)]
+        );
+        await client.query(
+          `INSERT INTO platform_notifications
+           (id,type,title,message,timestamp,is_read,recipient_type,recipient_provider_organization_id,created_from_event,action_target)
+           VALUES ($1,'OPPORTUNITY_RECEIVED','New Shared Policy Opportunity',$2,$3,FALSE,'PROVIDER_ORGANIZATION',$4,$5,'OPPORTUNITIES')
+           ON CONFLICT (id) DO NOTHING;`,
+          [`NOTIF-COHORT-${nextCohort}-${invitation.id}`,
+           `A verified policy opportunity is available for independent review. Other providers' offers and the consumer's reasons for requesting additional offers are not disclosed.`,
+           now, invitation.providerOrganizationId, `INVITATION_ACTIVATED:${invitation.id}`]
+        );
+        await this.appendAuditInTransaction(client, {
+          eventType: 'INVITATION_ACTIVATED', actorRole: 'SYSTEM', actorId: 'offer_cohort_service',
+          details: `Activated invitation ${invitation.id} in consumer-requested offer cohort ${nextCohort}`
+        });
+      }
+      const updatedCompetition = { ...competition, activeOfferCohort: nextCohort };
+      await client.query(`UPDATE competitions SET payload=$2,version=version+1 WHERE id=$1;`, [competition.id, JSON.stringify(updatedCompetition)]);
+      const activity: CompetitionActivityEvent = {
+        id: `ACT-ADDITIONAL-OFFERS-${competition.id}-${nextCohort}`,
+        competitionId: competition.id, challengeId: input.challengeId, timestamp: now,
+        type: 'ADDITIONAL_OFFERS_REQUESTED', actorRole: 'CONSUMER',
+        summary: `Policyholder requested additional independent offers; ${next.length} providers activated`,
+        round: competition.currentRound, metadata: { cohort: nextCohort, activatedProviderCount: next.length }
+      };
+      await client.query(
+        `INSERT INTO competition_activity_events (id,competition_id,challenge_id,occurred_at,event_type,provider_organization_id,payload)
+         VALUES ($1,$2,$3,$4,$5,NULL,$6) ON CONFLICT(id) DO NOTHING;`,
+        [activity.id, activity.competitionId, activity.challengeId, activity.timestamp, activity.type, JSON.stringify(activity)]
+      );
+      await this.appendAuditInTransaction(client, {
+        eventType: 'ADDITIONAL_OFFERS_REQUESTED', actorRole: 'CONSUMER', actorId: input.consumerId,
+        details: `Consumer requested offer cohort ${nextCohort} for ${input.challengeId}; activated ${next.length} standby providers without disclosing prior offers`
+      });
+      return next;
+    });
+    return { status: await this.getOfferCohortStatus(input.challengeId), activated };
+  }
+
   public async commitProviderWithdrawal(input:{challengeId:string;organizationId:string;reason:string;notes?:string}):Promise<ChallengeParticipation>{
     await this.ensureReady();return this.sql!.transaction(async client=>{
       const result=await client.query<any>(`SELECT * FROM challenge_participations WHERE challenge_id=$1 AND provider_organization_id=$2 FOR UPDATE;`,[input.challengeId,input.organizationId]);

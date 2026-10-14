@@ -722,6 +722,8 @@ export interface AuditEvent {
     | 'COMPETITION_CREATED'
     | 'COMPETITION_OPENED'
     | 'INVITATION_CREATED'
+    | 'INVITATION_ACTIVATED'
+    | 'ADDITIONAL_OFFERS_REQUESTED'
     | 'INVITATION_VIEWED'
     | 'INVITATION_ACCEPTED'
     | 'INVITATION_DECLINED'
@@ -942,6 +944,10 @@ export interface Competition {
   openedAt: string;
   closesAt: string; // Default: 48 hours after opening
   participantCount: number;
+  /** Consumer-controlled provider activation within the single submission window. */
+  offerCohortSize?: number;
+  activeOfferCohort?: number;
+  maximumActivatedProviders?: number;
   /** @deprecated Historical configuration only. */
   improvementRoundEnabled?: boolean;
   /** @deprecated Historical configuration only. */
@@ -982,6 +988,7 @@ export type CompetitionActivityType =
   | 'INFORMATION_ANSWERED'
   | 'ROUND_CLOSED'
   | 'CONSUMER_REVIEW_ENTERED'
+  | 'ADDITIONAL_OFFERS_REQUESTED'
   | 'CONSUMER_KEPT_CURRENT_POLICY'
   | 'OFFER_SELECTED_FOR_BINDING';
 
@@ -1059,6 +1066,7 @@ export interface CompetitionEvaluationSummary {
 }
 
 export type InvitationStatus = 
+  | 'STANDBY'
   | 'INVITED' 
   | 'VIEWED' 
   | 'ACCEPTED' 
@@ -1090,6 +1098,22 @@ export interface ChallengeInvitation {
   acceptedAt?: string;
   declinedAt?: string;
   expiresAt: string;
+  /** 1-based activation cohort; absent until a standby provider is activated. */
+  offerCohort?: number;
+  /** Stable eligibility order. It is never a consumer-facing provider ranking. */
+  standbyPosition?: number;
+  activatedAt?: string;
+}
+
+export interface OfferCohortStatus {
+  challengeId: string;
+  submissionWindowOpen: boolean;
+  activeCohort: number;
+  cohortSize: number;
+  activatedProviderCount: number;
+  standbyProviderCount: number;
+  currentOfferCount: number;
+  canRequestAdditionalOffers: boolean;
 }
 
 export interface ChallengeParticipation {

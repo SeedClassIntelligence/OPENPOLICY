@@ -62,6 +62,10 @@ test('wrong actor type is forbidden while intended actor is admitted to domain c
   assert.equal(invoke('GET', '/marketplace/opportunities', provider).next, true);
   assert.equal(invoke('POST', '/marketplace/competition/c/begin-review', provider).status, 403);
   assert.equal(invoke('POST', '/marketplace/competition/c/begin-review', consumer).next, true);
+  assert.equal(invoke('POST', '/marketplace/competition/c/request-additional-offers', provider).status, 403);
+  assert.equal(invoke('POST', '/marketplace/competition/c/request-additional-offers', consumer).next, true);
+  assert.equal(invoke('GET', '/marketplace/competition/c/offer-cohorts', provider).status, 403);
+  assert.equal(invoke('GET', '/marketplace/competition/c/offer-cohorts', consumer).next, true);
   assert.equal(invoke('GET', '/marketplace/competition/c/offer-status', consumer).status, 403);
   assert.equal(invoke('GET', '/marketplace/competition/c/offer-status', provider).next, true);
   assert.equal(invoke('POST', '/marketplace/binding/h/cannot-honor', consumer).status, 403);

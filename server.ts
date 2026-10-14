@@ -777,7 +777,10 @@ app.post('/api/challenges/create', async (req, res) => {
     currentRound: 'OPEN',
     openedAt: openingTimestamp,
     closesAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
-    participantCount: 0
+    participantCount: 0,
+    offerCohortSize: 10,
+    activeOfferCohort: 1,
+    maximumActivatedProviders: 30
   };
   const evaluations: EligibilityEvaluation[] = [];
   const createdInvitations: ChallengeInvitation[] = [];
@@ -790,7 +793,8 @@ app.post('/api/challenges/create', async (req, res) => {
     { eventType: 'COMPETITION_OPENED', actorRole: 'SYSTEM', actorId: 'competition_engine',
       details: `Competition ${competition.id} opened for 48h initial round` }
   ];
-  for (const org of await postgresStore.getProviderOrganizations()) {
+  let eligibleProviderPosition = 0;
+  for (const org of (await postgresStore.getProviderOrganizations()).sort((a, b) => a.id.localeCompare(b.id))) {
     const evaluation = evaluateProviderEligibility(
       challenge, org, await postgresStore.getProviderLicenses(org.id),
       await postgresStore.getProviderAppetite(org.id)
@@ -801,18 +805,25 @@ app.post('/api/challenges/create', async (req, res) => {
       details: `Evaluated ${org.displayName} (${org.id}) for challenge ${challenge.referenceNumber}: ${evaluation.isEligible ? 'ELIGIBLE' : 'INELIGIBLE'} [${evaluation.reasons.join(', ')}]`
     });
     if (!evaluation.isEligible) continue;
+    eligibleProviderPosition += 1;
+    const initiallyActivated = eligibleProviderPosition <= (competition.offerCohortSize || 10);
     const invitation: ChallengeInvitation = {
       id: `INV-${challengeId.replace('CHAL-', '')}-${org.id}`,
       challengeId, competitionId: competition.id, providerOrganizationId: org.id,
       eligibilityResult: 'ELIGIBLE', eligibilityReasons: evaluation.reasons,
-      status: 'INVITED', invitedAt: openingTimestamp, expiresAt: competition.closesAt
+      status: initiallyActivated ? 'INVITED' : 'STANDBY',
+      invitedAt: openingTimestamp,
+      expiresAt: competition.closesAt,
+      offerCohort: initiallyActivated ? 1 : undefined,
+      standbyPosition: eligibleProviderPosition,
+      activatedAt: initiallyActivated ? openingTimestamp : undefined
     };
     createdInvitations.push(invitation);
     openingAudits.push({
       eventType: 'INVITATION_CREATED', actorRole: 'SYSTEM', actorId: 'invitation_service',
       details: `Created challenge invitation ${invitation.id} for ${org.displayName}`
     });
-    openingNotifications.push({
+    if (initiallyActivated) openingNotifications.push({
       id: `NOTIF-${challenge.id}-${org.id}`, type: 'OPPORTUNITY_RECEIVED',
       title: 'New Shared Policy Opportunity',
       message: `New verified ${challenge.jurisdiction} ${(challenge.insuranceLine || 'PERSONAL_AUTO').replaceAll('_', ' ').toLowerCase()} opportunity: ${challenge.referenceNumber}. Current premium: $${challenge.baseline.baselineAnnualPremium}/yr.`,
@@ -833,7 +844,7 @@ app.post('/api/challenges/create', async (req, res) => {
   });
 
   // CE-3: Instrument VPO_AVAILABLE for every eligible invitation successfully committed
-  for (const inv of createdInvitations) {
+  for (const inv of createdInvitations.filter(invitation => invitation.status === 'INVITED')) {
     // PR-0A shadow: provider jurisdictional authority for each invited provider.
     const invitedOrg = await postgresStore.getProviderOrganization(inv.providerOrganizationId);
     if (invitedOrg) {
@@ -1440,6 +1451,45 @@ app.get('/api/marketplace/competition/:challengeId/offer-status', async (req, re
 
 app.post('/api/marketplace/competition/:challengeId/advance-round', (_req, res) => {
   res.status(410).json({ error: 'Rounds were retired.' });
+});
+
+app.get('/api/marketplace/competition/:challengeId/offer-cohorts', async (req, res) => {
+  try {
+    await authorizeChallengeResource(req, req.params.challengeId);
+    res.json(await postgresStore.getOfferCohortStatus(req.params.challengeId));
+  } catch (e: any) {
+    res.status(e.statusCode || 400).json({ error: e.message });
+  }
+});
+
+app.post('/api/marketplace/competition/:challengeId/request-additional-offers', async (req, res) => {
+  try {
+    const consumerId = getAuthenticatedConsumerId(req);
+    await authorizeChallengeResource(req, req.params.challengeId);
+    const expectedActiveCohort = Number(req.body?.expectedActiveCohort);
+    if (!Number.isInteger(expectedActiveCohort) || expectedActiveCohort < 1) {
+      return res.status(400).json({ error: 'The current offer cohort is required.' });
+    }
+    const result = await postgresStore.commitAdditionalOfferCohort({
+      challengeId: req.params.challengeId,
+      consumerId,
+      expectedActiveCohort
+    });
+    for (const invitation of result.activated) {
+      await commercialStore.projectMarketplaceEvent({
+        eventType: 'VPO_AVAILABLE',
+        sourceEntityType: 'CHALLENGE_INVITATION',
+        sourceEntityId: invitation.id,
+        providerOrganizationId: invitation.providerOrganizationId,
+        challengeId: invitation.challengeId,
+        competitionId: invitation.competitionId,
+        occurredAt: invitation.activatedAt || new Date().toISOString()
+      }).catch(err => console.warn('[CommercialEvent Error]', err));
+    }
+    res.json({ success: true, ...result });
+  } catch (e: any) {
+    res.status(e.statusCode || 400).json({ error: e.message });
+  }
 });
 
 app.post('/api/marketplace/competition/:challengeId/begin-review', async (req, res) => {

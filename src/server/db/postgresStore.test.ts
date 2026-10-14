@@ -104,6 +104,66 @@ test('explicit local validator storage remains available when durability is not 
   }
 });
 
+test('consumer-controlled offer cohorts activate standby providers atomically and idempotently', async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openpolicy-offer-cohorts-'));
+  const store = new PostgresStore(dataDir);
+  try {
+    await store.init();
+    const db = await store.getPgClient();
+    const now = new Date().toISOString();
+    for (let index = 1; index <= 7; index += 1) {
+      await db.query(
+        `INSERT INTO provider_organizations
+         (id,legal_name,display_name,organization_type,verification_status,marketplace_status,states,lines_of_business,created_at)
+         VALUES ($1,$2,$2,'AGENCY','VERIFIED','ACTIVE','["NV"]','["PERSONAL_AUTO"]',$3);`,
+        [`org_cohort_${index}`, `Cohort Provider ${index}`, now]
+      );
+    }
+    const competition = {
+      id: 'COMP-COHORT-1', challengeId: 'CHAL-COHORT-1', status: 'OPEN' as const,
+      currentRound: 'OPEN' as const, openedAt: now,
+      closesAt: new Date(Date.now() + 3600000).toISOString(), participantCount: 0,
+      offerCohortSize: 2, activeOfferCohort: 1, maximumActivatedProviders: 6
+    };
+    await store.saveCompetition(competition);
+    for (let index = 1; index <= 7; index += 1) {
+      await store.saveInvitation({
+        id: `INV-COHORT-${index}`, challengeId: competition.challengeId,
+        competitionId: competition.id, providerOrganizationId: `org_cohort_${index}`,
+        eligibilityResult: 'ELIGIBLE', eligibilityReasons: ['cohort fixture'],
+        status: index <= 2 ? 'INVITED' : 'STANDBY', invitedAt: now,
+        expiresAt: competition.closesAt, offerCohort: index <= 2 ? 1 : undefined,
+        standbyPosition: index, activatedAt: index <= 2 ? now : undefined
+      });
+    }
+
+    const first = await store.commitAdditionalOfferCohort({
+      challengeId: competition.challengeId, consumerId: 'consumer_cohort', expectedActiveCohort: 1
+    });
+    assert.equal(first.activated.length, 2);
+    assert.deepEqual(first.activated.map(inv => inv.id), ['INV-COHORT-3', 'INV-COHORT-4']);
+    assert.equal(first.status.activeCohort, 2);
+    assert.equal(first.status.activatedProviderCount, 4);
+
+    const retry = await store.commitAdditionalOfferCohort({
+      challengeId: competition.challengeId, consumerId: 'consumer_cohort', expectedActiveCohort: 1
+    });
+    assert.equal(retry.activated.length, 0, 'retry with stale cohort cannot activate another group');
+    assert.equal(retry.status.activatedProviderCount, 4);
+
+    const second = await store.commitAdditionalOfferCohort({
+      challengeId: competition.challengeId, consumerId: 'consumer_cohort', expectedActiveCohort: 2
+    });
+    assert.equal(second.activated.length, 2);
+    assert.equal(second.status.activatedProviderCount, 6);
+    assert.equal(second.status.canRequestAdditionalOffers, false, 'configured activation ceiling is fail-closed');
+    assert.equal((await store.getInvitation('INV-COHORT-7'))?.status, 'STANDBY');
+  } finally {
+    await store.close();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
 test('foundation records survive an empty-process restart and continue mutating durably', async () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openpolicy-foundation-restart-'));
   const first = new PostgresStore(dataDir);
