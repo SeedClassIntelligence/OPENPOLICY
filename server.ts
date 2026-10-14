@@ -97,10 +97,12 @@ import type { InsuranceLine } from './src/types/jurisdiction';
 export const app = express();
 const DEFAULT_PORT = Number(process.env.PORT) || 3000;
 
+const skipFixtureSynchronization = process.env.NODE_ENV !== 'production'
+  && process.env.OPENPOLICY_SKIP_FIXTURE_SYNC === 'true';
 const fixturePersistenceReady = process.env.OPENPOLICY_AUTH_MODE === 'fixture'
   ? postgresStore.init()
       .then(() => postgresStore.seedCanonicalProviderData())
-      .then(() => synchronizeFixturePersistence())
+      .then(() => skipFixtureSynchronization ? undefined : synchronizeFixturePersistence())
   : Promise.resolve();
 
 app.use('/api/policy-documents/ingest', express.raw({ type: () => true, limit: '10mb' }));
@@ -3313,7 +3315,7 @@ async function startServer() {
   try {
     await postgresStore.init();
     await postgresStore.seedCanonicalProviderData();
-    if (process.env.OPENPOLICY_AUTH_MODE === 'fixture') {
+    if (process.env.OPENPOLICY_AUTH_MODE === 'fixture' && !skipFixtureSynchronization) {
       await synchronizeFixturePersistence();
     }
     await commercialStore.seedCanonicalPlans();
