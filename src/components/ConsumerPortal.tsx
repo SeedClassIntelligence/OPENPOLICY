@@ -55,15 +55,18 @@ import {
   RoundDeadlineStatus,
   CompetitionEvaluationSummary
   ,PolicyNormalizationResult
-  ,NormalizedPolicyFieldPath
 } from '../types/insurance';
 import { SAMPLE_DECLARATIONS_PAGES } from '../domain/policyIntelligence';
 import { compareOfferAgainstBaseline, formatClassification } from '../domain/comparisonEngine';
 import { useAuth } from '../context/AuthContext';
 import { AccountDashboard } from './AccountDashboard';
 import { apiFetch } from '../services/apiClient';
+import type { InsuranceLine } from '../types/jurisdiction';
+import { getInsuranceLineDefinition } from '../domain/insuranceLineRegistry';
+import { getPolicyReviewFields } from '../domain/policyLineReviewFields';
 
 interface ConsumerPortalProps {
+  insuranceLine: InsuranceLine;
   challenge: Challenge | null;
   offers: Offer[];
   onRefreshData: () => void;
@@ -97,6 +100,7 @@ const formatBaselineCoverage = (coverage: CoverageItem) => {
 };
 
 export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
+  insuranceLine,
   challenge,
   offers,
   onRefreshData,
@@ -131,24 +135,15 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
   const [flowActionPending, setFlowActionPending] = useState(false);
   const [flowActionError, setFlowActionError] = useState<string | null>(null);
 
-  const reviewFieldPaths: NormalizedPolicyFieldPath[] = [
-    'policyNumber','carrier','namedInsured','jurisdiction','effectiveDate','expirationDate','annualPremium',
-    'vehicle.vin','vehicle.year','vehicle.make','vehicle.model','vehicle.usage','vehicle.annualMileage',
-    'vehicle.garagingZip','vehicle.ownership','coverage.bodilyInjury.perPersonLimit',
-    'coverage.bodilyInjury.perAccidentLimit','coverage.propertyDamage.propertyLimit',
-    'coverage.medicalPayments.included','coverage.rentalReimbursement.included','coverage.umUim.included',
-    'coverage.comprehensive.included','coverage.collision.included','coverage.roadsideAssistance.included'
-  ];
-  const numericReviewFields = new Set<NormalizedPolicyFieldPath>([
-    'annualPremium','vehicle.year','vehicle.annualMileage','coverage.bodilyInjury.perPersonLimit',
-    'coverage.bodilyInjury.perAccidentLimit','coverage.propertyDamage.propertyLimit',
-    'coverage.medicalPayments.included','coverage.rentalReimbursement.included','coverage.umUim.included',
-    'coverage.comprehensive.included','coverage.collision.included','coverage.roadsideAssistance.included'
-  ]);
-  const inclusionReviewFields = new Set<NormalizedPolicyFieldPath>([
-    'coverage.medicalPayments.included','coverage.rentalReimbursement.included','coverage.umUim.included',
-    'coverage.comprehensive.included','coverage.collision.included','coverage.roadsideAssistance.included'
-  ]);
+  const insuranceLineDefinition = getInsuranceLineDefinition(insuranceLine);
+  const reviewFields = getPolicyReviewFields(insuranceLine);
+  const reviewFieldPaths = reviewFields.map(field => field.path);
+  const numericReviewFields = new Set(reviewFields
+    .filter(field => ['INTEGER', 'MONEY', 'LIMIT', 'DEDUCTIBLE'].includes(field.kind))
+    .map(field => field.path));
+  const inclusionReviewFields = new Set(reviewFields
+    .filter(field => field.kind === 'BOOLEAN')
+    .map(field => field.path));
 
   const fetchVaultDocs = async () => {
     try {
@@ -557,7 +552,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
       setDocumentProcessing('Uploading immutable policy evidence…');
       const ingest = await apiFetch('/api/policy-documents/ingest', {
         method:'POST', headers:{'Content-Type':'application/pdf','X-Document-Filename':file.name,
-          'X-Insurance-Line':'PERSONAL_AUTO',
+          'X-Insurance-Line':insuranceLine,
           'Idempotency-Key':crypto.randomUUID()}, body:file
       });
       const ingested = await ingest.json();
@@ -587,9 +582,11 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
     setDocumentProcessingError(null);
     setDocumentProcessing('Saving your confirmed policy facts…');
     try {
-      for (const fieldPath of reviewFieldPaths) {
+      for (const field of reviewFields) {
+        const fieldPath = field.path;
         const raw = (policyReviewValues[fieldPath] || '').trim();
-        if (!raw) throw new Error(`Please complete ${fieldPath}.`);
+        if (!raw && field.requiredForBaseline) throw new Error(`Please complete ${field.label}.`);
+        if (!raw) continue;
         const afterValue = numericReviewFields.has(fieldPath)
           ? Number(raw)
           : (fieldPath === 'vehicle.usage' || fieldPath === 'vehicle.ownership' || fieldPath === 'jurisdiction')
@@ -1067,7 +1064,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
               Share Your Policy Once
             </h2>
             <p className="mt-1 text-slate-600 text-sm leading-relaxed">
-              Upload your existing auto insurance declarations page. We extract your current coverage and premium so eligible providers can independently review it and send offers — <strong className="text-slate-900 font-medium">without you filling out repeated forms</strong>.
+              Upload your existing {insuranceLineDefinition.displayName.toLowerCase()} declarations page. We extract your current coverage and premium so eligible providers can independently review it and send offers — <strong className="text-slate-900 font-medium">without you filling out repeated forms</strong>.
             </p>
           </div>
 
@@ -1077,10 +1074,10 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
               <UploadCloud className="w-6 h-6" />
             </div>
             <p className="text-sm font-semibold text-slate-800">
-              Drag and drop your auto declarations page (PDF, PNG, JPEG)
+              Drag and drop your {insuranceLineDefinition.displayName.toLowerCase()} declarations page (PDF)
             </p>
             <p className="text-xs text-slate-500 mt-1">
-              Supports 1-page Dec Pages, multi-vehicle policies, or renewal notices
+              Supports declarations pages, full policies, endorsements, or renewal notices
             </p>
 
             <div className="mt-4 flex items-center justify-center space-x-3">
@@ -1125,7 +1122,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                     {realNormalization.fields.map(field => (
                       <div key={field.fieldPath} className="bg-white border border-slate-200 rounded p-3">
-                        <p className="text-[11px] uppercase text-slate-500">{field.fieldPath}</p>
+                        <p className="text-[11px] uppercase text-slate-500">{reviewFields.find(definition => definition.path === field.fieldPath)?.label || field.fieldPath}</p>
                         <p className="text-sm font-semibold text-slate-900 break-words">{String(field.value)}</p>
                         <p className="text-[11px] text-blue-700">Page {field.evidence.pageNumber} · {Math.round(field.confidence*100)}% confidence</p>
                       </div>
@@ -1140,12 +1137,14 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                   <div className="border-t border-slate-200 pt-4 space-y-4">
                     <div>
                       <p className="text-sm font-bold text-slate-900">Review every fact before creating your baseline</p>
-                      <p className="text-xs text-slate-600">These values become the standard carriers must match. Correct OCR mistakes and fill every blank from your policy document.</p>
+                      <p className="text-xs text-slate-600">These values become your factual coverage baseline. Correct OCR mistakes and complete every required fact from your policy document. Optional facts may remain blank when the source does not state them.</p>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      {reviewFieldPaths.map(fieldPath => (
+                      {reviewFields.map(field => {
+                        const fieldPath = field.path;
+                        return (
                         <label key={fieldPath} className="text-xs font-semibold text-slate-700">
-                          <span className="block mb-1">{fieldPath}</span>
+                          <span className="block mb-1">{field.label}{field.requiredForBaseline ? ' *' : ' (optional)'}</span>
                           {inclusionReviewFields.has(fieldPath) ? (
                             <select
                               aria-label={fieldPath}
@@ -1163,7 +1162,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                           ) : (
                             <input
                               aria-label={fieldPath}
-                              type={numericReviewFields.has(fieldPath) ? 'number' : fieldPath.endsWith('Date') ? 'date' : 'text'}
+                              type={numericReviewFields.has(fieldPath) ? 'number' : field.kind === 'DATE' ? 'date' : 'text'}
                               value={policyReviewValues[fieldPath] || ''}
                               onChange={event => {
                                 setPolicyReviewValues(current => ({...current, [fieldPath]:event.target.value}));
@@ -1174,7 +1173,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                             />
                           )}
                         </label>
-                      ))}
+                      )})}
                     </div>
                     <label className="flex items-start gap-2 rounded border border-blue-200 bg-blue-50 p-3 text-xs text-blue-950">
                       <input

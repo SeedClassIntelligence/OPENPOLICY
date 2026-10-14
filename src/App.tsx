@@ -202,6 +202,7 @@ function MainApp() {
                 onReset={loadData}
               >
                 <ConsumerPortal
+                  insuranceLine={requestedLine}
                   challenge={challenge}
                   offers={offers}
                   onRefreshData={loadData}
