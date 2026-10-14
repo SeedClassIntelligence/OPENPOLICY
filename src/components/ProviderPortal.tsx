@@ -82,6 +82,8 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
   const [billingPeriods, setBillingPeriods] = useState<any[]>([]);
   const [accountBalance, setAccountBalance] = useState<any | null>(null);
   const [commercialLoading, setCommercialLoading] = useState<boolean>(false);
+  const [paymentSessionLoadingId, setPaymentSessionLoadingId] = useState<string | null>(null);
+  const [paymentSessionError, setPaymentSessionError] = useState<string | null>(null);
   
   // Multi-Tenant Provider User & Organization state (Blocker 2 & 3 Fix)
   // Identity derives from authenticated ProviderUser session:
@@ -342,6 +344,23 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
       console.warn('Commercial data load error:', err);
     } finally {
       setCommercialLoading(false);
+    }
+  };
+
+  const openSecureInvoicePayment = async (invoiceId: string) => {
+    setPaymentSessionLoadingId(invoiceId);
+    setPaymentSessionError(null);
+    try {
+      const response = await apiFetch(`/api/commercial/invoices/${invoiceId}/payment-session`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-provider-user-id': authenticatedUserId }
+      });
+      const result = await response.json();
+      if (!response.ok || !result.checkoutUrl) throw new Error(result.error || 'Secure payment session could not be created.');
+      window.location.assign(result.checkoutUrl);
+    } catch (error: any) {
+      setPaymentSessionError(error?.message || 'Secure payment session could not be created.');
+    } finally {
+      setPaymentSessionLoadingId(null);
     }
   };
 
@@ -2829,6 +2848,11 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
             {/* Invoices List */}
             <div className="space-y-3">
               <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wide">Finalized Invoices & Statements</h4>
+              {paymentSessionError && (
+                <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                  {paymentSessionError}
+                </div>
+              )}
               {invoices.length > 0 ? (
                 <div className="overflow-x-auto border border-slate-200 rounded-xl">
                   <table className="w-full text-left text-xs">
@@ -2841,6 +2865,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                         <th className="py-2.5 px-3 text-right">Total Due</th>
                         <th className="py-2.5 px-3 text-right">Balance Due</th>
                         <th className="py-2.5 px-3">Finalized Date</th>
+                        <th className="py-2.5 px-3 text-right">Payment</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -2873,6 +2898,20 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                           </td>
                           <td className="py-2.5 px-3 text-slate-500 text-[11px]">
                             {inv.finalizedAt ? new Date(inv.finalizedAt).toLocaleDateString() : 'Draft'}
+                          </td>
+                          <td className="py-2.5 px-3 text-right">
+                            {inv.balanceDueCents > 0 && ['FINALIZED', 'ISSUED', 'PARTIALLY_PAID', 'PAST_DUE'].includes(inv.status) ? (
+                              <button
+                                type="button"
+                                onClick={() => openSecureInvoicePayment(inv.id)}
+                                disabled={paymentSessionLoadingId === inv.id}
+                                className="rounded-lg bg-slate-950 px-3 py-1.5 text-[10px] font-bold text-white hover:bg-slate-800 disabled:cursor-wait disabled:opacity-60"
+                              >
+                                {paymentSessionLoadingId === inv.id ? 'Opening…' : 'Pay securely'}
+                              </button>
+                            ) : (
+                              <span className="text-[10px] font-semibold text-slate-400">{inv.status === 'PAID' ? 'Paid' : 'Unavailable'}</span>
+                            )}
                           </td>
                         </tr>
                       ))}

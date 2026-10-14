@@ -34,15 +34,43 @@ The intended sequence is therefore:
 - compensation-determination gate for connection and outcome events;
 - internal accounting adapter for deterministic non-production validation.
 
+## Stripe production integration
+
+The initial processor implementation uses Stripe Checkout for hosted card and
+eligible US bank-account collection. Open Policy never receives raw card or
+bank-account details. A payment session is created only for the exact remaining
+balance of a valid finalized invoice and carries immutable invoice and provider
+organization metadata.
+
+Stripe webhook bodies remain raw until signature verification. PaymentIntent
+states map conservatively: `succeeded` settles the ledger;
+`processing`/action-required states remain pending; cancelled or payment-method
+failures are recorded as failed. Only a succeeded processor event creates a
+settlement allocation and changes the invoice balance. Processor retries reuse
+the same payment idempotency identity.
+
+Refunds are platform-admin operations. Stripe executes the refund first; Open
+Policy records the append-only refund and reverses the invoice allocation only
+after Stripe reports success. Stripe refund IDs form the refund idempotency
+boundary.
+
+Required secret/runtime configuration:
+
+- `STRIPE_SECRET_KEY` (Secret Manager only; never browser-exposed);
+- `STRIPE_WEBHOOK_SECRET` (Secret Manager only);
+- `APP_URL` (HTTPS in production);
+- Stripe-hosted card and US bank-account payment methods enabled;
+- PaymentIntent and Refund lifecycle webhooks delivered to
+  `/api/commercial/stripe/webhook`.
+
 ## Production hold
 
-The internal accounting adapter is not a payment processor. It does not contact
-a bank, card network, ACH provider, or payment gateway. Production direct HTTP
-payment and refund mutation therefore fails closed with
-`PAYMENT_PROCESSOR_NOT_CONFIGURED` until a real processor integration is
-implemented and accepted.
+The internal accounting adapter remains limited to deterministic validation.
+Production direct HTTP payment mutation remains disabled. Production collection
+must use the Stripe hosted-session and signed-webhook path. Missing Stripe
+configuration fails closed with `PAYMENT_PROCESSOR_NOT_CONFIGURED`.
 
-Production collection requires a separate bounded integration that provides:
+Before live activation, the Stripe integration still requires:
 
 - provider customer/payment-method setup without Open Policy handling raw card
   data;

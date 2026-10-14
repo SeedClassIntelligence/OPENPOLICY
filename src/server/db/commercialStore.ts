@@ -2966,6 +2966,14 @@ export class CommercialStore {
     };
   }
 
+  public async getPaymentRecordByIdempotencyKey(idempotencyKey: string): Promise<PaymentRecord | undefined> {
+    const client = await this.getClient();
+    const res = await client.query<{ id: string }>(
+      `SELECT id FROM payment_records WHERE idempotency_key = $1;`, [idempotencyKey]
+    );
+    return res.rows[0] ? this.getPaymentRecordById(res.rows[0].id) : undefined;
+  }
+
   public async getPaymentsForOrg(providerOrganizationId: string): Promise<PaymentRecord[]> {
     const client = await this.getClient();
     const res = await client.query<any>(
@@ -3025,6 +3033,19 @@ export class CommercialStore {
       refundedAt: r.refunded_at,
       idempotencyKey: r.idempotency_key
     }));
+  }
+
+  public async getRefundByIdempotencyKey(idempotencyKey: string): Promise<RefundRecord | undefined> {
+    const client = await this.getClient();
+    const res = await client.query<any>(`SELECT * FROM refund_records WHERE idempotency_key = $1;`, [idempotencyKey]);
+    if (!res.rows[0]) return undefined;
+    const r = res.rows[0];
+    return {
+      id: r.id, originalPaymentRecordId: r.original_payment_record_id,
+      providerOrganizationId: r.provider_organization_id, amountCents: r.amount_cents,
+      currency: r.currency as 'USD', reason: r.reason, refundedAt: r.refunded_at,
+      idempotencyKey: r.idempotency_key
+    };
   }
 
   public async getRefundsForOrg(providerOrganizationId: string): Promise<RefundRecord[]> {
@@ -3088,8 +3109,25 @@ export class CommercialStore {
   }): Promise<{ payment: PaymentRecord; allocation?: SettlementAllocation; updatedInvoice?: Invoice }> {
     const client = await this.getClient();
     const now = new Date().toISOString();
-    const paymentId = `pay_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
+    let paymentId = `pay_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
     const idempotencyKey = params.idempotencyKey || `pay:${params.providerOrganizationId}:${Date.now()}`;
+
+    const existing = await this.getPaymentRecordByIdempotencyKey(idempotencyKey);
+    if (existing) {
+      if (existing.providerOrganizationId !== params.providerOrganizationId ||
+          existing.amountCents !== params.amountCents || existing.invoiceId !== params.invoiceId) {
+        throw Object.assign(new Error('Payment idempotency key was already used with different settlement facts.'), { statusCode: 409 });
+      }
+      if (existing.status === 'SUCCEEDED') {
+        const allocations = params.invoiceId ? await this.getAllocationsForInvoice(params.invoiceId) : [];
+        return {
+          payment: existing,
+          allocation: allocations.find(item => item.paymentRecordId === existing.id),
+          updatedInvoice: params.invoiceId ? await this.getInvoiceById(params.invoiceId) : undefined
+        };
+      }
+      paymentId = existing.id;
+    }
 
     const payment: PaymentRecord = {
       id: paymentId,
@@ -3162,6 +3200,21 @@ export class CommercialStore {
     idempotencyKey?: string;
   }): Promise<{ refund: RefundRecord; allocation?: SettlementAllocation; updatedInvoice?: Invoice }> {
     const client = await this.getClient();
+    if (params.idempotencyKey) {
+      const existing = await this.getRefundByIdempotencyKey(params.idempotencyKey);
+      if (existing) {
+        if (existing.originalPaymentRecordId !== params.paymentId || existing.amountCents !== params.amountCents) {
+          throw Object.assign(new Error('Refund idempotency key was already used with different refund facts.'), { statusCode: 409 });
+        }
+        const original = await this.getPaymentRecordById(params.paymentId);
+        const allocations = original?.invoiceId ? await this.getAllocationsForInvoice(original.invoiceId) : [];
+        return {
+          refund: existing,
+          allocation: allocations.find(item => item.refundRecordId === existing.id),
+          updatedInvoice: original?.invoiceId ? await this.getInvoiceById(original.invoiceId) : undefined
+        };
+      }
+    }
     const payment = await this.getPaymentRecordById(params.paymentId);
     if (!payment) throw new Error(`PaymentRecord not found: ${params.paymentId}`);
 

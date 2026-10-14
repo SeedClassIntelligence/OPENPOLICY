@@ -43,6 +43,14 @@ test('public routes do not require identity', () => {
   assert.equal(invoke('GET', '/commercial/plans').next, true);
   assert.equal(invoke('GET', '/insurance-lines').next, true);
   assert.equal(invoke('GET', '/rollout/jurisdiction-lines').next, true);
+  assert.equal(invoke('POST', '/commercial/stripe/webhook').next, true);
+});
+
+test('financial mutations preserve processor and platform authority boundaries', () => {
+  assert.equal(invoke('POST', '/commercial/refunds', provider).status, 403);
+  assert.equal(invoke('POST', '/commercial/refunds', admin).next, true);
+  assert.equal(invoke('POST', '/commercial/invoices/invoice-a/payment-session', consumer).status, 403);
+  assert.equal(invoke('POST', '/commercial/invoices/invoice-a/payment-session', provider).next, true);
 });
 
 test('sensitive routes reject anonymous callers', () => {

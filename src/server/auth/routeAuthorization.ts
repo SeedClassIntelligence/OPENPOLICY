@@ -13,6 +13,7 @@ const rules: RouteRule[] = [
   { methods: ['POST'], pattern: /^\/offers\/validate-quote$/, roles: 'PUBLIC' },
   { methods: ['POST'], pattern: /^\/explain-comparison$/, roles: 'PUBLIC' },
   { pattern: /^\/commercial\/plans$/, roles: 'PUBLIC' },
+  { methods: ['POST'], pattern: /^\/commercial\/stripe\/webhook$/, roles: 'PUBLIC' },
   { pattern: /^\/docs\/spec$/, roles: 'PUBLIC' },
 
   // These directory/notification semantics are not established by the domain model.
@@ -28,6 +29,7 @@ const rules: RouteRule[] = [
   { methods: ['POST'], pattern: /^\/marketplace\/offers\/[^/]+\/verify-document$/, roles: ['PROVIDER'] },
   { methods: ['GET'], pattern: /^\/marketplace\/offers\/[^/]+\/qualification$/, roles: ['CONSUMER', 'PROVIDER', 'ADMIN'] },
   { pattern: /^\/commercial\/(?:rating\/(?:run|reconcile|runs(?:\/[^/]+)?)|events\/reconcile)$/, roles: ['ADMIN'] },
+  { methods: ['POST'], pattern: /^\/commercial\/refunds$/, roles: ['ADMIN'] },
   { pattern: /^\/admin\//, roles: ['ADMIN'] },
 
   { pattern: /^\/(?:challenges(?:\/create|\/[^/]+)?|selection\/|reconciliation\/|vault\/)/, roles: ['CONSUMER'] },

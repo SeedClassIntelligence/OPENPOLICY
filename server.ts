@@ -48,6 +48,7 @@ import { verifyCryptographicAuditChain, processReviewQueueResolution,
 import { assertProductionAuthConfiguration, attachRequestIdentity, configuredAuthMode, getFirebaseUserProfile } from './src/server/auth/requestIdentity';
 import { assertBindingRelationship, assertChallengeRelationship, enforceApiAuthorization } from './src/server/auth/routeAuthorization';
 import { assertDirectSettlementMutationAllowed } from './src/server/paymentCollectionBoundary';
+import { StripePaymentProcessor, mapStripeIntentStatus, stripePaymentMethod, stripeProcessorConfig } from './src/server/stripePaymentProcessor';
 
 import { runComparisonEngineTestSuite } from './src/domain/comparisonEngine.test';
 import { runEligibilityEngineTestSuite } from './src/domain/eligibilityEngine.test';
@@ -107,6 +108,7 @@ const fixturePersistenceReady = process.env.OPENPOLICY_AUTH_MODE === 'fixture'
   : Promise.resolve();
 
 app.use('/api/policy-documents/ingest', express.raw({ type: () => true, limit: '10mb' }));
+app.use('/api/commercial/stripe/webhook', express.raw({ type: 'application/json', limit: '1mb' }));
 app.use(express.json({ limit: '10mb' }));
 app.use('/api', async (_req, res, next) => {
   try {
@@ -135,6 +137,12 @@ let documentAiOcrProvider: DocumentAiOcrProvider | undefined;
 function getDocumentAiOcrProvider(): DocumentAiOcrProvider {
   documentAiOcrProvider ||= new DocumentAiOcrProvider();
   return documentAiOcrProvider;
+}
+
+let stripePaymentProcessor: StripePaymentProcessor | undefined;
+function getStripePaymentProcessor(): StripePaymentProcessor {
+  stripePaymentProcessor ||= new StripePaymentProcessor(stripeProcessorConfig());
+  return stripePaymentProcessor;
 }
 
 // Provider and consumer identity is attached by verified Firebase ID token.
@@ -3065,27 +3073,138 @@ app.post('/api/commercial/payments', async (req, res) => {
   }
 });
 
+// Production processor flow: creates a Stripe-hosted payment session for the
+// exact outstanding balance of a finalized Open Policy invoice. Settlement is
+// recorded only after a signed processor webhook confirms success.
+app.post('/api/commercial/invoices/:id/payment-session', async (req, res) => {
+  try {
+    const orgId = await getAuthenticatedProviderOrgId(req);
+    const invoice = await commercialStore.getInvoiceById(req.params.id);
+    if (!invoice || invoice.providerOrganizationId !== orgId) {
+      return res.status(404).json({ error: 'Invoice not found' });
+    }
+    if (!['FINALIZED', 'ISSUED', 'PARTIALLY_PAID', 'PAST_DUE'].includes(invoice.status)) {
+      return res.status(409).json({ error: 'Only a finalized invoice with an outstanding balance can be paid.' });
+    }
+    if (invoice.balanceDueCents <= 0) return res.status(409).json({ error: 'Invoice has no outstanding balance.' });
+
+    const account = await commercialStore.getCommercialAccountByOrgId(orgId);
+    if (!account) return res.status(409).json({ error: 'Commercial account is not configured.' });
+    const organization = await postgresStore.getProviderOrganization(orgId);
+    if (!organization) return res.status(409).json({ error: 'Provider organization is not configured.' });
+    const processor = getStripePaymentProcessor();
+    let customerId = account.externalBillingCustomerRef;
+    if (!customerId) {
+      const customer = await processor.createCustomer({ providerOrganizationId: orgId, name: organization.displayName });
+      customerId = customer.id;
+      await commercialStore.saveCommercialAccount({ ...account, externalBillingCustomerRef: customerId, updatedAt: new Date().toISOString() });
+    }
+    const session = await processor.createInvoicePaymentSession({
+      customerId, invoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber,
+      providerOrganizationId: orgId, amountCents: invoice.balanceDueCents
+    });
+    await postgresStore.appendAuditEvent({
+      eventType: 'PAYMENT_SESSION_CREATED', actorRole: 'PROVIDER', actorId: orgId,
+      details: `Stripe checkout session ${session.id} created for invoice ${invoice.id} and ${invoice.balanceDueCents} USD cents.`
+    });
+    res.status(201).json({ success: true, checkoutSessionId: session.id, checkoutUrl: session.url });
+  } catch (e: any) {
+    res.status(e.statusCode || 502).json({ error: e.message, code: e.code });
+  }
+});
+
+app.post('/api/commercial/stripe/webhook', async (req, res) => {
+  try {
+    const signature = req.headers['stripe-signature'];
+    if (typeof signature !== 'string' || !Buffer.isBuffer(req.body)) {
+      return res.status(400).json({ error: 'Valid Stripe signature and raw request body are required.' });
+    }
+    const processor = getStripePaymentProcessor();
+    const event = processor.constructWebhookEvent(req.body, signature);
+
+    if (event.type.startsWith('payment_intent.')) {
+      const intent = event.data.object as any;
+      const invoiceId = intent.metadata?.openPolicyInvoiceId;
+      const providerOrganizationId = intent.metadata?.openPolicyProviderOrganizationId;
+      if (!invoiceId || !providerOrganizationId) return res.status(400).json({ error: 'Stripe payment metadata is incomplete.' });
+      const invoice = await commercialStore.getInvoiceById(invoiceId);
+      if (!invoice || invoice.providerOrganizationId !== providerOrganizationId || intent.currency !== 'usd') {
+        return res.status(409).json({ error: 'Stripe payment does not match an Open Policy invoice.' });
+      }
+      const mappedStatus = mapStripeIntentStatus(intent.status);
+      const paymentIdempotencyKey = `stripe-payment:${intent.id}`;
+      const previousPayment = await commercialStore.getPaymentRecordByIdempotencyKey(paymentIdempotencyKey);
+      if (mappedStatus === 'SUCCEEDED') {
+        const amount = Number(intent.amount_received || intent.amount);
+        await commercialStore.recordPayment({
+          providerOrganizationId, invoiceId, amountCents: amount,
+          paymentMethod: stripePaymentMethod(intent), externalReference: intent.id,
+          idempotencyKey: paymentIdempotencyKey
+        });
+      } else {
+        await commercialStore.savePaymentRecord({
+          id: `pay_stripe_${intent.id}`, providerOrganizationId, invoiceId,
+          amountCents: Number(intent.amount), currency: 'USD', paymentMethod: stripePaymentMethod(intent),
+          status: mappedStatus, externalReference: intent.id,
+          failureReason: mappedStatus === 'FAILED'
+            ? (intent.last_payment_error?.code || intent.cancellation_reason || intent.status) : undefined,
+          idempotencyKey: paymentIdempotencyKey, createdAt: new Date(event.created * 1000).toISOString()
+        });
+      }
+      if (previousPayment?.status !== mappedStatus) {
+        await postgresStore.appendAuditEvent({
+          eventType: 'PAYMENT_PROCESSOR_STATUS_CHANGED', actorRole: 'SYSTEM', actorId: 'stripe_webhook',
+          details: `Stripe event ${event.id} mapped PaymentIntent ${intent.id} to ${mappedStatus} for invoice ${invoiceId}.`
+        });
+      }
+    }
+
+    if ((event.type === 'refund.created' || event.type === 'refund.updated')) {
+      const refund = event.data.object as any;
+      if (refund.status === 'succeeded') {
+        const paymentRecordId = refund.metadata?.openPolicyPaymentRecordId;
+        if (!paymentRecordId) return res.status(400).json({ error: 'Stripe refund metadata is incomplete.' });
+        await commercialStore.recordRefund({
+          paymentId: paymentRecordId, amountCents: Number(refund.amount),
+          reason: refund.metadata?.openPolicyReason || 'Stripe processor refund',
+          idempotencyKey: `stripe-refund:${refund.id}`
+        });
+      }
+    }
+    res.json({ received: true, eventId: event.id });
+  } catch (e: any) {
+    res.status(e.type === 'StripeSignatureVerificationError' ? 400 : (e.statusCode || 500)).json({ error: e.message });
+  }
+});
+
 // 9. Record Refund
 app.post('/api/commercial/refunds', async (req, res) => {
   try {
-    assertDirectSettlementMutationAllowed();
-    const orgId = await getAuthenticatedProviderOrgId(req);
     const { paymentId, amountCents, reason, idempotencyKey } = req.body;
     if (!paymentId || !amountCents || !reason) {
       return res.status(400).json({ error: 'paymentId, amountCents, and reason are required' });
     }
 
     const payment = await commercialStore.getPaymentRecordById(paymentId);
-    if (!payment || payment.providerOrganizationId !== orgId) {
-      return res.status(403).json({ error: 'Payment not found or does not belong to provider' });
-    }
-
-    const result = await commercialStore.recordRefund({
-      paymentId,
-      amountCents: Number(amountCents),
-      reason,
-      idempotencyKey
+    if (!payment) return res.status(404).json({ error: 'Payment not found' });
+    if (!payment.externalReference) return res.status(409).json({ error: 'Payment is not associated with an external processor transaction.' });
+    const processorRefund = await getStripePaymentProcessor().refund({
+      paymentIntentId: payment.externalReference, amountCents: Number(amountCents),
+      paymentRecordId: payment.id, reason
     });
+    if (processorRefund.status !== 'succeeded') {
+      return res.status(202).json({ success: true, pending: true, processorRefundId: processorRefund.id });
+    }
+    const refundIdempotencyKey = idempotencyKey || `stripe-refund:${processorRefund.id}`;
+    const previousRefund = await commercialStore.getRefundByIdempotencyKey(refundIdempotencyKey);
+    const result = await commercialStore.recordRefund({ paymentId, amountCents: Number(amountCents), reason,
+      idempotencyKey: refundIdempotencyKey });
+    if (!previousRefund) {
+      await postgresStore.appendAuditEvent({
+        eventType: 'REFUND_PROCESSOR_CONFIRMED', actorRole: 'ADMIN', actorId: req.openPolicyIdentity?.uid || 'platform_admin',
+        details: `Stripe refund ${processorRefund.id} confirmed for payment ${paymentId} and ${Number(amountCents)} USD cents.`
+      });
+    }
 
     res.status(201).json({
       success: true,
