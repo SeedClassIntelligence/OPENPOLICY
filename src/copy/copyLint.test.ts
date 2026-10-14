@@ -185,3 +185,13 @@ test('provider landing page preserves access, neutrality, and transaction bounda
   assert.match(providerLanding, /compensation-determination and market-activation gates/);
   assert.doesNotMatch(providerLanding, /\bbid(?:ding|s)?\b|\bauction(?:ed|ing|s)?\b|\brank(?:ed|ing|s)?\b/i);
 });
+
+test('public consumer and provider tabs route to their landing experiences before authentication', () => {
+  const app = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');
+  const header = readFileSync(new URL('../components/Header.tsx', import.meta.url), 'utf8');
+  assert.match(app, /perspective === 'PROVIDER' \? '\/providers' : '\/'/);
+  assert.match(app, /document\.getElementById\('create-account'\)\?\.scrollIntoView/);
+  assert.match(app, /window\.dispatchEvent\(new PopStateEvent\('popstate'\)\)/);
+  assert.match(header, /if \(!isAuthenticated && p\.id === 'LANDING'\) return null/);
+  assert.match(header, /p\.id === 'PROVIDER' \? publicLandingPath === '\/providers'/);
+});

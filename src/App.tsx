@@ -84,18 +84,20 @@ function MainApp() {
       return;
     }
 
-    // Protected Perspectives: Consumers and Providers require authentication
+    // Before authentication, the Consumer and Provider tabs select the matching
+    // public landing experience. Authenticated users retain direct portal access.
     if (!isAuthenticated && (perspective === 'CONSUMER' || perspective === 'PROVIDER')) {
-      const targetRole: 'CONSUMER' | 'PROVIDER' = perspective === 'PROVIDER' ? 'PROVIDER' : 'CONSUMER';
-      openAuthModal({ 
-        initialRole: targetRole, 
-        initialMode: 'SIGN_UP' 
-      });
-      showToast(
-        perspective === 'PROVIDER' 
-          ? 'Please register your agency or sign in to access the Provider Quoting Desk.' 
-          : 'Please create an account or sign in to share your current policy for provider review.'
-      );
+      const path = perspective === 'PROVIDER' ? '/providers' : '/';
+      window.history.pushState({}, '', path);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+      setActivePerspective('LANDING');
+      window.setTimeout(() => {
+        if (perspective === 'CONSUMER') {
+          document.getElementById('create-account')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } else {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+      }, 0);
       return;
     }
 
