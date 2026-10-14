@@ -330,6 +330,10 @@ export interface Offer {
   effectiveDate: string;
   expirationDate: string;
   coverages: CoverageItem[];
+  /** Canonical provider-stated coverage facts for line-aware offers. */
+  verifiedFacts?: Partial<Record<NormalizedPolicyFieldPath, string | number>>;
+  /** Historical records without this discriminator are personal auto. */
+  insuranceLine?: import('./jurisdiction').InsuranceLine;
   supportingQuoteDocName: string;
   submittedAt: string;
   discrepanciesDetected: boolean;
@@ -1199,6 +1203,9 @@ export interface OfferVersion {
   annualPremium: number;
   monthlyPremium: number;
   coverages: CoverageItem[];
+  /** Immutable provider-stated coverage facts for this exact version. */
+  verifiedFacts?: Partial<Record<NormalizedPolicyFieldPath, string | number>>;
+  insuranceLine?: import('./jurisdiction').InsuranceLine;
   supportingQuoteDocName: string;
   revisionReason: string;
   submittedAt: string;

@@ -1,7 +1,7 @@
 import { PGlite } from '@electric-sql/pglite';
 import fs from 'fs';
 import pg from 'pg';
-import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8, SQL_MIGRATION_V9, SQL_MIGRATION_V10, SQL_MIGRATION_V11, SQL_MIGRATION_V12, SQL_MIGRATION_V13 } from './migrate';
+import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8, SQL_MIGRATION_V9, SQL_MIGRATION_V10, SQL_MIGRATION_V11, SQL_MIGRATION_V12, SQL_MIGRATION_V13, SQL_MIGRATION_V14 } from './migrate';
 import { buildVerifiedPolicyAndBaseline } from '../../domain/policyEvidenceVerification';
 import {
   ProviderOrganization,
@@ -234,6 +234,10 @@ export class PostgresStore {
         await this.sql.exec(SQL_MIGRATION_V13);
         await this.sql.query(
           `INSERT INTO _migrations (name) VALUES ('0013_retire_binding_negotiation') ON CONFLICT (name) DO NOTHING;`
+        );
+        await this.sql.exec(SQL_MIGRATION_V14);
+        await this.sql.query(
+          `INSERT INTO _migrations (name) VALUES ('0014_multiline_offer_evidence') ON CONFLICT (name) DO NOTHING;`
         );
         this.isReady = true;
         console.log(
@@ -1333,7 +1337,8 @@ export class PostgresStore {
       id: string; offer_id: string; version_number: number; round: string;
       carrier: string; annual_premium: number; monthly_premium: number;
       coverages: string; supporting_quote_doc_name: string; revision_reason: string;
-      submitted_at: string; superseded_at: string | null;
+      submitted_at: string; superseded_at: string | null; insurance_line: string | null;
+      verified_facts: string | null;
     }>(`SELECT * FROM offer_versions WHERE offer_id = $1 ORDER BY version_number ASC;`, [offerId]);
     return res.rows.map(row => ({
       id: row.id,
@@ -1344,6 +1349,8 @@ export class PostgresStore {
       annualPremium: row.annual_premium,
       monthlyPremium: row.monthly_premium,
       coverages: JSON.parse(row.coverages || '[]'),
+      verifiedFacts: row.verified_facts ? JSON.parse(row.verified_facts) : undefined,
+      insuranceLine: (row.insurance_line || undefined) as OfferVersion['insuranceLine'],
       supportingQuoteDocName: row.supporting_quote_doc_name,
       revisionReason: row.revision_reason,
       submittedAt: row.submitted_at,
@@ -2168,12 +2175,13 @@ export class PostgresStore {
       await client.query(
         `INSERT INTO offer_versions (id, offer_id, version_number, round, carrier,
            annual_premium, monthly_premium, coverages, supporting_quote_doc_name,
-           revision_reason, submitted_at, superseded_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12);`,
+           revision_reason, submitted_at, superseded_at, insurance_line, verified_facts)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14);`,
         [version.id, version.offerId, version.versionNumber, version.round, version.carrier,
          version.annualPremium, version.monthlyPremium, JSON.stringify(version.coverages || []),
          version.supportingQuoteDocName || '', version.revisionReason, version.submittedAt,
-         version.supersededAt || null]
+         version.supersededAt || null, version.insuranceLine || null,
+         version.verifiedFacts ? JSON.stringify(version.verifiedFacts) : null]
       );
       challenge.offersCount = Number(challenge.offersCount || 0) + 1;
       challenge.status = 'OFFERS_RECEIVED';
@@ -2205,7 +2213,7 @@ export class PostgresStore {
       const o=input.revised;
       await client.query(`INSERT INTO offers (id,challenge_id,provider_id,provider_name,carrier,annual_premium,monthly_premium,status,round,version,previous_offer_id,is_latest_revision,payload) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,TRUE,$12);`,[o.id,o.challengeId,o.providerId,o.providerName,o.carrier,o.annualPremium,o.monthlyPremium,o.status,o.round,o.version,o.previousOfferId,JSON.stringify(o)]);
       const v=input.version;
-      await client.query(`INSERT INTO offer_versions (id,offer_id,version_number,round,carrier,annual_premium,monthly_premium,coverages,supporting_quote_doc_name,revision_reason,submitted_at,superseded_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12);`,[v.id,v.offerId,v.versionNumber,v.round,v.carrier,v.annualPremium,v.monthlyPremium,JSON.stringify(v.coverages),v.supportingQuoteDocName,v.revisionReason,v.submittedAt,v.supersededAt||null]);
+      await client.query(`INSERT INTO offer_versions (id,offer_id,version_number,round,carrier,annual_premium,monthly_premium,coverages,supporting_quote_doc_name,revision_reason,submitted_at,superseded_at,insurance_line,verified_facts) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14);`,[v.id,v.offerId,v.versionNumber,v.round,v.carrier,v.annualPremium,v.monthlyPremium,JSON.stringify(v.coverages),v.supportingQuoteDocName,v.revisionReason,v.submittedAt,v.supersededAt||null,v.insuranceLine||null,v.verifiedFacts?JSON.stringify(v.verifiedFacts):null]);
       const e=input.activity;await client.query(`INSERT INTO competition_activity_events (id,competition_id,challenge_id,occurred_at,event_type,provider_organization_id,payload) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(id) DO NOTHING;`,[e.id,e.competitionId,e.challengeId,e.timestamp,e.type,e.providerOrganizationId||null,JSON.stringify(e)]);
       await this.appendAuditInTransaction(client,{eventType:'OFFER_SUBMITTED',actorRole:'PROVIDER',actorId:input.actorId,details:`Provider revised offer ${input.original.id} to version ${v.versionNumber}`});
       return o;
@@ -2290,8 +2298,9 @@ export class PostgresStore {
     await this.sql!.query(
       `INSERT INTO offer_versions (
         id, offer_id, version_number, round, carrier, annual_premium, monthly_premium,
-        coverages, supporting_quote_doc_name, revision_reason, submitted_at, superseded_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        coverages, supporting_quote_doc_name, revision_reason, submitted_at, superseded_at,
+        insurance_line, verified_facts
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
       ON CONFLICT (id) DO UPDATE SET
         superseded_at = EXCLUDED.superseded_at;`,
       [
@@ -2306,7 +2315,9 @@ export class PostgresStore {
         ver.supportingQuoteDocName,
         ver.revisionReason,
         ver.submittedAt,
-        ver.supersededAt || null
+        ver.supersededAt || null,
+        ver.insuranceLine || null,
+        ver.verifiedFacts ? JSON.stringify(ver.verifiedFacts) : null
       ]
     );
   }

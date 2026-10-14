@@ -277,6 +277,8 @@ export function createOfferVersionSnapshot(
     annualPremium: existingOffer.annualPremium,
     monthlyPremium: existingOffer.monthlyPremium,
     coverages: JSON.parse(JSON.stringify(existingOffer.coverages)),
+    verifiedFacts: existingOffer.verifiedFacts ? JSON.parse(JSON.stringify(existingOffer.verifiedFacts)) : undefined,
+    insuranceLine: existingOffer.insuranceLine,
     supportingQuoteDocName: existingOffer.supportingQuoteDocName,
     revisionReason: revisionReason || 'Offer updated by provider',
     submittedAt: existingOffer.submittedAt,

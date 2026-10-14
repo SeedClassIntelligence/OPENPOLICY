@@ -1190,6 +1190,13 @@ CREATE INDEX IF NOT EXISTS idx_binding_honor_failures_challenge
   ON binding_honor_failures(challenge_id, reported_at);
 `;
 
+export const SQL_MIGRATION_V14 = `
+-- Multi-line offer evidence: preserve the exact line and provider-stated
+-- coverage facts on every immutable OfferVersion.
+ALTER TABLE offer_versions ADD COLUMN IF NOT EXISTS insurance_line TEXT;
+ALTER TABLE offer_versions ADD COLUMN IF NOT EXISTS verified_facts TEXT;
+`;
+
 export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR || './data/openpolicy_pg') {
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
@@ -1250,7 +1257,11 @@ export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR ||
     await pglite.query(
       `INSERT INTO _migrations (name) VALUES ('0013_retire_binding_negotiation') ON CONFLICT (name) DO NOTHING;`
     );
-    console.log(`[Open Policy DB] Migrations 0001 through 0013 applied successfully.`);
+    await pglite.exec(SQL_MIGRATION_V14);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0014_multiline_offer_evidence') ON CONFLICT (name) DO NOTHING;`
+    );
+    console.log(`[Open Policy DB] Migrations 0001 through 0014 applied successfully.`);
     return pglite;
   } catch (error) {
     console.error(`[Open Policy DB] Migration error:`, error);

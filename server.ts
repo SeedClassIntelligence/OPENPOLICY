@@ -90,6 +90,7 @@ import { DocumentAiOcrProvider } from './src/server/documentAiOcrProvider';
 import { extractAndClassifyPolicyDocument } from './src/server/policyDocumentExtraction';
 import { validatePolicyFieldCorrection } from './src/domain/policyFieldCorrection';
 import { canEnterPolicyPipeline, INSURANCE_LINES } from './src/domain/insuranceLineRegistry';
+import { validatePolicyLineOfferFacts } from './src/domain/policyLineOfferContract';
 import { JURISDICTION_LINE_ROLLOUT_MATRIX } from './src/domain/jurisdictionLineAvailability';
 import type { InsuranceLine } from './src/types/jurisdiction';
 
@@ -928,6 +929,17 @@ app.post('/api/offers/submit', async (req, res) => {
 
   const challengeForOffer = await postgresStore.getChallenge(offerData.challengeId);
   if (!challengeForOffer) return res.status(404).json({ error: 'Policy review not found' });
+  const insuranceLine = challengeForOffer.insuranceLine || challengeForOffer.baseline.insuranceLine || 'PERSONAL_AUTO';
+  if (!canEnterPolicyPipeline(insuranceLine)) {
+    return res.status(409).json({ error: `Offer submission is not activated for ${insuranceLine}.` });
+  }
+  if (offerData.insuranceLine && offerData.insuranceLine !== insuranceLine) {
+    return res.status(400).json({ error: 'Offer insurance line does not match the policy review.' });
+  }
+  offerData.insuranceLine = insuranceLine;
+  if (insuranceLine !== 'PERSONAL_AUTO') {
+    offerData.verifiedFacts = validatePolicyLineOfferFacts(insuranceLine, offerData.verifiedFacts);
+  }
   const competitionForOffer = await postgresStore.getCompetitionForChallenge(offerData.challengeId);
   if (!competitionForOffer) return res.status(404).json({ error: 'Offer-submission window not found' });
   const providerForOffer = await postgresStore.getProviderOrganization(offerData.providerId);
@@ -945,6 +957,8 @@ app.post('/api/offers/submit', async (req, res) => {
     versionNumber: offerData.version || 1, round: offerData.round || 'ROUND_1_OPEN',
     carrier: offerData.carrier, annualPremium: offerData.annualPremium,
     monthlyPremium: offerData.monthlyPremium, coverages: JSON.parse(JSON.stringify(offerData.coverages)),
+    verifiedFacts: offerData.verifiedFacts ? JSON.parse(JSON.stringify(offerData.verifiedFacts)) : undefined,
+    insuranceLine,
     supportingQuoteDocName: offerData.supportingQuoteDocName,
     revisionReason: 'Initial offer submission', submittedAt: offerData.submittedAt
   };
@@ -1515,6 +1529,12 @@ app.post('/api/marketplace/competition/:challengeId/revise-offer/:offerId', asyn
     if(originalOffer.challengeId!==challenge.id)return res.status(400).json({error:'Offer does not belong to this policy review'});
     if(originalOffer.providerId!==orgId)return res.status(403).json({error:'Provider cannot revise another organization offer'});
     if(Date.now()>=new Date(competition.closesAt).getTime())return res.status(400).json({error:'Offer updates are not permitted after the submission window closes.'});
+    if(!req.body?.revisedData||typeof req.body.revisedData!=='object'||Array.isArray(req.body.revisedData))return res.status(400).json({error:'Revised offer data is required.'});
+    const insuranceLine=challenge.insuranceLine||challenge.baseline.insuranceLine||'PERSONAL_AUTO';
+    if(!canEnterPolicyPipeline(insuranceLine))return res.status(409).json({error:`Offer submission is not activated for ${insuranceLine}.`});
+    if(req.body.revisedData?.insuranceLine&&req.body.revisedData.insuranceLine!==insuranceLine)return res.status(400).json({error:'Offer insurance line does not match the policy review.'});
+    if(insuranceLine!=='PERSONAL_AUTO')req.body.revisedData.verifiedFacts=validatePolicyLineOfferFacts(insuranceLine,req.body.revisedData?.verifiedFacts);
+    req.body.revisedData.insuranceLine=insuranceLine;
     const validation=validateOfferRevision(originalOffer,req.body.revisedData,competition.currentRound);
     if(!validation.valid)return res.status(400).json({error:validation.errors.join('; ')});
     const version=(originalOffer.version||1)+1;const submittedAt=new Date().toISOString();
