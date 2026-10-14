@@ -68,6 +68,8 @@ export interface PolicyDocumentRecord {
   createdAt: string;
   updatedAt: string;
   rejectionCode?: string;
+  /** Historical records without this discriminator are personal auto. */
+  insuranceLine?: import('./jurisdiction').InsuranceLine;
 }
 
 export type InsuranceDocumentClassification =
@@ -91,6 +93,15 @@ export interface PolicyDocumentClassificationResult {
   evidenceReferences: string[];
   requiresReview: boolean;
   classifiedAt: string;
+  lineAssessment?: InsuranceLineAssessment;
+}
+
+export interface InsuranceLineAssessment {
+  declaredLine: import('./jurisdiction').InsuranceLine;
+  detectedLine?: import('./jurisdiction').InsuranceLine;
+  disposition: 'MATCH' | 'CONFLICT' | 'INDETERMINATE';
+  confidence: number;
+  evidenceReferences: string[];
 }
 
 export interface PolicyExtractionRun {
@@ -112,7 +123,20 @@ export type NormalizedPolicyFieldPath =
   | 'vehicle.vin' | 'vehicle.year' | 'vehicle.make' | 'vehicle.model'
   | 'vehicle.usage' | 'vehicle.annualMileage' | 'vehicle.garagingZip' | 'vehicle.ownership'
   | 'coverage.bodilyInjury.perPersonLimit' | 'coverage.bodilyInjury.perAccidentLimit'
-  | 'coverage.propertyDamage.propertyLimit';
+  | 'coverage.propertyDamage.propertyLimit'
+  | 'coverage.medicalPayments.included' | 'coverage.rentalReimbursement.included'
+  | 'coverage.umUim.included' | 'coverage.comprehensive.included'
+  | 'coverage.collision.included' | 'coverage.roadsideAssistance.included'
+  | 'property.address' | 'property.occupancy' | 'property.yearBuilt' | 'property.constructionType'
+  | 'coverage.dwelling.limit' | 'coverage.otherStructures.limit' | 'coverage.personalProperty.limit'
+  | 'coverage.lossOfUse.limit' | 'coverage.personalLiability.limit' | 'coverage.medicalPayments.limit'
+  | 'coverage.property.deductible' | 'coverage.windHail.deductible'
+  | 'coverage.waterBackup.included' | 'coverage.waterBackup.limit'
+  | 'business.legalName' | 'business.location' | 'business.classification'
+  | 'coverage.cgl.eachOccurrence' | 'coverage.cgl.generalAggregate'
+  | 'coverage.cgl.productsCompletedOperationsAggregate' | 'coverage.cgl.personalAdvertisingInjury'
+  | 'coverage.cgl.medicalExpense' | 'coverage.businessProperty.limit'
+  | 'coverage.businessIncome.included' | 'coverage.extraExpense.included';
 
 export interface NormalizedPolicyFieldCandidate {
   fieldPath: NormalizedPolicyFieldPath;
@@ -196,8 +220,12 @@ export interface Policy {
   drivers: Driver[];
   vehicles: Vehicle[];
   coverages: CoverageItem[];
+  /** Canonical, source-verified line facts for non-Auto and future line-aware workflows. */
+  verifiedFacts?: Partial<Record<NormalizedPolicyFieldPath, string | number>>;
   sourceDocumentId: string;
   sourceDocumentName: string;
+  /** Historical records without this discriminator are personal auto. */
+  insuranceLine?: import('./jurisdiction').InsuranceLine;
 }
 
 export interface CoverageBaseline {
@@ -210,13 +238,19 @@ export interface CoverageBaseline {
   baselineAnnualPremium: number;
   baselineMonthlyPremium: number;
   jurisdiction?: string;
-  vehicle: Vehicle;
+  /** Present for Personal Auto; omitted for lines whose risk subject is not a vehicle. */
+  vehicle?: Vehicle;
   coverages: CoverageItem[];
+  /** Immutable factual snapshot used by line-specific comparison contracts. */
+  verifiedFacts?: Partial<Record<NormalizedPolicyFieldPath, string | number>>;
   verifiedAt: string;
   verifiedBy: string;
+  /** Historical records without this discriminator are personal auto. */
+  insuranceLine?: import('./jurisdiction').InsuranceLine;
 }
 
-export interface ConsumerRequirements {
+/** @deprecated Historical evidence only. New challenges cannot accept consumer-authored terms. */
+export interface LegacyConsumerRequirements {
   id: string;
   ruleSummary: string; // Default: "Offers should cost less and not reduce my coverage."
   minAnnualSavings: number; // e.g. 100
@@ -228,11 +262,16 @@ export interface ConsumerRequirements {
   notes?: string;
 }
 
+export interface QualificationStandard {
+  version: string;
+}
+
 export type ChallengeStatus = 
   | 'DRAFT'
   | 'READY'
   | 'OPEN'
   | 'OFFERS_RECEIVED'
+  /** @deprecated Historical state only. */
   | 'FINAL_ROUND'
   | 'CONSUMER_REVIEW'
   | 'INCUMBENT_DEFENDED'
@@ -248,13 +287,17 @@ export interface Challenge {
   consumerId: string;
   coverageBaselineId: string;
   baseline: CoverageBaseline;
-  requirements: ConsumerRequirements;
+  qualificationStandardVersion?: string;
+  legacyRequirements?: LegacyConsumerRequirements;
   jurisdiction: string;
+  /** Defaults to PERSONAL_AUTO only for records created before multi-line support. */
+  insuranceLine?: import('./jurisdiction').InsuranceLine;
   openingTimestamp: string;
   closingTimestamp: string;
   status: ChallengeStatus;
   disclosureLevel: 'MARKETPLACE_ANONYMOUS' | 'RATING_ELIGIBLE' | 'SELECTION_REVEALED';
   offersCount: number;
+  /** @deprecated Historical evidence only. */
   isFinalRound?: boolean;
   incumbentDefended?: boolean;
   // PR-0A (additive): regulatory anchoring for historical reconstruction.
@@ -264,16 +307,13 @@ export interface Challenge {
   regulatoryEvaluationDate?: string;
 }
 
-export type CompetitionRound = 
-  | 'OPEN'
-  | 'ROUND_1_OPEN' 
-  | 'IMPROVEMENT'
-  | 'ROUND_2_IMPROVEMENT' 
-  | 'BEST_AND_FINAL'
-  | 'ROUND_3_BAFO' 
-  | 'CLOSED'
-  | 'CONSUMER_REVIEW'
-  | 'CLOSED_PENDING_SELECTION';
+export type CompetitionRound = 'OPEN' | 'CLOSED' | 'CONSUMER_REVIEW' | 'CLOSED_PENDING_SELECTION'
+  | LegacyCompetitionRound;
+
+/** @deprecated Historical records only; migrations collapse these into live window states. */
+export type LegacyCompetitionRound =
+  | 'ROUND_1_OPEN' | 'IMPROVEMENT' | 'ROUND_2_IMPROVEMENT'
+  | 'BEST_AND_FINAL' | 'ROUND_3_BAFO';
 
 export interface Offer {
   id: string;
@@ -290,13 +330,17 @@ export interface Offer {
   effectiveDate: string;
   expirationDate: string;
   coverages: CoverageItem[];
+  /** Canonical provider-stated coverage facts for line-aware offers. */
+  verifiedFacts?: Partial<Record<NormalizedPolicyFieldPath, string | number>>;
+  /** Historical records without this discriminator are personal auto. */
+  insuranceLine?: import('./jurisdiction').InsuranceLine;
   supportingQuoteDocName: string;
   submittedAt: string;
   discrepanciesDetected: boolean;
   discrepancyDetails?: string[];
   status: 'PENDING_VALIDATION' | 'VALIDATED' | 'DISCREPANCY_FLAGGED' | 'SELECTED' | 'REJECTED' | 'WITHDRAWN';
   // PM-2 Multi-Carrier & Multi-Round extensions
-  round?: CompetitionRound;
+  round?: CompetitionRound | LegacyCompetitionRound;
   version?: number;
   previousOfferId?: string;
   revisionReason?: string;
@@ -340,8 +384,8 @@ export interface OfferComparison {
   providerName: string;
   currentAnnualPremium: number;
   offerAnnualPremium: number;
-  annualSavings: number; // positive = saves money, negative = costs more
-  monthlySavings: number;
+  annualPremiumDifference: number; // baseline minus offer; factual, not a qualification score
+  monthlyPremiumDifference: number;
   classification: WholeOfferClassification;
   summaryHeadline: string;
   materialReductions: FieldComparison[];
@@ -353,8 +397,13 @@ export interface OfferComparison {
   differentFieldsCount: number;
   unknownFieldsCount: number;
   totalFieldsCount: number;
-  meetsConsumerRequirements: boolean;
-  requirementViolations: string[];
+}
+
+export interface OfferStandardResult {
+  standardVersion: string;
+  coverageRelation: WholeOfferClassification;
+  annualPremiumDifference: number;
+  differences: FieldComparison[];
 }
 
 export type BindingHandoffStatus = 
@@ -470,6 +519,25 @@ export interface BindingModification {
   status: 'PENDING_CONSUMER_REVIEW' | 'ACCEPTED' | 'REJECTED';
   decidedAt?: string;
   rejectionReason?: string;
+}
+
+export type CannotHonorReasonCode =
+  | 'UNDERWRITING_INELIGIBLE'
+  | 'MATERIAL_APPLICATION_INFORMATION_CHANGED'
+  | 'CARRIER_DECLINED'
+  | 'PROVIDER_AUTHORITY_UNAVAILABLE'
+  | 'SELECTED_PRODUCT_UNAVAILABLE'
+  | 'APPLICATION_INCOMPLETE'
+  | 'OTHER_OPERATIONAL_FAILURE';
+
+export interface BindingHonorFailure {
+  id: string;
+  bindingHandoffId: string;
+  challengeId: string;
+  providerOrganizationId: string;
+  providerUserId: string;
+  reasonCode: CannotHonorReasonCode;
+  reportedAt: string;
 }
 
 // PM-5: Issued Policy Document Evidence
@@ -654,6 +722,8 @@ export interface AuditEvent {
     | 'COMPETITION_CREATED'
     | 'COMPETITION_OPENED'
     | 'INVITATION_CREATED'
+    | 'INVITATION_ACTIVATED'
+    | 'ADDITIONAL_OFFERS_REQUESTED'
     | 'INVITATION_VIEWED'
     | 'INVITATION_ACCEPTED'
     | 'INVITATION_DECLINED'
@@ -670,6 +740,7 @@ export interface AuditEvent {
     | 'BINDING_MODIFICATION_PROPOSED'
     | 'BINDING_MODIFICATION_ACCEPTED'
     | 'BINDING_MODIFICATION_REJECTED'
+    | 'SELECTED_OFFER_CANNOT_BE_HONORED'
     | 'BINDING_STATUS_CHANGED'
     | 'ISSUED_POLICY_UPLOADED'
     | 'RECONCILIATION_VARIANCE_RESOLVED'
@@ -730,7 +801,8 @@ export interface PlatformNotification {
     | 'RENEWAL_APPROACHING'
     | 'RENEWAL_INCREASE_DETECTED'
     | 'OPPORTUNITY_RECEIVED'
-    | 'COMPETITION_UPDATE';
+    | 'COMPETITION_UPDATE'
+    | 'SELECTED_OFFER_UNAVAILABLE';
   title: string;
   message: string;
   timestamp: string;
@@ -852,7 +924,9 @@ export type CompetitionStatus =
   | 'MATCHING'
   | 'INVITING'
   | 'OPEN'
+  /** @deprecated Historical state only. */
   | 'IMPROVEMENT'
+  /** @deprecated Historical state only. */
   | 'BEST_AND_FINAL'
   | 'CLOSED'
   | 'CONSUMER_REVIEW'
@@ -870,34 +944,37 @@ export interface Competition {
   openedAt: string;
   closesAt: string; // Default: 48 hours after opening
   participantCount: number;
-  improvementRoundEnabled: boolean;
-  finalRoundEnabled: boolean;
+  /** Consumer-controlled provider activation within the single submission window. */
+  offerCohortSize?: number;
+  activeOfferCohort?: number;
+  maximumActivatedProviders?: number;
+  /** @deprecated Historical configuration only. */
+  improvementRoundEnabled?: boolean;
+  /** @deprecated Historical configuration only. */
+  finalRoundEnabled?: boolean;
   completedAt?: string;
   cancellationReason?: string;
-  // PM-2 & PM-3 Lifecycle Extensions
-  roundDeadlines?: { [key in CompetitionRound]?: string };
-  roundDurationsHours?: RoundDeadlineConfig;
-  roundOffersCount?: { [key in CompetitionRound]?: number };
-  roundHistory?: Array<{
-    round: CompetitionRound;
+  /** @deprecated Immutable historical evidence only. */
+  legacyRoundHistory?: Array<{
+    round: CompetitionRound | LegacyCompetitionRound;
     enteredAt: string;
     completedAt?: string;
     reason?: string;
   }>;
+  /** @deprecated Historical evidence only. */
+  roundDeadlines?: Partial<Record<CompetitionRound, string>>;
+  /** @deprecated Historical evidence only. */
+  roundDurationsHours?: RoundDeadlineConfig;
+  /** @deprecated Historical evidence only. */
+  roundOffersCount?: Partial<Record<CompetitionRound, number>>;
+  /** @deprecated Historical evidence only. */
+  roundHistory?: Array<{ round: CompetitionRound; enteredAt: string; completedAt?: string; reason?: string }>;
+  /** @deprecated Historical evidence only. */
   isBafoTriggered?: boolean;
 }
 
-export interface RoundDeadlineConfig {
-  [key: string]: number | undefined;
-  OPEN?: number;
-  ROUND_1_OPEN?: number;
-  IMPROVEMENT?: number;
-  ROUND_2_IMPROVEMENT?: number;
-  BEST_AND_FINAL?: number;
-  ROUND_3_BAFO?: number;
-  CLOSED?: number;
-  CONSUMER_REVIEW?: number;
-}
+/** @deprecated Historical round configuration only. */
+export interface RoundDeadlineConfig { [key: string]: number | undefined }
 
 export type CompetitionActivityType = 
   | 'COMPETITION_OPENED'
@@ -911,6 +988,7 @@ export type CompetitionActivityType =
   | 'INFORMATION_ANSWERED'
   | 'ROUND_CLOSED'
   | 'CONSUMER_REVIEW_ENTERED'
+  | 'ADDITIONAL_OFFERS_REQUESTED'
   | 'CONSUMER_KEPT_CURRENT_POLICY'
   | 'OFFER_SELECTED_FOR_BINDING';
 
@@ -924,7 +1002,7 @@ export interface CompetitionActivityEvent {
   actorName?: string;
   providerOrganizationId?: string;
   summary: string;
-  round: CompetitionRound;
+  round: CompetitionRound | LegacyCompetitionRound;
   metadata?: Record<string, any>;
 }
 
@@ -934,63 +1012,25 @@ export interface RoundDeadlineStatus {
   isExpired: boolean;
   remainingSeconds: number;
   formattedRemaining: string;
-  nextRoundSuggested?: CompetitionRound;
 }
 
-// Canonical Sealed Provider Telemetry (PM-1 Mandatory Invariant)
-export interface ProviderOfferStanding {
+export interface ProviderOwnOfferStatus {
   offerId: string;
-  carrier: string;
-  tierLabel?: string;
+  version: number;
   annualPremium: number;
-  differenceFromCurrentPolicy: number;
-  savingsPercentage: number;
-  status: 'VALIDATED' | 'DISCREPANCY_FLAGGED';
-  classification: WholeOfferClassification;
-  meetsRequirements: boolean;
-  isVerified: boolean;
+  validationStatus: Offer['status'];
+  standard: OfferStandardResult;
   requiresAdditionalInfo: boolean;
-  canRevise: boolean;
 }
 
-export interface ProviderMarketSignal {
-  competitionId: string;
-  challengeId: string;
-  currentRound: CompetitionRound;
-  roundClosesAt: string;
-  roundTimeRemainingMs: number;
-  totalInvitedProviders: number;
-  totalParticipatingProviders: number;
-  totalSubmittedOffersInRound: number;
-  yourSubmittedOffersCount: number;
-  consumerRequestedImprovement: boolean;
-  statusMessage?: string;
-  yourOffers: ProviderOfferStanding[];
-  guidanceHint?: string;
-  nextRoundEligible: boolean;
-  // Legacy compatibility accessor (sealed to provider's own offer)
-  bestPosition?: {
-    offerId: string;
-    carrier: string;
-    annualSavings: number;
-    savingsPercentage: number;
-    guidanceHint: string;
-    meetsRequirements: boolean;
-    isVerified: boolean;
-  } | null;
-  allYourOffersSignals?: Array<{
-    offerId: string;
-    carrier: string;
-    tierLabel?: string;
-    annualPremium: number;
-    annualSavings: number;
-    savingsPercentage: number;
-    totalValidOffers: number;
-    status: 'VALIDATED' | 'DISCREPANCY_FLAGGED';
-    classification: WholeOfferClassification;
-    canRevise: boolean;
-  }>;
+export interface ProviderOfferStatus {
+  windowOpen: boolean;
+  windowClosesAt: string;
+  yourOffers: ProviderOwnOfferStatus[];
 }
+
+/** @deprecated Use ProviderOfferStatus. */
+export type ProviderMarketSignal = ProviderOfferStatus;
 
 /**
  * PM-2 Factual Offer Comparison (no platform-defined scoring or ranking).
@@ -1020,14 +1060,13 @@ export interface CompetitionEvaluationSummary {
   maxAnnualSavings: number;
   averageAnnualSavings: number;
   advancementReadiness: {
-    canAdvanceToImprovement: boolean;
-    canAdvanceToBafo: boolean;
     canCloseForConsumerReview: boolean;
     reasons: string[];
   };
 }
 
 export type InvitationStatus = 
+  | 'STANDBY'
   | 'INVITED' 
   | 'VIEWED' 
   | 'ACCEPTED' 
@@ -1059,6 +1098,22 @@ export interface ChallengeInvitation {
   acceptedAt?: string;
   declinedAt?: string;
   expiresAt: string;
+  /** 1-based activation cohort; absent until a standby provider is activated. */
+  offerCohort?: number;
+  /** Stable eligibility order. It is never a consumer-facing provider ranking. */
+  standbyPosition?: number;
+  activatedAt?: string;
+}
+
+export interface OfferCohortStatus {
+  challengeId: string;
+  submissionWindowOpen: boolean;
+  activeCohort: number;
+  cohortSize: number;
+  activatedProviderCount: number;
+  standbyProviderCount: number;
+  currentOfferCount: number;
+  canRequestAdditionalOffers: boolean;
 }
 
 export interface ChallengeParticipation {
@@ -1167,11 +1222,14 @@ export interface OfferVersion {
   id: string;
   offerId: string;
   versionNumber: number;
-  round: CompetitionRound;
+  round: CompetitionRound | LegacyCompetitionRound;
   carrier: string;
   annualPremium: number;
   monthlyPremium: number;
   coverages: CoverageItem[];
+  /** Immutable provider-stated coverage facts for this exact version. */
+  verifiedFacts?: Partial<Record<NormalizedPolicyFieldPath, string | number>>;
+  insuranceLine?: import('./jurisdiction').InsuranceLine;
   supportingQuoteDocName: string;
   revisionReason: string;
   submittedAt: string;
@@ -1312,6 +1370,7 @@ export interface CommercialPlan {
 export type BillingInterval = 'MONTHLY' | 'ANNUAL' | 'CUSTOM';
 
 export interface CommercialPlanTermsSnapshot {
+  priceBookId?: string;
   includedProducerSeats?: number;
   includedJurisdictions?: number;
   includedVpoCapacity?: number;
@@ -1319,6 +1378,11 @@ export interface CommercialPlanTermsSnapshot {
   includedAuthorizedConnections?: number;
   authorizedConnectionUnitPriceCents?: number;
   boundAcquisitionUnitPriceCents?: number;
+  qualifiedEngagementUnitPriceCents?: number;
+  authorizedConnectionCentsByInsuranceLine?: Record<string, number>;
+  recurringAddOns?: Record<string, number>;
+  selectedRecurringAddOns?: Record<string, number>;
+  implementationServices?: Record<string, unknown>;
   overageRules?: Record<string, unknown>;
   [key: string]: unknown;
 }
@@ -1446,6 +1510,7 @@ export interface CommercialEvent {
 export type RatingDisposition =
   | 'BILLABLE'
   | 'INCLUDED_IN_PLAN'
+  | 'NOT_BILLABLE'
   | 'NOT_RATED'
   | 'EXEMPT'
   | 'PREVIOUSLY_RATED';

@@ -18,25 +18,37 @@ import {
 } from 'lucide-react';
 import { useAuth, UserRole } from '../context/AuthContext';
 import { JurisdictionSelectOptions } from './JurisdictionSelectOptions';
+import { INSURANCE_LINES } from '../domain/insuranceLineRegistry';
+import type { InsuranceLine } from '../types/jurisdiction';
 
 interface AuthModalProps {
   onSuccess?: (role: UserRole) => void;
+  variant?: 'modal' | 'inline';
+  initialRole?: 'CONSUMER' | 'PROVIDER';
+  initialMode?: 'SIGN_IN' | 'SIGN_UP' | 'DEMO';
 }
 
-export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
+export const AuthModal: React.FC<AuthModalProps> = ({
+  onSuccess,
+  variant = 'modal',
+  initialRole,
+  initialMode
+}) => {
   const { 
     authModalOpen, 
     closeAuthModal, 
     authModalInitialRole,
     authModalInitialMode,
     signInWithEmail, 
+    sendPasswordReset,
     signUpAsConsumer,
     signUpAsProvider,
     useDemoAccount 
   } = useAuth();
 
-  const [mode, setMode] = useState<'SIGN_IN' | 'SIGN_UP' | 'DEMO'>(authModalInitialMode || 'SIGN_UP');
-  const [role, setRole] = useState<'CONSUMER' | 'PROVIDER'>(authModalInitialRole || 'CONSUMER');
+  const isInline = variant === 'inline';
+  const [mode, setMode] = useState<'SIGN_IN' | 'SIGN_UP' | 'DEMO'>(initialMode || authModalInitialMode || 'SIGN_UP');
+  const [role, setRole] = useState<'CONSUMER' | 'PROVIDER'>(initialRole || authModalInitialRole || 'CONSUMER');
 
   // Consumer form state
   const [consumerName, setConsumerName] = useState('');
@@ -44,6 +56,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
   const [consumerPassword, setConsumerPassword] = useState('');
   const [consumerState, setConsumerState] = useState('NV');
   const [currentCarrier, setCurrentCarrier] = useState('');
+  const [requestedInsuranceLine, setRequestedInsuranceLine] = useState<InsuranceLine>('PERSONAL_AUTO');
 
   // Provider form state
   const [agentName, setAgentName] = useState('');
@@ -58,17 +71,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
   const [signInPassword, setSignInPassword] = useState('');
 
   const [error, setError] = useState<string | null>(null);
+  const [resetStatus, setResetStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (authModalOpen) {
-      setMode(authModalInitialMode || 'SIGN_UP');
-      setRole(authModalInitialRole || 'CONSUMER');
+    if (authModalOpen || isInline) {
+      setMode(initialMode || authModalInitialMode || 'SIGN_UP');
+      setRole(initialRole || authModalInitialRole || 'CONSUMER');
       setError(null);
+      setResetStatus(null);
     }
-  }, [authModalOpen, authModalInitialRole, authModalInitialMode]);
+  }, [authModalOpen, authModalInitialRole, authModalInitialMode, initialMode, initialRole, isInline]);
 
-  if (!authModalOpen) return null;
+  if (!isInline && !authModalOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -84,7 +99,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
           if (!consumerName.trim()) {
             throw new Error('Please enter your full name or preferred alias.');
           }
-          const createdRole = await signUpAsConsumer(consumerName, consumerEmail, consumerPassword, consumerState, currentCarrier);
+          const createdRole = await signUpAsConsumer(
+            consumerName, consumerEmail, consumerPassword, consumerState, currentCarrier, requestedInsuranceLine
+          );
           if (onSuccess) onSuccess(createdRole);
         } else {
           if (!agentName.trim() || !agencyName.trim() || !licenseNumber.trim()) {
@@ -115,10 +132,30 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
     if (onSuccess) onSuccess(selectedRole);
   };
 
+  const handlePasswordReset = async () => {
+    setError(null);
+    setResetStatus(null);
+    setLoading(true);
+    try {
+      await sendPasswordReset(signInEmail);
+      setResetStatus('If an Open Policy account exists for this email, Firebase sent a password-reset link.');
+    } catch (err: any) {
+      if (err?.code === 'auth/invalid-email') {
+        setError('Enter a valid account email address.');
+      } else {
+        setError(err?.message || 'Password reset could not be requested. Please try again.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-fade-in">
+    <div className={isInline
+      ? 'flex w-full items-center justify-center'
+      : 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-fade-in'}>
       <div 
-        className="relative w-full max-w-lg bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden animate-scale-up max-h-[92vh] flex flex-col"
+        className={`relative w-full max-w-lg bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden flex flex-col ${isInline ? '' : 'animate-scale-up max-h-[92vh]'}`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header Ribbon */}
@@ -136,12 +173,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
               </span>
             </div>
           </div>
-          <button
-            onClick={closeAuthModal}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          {!isInline && (
+            <button
+              onClick={closeAuthModal}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
         </div>
 
         {/* Tab Selector (Sign In vs Create Account vs Fast Demo) */}
@@ -186,7 +225,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
         {mode === 'SIGN_UP' && (
           <div className="px-6 pt-4 pb-1 shrink-0">
             <label className="text-[11px] font-mono uppercase tracking-wider text-slate-500 font-semibold block mb-1.5">
-              Select Your Marketplace Role
+              Choose Your Account Type
             </label>
             <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl">
               <button
@@ -226,6 +265,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
             </div>
           )}
 
+          {resetStatus && (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs flex items-start space-x-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+              <span>{resetStatus}</span>
+            </div>
+          )}
+
           {mode === 'DEMO' ? (
             <div className="space-y-4">
               <div className="p-4 bg-emerald-50/70 border border-emerald-200 rounded-2xl space-y-1.5">
@@ -234,7 +280,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
                   <span>Instant Evaluation Personas</span>
                 </div>
                 <p className="text-xs text-emerald-700 leading-relaxed">
-                  Skip registration to test the end-to-end competition architecture with pre-seeded canonical marketplace profiles.
+                  Skip registration to test the end-to-end offer review flow with pre-seeded demonstration profiles.
                 </p>
               </div>
 
@@ -253,7 +299,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
                         Consumer: Jane Doe · 2024 Toyota Camry
                       </div>
                       <div className="text-[11px] text-slate-500 font-mono">
-                        Active Challenge #NV-49281 • $2,964 Baseline • 3 Carrier Bids
+                        Shared Policy #NV-49281 • $2,964 Current Premium • 3 Provider Offers
                       </div>
                     </div>
                   </div>
@@ -274,7 +320,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
                         Provider: Sierra Brokerage Group LLC
                       </div>
                       <div className="text-[11px] text-slate-500 font-mono">
-                        NV Auto Licensed Agency • Quoting Desk • Active Round 2
+                        Nevada personal auto provider • Offer workspace
                       </div>
                     </div>
                   </div>
@@ -296,6 +342,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
                     placeholder="name@example.com"
                     className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
                   />
+                </div>
+                <div className="flex justify-end pt-1">
+                  <button
+                    type="button"
+                    onClick={handlePasswordReset}
+                    disabled={loading}
+                    className="text-[11px] font-semibold text-emerald-700 hover:text-emerald-800 disabled:opacity-50 cursor-pointer"
+                  >
+                    Forgot password?
+                  </button>
                 </div>
               </div>
 
@@ -381,6 +437,26 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
               </div>
 
               <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-700">Insurance Type</label>
+                <select
+                  value={requestedInsuranceLine}
+                  onChange={(e) => setRequestedInsuranceLine(e.target.value as InsuranceLine)}
+                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-emerald-500"
+                >
+                  {INSURANCE_LINES.filter(line => line.implementationStatus !== 'LOCKED').map(line => (
+                    <option key={line.code} value={line.code}>
+                      {line.displayName}{line.implementationStatus === 'ACCEPTANCE' ? '' : ' — availability pending'}
+                    </option>
+                  ))}
+                </select>
+                {requestedInsuranceLine !== 'PERSONAL_AUTO' && (
+                  <p className="text-[11px] leading-relaxed text-amber-700">
+                    This insurance type is represented in Open Policy but is not yet accepted by the live document-processing pipeline. It will not be sent through personal-auto processing.
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-1">
                 <label className="text-xs font-semibold text-slate-700">Create Password</label>
                 <div className="relative">
                   <Key className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -401,7 +477,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
                 disabled={loading}
                 className="w-full mt-2 py-3 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 font-bold text-xs rounded-xl shadow-md transition cursor-pointer flex items-center justify-center space-x-2"
               >
-                <span>{loading ? 'Creating Account...' : 'Create Consumer Account & Start Challenge'}</span>
+                <span>{loading ? 'Creating Account...' : 'Create Policyholder Account'}</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
             </form>

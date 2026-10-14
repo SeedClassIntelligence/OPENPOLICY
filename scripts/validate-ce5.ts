@@ -289,6 +289,8 @@ async function runValidation() {
     recurringFeeCents: 29900, // $299.00 / mo
     currency: 'USD',
     termsSnapshot: {
+      compensationDeterminationApproved: true,
+      determinationReference: 'TEST-DETERMINATION',
       rates: {
         BOUND_ACQUISITION_CENTS: 5000,
         AUTHORIZED_CONNECTION_CENTS: 2500

@@ -4,14 +4,28 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { PolicyDocumentRecord } from '../types/insurance';
-import { extractAndClassifyPolicyDocument } from './policyDocumentExtraction';
+import { applyClassificationReviewGate, extractAndClassifyPolicyDocument } from './policyDocumentExtraction';
 import { PostgresStore } from './db/postgresStore';
+import { getPolicyLineSchema } from '../domain/policyLineSchemas';
 
 const document = (overrides: Partial<PolicyDocumentRecord> = {}): PolicyDocumentRecord => ({
   id: 'DOC-1', ownerId: 'consumer-1', idempotencyKey: 'request-00000001', originalFileName: 'policy.pdf',
   mimeType: 'application/pdf', byteLength: 4, sha256: 'a'.repeat(64), storageBucket: 'evidence',
   objectName: 'quarantine/x/DOC-1/original.pdf', objectGeneration: '9', status: 'UPLOADED',
   malwareStatus: 'CLEAN', createdAt: '', updatedAt: '', ...overrides
+});
+
+test('line conflict forces the durable extraction disposition to review required', () => {
+  const gated = applyClassificationReviewGate({
+    id:'C1',documentId:'D1',documentGeneration:'1',sourceSha256:'a'.repeat(64),classification:'DECLARATIONS_PAGE',
+    confidence:.99,classifier:'test',classifierVersion:'1',evidencePageNumbers:[1],evidenceReferences:[],requiresReview:true,
+    classifiedAt:'2026-10-12T00:00:00Z',lineAssessment:{declaredLine:'HOMEOWNERS',detectedLine:'COMMERCIAL_GENERAL_LIABILITY',disposition:'CONFLICT',confidence:.95,evidenceReferences:['LINE_CGL_TITLE']}
+  }, {
+    extractionRunId:'E1',documentId:'D1',documentGeneration:'1',sourceSha256:'a'.repeat(64),normalizer:'test',normalizerVersion:'1',
+    fields:[],criticalIssues:[],status:'READY_FOR_CONSUMER',normalizedAt:'2026-10-12T00:00:00Z'
+  });
+  assert.equal(gated.status, 'REVIEW_REQUIRED');
+  assert.match(gated.criticalIssues[0], /conflicts with document evidence/);
 });
 
 test('reads the exact clean generation, classifies provider-neutral OCR, and commits once', async () => {
@@ -90,7 +104,10 @@ test('classification, normalized facts, workflow status, and audit survive resta
       ['vehicle.vin','1HGCM82633A004352'],['vehicle.year',2022],['vehicle.make','Honda'],['vehicle.model','Accord'],
       ['vehicle.usage','COMMUTE'],['vehicle.annualMileage',10000],['vehicle.garagingZip','89101'],['vehicle.ownership','OWNED'],
       ['coverage.bodilyInjury.perPersonLimit',100000],['coverage.bodilyInjury.perAccidentLimit',300000],
-      ['coverage.propertyDamage.propertyLimit',100000]
+      ['coverage.propertyDamage.propertyLimit',100000],
+      ['coverage.medicalPayments.included',1],['coverage.rentalReimbursement.included',1],
+      ['coverage.umUim.included',1],['coverage.comprehensive.included',1],
+      ['coverage.collision.included',1],['coverage.roadsideAssistance.included',0]
     ] as const) await first.recordPolicyFieldCorrection({ ownerId:pending.ownerId,documentId:pending.id,fieldPath,afterValue });
     const verified = await first.verifyPolicyDocumentEvidence({ ownerId:pending.ownerId,documentId:pending.id });
     const retried = await first.verifyPolicyDocumentEvidence({ ownerId:pending.ownerId,documentId:pending.id });
@@ -115,5 +132,59 @@ test('classification, normalized facts, workflow status, and audit survive resta
   } finally {
     await first.close();
     fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('a non-auto verified baseline preserves line facts across restart without a manufactured vehicle', async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openpolicy-home-baseline-restart-'));
+  const first = new PostgresStore(dataDir);
+  try {
+    const pending = document({
+      id:'DOC-HOME',ownerId:'consumer-home',idempotencyKey:'home-request-0001',
+      objectName:'quarantine/home/DOC-HOME/original.pdf',status:'UPLOAD_PENDING',objectGeneration:'PENDING',
+      malwareStatus:'PENDING_SCAN',insuranceLine:'HOMEOWNERS'
+    });
+    await first.beginPolicyDocumentIngestion(pending);
+    await first.completePolicyDocumentUpload({ownerId:pending.ownerId,documentId:pending.id,objectGeneration:'10'});
+    await first.recordPolicyDocumentMalwareDisposition({
+      documentId:pending.id,objectGeneration:'10',sourceSha256:pending.sha256,status:'CLEAN',scanner:'CLAMAV',scannerVersion:'test'
+    });
+    const schema = getPolicyLineSchema('HOMEOWNERS')!;
+    const fields = schema.fields.map((definition,index) => ({
+      fieldPath:definition.path as any,
+      value:definition.path==='effectiveDate'?'2027-01-01'
+        :definition.path==='expirationDate'?'2028-01-01'
+          :definition.kind==='MONEY'||definition.kind==='LIMIT'||definition.kind==='DEDUCTIBLE'||definition.kind==='INTEGER'?1000+index
+            :definition.kind==='BOOLEAN'?1
+              :definition.path==='jurisdiction'?'NV':`${definition.label} value`,
+      confidence:.99,evidence:{documentId:pending.id,documentName:pending.originalFileName,pageNumber:1,extractedSnippet:definition.label,confidence:.99,verifiedByConsumer:false}
+    }));
+    await first.commitPolicyDocumentExtraction({
+      id:'CLS-HOME',documentId:pending.id,documentGeneration:'10',sourceSha256:pending.sha256,
+      classification:'DECLARATIONS_PAGE',confidence:.99,classifier:'test',classifierVersion:'1',evidencePageNumbers:[1],
+      evidenceReferences:['HOME_DECLARATIONS'],requiresReview:false,classifiedAt:'2026-10-13T00:00:00Z',
+      lineAssessment:{declaredLine:'HOMEOWNERS',detectedLine:'HOMEOWNERS',disposition:'MATCH',confidence:.99,evidenceReferences:['HOME_DECLARATIONS']}
+    },{
+      extractionRunId:'OCR-HOME',documentId:pending.id,documentGeneration:'10',sourceSha256:pending.sha256,
+      normalizer:'OPENPOLICY_HOMEOWNERS_FIELDS',normalizerVersion:'1.0.0',fields,criticalIssues:[],
+      status:'READY_FOR_CONSUMER',normalizedAt:'2026-10-13T00:00:00Z'
+    });
+    const verified = await first.verifyPolicyDocumentEvidence({ownerId:pending.ownerId,documentId:pending.id});
+    assert.equal(verified.policy.insuranceLine,'HOMEOWNERS');
+    assert.deepEqual(verified.policy.vehicles,[]);
+    assert.equal(verified.baseline.vehicle,undefined);
+    assert.equal(verified.baseline.verifiedFacts?.['coverage.dwelling.limit'],1011);
+    await first.close();
+
+    const restarted = new PostgresStore(dataDir);
+    const restored = await restarted.verifyPolicyDocumentEvidence({ownerId:pending.ownerId,documentId:pending.id});
+    assert.equal(restored.policy.id,verified.policy.id);
+    assert.equal(restored.baseline.insuranceLine,'HOMEOWNERS');
+    assert.equal(restored.baseline.vehicle,undefined);
+    assert.equal(restored.baseline.verifiedFacts?.['coverage.dwelling.limit'],1011);
+    await restarted.close();
+  } finally {
+    await first.close();
+    fs.rmSync(dataDir,{recursive:true,force:true});
   }
 });

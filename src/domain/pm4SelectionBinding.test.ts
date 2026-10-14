@@ -29,6 +29,7 @@ import {
   validateAndExecuteDisclosure,
   proposeBindingModification,
   resolveBindingModification,
+  reportSelectedOfferCannotBeHonored,
   transitionBindingStatus
 } from './selectionBindingEngine';
 import {
@@ -36,7 +37,7 @@ import {
   Offer,
   OfferVersion,
   CoverageBaseline,
-  ConsumerRequirements,
+  LegacyConsumerRequirements,
   BindingHandoff,
   ConsentGrant,
   BindingModification
@@ -90,7 +91,7 @@ export function runPM4AcceptanceTestSuite(): { passed: number; failed: number; t
     verifiedBy: 'system'
   };
 
-  const mockRequirements: ConsumerRequirements = {
+  const mockRequirements: LegacyConsumerRequirements = {
     id: 'REQ-1',
     ruleSummary: 'Beat price without reducing protection',
     minAnnualSavings: 100,
@@ -111,7 +112,8 @@ export function runPM4AcceptanceTestSuite(): { passed: number; failed: number; t
     status: 'OFFERS_RECEIVED',
     disclosureLevel: 'MARKETPLACE_ANONYMOUS',
     baseline: mockBaseline,
-    requirements: mockRequirements,
+    qualificationStandardVersion: 'QS-1',
+    legacyRequirements: mockRequirements,
     offersCount: 2
   };
 
@@ -417,6 +419,10 @@ export function runPM4AcceptanceTestSuite(): { passed: number; failed: number; t
     assert(result.disclosedData.salary === undefined, 'Non-authorized salary must be excluded');
     assert(result.disclosedData.creditScore === undefined, 'Non-authorized credit score must be excluded');
     assert(result.disclosedData.phone === undefined, 'Non-authorized phone must be excluded');
+    assert(
+      result.disclosureEvent.disclosedFieldNames.join(',') === 'addressLine1,namedInsured,vin',
+      'Disclosure evidence records the fields actually disclosed'
+    );
 
     // Verify factual SHA-256 eventPayloadHash
     assert(result.disclosureEvent.eventPayloadHash.length === 64, 'Must compute 64-char SHA-256 hash');
@@ -711,6 +717,44 @@ export function runPM4AcceptanceTestSuite(): { passed: number; failed: number; t
     assert(declinedHandoff.status === 'DECLINED', 'Status must be DECLINED');
     assert(Boolean(declinedHandoff.declineReason?.includes('territorial')), 'Decline reason must be preserved');
     assert(!!declinedHandoff.declinedAt, 'declinedAt timestamp must be recorded');
+  });
+
+  test('PR-3 cannot-honor report preserves selected OfferVersion and consent/disclosure references', () => {
+    const sel = createSelection({ challenge: mockChallenge, offer: mockOffer, offerVersion: mockOfferVersion2, consumerId: 'usr_consumer_alice' });
+    const handoff: BindingHandoff = {
+      ...initiateBindingHandoff({ selection: sel, challenge: mockChallenge }),
+      status: 'UNDERWRITING', consentGrantId: 'CONSENT-HISTORICAL', disclosureEventId: 'DISC-HISTORICAL'
+    };
+    const originalVersion = JSON.stringify(mockOfferVersion2);
+    const result = reportSelectedOfferCannotBeHonored({
+      handoff, providerOrgId: 'org_apex', providerUserId: 'usr_marcus', reasonCode: 'CARRIER_DECLINED',
+      now: new Date('2026-10-08T12:00:00.000Z')
+    });
+    assert(result.updatedHandoff.status === 'DECLINED', 'Handoff must be declined');
+    assert(result.updatedHandoff.offerVersionId === handoff.offerVersionId, 'Selected OfferVersion reference must remain unchanged');
+    assert(result.updatedHandoff.consentGrantId === 'CONSENT-HISTORICAL', 'Consent reference must remain unchanged');
+    assert(result.updatedHandoff.disclosureEventId === 'DISC-HISTORICAL', 'Disclosure evidence reference must remain unchanged');
+    assert(JSON.stringify(mockOfferVersion2) === originalVersion, 'Selected OfferVersion must remain immutable');
+  });
+
+  test('PR-3 cannot-honor report rejects a different provider organization', () => {
+    const sel = createSelection({ challenge: mockChallenge, offer: mockOffer, offerVersion: mockOfferVersion2, consumerId: 'usr_consumer_alice' });
+    const handoff = initiateBindingHandoff({ selection: sel, challenge: mockChallenge });
+    let rejected = false;
+    try {
+      reportSelectedOfferCannotBeHonored({ handoff, providerOrgId: 'org_foreign', providerUserId: 'usr_foreign', reasonCode: 'CARRIER_DECLINED' });
+    } catch { rejected = true; }
+    assert(rejected, 'Cross-organization report must fail');
+  });
+
+  test('PR-3 cannot-honor report requires a controlled reason code', () => {
+    const sel = createSelection({ challenge: mockChallenge, offer: mockOffer, offerVersion: mockOfferVersion2, consumerId: 'usr_consumer_alice' });
+    const handoff = initiateBindingHandoff({ selection: sel, challenge: mockChallenge });
+    let rejected = false;
+    try {
+      reportSelectedOfferCannotBeHonored({ handoff, providerOrgId: 'org_apex', providerUserId: 'usr_marcus', reasonCode: 'CUSTOM_PRICE_PROPOSAL' as any });
+    } catch { rejected = true; }
+    assert(rejected, 'Uncontrolled reason must fail');
   });
 
   const passed = results.filter(r => r.passed).length;

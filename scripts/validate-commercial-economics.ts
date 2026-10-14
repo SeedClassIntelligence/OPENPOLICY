@@ -47,7 +47,7 @@ import {
 import { runCommercialEconomicsTestSuite } from '../src/domain/commercialEconomics.test';
 import { evaluateOfferQualification } from '../src/domain/qualificationEngine';
 import { compareOfferAgainstBaseline } from '../src/domain/comparisonEngine';
-import { CoverageBaseline, ConsumerRequirements, Offer, ProviderOrganization } from '../src/types/insurance';
+import { CoverageBaseline, LegacyConsumerRequirements, Offer, ProviderOrganization } from '../src/types/insurance';
 
 function assert(condition: boolean, message: string) {
   if (!condition) {
@@ -496,7 +496,7 @@ async function runValidation() {
       verifiedBy: 'Tester'
     };
 
-    const dummyRequirements: ConsumerRequirements = {
+    const dummyRequirements: LegacyConsumerRequirements = {
       id: 'REQ-1',
       ruleSummary: 'Beat price without reducing protection',
       minAnnualSavings: 100,
@@ -538,21 +538,21 @@ async function runValidation() {
     // Evaluate qualification
     const apexOrg = db.getProviderOrganization('org_apex');
     const sierraOrg = db.getProviderOrganization('org_sierra');
-    const qualApex = evaluateOfferQualification(offerFromApex, mockBaseline, dummyRequirements, apexOrg);
-    const qualSierra = evaluateOfferQualification(offerFromSierra, mockBaseline, dummyRequirements, sierraOrg);
+    const qualApex = evaluateOfferQualification(offerFromApex, mockBaseline, apexOrg);
+    const qualSierra = evaluateOfferQualification(offerFromSierra, mockBaseline, sierraOrg);
 
     assert(qualApex.isQualified === qualSierra.isQualified, 'Identical offers receive identical qualification state regardless of commercial plan tier');
     assert(qualApex.qualificationReasons.length === qualSierra.qualificationReasons.length, 'Identical offers receive identical qualification reasons length');
 
     // Evaluate comparison
-    const compApex = compareOfferAgainstBaseline(mockBaseline, dummyRequirements, offerFromApex);
-    const compSierra = compareOfferAgainstBaseline(mockBaseline, dummyRequirements, offerFromSierra);
+    const compApex = compareOfferAgainstBaseline(mockBaseline, offerFromApex);
+    const compSierra = compareOfferAgainstBaseline(mockBaseline, offerFromSierra);
 
-    assert(compApex.annualSavings === compSierra.annualSavings, 'Identical offers receive identical comparison annual savings');
-    assert(compApex.monthlySavings === compSierra.monthlySavings, 'Identical offers receive identical comparison monthly savings');
+    assert(compApex.annualPremiumDifference === compSierra.annualPremiumDifference, 'Identical offers receive identical annual premium differences');
+    assert(compApex.monthlyPremiumDifference === compSierra.monthlyPremiumDifference, 'Identical offers receive identical monthly premium differences');
     assert(compApex.classification === compSierra.classification, 'Identical offers receive identical whole offer classification');
     assert(compApex.matchingFieldsCount === compSierra.matchingFieldsCount, 'Identical offers receive identical matching fields count');
-    assert(compApex.meetsConsumerRequirements === compSierra.meetsConsumerRequirements, 'Identical offers receive identical meetsConsumerRequirements flag');
+    assert(!('meetsConsumerRequirements' in compApex) && !('meetsConsumerRequirements' in compSierra), 'Comparison exposes no platform attractiveness gate');
     console.log('  [PASS] Commercial plan tier strictly has ZERO influence over qualification or comparison algorithms');
 
     // ------------------------------------------------------------------------

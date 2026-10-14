@@ -1,23 +1,23 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  UploadCloud, 
-  FileCheck2, 
-  Shield, 
+import {
+  UploadCloud,
+  FileCheck2,
+  Shield,
   ShieldCheck,
-  ArrowRight, 
-  CheckCircle2, 
-  AlertTriangle, 
-  AlertCircle, 
-  Sparkles, 
-  Car, 
-  Calendar, 
-  DollarSign, 
-  Layers, 
-  Info, 
-  Lock, 
-  Check, 
-  X, 
-  SlidersHorizontal, 
+  ArrowRight,
+  CheckCircle2,
+  AlertTriangle,
+  AlertCircle,
+  Sparkles,
+  Car,
+  Calendar,
+  DollarSign,
+  Layers,
+  Info,
+  Lock,
+  Check,
+  X,
+  SlidersHorizontal,
   ChevronRight,
   RefreshCw,
   ExternalLink,
@@ -35,38 +35,39 @@ import {
   Radio,
   CheckCircle
 } from 'lucide-react';
-import { 
-  Policy, 
-  CoverageBaseline, 
-  ConsumerRequirements, 
-  Challenge, 
-  Offer, 
-  OfferComparison, 
+import {
+  Policy,
+  CoverageBaseline,
+  Challenge,
+  Offer,
+  OfferComparison,
   FieldComparison,
   BindingHandoff,
   Selection,
   ConsentGrant,
-  BindingModification,
   ReconciliationReport,
   PolicyVaultItem,
   CoverageItem,
   VaultDocument,
   BindingHandoffDossier,
   DetailedPostBindReconciliation,
-  CompetitionRound,
   CompetitionActivityEvent,
   RoundDeadlineStatus,
-  CompetitionEvaluationSummary
+  CompetitionEvaluationSummary,
+  OfferCohortStatus
   ,PolicyNormalizationResult
-  ,NormalizedPolicyFieldPath
 } from '../types/insurance';
 import { SAMPLE_DECLARATIONS_PAGES } from '../domain/policyIntelligence';
 import { compareOfferAgainstBaseline, formatClassification } from '../domain/comparisonEngine';
 import { useAuth } from '../context/AuthContext';
 import { AccountDashboard } from './AccountDashboard';
 import { apiFetch } from '../services/apiClient';
+import type { InsuranceLine } from '../types/jurisdiction';
+import { getInsuranceLineDefinition } from '../domain/insuranceLineRegistry';
+import { getPolicyReviewFields } from '../domain/policyLineReviewFields';
 
 interface ConsumerPortalProps {
+  insuranceLine: InsuranceLine;
   challenge: Challenge | null;
   offers: Offer[];
   onRefreshData: () => void;
@@ -74,18 +75,33 @@ interface ConsumerPortalProps {
   initialStep?: ConsumerStep;
 }
 
-type ConsumerStep = 
+export type ConsumerStep =
   | 'ACCOUNT_DASHBOARD'
-  | 'UPLOAD_EXTRACT' 
-  | 'VERIFY_POLICY' 
-  | 'SET_REQUIREMENTS' 
-  | 'COMPETITION_ROOM' 
-  | 'COMPARISON_DEEP_DIVE' 
-  | 'BINDING_HANDOFF' 
+  | 'UPLOAD_EXTRACT'
+  | 'VERIFY_POLICY'
+  | 'SET_REQUIREMENTS'
+  | 'COMPETITION_ROOM'
+  | 'COMPARISON_DEEP_DIVE'
+  | 'BINDING_HANDOFF'
   | 'RECONCILIATION_VAULT'
   | 'PRIVATE_VAULT';
 
+const formatCoverageAmount = (amount?: number) => {
+  if (amount === undefined) return undefined;
+  return amount >= 1000 && amount % 1000 === 0 ? `$${amount / 1000}k` : `$${amount.toLocaleString()}`;
+};
+
+const formatBaselineCoverage = (coverage: CoverageItem) => {
+  if (coverage.perPersonLimit !== undefined && coverage.perAccidentLimit !== undefined) {
+    return `${formatCoverageAmount(coverage.perPersonLimit)} / ${formatCoverageAmount(coverage.perAccidentLimit)}`;
+  }
+  if (coverage.propertyLimit !== undefined) return formatCoverageAmount(coverage.propertyLimit);
+  if (coverage.deductible !== undefined) return `${formatCoverageAmount(coverage.deductible)} deductible`;
+  return coverage.isIncluded ? 'Included' : 'Not included';
+};
+
 export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
+  insuranceLine,
   challenge,
   offers,
   onRefreshData,
@@ -109,8 +125,6 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
   const [newDocName, setNewDocName] = useState<string>('Endorsement_NV_PolicyChange.pdf');
   const [newDocType, setNewDocType] = useState<VaultDocument['documentType']>('ENDORSEMENT');
   const [newDocNotes, setNewDocNotes] = useState<string>('Added towing endorsement');
-  const [triggeringFinalRound, setTriggeringFinalRound] = useState<boolean>(false);
-  const [triggeringIncumbent, setTriggeringIncumbent] = useState<boolean>(false);
   const [actionToast, setActionToast] = useState<string | null>(null);
   const [realDocumentId, setRealDocumentId] = useState<string | null>(null);
   const [realNormalization, setRealNormalization] = useState<PolicyNormalizationResult | null>(null);
@@ -119,17 +133,18 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
   const [policyReviewValues, setPolicyReviewValues] = useState<Record<string, string>>({});
   const [policyEvidenceAttested, setPolicyEvidenceAttested] = useState(false);
   const [verifiedBaseline, setVerifiedBaseline] = useState<{ policyId:string; baselineId:string } | null>(null);
+  const [flowActionPending, setFlowActionPending] = useState(false);
+  const [flowActionError, setFlowActionError] = useState<string | null>(null);
 
-  const reviewFieldPaths: NormalizedPolicyFieldPath[] = [
-    'policyNumber','carrier','namedInsured','jurisdiction','effectiveDate','expirationDate','annualPremium',
-    'vehicle.vin','vehicle.year','vehicle.make','vehicle.model','vehicle.usage','vehicle.annualMileage',
-    'vehicle.garagingZip','vehicle.ownership','coverage.bodilyInjury.perPersonLimit',
-    'coverage.bodilyInjury.perAccidentLimit','coverage.propertyDamage.propertyLimit'
-  ];
-  const numericReviewFields = new Set<NormalizedPolicyFieldPath>([
-    'annualPremium','vehicle.year','vehicle.annualMileage','coverage.bodilyInjury.perPersonLimit',
-    'coverage.bodilyInjury.perAccidentLimit','coverage.propertyDamage.propertyLimit'
-  ]);
+  const insuranceLineDefinition = getInsuranceLineDefinition(insuranceLine);
+  const reviewFields = getPolicyReviewFields(insuranceLine);
+  const reviewFieldPaths = reviewFields.map(field => field.path);
+  const numericReviewFields = new Set(reviewFields
+    .filter(field => ['INTEGER', 'MONEY', 'LIMIT', 'DEDUCTIBLE'].includes(field.kind))
+    .map(field => field.path));
+  const inclusionReviewFields = new Set(reviewFields
+    .filter(field => field.kind === 'BOOLEAN')
+    .map(field => field.path));
 
   const fetchVaultDocs = async () => {
     try {
@@ -166,16 +181,19 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
   const [competitionEvaluation, setCompetitionEvaluation] = useState<CompetitionEvaluationSummary | null>(null);
   const [activityFeed, setActivityFeed] = useState<CompetitionActivityEvent[]>([]);
   const [retainingCurrentPolicy, setRetainingCurrentPolicy] = useState<boolean>(false);
-  const [advancingRound, setAdvancingRound] = useState<string | null>(null);
+  const [beginningReview, setBeginningReview] = useState(false);
+  const [offerCohortStatus, setOfferCohortStatus] = useState<OfferCohortStatus | null>(null);
+  const [requestingAdditionalOffers, setRequestingAdditionalOffers] = useState(false);
   const [showActivityFeed, setShowActivityFeed] = useState<boolean>(true);
 
   const fetchCompetitionDetails = async () => {
     if (!challenge?.id) return;
     try {
-      const [deadRes, evalRes, feedRes] = await Promise.all([
+      const [deadRes, evalRes, feedRes, cohortRes] = await Promise.all([
         apiFetch(`/api/marketplace/competition/${challenge.id}/deadline-status`),
         apiFetch(`/api/marketplace/competition/${challenge.id}/status`),
-        apiFetch(`/api/marketplace/competition/${challenge.id}/activity-feed`)
+        apiFetch(`/api/marketplace/competition/${challenge.id}/activity-feed`),
+        apiFetch(`/api/marketplace/competition/${challenge.id}/offer-cohorts`)
       ]);
       if (deadRes.ok) {
         const deadData = await deadRes.json();
@@ -189,22 +207,51 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
         const feedData = await feedRes.json();
         setActivityFeed(feedData.events || []);
       }
+      if (cohortRes.ok) setOfferCohortStatus(await cohortRes.json());
     } catch (err) {
       console.error('Failed fetching competition details:', err);
     }
   };
 
-  const handleAdvanceCompetitionRound = async (targetRound: CompetitionRound, reason: string) => {
-    if (!challenge?.id) return;
-    setAdvancingRound(targetRound);
+  const handleRequestAdditionalOffers = async () => {
+    if (!challenge?.id || !offerCohortStatus?.canRequestAdditionalOffers) return;
+    setRequestingAdditionalOffers(true);
     try {
-      const res = await apiFetch(`/api/marketplace/competition/${challenge.id}/advance-round`, {
+      const res = await apiFetch(`/api/marketplace/competition/${challenge.id}/request-additional-offers`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ targetRound, reason })
+        body: JSON.stringify({
+          expectedActiveCohort: offerCohortStatus.activeCohort,
+          idempotencyKey: `additional-offers:${challenge.id}:${offerCohortStatus.activeCohort}`
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Additional providers could not be activated.');
+      setOfferCohortStatus(data.status);
+      setActionToast(data.activated.length > 0
+        ? `${data.activated.length} additional eligible providers can now independently review your policy opportunity.`
+        : 'Your additional-offer request was already processed.');
+      setTimeout(() => setActionToast(null), 5000);
+      await fetchCompetitionDetails();
+      onRefreshData();
+    } catch (error: any) {
+      setActionToast(error.message || 'Additional providers could not be activated.');
+      setTimeout(() => setActionToast(null), 5000);
+    } finally {
+      setRequestingAdditionalOffers(false);
+    }
+  };
+
+  const handleBeginReview = async () => {
+    if (!challenge?.id) return;
+    setBeginningReview(true);
+    try {
+      const res = await apiFetch(`/api/marketplace/competition/${challenge.id}/begin-review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
       });
       if (res.ok) {
-        setActionToast(`Competition progressed to ${targetRound.replace(/_/g, ' ')}!`);
+        setActionToast('The submission window is closed. You can now review every submitted offer.');
         setTimeout(() => setActionToast(null), 3500);
         await fetchCompetitionDetails();
         onRefreshData();
@@ -212,7 +259,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
     } catch (e) {
       console.error(e);
     } finally {
-      setAdvancingRound(null);
+      setBeginningReview(false);
     }
   };
 
@@ -224,11 +271,11 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          reason: 'Consumer elected to retain incumbent policy coverage without forced concession.'
+          reason: 'Consumer elected to retain the current policy.'
         })
       });
       if (res.ok) {
-        setActionToast('Current policy retained! Challenge marked INCUMBENT_DEFENDED and competition closed.');
+        setActionToast('Your current policy was retained and the offer review was closed.');
         setTimeout(() => setActionToast(null), 4000);
         await fetchCompetitionDetails();
         onRefreshData();
@@ -240,18 +287,17 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
     }
   };
 
-  const normalizeCanonicalRound = (r?: string): string => {
+  const normalizeCanonicalRound = (r?: string): 'OPEN' | 'CONSUMER_REVIEW' => {
     if (!r) return 'OPEN';
-    if (r === 'ROUND_1_OPEN') return 'OPEN';
-    if (r === 'ROUND_2_IMPROVEMENT') return 'IMPROVEMENT';
-    if (r === 'ROUND_3_BAFO') return 'BEST_AND_FINAL';
-    if (r === 'CLOSED_PENDING_SELECTION') return 'CONSUMER_REVIEW';
-    return r;
+    return r === 'OPEN' || r === 'ROUND_1_OPEN' ? 'OPEN' : 'CONSUMER_REVIEW';
   };
 
   const currentCanonicalRound = normalizeCanonicalRound(
-    competitionEvaluation?.currentRound || (challenge?.isFinalRound ? 'BEST_AND_FINAL' : 'OPEN')
+    competitionEvaluation?.currentRound || (challenge?.status === 'CONSUMER_REVIEW' ? 'CONSUMER_REVIEW' : 'OPEN')
   );
+  const submissionWindowOpen = currentCanonicalRound === 'OPEN' && deadlineStatus?.isExpired !== true;
+  const effectiveCanonicalRound: 'OPEN' | 'CONSUMER_REVIEW' = submissionWindowOpen ? 'OPEN' : 'CONSUMER_REVIEW';
+  const submissionWindowLabel = submissionWindowOpen ? 'Open for Offers' : 'Policyholder Review';
 
   useEffect(() => {
     fetchVaultDocs();
@@ -304,40 +350,6 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
     }
   };
 
-  const handleTriggerFinalRound = async () => {
-    if (!challenge) return;
-    setTriggeringFinalRound(true);
-    try {
-      const res = await apiFetch(`/api/challenges/${challenge.id}/final-round`, { method: 'POST' });
-      if (res.ok) {
-        onRefreshData();
-        setActionToast('Best & Final Round activated! Challengers submitted sharpened rates.');
-        setTimeout(() => setActionToast(null), 4000);
-      }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setTriggeringFinalRound(false);
-    }
-  };
-
-  const handleTriggerIncumbentDefense = async () => {
-    if (!challenge) return;
-    setTriggeringIncumbent(true);
-    try {
-      const res = await apiFetch(`/api/challenges/${challenge.id}/incumbent-defense`, { method: 'POST' });
-      if (res.ok) {
-        onRefreshData();
-        setActionToast('Current company (GEICO) defense initiated! Retention offer entered the competition.');
-        setTimeout(() => setActionToast(null), 4000);
-      }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setTriggeringIncumbent(false);
-    }
-  };
-
   // Policy & Baseline state
   const [activePolicy, setActivePolicy] = useState<Policy | null>(challenge ? {
     id: challenge.baseline.policyId,
@@ -359,23 +371,39 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
       licenseNumberMasked: 'NV•••••8912',
       age: 38
     }],
-    vehicles: [challenge.baseline.vehicle],
+    vehicles: challenge.baseline.vehicle ? [challenge.baseline.vehicle] : [],
     coverages: challenge.baseline.coverages,
     sourceDocumentId: 'DOC-NV-49281',
     sourceDocumentName: 'GEICO_Auto_Dec_Page_NV49281.pdf'
   } : null);
 
   const [activeBaseline, setActiveBaseline] = useState<CoverageBaseline | null>(challenge ? challenge.baseline : null);
-  const [requirements, setRequirements] = useState<ConsumerRequirements>(challenge ? challenge.requirements : {
-    id: 'REQ-1',
-    ruleSummary: 'Offers should cost less and not reduce my coverage.',
-    minAnnualSavings: 100,
-    maxCollisionDeductible: 500,
-    maxCompDeductible: 250,
-    mustIncludeRental: true,
-    mustIncludeRoadside: true
-  });
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const restoreVerifiedBaseline = async () => {
+      try {
+        const response = await apiFetch('/api/policy-documents/current-baseline');
+        if (response.status === 404) return;
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const restored = await response.json();
+        if (cancelled) return;
+        setRealDocumentId(restored.documentId);
+        setVerifiedBaseline({ policyId: restored.policy.id, baselineId: restored.baseline.id });
+        setActivePolicy(restored.policy);
+        setActiveBaseline(restored.baseline);
+        // A returning consumer with an active marketplace challenge should stay
+        // in that lifecycle; only a policy-only account resumes at verification.
+        if (!challenge) setCurrentStep('VERIFY_POLICY');
+      } catch (error) {
+        console.error('Failed to restore durable verified policy baseline:', error);
+      }
+    };
+
+    restoreVerifiedBaseline();
+    return () => { cancelled = true; };
+  }, [challenge?.id]);
   // Selected Offer for detail view & handoff
   const [selectedOfferId, setSelectedOfferId] = useState<string>('OFFER-B');
   const [handoffResult, setHandoffResult] = useState<BindingHandoff | null>(null);
@@ -392,7 +420,6 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
 
   // PM-4 Binding & Controlled Disclosure States
   const [activeConsentGrant, setActiveConsentGrant] = useState<ConsentGrant | null>(null);
-  const [activeModification, setActiveModification] = useState<BindingModification | null>(null);
   const [authorizedFields, setAuthorizedFields] = useState<string[]>([
     'namedInsured',
     'addressLine1',
@@ -403,14 +430,45 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
     'phone'
   ]);
   const [isGrantingConsent, setIsGrantingConsent] = useState<boolean>(false);
-  const [isResolvingMod, setIsResolvingMod] = useState<boolean>(false);
 
   // PM-5 Issued Policy Reconciliation & Policy Vault States
   const [pm5Report, setPm5Report] = useState<ReconciliationReport | null>(null);
   const [policyVaultItems, setPolicyVaultItems] = useState<PolicyVaultItem[]>([]);
+  const vaultRecordCount = vaultDocs.length + policyVaultItems.length;
   const [disputeNotes, setDisputeNotes] = useState<string>('');
   const [isVerifyingReconciliation, setIsVerifyingReconciliation] = useState<boolean>(false);
 
+  useEffect(() => {
+    if (!challenge?.id) return;
+    let cancelled = false;
+
+    const hydrateDurableSelection = async () => {
+      try {
+        const bindingResponse = await apiFetch(`/api/marketplace/challenges/${challenge.id}/selection-binding`);
+        if (!bindingResponse.ok) return;
+        const bindingData = await bindingResponse.json();
+        if (cancelled || !bindingData.handoff) return;
+
+        setHandoffResult(bindingData.handoff);
+        if (bindingData.selection?.offerId) setSelectedOfferId(bindingData.selection.offerId);
+        const activeGrant = (bindingData.consentGrants || []).find((grant: ConsentGrant) => !grant.revokedAt)
+          || bindingData.consentGrants?.[0]
+          || null;
+        setActiveConsentGrant(activeGrant);
+
+        const reconciliationResponse = await apiFetch(`/api/marketplace/binding/${bindingData.handoff.id}/reconciliation`);
+        if (reconciliationResponse.ok) {
+          const reconciliationData = await reconciliationResponse.json();
+          if (!cancelled) setPm5Report(reconciliationData.latestReport || reconciliationData.report || null);
+        }
+      } catch (error) {
+        console.error('Failed to restore durable consumer selection state:', error);
+      }
+    };
+
+    hydrateDurableSelection();
+    return () => { cancelled = true; };
+  }, [challenge?.id]);
   // Evidence inspection drawer
   const [inspectingEvidence, setInspectingEvidence] = useState<{
     fieldName: string;
@@ -430,8 +488,8 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
   // Compute live comparisons against active baseline
   const activeComparisons: OfferComparison[] = React.useMemo(() => {
     if (!activeBaseline) return [];
-    return offers.map(o => compareOfferAgainstBaseline(activeBaseline, requirements, o));
-  }, [activeBaseline, requirements, offers]);
+    return offers.map(o => compareOfferAgainstBaseline(activeBaseline, o));
+  }, [activeBaseline, offers]);
 
   const selectedComparison = activeComparisons.find(c => c.offerId === selectedOfferId) || activeComparisons[0];
 
@@ -481,26 +539,33 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
     }
   };
 
-  const handleRealPolicyUpload = async (file?: File) => {
-    if (!file) return;
-    setDocumentProcessingError(null);
-    setRealNormalization(null);
-    try {
-      setDocumentProcessing('Uploading immutable policy evidence…');
-      const ingest = await apiFetch('/api/policy-documents/ingest', {
-        method:'POST', headers:{'Content-Type':'application/pdf','X-Document-Filename':file.name,
-          'Idempotency-Key':crypto.randomUUID()}, body:file
-      });
-      const ingested = await ingest.json();
-      if (!ingest.ok) throw new Error(ingested.message || ingested.error || 'Upload failed');
-      const documentId = ingested.document.id;
-      setRealDocumentId(documentId);
+  const processRealPolicyDocument = async (documentId: string) => {
+      const withTimeout = async <T,>(promise: Promise<T>, message: string): Promise<T> => {
+        let timeoutId: number | undefined;
+        try {
+          return await Promise.race([
+            promise,
+            new Promise<T>((_, reject) => {
+              timeoutId = window.setTimeout(() => reject(new Error(message)), 30_000);
+            })
+          ]);
+        } finally {
+          if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+        }
+      };
+
       setDocumentProcessing('Scanning policy evidence for malware…');
-      const scan = await apiFetch(`/api/policy-documents/${documentId}/scan`, {method:'POST'});
+      const scan = await withTimeout(
+        apiFetch(`/api/policy-documents/${documentId}/scan`, {method:'POST'}),
+        'The malware scan did not start in time. Your upload is preserved; retry processing below.'
+      );
       const scanned = await scan.json();
       if (!scan.ok || scanned.malwareStatus !== 'CLEAN') throw new Error(scanned.message || 'Document did not receive a CLEAN scan disposition');
       setDocumentProcessing('Extracting policy evidence with Document AI…');
-      const extract = await apiFetch(`/api/policy-documents/${documentId}/extract`, {method:'POST'});
+      const extract = await withTimeout(
+        apiFetch(`/api/policy-documents/${documentId}/extract`, {method:'POST'}),
+        'Policy extraction did not start in time. Your clean upload is preserved; retry processing below.'
+      );
       const extracted = await extract.json();
       if (!extract.ok) throw new Error(extracted.message || extracted.error || 'Extraction failed');
       setRealNormalization(extracted.normalization);
@@ -511,6 +576,35 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
       setPolicyEvidenceAttested(false);
       setVerifiedBaseline(null);
       setDocumentProcessing(null);
+  };
+
+  const handleRealPolicyUpload = async (file?: File) => {
+    if (!file) return;
+    setDocumentProcessingError(null);
+    setRealNormalization(null);
+    try {
+      setDocumentProcessing('Uploading immutable policy evidence…');
+      const ingest = await apiFetch('/api/policy-documents/ingest', {
+        method:'POST', headers:{'Content-Type':'application/pdf','X-Document-Filename':file.name,
+          'X-Insurance-Line':insuranceLine,
+          'Idempotency-Key':crypto.randomUUID()}, body:file
+      });
+      const ingested = await ingest.json();
+      if (!ingest.ok) throw new Error(ingested.message || ingested.error || 'Upload failed');
+      const documentId = ingested.document.id;
+      setRealDocumentId(documentId);
+      await processRealPolicyDocument(documentId);
+    } catch (error:any) {
+      setDocumentProcessing(null);
+      setDocumentProcessingError(error?.message || 'Document processing failed');
+    }
+  };
+
+  const handleRetryRealPolicyProcessing = async () => {
+    if (!realDocumentId) return;
+    setDocumentProcessingError(null);
+    try {
+      await processRealPolicyDocument(realDocumentId);
     } catch (error:any) {
       setDocumentProcessing(null);
       setDocumentProcessingError(error?.message || 'Document processing failed');
@@ -522,10 +616,16 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
     setDocumentProcessingError(null);
     setDocumentProcessing('Saving your confirmed policy facts…');
     try {
-      for (const fieldPath of reviewFieldPaths) {
+      for (const field of reviewFields) {
+        const fieldPath = field.path;
         const raw = (policyReviewValues[fieldPath] || '').trim();
-        if (!raw) throw new Error(`Please complete ${fieldPath}.`);
-        const afterValue = numericReviewFields.has(fieldPath) ? Number(raw) : raw;
+        if (!raw && field.requiredForBaseline) throw new Error(`Please complete ${field.label}.`);
+        if (!raw) continue;
+        const afterValue = numericReviewFields.has(fieldPath)
+          ? Number(raw)
+          : (fieldPath === 'vehicle.usage' || fieldPath === 'vehicle.ownership' || fieldPath === 'jurisdiction')
+            ? raw.toUpperCase()
+            : raw;
         if (numericReviewFields.has(fieldPath) && !Number.isFinite(afterValue as number)) {
           throw new Error(`${fieldPath} must be a valid number.`);
         }
@@ -543,8 +643,10 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
       if (!verification.ok) throw new Error(result.message || result.error || 'Policy verification failed');
       setVerifiedBaseline({policyId:result.policy.id, baselineId:result.baseline.id});
       setActivePolicy(result.policy);
+      setActiveBaseline(result.baseline);
       setDocumentProcessing(null);
       onRefreshData();
+      setCurrentStep('VERIFY_POLICY');
     } catch (error:any) {
       setDocumentProcessing(null);
       setDocumentProcessingError(error?.message || 'Policy verification failed');
@@ -554,38 +656,58 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
   // Confirm extracted policy and create baseline
   const handleConfirmPolicy = async () => {
     if (!activePolicy) return;
-    
-    // Create baseline
-    const res = await apiFetch('/api/baselines/create', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        policyId: activePolicy.id,
-        verifiedBy: activePolicy.namedInsured
-      })
-    });
-    const data = await res.json();
-    if (data.success) {
+
+    setFlowActionError(null);
+
+    // Real document verification creates the immutable baseline atomically.
+    // Step 2 reviews that result; it must not attempt to create it again.
+    if (activeBaseline) {
+      setCurrentStep('SET_REQUIREMENTS');
+      return;
+    }
+
+    setFlowActionPending(true);
+    try {
+      const res = await apiFetch('/api/baselines/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          policyId: activePolicy.id,
+          verifiedBy: activePolicy.namedInsured
+        })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.message || data.error || 'Could not create the verified baseline.');
       setActiveBaseline(data.baseline);
       setCurrentStep('SET_REQUIREMENTS');
+    } catch (error:any) {
+      setFlowActionError(error?.message || 'Could not create the verified baseline.');
+    } finally {
+      setFlowActionPending(false);
     }
   };
 
   // Launch challenge
   const handleLaunchChallenge = async () => {
     if (!activeBaseline) return;
-    const res = await apiFetch('/api/challenges/create', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        baselineId: activeBaseline.id,
-        requirements
-      })
-    });
-    const data = await res.json();
-    if (data.success) {
-      onRefreshData();
+    setFlowActionError(null);
+    setFlowActionPending(true);
+    try {
+      const res = await apiFetch('/api/challenges/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          baselineId: activeBaseline.id
+        })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.message || data.error || 'Could not share this policy for provider offers.');
+      await Promise.resolve(onRefreshData());
       setCurrentStep('COMPETITION_ROOM');
+    } catch (error:any) {
+      setFlowActionError(error?.message || 'Could not share this policy for provider offers.');
+    } finally {
+      setFlowActionPending(false);
     }
   };
 
@@ -667,9 +789,6 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
         const hData = await hRes.json();
         if (hRes.ok && hData.handoff) {
           setHandoffResult(hData.handoff);
-          if (hData.modifications?.length > 0) {
-            setActiveModification(hData.modifications[0]);
-          }
         }
       } else {
         setConsentError(data.error || 'Failed to grant consent');
@@ -700,30 +819,6 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
     }
   };
 
-  const handleResolveModification = async (decision: 'ACCEPT' | 'REJECT') => {
-    if (!handoffResult || !activeModification) return;
-    setIsResolvingMod(true);
-    try {
-      const endpoint = decision === 'ACCEPT' ? 'accept-modification' : 'reject-modification';
-      const res = await apiFetch(`/api/marketplace/binding/${handoffResult.id}/${endpoint}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          modificationId: activeModification.id
-        })
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setActiveModification(data.modification);
-        setHandoffResult(data.handoff);
-      }
-    } catch (e: any) {
-      setConsentError(e.message || 'Error resolving modification');
-    } finally {
-      setIsResolvingMod(false);
-    }
-  };
-
   // PM-5 Fetch Reconciliation & Policy Vault data
   const fetchPM5Data = async (targetHandoffId?: string) => {
     try {
@@ -739,8 +834,8 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
         const rRes = await apiFetch(`/api/marketplace/binding/${hid}/reconciliation`);
         if (rRes.ok) {
           const rData = await rRes.json();
-          if (rData.success && rData.report) {
-            setPm5Report(rData.report);
+          if (rData.success && (rData.latestReport || rData.report)) {
+            setPm5Report(rData.latestReport || rData.report);
           }
         }
       }
@@ -776,58 +871,13 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
     }
   };
 
-  // Reconcile issued policy (PM-3 Detailed Post-Bind Reconciliation)
-  const handleReconcileIssued = async (isDiscrepantSimulation: boolean) => {
-    if (!handoffResult) return;
-    const selectedOffer = offers.find(o => o.id === handoffResult.selectedOfferId);
-    if (!selectedOffer) return;
-
-    const baseCoverages = selectedOffer.coverages.map(c => ({
-      code: c.code,
-      name: c.name,
-      category: c.category,
-      perPersonLimit: c.perPersonLimit,
-      perAccidentLimit: c.perAccidentLimit,
-      propertyLimit: c.propertyLimit,
-      deductible: c.deductible,
-      isIncluded: c.isIncluded
-    }));
-
-    const issuedCoverages = isDiscrepantSimulation
-      ? baseCoverages.map(c => {
-          if (c.code === 'COLLISION') return { ...c, deductible: 1000 }; // Stealth increase!
-          if (c.code === 'RENTAL_REIMBURSEMENT') return { ...c, isIncluded: false }; // Endorsement dropped!
-          return c;
-        })
-      : baseCoverages;
-
-    const issuedData = {
-      policyNumber: 'ISSUED-CARRIER-78912',
-      annualPremium: isDiscrepantSimulation ? selectedOffer.annualPremium + 180 : selectedOffer.annualPremium,
-      collisionDeductible: isDiscrepantSimulation ? 1000 : (selectedOffer.coverages.find(c => c.code === 'COLLISION')?.deductible || 500),
-      rentalIncluded: isDiscrepantSimulation ? false : (selectedOffer.coverages.find(c => c.code === 'RENTAL_REIMBURSEMENT')?.isIncluded ?? true),
-      coverages: issuedCoverages
-    };
-
-    const res = await apiFetch('/api/reconciliation/verify', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        handoffId: handoffResult.id,
-        dossierId: bindingDossier?.id,
-        issuedData
-      })
-    });
-    const data = await res.json();
-    if (data.success) {
-      if (data.isDetailed) {
-        setDetailedReconciliation(data.report);
-      }
-      setReconciliationReport(data.report);
-      setCurrentStep('RECONCILIATION_VAULT');
-      onRefreshData();
-    }
-  };
+  const selectedHandoffOffer = handoffResult
+    ? offers.find(offer => offer.id === (handoffResult.offerId || handoffResult.selectedOfferId))
+    : undefined;
+  const selectedProviderName = handoffResult?.providerName || selectedHandoffOffer?.providerName || 'Selected provider';
+  // The verified policy is authoritative for the insured's display name. Older
+  // handoff rows may retain fixture-era consumer labels and must not override it.
+  const selectedConsumerName = activePolicy?.namedInsured || handoffResult?.consumerName || 'Policyholder';
 
   return (
     <div className="space-y-6">
@@ -952,7 +1002,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
             }`}
           >
             <span className="w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center text-[10px] font-bold">4</span>
-            <span className="font-semibold text-emerald-800">Competition Room</span>
+            <span className="font-semibold text-emerald-800">Offer Review</span>
           </button>
 
           <ChevronRight className="w-3.5 h-3.5 text-slate-300 shrink-0" />
@@ -1045,10 +1095,10 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
         <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-6 md:p-8 space-y-6">
           <div className="max-w-2xl">
             <h2 className="text-2xl font-bold text-slate-900 tracking-tight">
-              Make Insurance Compete For You
+              Share Your Policy Once
             </h2>
             <p className="mt-1 text-slate-600 text-sm leading-relaxed">
-              Upload your existing auto insurance declarations page. We extract your exact protection baseline and current premium so licensed carriers compete to beat it — <strong className="text-slate-900 font-medium">without you filling out repeated forms</strong>.
+              Upload your existing {insuranceLineDefinition.displayName.toLowerCase()} declarations page. We extract your current coverage and premium so eligible providers can independently review it and send offers — <strong className="text-slate-900 font-medium">without you filling out repeated forms</strong>.
             </p>
           </div>
 
@@ -1058,18 +1108,18 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
               <UploadCloud className="w-6 h-6" />
             </div>
             <p className="text-sm font-semibold text-slate-800">
-              Drag and drop your auto declarations page (PDF, PNG, JPEG)
+              Drag and drop your {insuranceLineDefinition.displayName.toLowerCase()} declarations page (PDF)
             </p>
             <p className="text-xs text-slate-500 mt-1">
-              Supports 1-page Dec Pages, multi-vehicle policies, or renewal notices
+              Supports declarations pages, full policies, endorsements, or renewal notices
             </p>
 
             <div className="mt-4 flex items-center justify-center space-x-3">
               <label className="cursor-pointer bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs px-4 py-2 rounded-lg transition shadow-xs">
                 <span>Select File from Computer</span>
-                <input 
-                  type="file" 
-                  className="hidden" 
+                <input
+                  type="file"
+                  className="hidden"
                   accept=".pdf,.png,.jpg,.jpeg"
                   onChange={event => handleRealPolicyUpload(event.target.files?.[0])}
                 />
@@ -1080,7 +1130,20 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
           {(documentProcessing || documentProcessingError || realNormalization) && (
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-5 space-y-3">
               {documentProcessing && <p className="text-sm font-semibold text-blue-700">{documentProcessing}</p>}
-              {documentProcessingError && <p className="text-sm font-semibold text-red-700">{documentProcessingError}</p>}
+              {documentProcessingError && (
+                <div className="space-y-2">
+                  <p className="text-sm font-semibold text-red-700">{documentProcessingError}</p>
+                  {realDocumentId && !realNormalization && (
+                    <button
+                      type="button"
+                      onClick={handleRetryRealPolicyProcessing}
+                      className="rounded-lg bg-blue-700 px-4 py-2 text-xs font-bold text-white hover:bg-blue-800"
+                    >
+                      Retry Processing Uploaded Policy
+                    </button>
+                  )}
+                </div>
+              )}
               {realNormalization && (
                 <>
                   <div className="flex items-center justify-between gap-3">
@@ -1093,7 +1156,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                     {realNormalization.fields.map(field => (
                       <div key={field.fieldPath} className="bg-white border border-slate-200 rounded p-3">
-                        <p className="text-[11px] uppercase text-slate-500">{field.fieldPath}</p>
+                        <p className="text-[11px] uppercase text-slate-500">{reviewFields.find(definition => definition.path === field.fieldPath)?.label || field.fieldPath}</p>
                         <p className="text-sm font-semibold text-slate-900 break-words">{String(field.value)}</p>
                         <p className="text-[11px] text-blue-700">Page {field.evidence.pageNumber} · {Math.round(field.confidence*100)}% confidence</p>
                       </div>
@@ -1108,25 +1171,43 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                   <div className="border-t border-slate-200 pt-4 space-y-4">
                     <div>
                       <p className="text-sm font-bold text-slate-900">Review every fact before creating your baseline</p>
-                      <p className="text-xs text-slate-600">These values become the standard carriers must match. Correct OCR mistakes and fill every blank from your policy document.</p>
+                      <p className="text-xs text-slate-600">These values become your factual coverage baseline. Correct OCR mistakes and complete every required fact from your policy document. Optional facts may remain blank when the source does not state them.</p>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      {reviewFieldPaths.map(fieldPath => (
+                      {reviewFields.map(field => {
+                        const fieldPath = field.path;
+                        return (
                         <label key={fieldPath} className="text-xs font-semibold text-slate-700">
-                          <span className="block mb-1">{fieldPath}</span>
-                          <input
-                            aria-label={fieldPath}
-                            type={numericReviewFields.has(fieldPath) ? 'number' : fieldPath.endsWith('Date') ? 'date' : 'text'}
-                            value={policyReviewValues[fieldPath] || ''}
-                            onChange={event => {
-                              setPolicyReviewValues(current => ({...current, [fieldPath]:event.target.value}));
-                              setPolicyEvidenceAttested(false);
-                            }}
-                            placeholder={fieldPath === 'vehicle.usage' ? 'COMMUTE, PLEASURE, or BUSINESS' : fieldPath === 'vehicle.ownership' ? 'OWNED, FINANCED, or LEASED' : undefined}
-                            className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-slate-900"
-                          />
+                          <span className="block mb-1">{field.label}{field.requiredForBaseline ? ' *' : ' (optional)'}</span>
+                          {inclusionReviewFields.has(fieldPath) ? (
+                            <select
+                              aria-label={fieldPath}
+                              value={policyReviewValues[fieldPath] || ''}
+                              onChange={event => {
+                                setPolicyReviewValues(current => ({...current, [fieldPath]:event.target.value}));
+                                setPolicyEvidenceAttested(false);
+                              }}
+                              className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-slate-900"
+                            >
+                              <option value="">Confirm from policy</option>
+                              <option value="1">Included</option>
+                              <option value="0">Declined / not included</option>
+                            </select>
+                          ) : (
+                            <input
+                              aria-label={fieldPath}
+                              type={numericReviewFields.has(fieldPath) ? 'number' : field.kind === 'DATE' ? 'date' : 'text'}
+                              value={policyReviewValues[fieldPath] || ''}
+                              onChange={event => {
+                                setPolicyReviewValues(current => ({...current, [fieldPath]:event.target.value}));
+                                setPolicyEvidenceAttested(false);
+                              }}
+                              placeholder={fieldPath === 'vehicle.usage' ? 'COMMUTE, PLEASURE, or BUSINESS' : fieldPath === 'vehicle.ownership' ? 'OWNED, FINANCED, or LEASED' : undefined}
+                              className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-slate-900"
+                            />
+                          )}
                         </label>
-                      ))}
+                      )})}
                     </div>
                     <label className="flex items-start gap-2 rounded border border-blue-200 bg-blue-50 p-3 text-xs text-blue-950">
                       <input
@@ -1164,7 +1245,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
             </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {SAMPLE_DECLARATIONS_PAGES.map(sample => (
-                <div 
+                <div
                   key={sample.id}
                   onClick={() => handleSelectSample(sample.id)}
                   className="border border-slate-200 hover:border-emerald-500 bg-white hover:bg-emerald-50/30 rounded-lg p-4 cursor-pointer transition flex items-start space-x-3 group"
@@ -1207,23 +1288,24 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                 Verify Your Policy Baseline
               </h2>
               <p className="text-sm text-slate-600">
-                Review the extracted terms from <span className="font-semibold text-slate-800">{activePolicy.sourceDocumentName}</span>. Every field is verified against source evidence before challengers can compete.
+                Review the extracted terms from <span className="font-semibold text-slate-800">{activePolicy.sourceDocumentName}</span>. Confirm or correct the information before providers can review it.
               </p>
             </div>
 
             <div className="flex items-center space-x-3 shrink-0">
               <button
                 onClick={handleConfirmPolicy}
-                className="flex items-center space-x-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs px-5 py-2.5 rounded-lg transition shadow-xs"
+                disabled={flowActionPending}
+                className="flex items-center space-x-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs px-5 py-2.5 rounded-lg transition shadow-xs disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Check className="w-4 h-4" />
-                <span>CONFIRM POLICY</span>
+                <span>{activeBaseline ? 'CONTINUE' : 'CONFIRM POLICY'}</span>
               </button>
             </div>
           </div>
 
           {/* Policy Overview Summary Card */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
             <div>
               <p className="text-xs text-slate-500 uppercase font-medium">Current Carrier</p>
               <p className="text-sm font-bold text-slate-900 mt-0.5">{activePolicy.carrier}</p>
@@ -1240,6 +1322,13 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                 ${activePolicy.annualPremium.toLocaleString()}/yr
               </p>
               <p className="text-xs text-slate-500">(${activePolicy.monthlyPremium}/month)</p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-500 uppercase font-medium">Policy Term</p>
+              <p className="text-sm font-bold text-slate-900 mt-0.5">
+                {activePolicy.effectiveDate}
+              </p>
+              <p className="text-xs text-slate-500">through {activePolicy.expirationDate}</p>
             </div>
             <div>
               <p className="text-xs text-slate-500 uppercase font-medium">Insured Vehicle</p>
@@ -1333,29 +1422,31 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
             </button>
             <button
               onClick={handleConfirmPolicy}
-              className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs px-6 py-2.5 rounded-lg transition shadow-xs"
+              disabled={flowActionPending}
+              className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs px-6 py-2.5 rounded-lg transition shadow-xs disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <span>CONFIRM POLICY & CREATE BASELINE</span>
+              <span>{flowActionPending ? 'SAVING…' : activeBaseline ? 'CONTINUE TO POLICY SHARING' : 'CONFIRM POLICY & CREATE BASELINE'}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </div>
+          {flowActionError && <p role="alert" className="text-sm font-semibold text-red-700">{flowActionError}</p>}
         </div>
       )}
 
       {/* ========================================================================= */}
-      {/* STEP 3: SET CONSUMER REQUIREMENTS & LAUNCH CHALLENGE                      */}
+      {/* STEP 3: CONFIRM VERIFIED BASELINE & OPEN OFFER REVIEW                      */}
       {/* ========================================================================= */}
       {currentStep === 'SET_REQUIREMENTS' && activeBaseline && (
         <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-6 md:p-8 space-y-6">
           <div>
             <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-              CONSUMER-CONTROLLED COMPETITION ENGINE
+              VERIFIED POLICY BASELINE
             </span>
             <h2 className="text-2xl font-bold text-slate-900 mt-1">
-              Set Your Challenge Requirements
+              Open Your Policy for Provider Offers
             </h2>
             <p className="text-sm text-slate-600">
-              CoverageBaseline is what you currently have. ConsumerRequirements is what you will accept from challengers.
+              Your verified existing policy is the reference point. Providers independently determine the price, coverage, and terms they are authorized to offer.
             </p>
           </div>
 
@@ -1363,109 +1454,14 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
           <div className="bg-slate-900 text-white p-5 rounded-xl space-y-2 border border-slate-800">
             <div className="flex items-center space-x-2 text-emerald-400 font-bold text-xs uppercase tracking-wider">
               <Shield className="w-4 h-4" />
-              <span>Governing Consumer Rule</span>
+              <span>Factual Comparison Standard</span>
             </div>
             <p className="text-base font-semibold text-slate-100">
-              “{requirements.ruleSummary}”
+              Offers are compared with your current policy line by line.
             </p>
             <p className="text-xs text-slate-400">
-              Offers should cost less than your current price of ${activeBaseline.baselineAnnualPremium.toLocaleString()}/year and should not reduce liability limits or remove required coverage.
+              Open Policy displays each offer’s stated premium and coverage differences from your current policy. You decide whether to select an offer or retain your policy.
             </p>
-          </div>
-
-          {/* Interactive Requirement Controls */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
-            <div className="space-y-4 border border-slate-200 rounded-xl p-5 bg-slate-50/50">
-              <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                Price Improvement Threshold
-              </h4>
-              <div>
-                <div className="flex items-center justify-between text-xs mb-1">
-                  <span className="text-slate-600">Minimum annual price difference (default $100 per year; you can change this):</span>
-                  <span className="font-bold text-emerald-700">${requirements.minAnnualSavings} / year</span>
-                </div>
-                <input
-                  type="range"
-                  min="50"
-                  max="600"
-                  step="25"
-                  value={requirements.minAnnualSavings}
-                  onChange={e => setRequirements({ ...requirements, minAnnualSavings: Number(e.target.value) })}
-                  className="w-full accent-emerald-600 cursor-pointer"
-                />
-                <div className="flex justify-between text-[10px] text-slate-400 mt-1">
-                  <span>$50/yr</span>
-                  <span>$300/yr</span>
-                  <span>$600/yr</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-4 border border-slate-200 rounded-xl p-5 bg-slate-50/50">
-              <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                Deductible Ceiling Protection
-              </h4>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-[11px] text-slate-600 font-medium block mb-1">Max Collision Deductible</label>
-                  <select
-                    value={requirements.maxCollisionDeductible}
-                    onChange={e => setRequirements({ ...requirements, maxCollisionDeductible: Number(e.target.value) })}
-                    className="w-full text-xs font-semibold bg-white border border-slate-300 rounded px-2.5 py-1.5"
-                  >
-                    <option value={250}>$250 (Superior)</option>
-                    <option value={500}>$500 (Current Baseline)</option>
-                    <option value={1000}>$1,000 (Allow higher)</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-[11px] text-slate-600 font-medium block mb-1">Max Comp Deductible</label>
-                  <select
-                    value={requirements.maxCompDeductible}
-                    onChange={e => setRequirements({ ...requirements, maxCompDeductible: Number(e.target.value) })}
-                    className="w-full text-xs font-semibold bg-white border border-slate-300 rounded px-2.5 py-1.5"
-                  >
-                    <option value={100}>$100</option>
-                    <option value={250}>$250 (Current Baseline)</option>
-                    <option value={500}>$500</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Endorsement Guarantees */}
-          <div className="border border-slate-200 rounded-xl p-5 bg-slate-50/50">
-            <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider mb-3">
-              Essential Endorsement Guarantees
-            </h4>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <label className="flex items-center space-x-3 bg-white p-3 rounded-lg border border-slate-200 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={requirements.mustIncludeRental}
-                  onChange={e => setRequirements({ ...requirements, mustIncludeRental: e.target.checked })}
-                  className="rounded text-emerald-600 w-4 h-4 accent-emerald-600"
-                />
-                <div>
-                  <span className="text-xs font-bold text-slate-800">Must Include Rental Reimbursement</span>
-                  <p className="text-[11px] text-slate-500">Do not accept offers that cut rental replacement cars</p>
-                </div>
-              </label>
-
-              <label className="flex items-center space-x-3 bg-white p-3 rounded-lg border border-slate-200 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={requirements.mustIncludeRoadside}
-                  onChange={e => setRequirements({ ...requirements, mustIncludeRoadside: e.target.checked })}
-                  className="rounded text-emerald-600 w-4 h-4 accent-emerald-600"
-                />
-                <div>
-                  <span className="text-xs font-bold text-slate-800">Must Include Roadside Assistance</span>
-                  <p className="text-[11px] text-slate-500">Require emergency towing and roadside dispatch</p>
-                </div>
-              </label>
-            </div>
           </div>
 
           {/* Launch Action */}
@@ -1478,37 +1474,43 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
             </button>
             <button
               onClick={handleLaunchChallenge}
-              className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm px-8 py-3 rounded-xl transition shadow-md shadow-emerald-900/20"
+              disabled={flowActionPending}
+              className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm px-8 py-3 rounded-xl transition shadow-md shadow-emerald-900/20 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Sparkles className="w-5 h-5" />
-              <span>MAKE THEM COMPETE</span>
+              <span>{flowActionPending ? 'SHARING…' : 'SHARE MY POLICY'}</span>
             </button>
           </div>
+          {flowActionError && <p role="alert" className="text-sm font-semibold text-red-700">{flowActionError}</p>}
         </div>
       )}
 
       {/* ========================================================================= */}
-      {/* STEP 4: SIGNATURE CONSUMER INTERFACE — THE COMPETITION ROOM               */}
+      {/* STEP 4: SIGNATURE CONSUMER INTERFACE — OFFER REVIEW                       */}
       {/* ========================================================================= */}
       {currentStep === 'COMPETITION_ROOM' && (
         <div className="space-y-6">
-          {/* Header of Competition Room */}
+          {/* Header of Offer Review */}
           <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
               <div className="flex items-center space-x-2">
                 <span className="text-xs font-mono font-bold bg-slate-900 text-white px-2 py-0.5 rounded">
-                  {challenge?.referenceNumber || 'CHALLENGE #NV-49281'}
+                  {(challenge?.referenceNumber || 'POLICY REVIEW #NV-49281').replace(/^CHALLENGE/i, 'POLICY REVIEW')}
                 </span>
-                <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 flex items-center space-x-1">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                  <span>MARKETPLACE ACTIVE</span>
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded border flex items-center space-x-1 ${
+                  submissionWindowOpen
+                    ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                    : 'text-slate-700 bg-slate-100 border-slate-200'
+                }`}>
+                  <span className={`w-2 h-2 rounded-full ${submissionWindowOpen ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`}></span>
+                  <span>{submissionWindowOpen ? 'OFFERS OPEN' : 'OFFERS CLOSED'}</span>
                 </span>
               </div>
               <h2 className="text-2xl font-bold text-slate-900 mt-1">
-                The Competition Room
+                Your Offers
               </h2>
               <p className="text-xs text-slate-600">
-                Challengers competing against your verified baseline. <strong className="text-slate-800 font-semibold">Protection and price are separated</strong> so cheaper quotes cannot conceal coverage reductions.
+                Providers review the same verified policy information independently. <strong className="text-slate-800 font-semibold">Coverage and price are shown separately</strong> so a lower price cannot conceal a coverage reduction.
               </p>
             </div>
 
@@ -1530,7 +1532,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
             </div>
           </div>
 
-          {/* Section 11 & 12 Progressive Disclosure & Dynamic Competition Mechanics */}
+          {/* Section 11 & 12 Progressive Disclosure & Independent Offer Review */}
           <div className="bg-slate-900 text-white rounded-xl p-4 border border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
             <div className="flex items-start space-x-3">
               <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/30">
@@ -1539,7 +1541,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
               <div>
                 <div className="flex items-center space-x-2">
                   <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">
-                    Progressive Disclosure: Level 0 (Marketplace Anonymous)
+                    Contact details withheld during provider review
                   </span>
                   <span className="text-[10px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded font-mono">
                     Zero Direct Contact Shared
@@ -1553,12 +1555,12 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
 
             <div className="flex items-center space-x-2 shrink-0">
               <span className="text-[11px] font-semibold text-emerald-400 bg-emerald-950/80 px-2.5 py-1 rounded-lg border border-emerald-800">
-                Sealed Anti-Collusion Mode Active
+                Other providers’ offers are not visible
               </span>
             </div>
           </div>
 
-          {/* PM-3: Canonical Competition Lifecycle & Multi-Round Stepper */}
+          {/* PR-2: one submission window followed by policyholder review */}
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-5">
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-100">
               <div className="flex items-center space-x-3">
@@ -1568,24 +1570,14 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                 <div>
                   <div className="flex items-center space-x-2">
                     <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                      Competition Rounds (Canonical PM-3)
+                      Offer Submission Window
                     </span>
                     <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold border ${
-                      currentCanonicalRound === 'OPEN'
+                      submissionWindowOpen
                         ? 'bg-blue-50 text-blue-700 border-blue-200'
-                        : currentCanonicalRound === 'IMPROVEMENT'
-                        ? 'bg-amber-50 text-amber-700 border-amber-200'
-                        : currentCanonicalRound === 'BEST_AND_FINAL'
-                        ? 'bg-purple-50 text-purple-700 border-purple-200'
-                        : currentCanonicalRound === 'CLOSED'
-                        ? 'bg-slate-200 text-slate-800 border-slate-300'
                         : 'bg-emerald-50 text-emerald-800 border-emerald-200'
                     }`}>
-                      {currentCanonicalRound === 'OPEN' && 'Round 1: Open Bidding'}
-                      {currentCanonicalRound === 'IMPROVEMENT' && 'Round 2: Improvement Window'}
-                      {currentCanonicalRound === 'BEST_AND_FINAL' && 'Round 3: Best & Final Offer (BAFO)'}
-                      {currentCanonicalRound === 'CLOSED' && 'Round 4: Bidding Closed'}
-                      {currentCanonicalRound === 'CONSUMER_REVIEW' && 'Round 5: Consumer Review & Selection'}
+                      {submissionWindowLabel}
                     </span>
                     {deadlineStatus?.formattedRemaining && (
                       <span className="text-[11px] font-semibold text-slate-700 bg-amber-50 px-2.5 py-0.5 rounded-md flex items-center gap-1 border border-amber-200">
@@ -1595,18 +1587,18 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                     )}
                   </div>
                   <h3 className="text-base font-bold text-slate-900 mt-0.5">
-                    Structured Multi-Round Bidding Lifecycle
+                    Providers submit offers independently while the window is open
                   </h3>
                 </div>
               </div>
 
-              {/* Action Buttons: Keep Current Policy & Round Advancement */}
+              {/* Policyholder controls */}
               <div className="flex flex-wrap items-center gap-2">
                 {/* Keep Current Policy (Incumbent Defended) Button */}
                 {challenge?.status === 'INCUMBENT_DEFENDED' ? (
                   <div className="flex items-center gap-1.5 bg-emerald-950 text-emerald-300 border border-emerald-700/60 px-3.5 py-2 rounded-lg text-xs font-bold shadow-xs">
                     <CheckCircle className="w-4 h-4 text-emerald-400" />
-                    <span>✓ Incumbent Policy Retained (Incumbent Defended)</span>
+                    <span>✓ Current Policy Retained</span>
                   </div>
                 ) : (
                   <button
@@ -1614,87 +1606,59 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                     onClick={handleKeepCurrentPolicy}
                     disabled={retainingCurrentPolicy}
                     className="flex items-center space-x-1.5 text-xs font-bold px-3.5 py-2 rounded-lg border border-blue-600 bg-blue-600 hover:bg-blue-700 text-white shadow-sm transition"
-                    title="Retain current baseline policy without forced concession (marks challenge INCUMBENT_DEFENDED)"
+                    title="Keep your current policy and close this offer review"
                   >
                     <ShieldAlert className="w-3.5 h-3.5 text-white" />
-                    <span>{retainingCurrentPolicy ? 'Retaining Policy...' : 'KEEP CURRENT POLICY (INCUMBENT DEFENDED)'}</span>
+                    <span>{retainingCurrentPolicy ? 'Retaining Policy...' : 'KEEP CURRENT POLICY'}</span>
                   </button>
                 )}
 
-                {/* Progression buttons */}
-                {currentCanonicalRound === 'OPEN' && (
+                {submissionWindowOpen && (
                   <button
-                    onClick={() => handleAdvanceCompetitionRound('IMPROVEMENT', 'Consumer requested round 2 improvement window')}
-                    disabled={advancingRound === 'IMPROVEMENT'}
-                    className="flex items-center space-x-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white transition shadow-xs"
-                  >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>{advancingRound === 'IMPROVEMENT' ? 'Advancing...' : 'Request Improvement Round'}</span>
-                  </button>
-                )}
-
-                {(currentCanonicalRound === 'OPEN' || currentCanonicalRound === 'IMPROVEMENT') && (
-                  <button
-                    id="btn-final-round"
-                    onClick={() => handleAdvanceCompetitionRound('BEST_AND_FINAL', 'Consumer requested Best & Final offer round')}
-                    disabled={advancingRound === 'BEST_AND_FINAL' || challenge?.isFinalRound}
-                    className="flex items-center space-x-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white transition shadow-xs"
-                  >
-                    <Award className="w-3.5 h-3.5" />
-                    <span>{advancingRound === 'BEST_AND_FINAL' ? 'Advancing...' : 'Request Best & Final'}</span>
-                  </button>
-                )}
-
-                {currentCanonicalRound === 'BEST_AND_FINAL' && (
-                  <button
-                    onClick={() => handleAdvanceCompetitionRound('CLOSED', 'Consumer closed competition bidding')}
-                    disabled={advancingRound === 'CLOSED'}
-                    className="flex items-center space-x-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white transition shadow-xs"
-                  >
-                    <Lock className="w-3.5 h-3.5" />
-                    <span>{advancingRound === 'CLOSED' ? 'Closing...' : 'Close Bidding Window'}</span>
-                  </button>
-                )}
-
-                {currentCanonicalRound === 'CLOSED' && (
-                  <button
-                    onClick={() => handleAdvanceCompetitionRound('CONSUMER_REVIEW', 'Entering final consumer review stage')}
-                    disabled={advancingRound === 'CONSUMER_REVIEW'}
+                    id="btn-begin-review"
+                    onClick={handleBeginReview}
+                    disabled={beginningReview}
                     className="flex items-center space-x-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition shadow-xs"
                   >
                     <CheckCircle className="w-3.5 h-3.5" />
-                    <span>{advancingRound === 'CONSUMER_REVIEW' ? 'Entering...' : 'Enter Consumer Review'}</span>
+                    <span>{beginningReview ? 'Closing Window...' : 'Review Offers Now'}</span>
                   </button>
                 )}
 
-                <button
-                  id="btn-incumbent-defense"
-                  onClick={handleTriggerIncumbentDefense}
-                  disabled={triggeringIncumbent || challenge?.incumbentDefended}
-                  className={`flex items-center space-x-1.5 text-xs font-semibold px-3 py-2 rounded-lg border transition ${
-                    challenge?.incumbentDefended
-                      ? 'bg-blue-950 text-blue-300 border-blue-700/60 cursor-default'
-                      : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300 shadow-xs'
-                  }`}
-                  title="Invite existing carrier to submit a retention counter-offer"
-                >
-                  <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
-                  <span>{challenge?.incumbentDefended ? '✓ Incumbent Retention Entered' : 'Invite Incumbent to Defend'}</span>
-                </button>
+                {submissionWindowOpen && offerCohortStatus?.canRequestAdditionalOffers && (
+                  <button
+                    id="btn-request-additional-offers"
+                    onClick={handleRequestAdditionalOffers}
+                    disabled={requestingAdditionalOffers}
+                    className="flex items-center space-x-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 transition shadow-xs"
+                    title="Invite another eligible provider cohort without sharing prior offers or your reasons"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>{requestingAdditionalOffers ? 'Requesting...' : 'Request Additional Offers'}</span>
+                  </button>
+                )}
+
               </div>
             </div>
 
-            {/* Stepper Pipeline */}
-            <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 pt-1">
+            {offerCohortStatus && (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-700">
+                <strong>Offer availability:</strong> {offerCohortStatus.currentOfferCount} submitted offer{offerCohortStatus.currentOfferCount === 1 ? '' : 's'} available;{' '}
+                {offerCohortStatus.activatedProviderCount} eligible provider{offerCohortStatus.activatedProviderCount === 1 ? '' : 's'} activated.
+                {offerCohortStatus.standbyProviderCount > 0 && submissionWindowOpen
+                  ? ` ${offerCohortStatus.standbyProviderCount} eligible provider${offerCohortStatus.standbyProviderCount === 1 ? '' : 's'} remain in standby and receive no policy access unless you request additional offers.`
+                  : ''}
+                <span className="block mt-1 text-slate-500">Providers prepare offers independently and cannot see other providers' terms or your reasons for requesting more offers.</span>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
               {[
-                { id: 'OPEN', stepNum: '1', title: 'Open Bidding', subtitle: 'Initial market quotes' },
-                { id: 'IMPROVEMENT', stepNum: '2', title: 'Improvement', subtitle: 'Multi-dimensional revisions' },
-                { id: 'BEST_AND_FINAL', stepNum: '3', title: 'Best & Final', subtitle: 'Sharpened terms' },
-                { id: 'CLOSED', stepNum: '4', title: 'Bidding Closed', subtitle: 'Submissions sealed' },
-                { id: 'CONSUMER_REVIEW', stepNum: '5', title: 'Consumer Review', subtitle: 'Selection & defense' }
+                { id: 'OPEN', stepNum: '1', title: 'Submission Window', subtitle: 'Providers may submit or independently update their own offers' },
+                { id: 'CONSUMER_REVIEW', stepNum: '2', title: 'Policyholder Review', subtitle: 'Review every valid submitted offer and decide' }
               ].map((st) => {
-                const roundKeys = ['OPEN', 'IMPROVEMENT', 'BEST_AND_FINAL', 'CLOSED', 'CONSUMER_REVIEW'];
-                const curIdx = roundKeys.indexOf(currentCanonicalRound);
+                const roundKeys = ['OPEN', 'CONSUMER_REVIEW'];
+                const curIdx = roundKeys.indexOf(effectiveCanonicalRound);
                 const stepIdx = roundKeys.indexOf(st.id);
                 const isPassed = curIdx > stepIdx;
                 const isCurrent = curIdx === stepIdx;
@@ -1722,7 +1686,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                       </span>
                       {isCurrent && (
                         <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded">
-                          Active Round
+                          Current Stage
                         </span>
                       )}
                     </div>
@@ -1818,14 +1782,14 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
             </div>
           )}
 
-          {/* PM-3: Transparent Consumer Competition Activity Timeline */}
+          {/* PM-3: Consumer Offer Activity Timeline */}
           {activityFeed && activityFeed.length > 0 && (
             <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-3">
               <div className="flex items-center justify-between pb-2 border-b border-slate-100">
                 <div className="flex items-center space-x-2">
                   <Clock className="w-4 h-4 text-blue-600" />
                   <h4 className="text-sm font-bold text-slate-900">
-                    Competition Activity & Telemetry Timeline
+                    Offer Activity Timeline
                   </h4>
                   <span className="text-[10px] bg-blue-100 text-blue-700 font-bold px-2 py-0.5 rounded-full font-mono">
                     Transparent Event Ledger
@@ -1877,7 +1841,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
           )}
 
           <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
-            Showing {activeComparisons.length} {activeComparisons.length === 1 ? 'offer' : 'offers'} in the order received. Offers that do not meet your requirements remain visible and are clearly marked. Change your requirements above.
+                Showing {activeComparisons.length} {activeComparisons.length === 1 ? 'offer' : 'offers'} in the order received. Every valid documented offer remains visible, including offers with different premiums or coverage.
           </div>
 
           {/* Section 25 Signature Side-by-Side Board */}
@@ -1894,7 +1858,9 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                   {challenge?.baseline.carrier || 'GEICO Advantage'}
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  2024 Toyota Camry XLE
+                  {challenge?.baseline.vehicle
+                    ? `${challenge.baseline.vehicle.year} ${challenge.baseline.vehicle.make} ${challenge.baseline.vehicle.model}`
+                    : 'Vehicle details not verified'}
                 </p>
 
                 <div className="my-5 p-3 rounded-lg bg-slate-800/80 border border-slate-700/60">
@@ -1908,31 +1874,19 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                 </div>
 
                 <div className="space-y-2 text-xs border-t border-slate-800 pt-3">
-                  <div className="flex justify-between text-slate-300">
-                    <span>Bodily Injury:</span>
-                    <span className="font-semibold text-white">100k / 300k</span>
-                  </div>
-                  <div className="flex justify-between text-slate-300">
-                    <span>Property Damage:</span>
-                    <span className="font-semibold text-white">$100,000</span>
-                  </div>
-                  <div className="flex justify-between text-slate-300">
-                    <span>Collision Deductible:</span>
-                    <span className="font-semibold text-white">$500</span>
-                  </div>
-                  <div className="flex justify-between text-slate-300">
-                    <span>Comp Deductible:</span>
-                    <span className="font-semibold text-white">$250</span>
-                  </div>
-                  <div className="flex justify-between text-slate-300">
-                    <span>Rental / Roadside:</span>
-                    <span className="font-semibold text-emerald-400">Included</span>
-                  </div>
+                  {challenge?.baseline.coverages?.length ? challenge.baseline.coverages.map(coverage => (
+                    <div key={coverage.id || coverage.code} className="flex justify-between gap-3 text-slate-300">
+                      <span>{coverage.name}:</span>
+                      <span className="font-semibold text-white text-right">{formatBaselineCoverage(coverage)}</span>
+                    </div>
+                  )) : (
+                    <div className="text-slate-400">No coverage details have been verified.</div>
+                  )}
                 </div>
               </div>
 
               <div className="mt-6 pt-3 border-t border-slate-800/80 text-[11px] text-slate-400 text-center font-mono">
-                Economic & Protection Benchmark
+                Current Policy Reference
               </div>
             </div>
 
@@ -1948,11 +1902,11 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
               if (comp.classification === 'COVERAGE_CHANGED') badgeColor = 'bg-rose-50 text-rose-800 border-rose-300';
 
               return (
-                <div 
+                <div
                   key={comp.offerId}
                   className={`bg-white rounded-xl p-5 border flex flex-col justify-between transition-all relative ${
-                    isSelected 
-                      ? 'border-emerald-600 shadow-md ring-2 ring-emerald-500/20' 
+                    isSelected
+                      ? 'border-emerald-600 shadow-md ring-2 ring-emerald-500/20'
                       : 'border-slate-200 hover:border-slate-300 shadow-xs'
                   }`}
                 >
@@ -2011,7 +1965,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                       <div className="flex items-center justify-between text-xs mt-1">
                         <span className="text-slate-500 font-mono">${comp.offerAnnualPremium.toLocaleString()}/yr</span>
                         <span className="font-bold text-emerald-700 bg-emerald-100/60 px-1.5 py-0.2 rounded text-[11px]">
-                          Save ${comp.annualSavings.toLocaleString()}/yr
+                          ${Math.abs(comp.annualPremiumDifference).toLocaleString()}/yr {comp.annualPremiumDifference >= 0 ? 'lower' : 'higher'}
                         </span>
                       </div>
                     </div>
@@ -2029,7 +1983,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                         <div className="p-2.5 rounded bg-blue-50 text-blue-900 text-[11px] leading-tight space-y-1">
                           <div className="flex items-start space-x-1.5 font-semibold text-blue-800">
                             <Sparkles className="w-3.5 h-3.5 text-blue-600 shrink-0 mt-0.5" />
-                            <span>Material Protection Upgrade:</span>
+                            <span>Additional Stated Coverage:</span>
                           </div>
                           {comp.materialImprovements.map((m, i) => (
                             <div key={i} className="text-blue-700 pl-5">
@@ -2043,10 +1997,10 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                         <div className="p-2.5 rounded bg-rose-50 border border-rose-200 text-rose-900 text-[11px] leading-tight space-y-1.5">
                           <div className="flex items-start space-x-1.5 font-bold text-rose-700">
                             <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-                            <span>PROMINENT WARNING: Coverage Cut!</span>
+                            <span>Coverage Differences</span>
                           </div>
                           <p className="text-[11px] text-rose-800 font-medium">
-                            Price is lower, but your protection was significantly reduced:
+                            This lower-priced offer states these coverage differences:
                           </p>
                           {comp.materialReductions.map((r, i) => (
                             <div key={i} className="text-rose-700 pl-3 font-semibold">
@@ -2056,12 +2010,6 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                         </div>
                       )}
 
-                      {/* Requirement Compliance */}
-                      {!comp.meetsConsumerRequirements && (
-                        <div className="text-[10px] text-amber-700 bg-amber-50 p-1.5 rounded border border-amber-200">
-                          ⚠️ Fails your strict requirement ceiling
-                        </div>
-                      )}
                     </div>
                   </div>
 
@@ -2115,6 +2063,26 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
       {/* ========================================================================= */}
       {/* STEP 5: DEEP FIELD-BY-FIELD COMPARISON MATRIX                             */}
       {/* ========================================================================= */}
+      {currentStep === 'COMPARISON_DEEP_DIVE' && !selectedComparison && (
+        <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-6 md:p-8 space-y-5">
+          <div className="flex items-start gap-3">
+            <Clock className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <span className="text-[11px] font-bold text-amber-700 uppercase tracking-wider">Waiting for a provider offer</span>
+              <h2 className="text-2xl font-bold text-slate-900 mt-1">No offer is available for field-by-field comparison</h2>
+              <p className="text-xs text-slate-600 mt-2 max-w-2xl">
+                Your verified policy baseline is complete. This matrix becomes available after an authorized provider submits a documented offer. Open Policy will then compare that offer with your existing policy field by field.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setCurrentStep('COMPETITION_ROOM')}
+            className="text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 px-4 py-2 rounded-lg transition"
+          >
+            Return to Offer Review
+          </button>
+        </div>
+      )}
       {currentStep === 'COMPARISON_DEEP_DIVE' && selectedComparison && (
         <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-6 md:p-8 space-y-6">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-200">
@@ -2126,7 +2094,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                 Current Policy vs. {selectedComparison.carrier}
               </h2>
               <p className="text-xs text-slate-600">
-                Comparing against verified baseline #BL-NV-49281. Annual savings: <strong className="text-emerald-700 font-bold">${selectedComparison.annualSavings.toLocaleString()}</strong>.
+                Compared with the verified baseline, the annual premium is <strong className="text-emerald-700 font-bold">${Math.abs(selectedComparison.annualPremiumDifference).toLocaleString()} {selectedComparison.annualPremiumDifference >= 0 ? 'lower' : 'higher'}</strong>.
               </p>
             </div>
 
@@ -2164,7 +2132,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
             <div className="flex items-center space-x-2">
               <Info className="w-4 h-4 text-slate-500" />
               <span>
-                <strong>Trust Standard:</strong> We compared {selectedComparison.totalFieldsCount} of {selectedComparison.totalFieldsCount} relevant fields. {selectedComparison.matchingFieldsCount} match identically, {selectedComparison.betterFieldsCount} improved, and {selectedComparison.worseFieldsCount} were reduced.
+                <strong>Comparison record:</strong> We compared {selectedComparison.totalFieldsCount} relevant fields. {selectedComparison.matchingFieldsCount} match, {selectedComparison.betterFieldsCount} are classified as more protective, and {selectedComparison.worseFieldsCount} are classified as reduced protection.
               </span>
             </div>
           </div>
@@ -2210,7 +2178,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                         </td>
                         <td className="py-3 px-3">
                           <span className={`inline-block px-2 py-0.5 rounded text-[10px] uppercase tracking-wider ${badgeBg}`}>
-                            {fc.result}
+                            {{ BETTER: 'MORE PROTECTIVE', EQUIVALENT: 'MATCH', WORSE: 'REDUCED PROTECTION', DIFFERENT: 'DIFFERENT', UNKNOWN: 'UNKNOWN' }[fc.result]}
                           </span>
                         </td>
                         <td className="py-3 px-3 text-slate-600 text-[11px] leading-relaxed max-w-xs">
@@ -2228,7 +2196,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
               onClick={() => setCurrentStep('COMPETITION_ROOM')}
               className="text-xs text-slate-600 hover:text-slate-900"
             >
-              ← Back to Competition Room
+              ← Back to Offers
             </button>
             <button
               onClick={() => handleInitiateSelectOffer(selectedComparison.offerId)}
@@ -2244,6 +2212,26 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
       {/* ========================================================================= */}
       {/* STEP 6: BINDING HANDOFF & PROGRESSIVE DISCLOSURE                          */}
       {/* ========================================================================= */}
+      {currentStep === 'BINDING_HANDOFF' && !handoffResult && (
+        <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-6 md:p-8 space-y-5">
+          <div className="flex items-start gap-3">
+            <ShieldCheck className="w-5 h-5 text-slate-500 shrink-0 mt-0.5" />
+            <div>
+              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Selection required</span>
+              <h2 className="text-2xl font-bold text-slate-900 mt-1">No provider handoff has been authorized</h2>
+              <p className="text-xs text-slate-600 mt-2 max-w-2xl">
+                Binding handoff begins only after you review and select a submitted provider offer. Until then, your identity and contact information remain withheld from providers.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setCurrentStep('COMPETITION_ROOM')}
+            className="text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 px-4 py-2 rounded-lg transition"
+          >
+            Return to Offer Review
+          </button>
+        </div>
+      )}
       {currentStep === 'BINDING_HANDOFF' && handoffResult && (
         <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-6 md:p-8 space-y-6">
           <div className="max-w-2xl">
@@ -2254,7 +2242,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
               Licensed Binding Handoff Dossier
             </h2>
             <p className="text-xs text-slate-600">
-              You selected <strong className="text-slate-800">{handoffResult.carrier}</strong> through <strong className="text-slate-800">{handoffResult.providerName}</strong>. 
+              You selected <strong className="text-slate-800">{handoffResult.carrier}</strong> through <strong className="text-slate-800">{selectedProviderName}</strong>.
               Under progressive disclosure rules, only this licensed provider is authorized to receive your contact information to bind the policy.
             </p>
           </div>
@@ -2281,11 +2269,11 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-3 border-t border-slate-200 text-xs">
               <div>
                 <span className="text-slate-500 block">Named Insured:</span>
-                <span className="font-semibold text-slate-800">{handoffResult.consumerName}</span>
+                <span className="font-semibold text-slate-800">{selectedConsumerName}</span>
               </div>
               <div>
                 <span className="text-slate-500 block">Authorized Provider:</span>
-                <span className="font-semibold text-slate-800">{handoffResult.providerName}</span>
+                <span className="font-semibold text-slate-800">{selectedProviderName}</span>
               </div>
               <div>
                 <span className="text-slate-500 block">Carrier & Quote:</span>
@@ -2306,13 +2294,13 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                     <span>Designated Producer & License Verification</span>
                   </div>
                   <p className="text-slate-600">
-                    Broker: <span className="font-semibold text-slate-800">{bindingDossier.winningBroker.designatedAgentName}</span>
+                    Provider contact: <span className="font-semibold text-slate-800">{bindingDossier.winningBroker.designatedAgentName}</span>
                   </p>
                   <p className="text-slate-600">
                     Jurisdiction License: <span className="font-mono font-semibold text-slate-800">{bindingDossier.winningBroker.licenseNumber} ({bindingDossier.winningBroker.jurisdiction})</span>
                   </p>
                   <p className="text-slate-500 text-[10px]">
-                    Non-winning market participants cannot access your name, email, phone, or VIN.
+                    Providers you did not choose cannot access your name, email, phone, or VIN.
                   </p>
                 </div>
 
@@ -2325,7 +2313,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                     Terms Version: <span className="font-semibold text-slate-800">{bindingDossier.complianceAcknowledgments.termsVersion}</span>
                   </p>
                   <p className="text-slate-600">
-                    Annual Price Improvement: <span className="font-bold text-emerald-700">${bindingDossier.complianceAcknowledgments.priceImprovementAnnual.toLocaleString()}/yr</span>
+                    Annual Premium Difference: <span className="font-bold text-emerald-700">-${bindingDossier.complianceAcknowledgments.priceImprovementAnnual.toLocaleString()}/yr vs selected offer</span>
                   </p>
                   <p className="text-slate-500 text-[10px]">
                     Consent Hash: <span className="font-mono">{bindingDossier.complianceAcknowledgments.ipAddressHash}</span>
@@ -2382,7 +2370,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                 )}
               </div>
               <p className="text-xs text-slate-600">
-                Under Open Policy statutory privacy rules, your Stage C PII is sealed. Selecting an offer does not automatically release your data. Authorize disclosure of only the fields required for binding to <strong className="text-slate-800">{handoffResult.providerName}</strong>.
+                Your contact information remains withheld until you authorize disclosure. Only <strong className="text-slate-800">{selectedProviderName}</strong> receives the fields you approve for the policy handoff.
               </p>
 
               {(!activeConsentGrant || activeConsentGrant.revokedAt) && (
@@ -2421,7 +2409,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                     className="flex items-center space-x-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs px-4 py-2 rounded-lg transition disabled:opacity-50"
                   >
                     <Check className="w-3.5 h-3.5" />
-                    <span>{isGrantingConsent ? 'Authorizing...' : `Authorize Controlled Disclosure to ${handoffResult.providerName}`}</span>
+                    <span>{isGrantingConsent ? 'Authorizing...' : `Authorize Controlled Disclosure to ${selectedProviderName}`}</span>
                   </button>
                 </div>
               )}
@@ -2442,56 +2430,15 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
               )}
             </div>
 
-            {/* PM-4 Underwriting Modification Review Card */}
-            {(handoffResult.status === 'MODIFICATION_PENDING' || activeModification) && activeModification && (
-              <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl space-y-3">
+            {handoffResult.status === 'DECLINED' && handoffResult.declineReason && (
+              <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl space-y-2">
                 <div className="flex items-center space-x-2">
-                  <AlertTriangle className="w-4 h-4 text-amber-700" />
-                  <span className="font-bold text-amber-900 text-xs">Carrier Underwriting Modification Proposed</span>
+                  <AlertTriangle className="w-4 h-4 text-rose-700" />
+                  <span className="font-bold text-rose-900 text-xs">Selected Offer Cannot Be Honored as Submitted</span>
                 </div>
-                <p className="text-xs text-amber-800">
-                  The carrier proposed modified terms during underwriting. Your original selected quote remains immutable. You can choose to accept the adjusted terms or reject them. Rejecting halts continuation without automatic platform action.
+                <p className="text-xs text-rose-800">
+                  The selected provider reported reason code <strong>{handoffResult.declineReason}</strong>. Your selected offer version, consent history, and prior disclosure evidence remain unchanged. Any subsequent insurance transaction occurs directly with a licensed provider.
                 </p>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-white p-3 rounded-lg border border-amber-200 text-xs">
-                  <div>
-                    <span className="text-slate-500 block text-[10px] uppercase">Quoted Premium:</span>
-                    <span className="font-semibold text-slate-700 line-through">${activeModification.originalAnnualPremium}/yr</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-500 block text-[10px] uppercase">Modified Premium:</span>
-                    <span className="font-bold text-amber-800">${activeModification.modifiedAnnualPremium}/yr</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-500 block text-[10px] uppercase">Underwriting Reason:</span>
-                    <span className="font-medium text-slate-800">{activeModification.underwritingReason}</span>
-                  </div>
-                </div>
-
-                {activeModification.status === 'PENDING_CONSUMER_REVIEW' ? (
-                  <div className="flex items-center space-x-3 pt-2">
-                    <button
-                      onClick={() => handleResolveModification('ACCEPT')}
-                      disabled={isResolvingMod}
-                      className="flex items-center space-x-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs px-3.5 py-2 rounded-lg transition"
-                    >
-                      <Check className="w-3.5 h-3.5" />
-                      <span>Accept Modified Terms</span>
-                    </button>
-                    <button
-                      onClick={() => handleResolveModification('REJECT')}
-                      disabled={isResolvingMod}
-                      className="flex items-center space-x-1.5 bg-rose-600 hover:bg-rose-700 text-white font-medium text-xs px-3.5 py-2 rounded-lg transition"
-                    >
-                      <AlertTriangle className="w-3.5 h-3.5" />
-                      <span>Reject Modification</span>
-                    </button>
-                  </div>
-                ) : (
-                  <div className="text-xs font-semibold text-slate-700 pt-1">
-                    Status: <span className={activeModification.status === 'ACCEPTED' ? 'text-emerald-700' : 'text-rose-700'}>{activeModification.status}</span>
-                  </div>
-                )}
               </div>
             )}
           </div>
@@ -2500,28 +2447,15 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
           <div className="border-t border-slate-200 pt-5 space-y-4">
             <div className="flex items-center space-x-2 text-slate-900 font-bold text-sm">
               <FileSearch className="w-4 h-4 text-emerald-600" />
-              <span>Step 7 Preview: Issued Policy Reconciliation & Stealth Creep Audit</span>
+              <span>Step 7 Preview: Issued Policy Reconciliation</span>
             </div>
             <p className="text-xs text-slate-600 max-w-xl">
-              Once your licensed agent binds your policy, the carrier will issue the declarations page. Open Policy reconciles the issued document against the agreed offer dossier to ensure no stealth terms, rate creep, or deductible inflation were altered.
+              Once the licensed provider completes the insurance transaction, Open Policy compares the issued declarations page with the selected offer and displays any factual premium, deductible, limit, or coverage differences.
             </p>
 
-            <div className="flex flex-wrap items-center gap-3">
-              <button
-                onClick={() => handleReconcileIssued(false)}
-                className="flex items-center space-x-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs px-4 py-2.5 rounded-lg transition"
-              >
-                <Check className="w-4 h-4" />
-                <span>Simulate Canonical Issued Dec Page (100% Match)</span>
-              </button>
-
-              <button
-                onClick={() => handleReconcileIssued(true)}
-                className="flex items-center space-x-1.5 bg-rose-600 hover:bg-rose-700 text-white font-medium text-xs px-4 py-2.5 rounded-lg transition"
-              >
-                <AlertTriangle className="w-4 h-4" />
-                <span>Simulate Stealth Discrepancy (Rate Creep & Deductible Inflation)</span>
-              </button>
+            <div className="flex items-start space-x-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900">
+              <Clock className="mt-0.5 h-4 w-4 shrink-0 text-blue-700" />
+              <p>The selected licensed provider completes application, underwriting, and issuance outside Open Policy. When issued-policy evidence is provided, return to Reconciliation to review the factual comparison.</p>
             </div>
           </div>
         </div>
@@ -2530,7 +2464,27 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
       {/* ========================================================================= */}
       {/* STEP 7: ISSUED POLICY RECONCILIATION & POLICY VAULT                       */}
       {/* ========================================================================= */}
-      {currentStep === 'RECONCILIATION_VAULT' && (
+      {currentStep === 'RECONCILIATION_VAULT' && !handoffResult && (
+        <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-6 md:p-8 space-y-5">
+          <div className="flex items-start gap-3">
+            <FileSearch className="w-5 h-5 text-slate-500 shrink-0 mt-0.5" />
+            <div>
+              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Issued policy required</span>
+              <h2 className="text-2xl font-bold text-slate-900 mt-1">Reconciliation has not started</h2>
+              <p className="text-xs text-slate-600 mt-2 max-w-2xl">
+                Reconciliation occurs after you select an offer, authorize the provider handoff, and the licensed provider supplies the issued policy. Open Policy then displays factual differences between the selected offer and the issued policy.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setCurrentStep('COMPETITION_ROOM')}
+            className="text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 px-4 py-2 rounded-lg transition"
+          >
+            Return to Offer Review
+          </button>
+        </div>
+      )}
+      {currentStep === 'RECONCILIATION_VAULT' && handoffResult && (
         <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-6 md:p-8 space-y-6">
           <div>
             <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
@@ -2540,7 +2494,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
               Issued Policy Reconciliation & Private Vault
             </h2>
             <p className="text-xs text-slate-600">
-              We independently reconcile the issued policy document against the accepted binding dossier to expose post-bind stealth creep.
+              Open Policy compares the issued policy document with the selected offer and displays the factual differences.
             </p>
           </div>
 
@@ -2748,8 +2702,8 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
             </div>
           ) : detailedReconciliation ? (
             <div className={`p-5 rounded-xl border ${
-              detailedReconciliation.isCompliant 
-                ? 'bg-emerald-50/50 border-emerald-300' 
+              detailedReconciliation.isCompliant
+                ? 'bg-emerald-50/50 border-emerald-300'
                 : 'bg-rose-50/60 border-rose-300'
             } space-y-4`}>
               <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
@@ -2763,9 +2717,9 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                     <h3 className={`text-base font-bold ${
                       detailedReconciliation.isCompliant ? 'text-emerald-900' : 'text-rose-900'
                     }`}>
-                      {detailedReconciliation.isCompliant 
-                        ? 'Reconciliation Success: Issued Policy Matches Binding Dossier with 100% Fidelity' 
-                        : 'ALERT: Stealth Discrepancies Detected In Issued Policy!'}
+                      {detailedReconciliation.isCompliant
+                        ? 'Reconciliation Success: Issued Policy Matches Binding Dossier with 100% Fidelity'
+                        : 'Issued Policy Differences Detected'}
                     </h3>
                     <p className="text-xs text-slate-600">
                       Audit Verdict: <span className="font-semibold">{detailedReconciliation.reconciliationAuditVerdict}</span>
@@ -2777,8 +2731,8 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                     Policy #{detailedReconciliation.issuedPolicyNumber}
                   </span>
                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                    detailedReconciliation.isCompliant 
-                      ? 'bg-emerald-100 text-emerald-800' 
+                    detailedReconciliation.isCompliant
+                      ? 'bg-emerald-100 text-emerald-800'
                       : 'bg-rose-100 text-rose-800'
                   }`}>
                     VERDICT: {detailedReconciliation.reconciliationAuditVerdict}
@@ -2790,7 +2744,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 bg-white p-3.5 rounded-lg border border-slate-200 text-xs">
                 <div>
                   <span className="text-slate-500 block">Carrier & Status</span>
-                  <span className="font-bold text-slate-800">{detailedReconciliation.carrier} ({detailedReconciliation.isCompliant ? 'COMPLIANT' : 'DEVIATION'})</span>
+                  <span className="font-bold text-slate-800">{detailedReconciliation.carrier} ({detailedReconciliation.isCompliant ? 'MATCH' : 'DIFFERENCE IDENTIFIED'})</span>
                 </div>
                 <div>
                   <span className="text-slate-500 block">Annual Rate Creep</span>
@@ -2839,8 +2793,8 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
             </div>
           ) : reconciliationReport ? (
             <div className={`p-5 rounded-xl border ${
-              reconciliationReport.isIdentical 
-                ? 'bg-emerald-50/50 border-emerald-300' 
+              reconciliationReport.isIdentical
+                ? 'bg-emerald-50/50 border-emerald-300'
                 : 'bg-rose-50/60 border-rose-300'
             }`}>
               <div className="flex items-start justify-between">
@@ -2853,8 +2807,8 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                   <h3 className={`text-base font-bold ${
                     reconciliationReport.isIdentical ? 'text-emerald-900' : 'text-rose-900'
                   }`}>
-                    {reconciliationReport.isIdentical 
-                      ? 'Reconciliation Success: Issued Policy Matches Agreed Quote' 
+                    {reconciliationReport.isIdentical
+                      ? 'Reconciliation Success: Issued Policy Matches Agreed Quote'
                       : 'ALERT: The Policy Issued Differs From The Offer You Selected!'}
                   </h3>
                 </div>
@@ -2900,14 +2854,14 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
               <span className="text-xs font-mono text-slate-400">Renewal in 58 Days</span>
             </div>
             <p className="text-xs text-slate-300">
-              When this policy approaches renewal, the platform notifies you. If a renewal increase is detected, you can place your policy right back into competition with a single click — no re-typing required.
+              When this policy approaches renewal, the platform notifies you. You can share the policy again for providers to review without retyping the policy information.
             </p>
             <button
               onClick={() => setCurrentStep('SET_REQUIREMENTS')}
               className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-2 rounded-lg transition"
             >
               <RefreshCw className="w-3.5 h-3.5" />
-              <span>PUT MY POLICY BACK UP FOR COMPETITION</span>
+              <span>SHARE MY POLICY AGAIN</span>
             </button>
           </div>
         </div>
@@ -2954,8 +2908,8 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
           {/* Vault Metadata Summary */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs">
             <div>
-              <span className="text-slate-500 block">Stored Documents</span>
-              <span className="text-lg font-bold text-slate-900">{vaultDocs.length} Active Records</span>
+              <span className="text-slate-500 block">Vault Records</span>
+              <span className="text-lg font-bold text-slate-900">{vaultRecordCount} Active Records</span>
             </div>
             <div>
               <span className="text-slate-500 block">Integrity State</span>
@@ -3121,10 +3075,10 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
           <div className="p-4 bg-slate-900 text-white rounded-xl text-xs space-y-1 border border-slate-800">
             <div className="flex items-center space-x-1.5 text-emerald-400 font-bold uppercase tracking-wider">
               <Shield className="w-3.5 h-3.5" />
-              <span>Section 4: Vault Confidentiality Guarantee</span>
+              <span>Section 4: Vault Confidentiality Controls</span>
             </div>
             <p className="text-slate-300 leading-relaxed">
-              Documents placed in the Private Policy Vault are encrypted and tamper-evident. Insurers competing in the marketplace never receive direct copies of your documents. Only verified, sanitized baseline variables are broadcast during competition.
+              Each stored document has recorded integrity evidence. Providers reviewing your policy do not receive direct copies through the offer-review workspace; only the policy details authorized for that review are presented.
             </p>
           </div>
         </div>
@@ -3181,7 +3135,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
               </div>
 
               <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200 text-emerald-800 text-[11px] leading-snug">
-                Upon saving, this document will be cryptographically hashed (SHA-256) and archived in your immutable vault.
+                Upon saving, this document will be stored with a recorded SHA-256 integrity value in your policy vault.
               </div>
             </div>
 
@@ -3212,7 +3166,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                 <FileSearch className="w-5 h-5 text-emerald-600" />
                 <h3 className="text-sm font-bold text-slate-900">Source Evidence Provenance</h3>
               </div>
-              <button 
+              <button
                 onClick={() => setInspectingEvidence(null)}
                 className="text-slate-400 hover:text-slate-600"
               >
@@ -3272,14 +3226,14 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                   </div>
                   <div>
                     <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 uppercase">
-                      Statutory Informed Consent • Section 40 Parity
+              Recorded Consumer Consent • Coverage Comparison
                     </span>
                     <h3 className="text-base font-bold text-slate-900 mt-0.5">
                       Acknowledge Material Coverage Reductions
                     </h3>
                   </div>
                 </div>
-                <button 
+                <button
                   onClick={() => setShowInformedConsentModal(false)}
                   className="text-slate-400 hover:text-slate-600"
                 >
@@ -3289,9 +3243,9 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
 
               <div className="space-y-3 text-xs text-slate-700">
                 <p className="leading-relaxed">
-                  You are selecting <strong className="text-slate-900">{pendingOffer.carrier}</strong> ({pendingOffer.quoteNumber}) 
-                  at <strong className="text-emerald-700">${pendingOffer.annualPremium.toLocaleString()}/yr</strong>. 
-                  While this offer delivers <strong className="text-emerald-700">${pendingComp.annualSavings.toLocaleString()}</strong> in annual savings, 
+                  You are selecting <strong className="text-slate-900">{pendingOffer.carrier}</strong> ({pendingOffer.quoteNumber})
+                  at <strong className="text-emerald-700">${pendingOffer.annualPremium.toLocaleString()}/yr</strong>.
+                  This offer's annual premium is <strong className="text-emerald-700">${Math.abs(pendingComp.annualPremiumDifference).toLocaleString()} {pendingComp.annualPremiumDifference >= 0 ? 'lower' : 'higher'}</strong>, and
                   our comparison engine verified that it <span className="font-semibold text-rose-700 underline">reduces your baseline protection</span> in the following areas:
                 </p>
 
@@ -3303,7 +3257,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                     {materialReductions.map((reduction) => {
                       const isChecked = acknowledgedVariations.includes(reduction.fieldCode);
                       return (
-                        <label 
+                        <label
                           key={reduction.fieldCode}
                           className={`flex items-start space-x-2.5 p-2 rounded cursor-pointer transition border ${
                             isChecked ? 'bg-white border-emerald-400 shadow-xs' : 'bg-white/50 border-amber-200 hover:bg-white'

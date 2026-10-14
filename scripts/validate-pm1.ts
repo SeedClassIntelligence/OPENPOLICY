@@ -24,7 +24,7 @@ import { db } from '../src/server/db';
 import { app } from '../server';
 import {
   evaluateCompetitionRoundState,
-  calculateProviderMarketSignals
+  getProviderOfferStatus
 } from '../src/domain/competitionEngine';
 import { compareOfferAgainstBaseline } from '../src/domain/comparisonEngine';
 import { runComparisonEngineTestSuite } from '../src/domain/comparisonEngine.test';
@@ -36,7 +36,6 @@ import { runPM1AcceptanceTestSuite } from '../src/domain/pm1Marketplace.test';
 import {
   Offer,
   CoverageBaseline,
-  ConsumerRequirements,
   Competition,
   ProviderOrganization,
   ProviderUser
@@ -350,14 +349,14 @@ async function runValidation() {
     );
     assert(workspaceRes.status === 403, 'Non-participating provider workspace access rejected with 403 Forbidden', `Status: ${workspaceRes.status}`);
 
-    // 2.11 Route Manipulation: Non-participating provider attempts to access market signals
+    // 2.11 Route Manipulation: Non-participating provider attempts to access provider offer status
     const signalsRes = await makeRequest(
       port,
       'GET',
-      '/api/marketplace/competition/CHAL-NV-49281/signals',
+      '/api/marketplace/competition/CHAL-NV-49281/offer-status',
       { 'x-provider-user-id': 'user_buckeye_1' }
     );
-    assert(signalsRes.status === 403, 'Non-participating provider market signals access rejected with 403 Forbidden', `Status: ${signalsRes.status}`);
+    assert(signalsRes.status === 403, 'Non-participating provider offer-status access rejected with 403 Forbidden', `Status: ${signalsRes.status}`);
 
     // 2.12 Route Manipulation: Provider attempts to revise competitor offer
     // OFFER-A belongs to Apex Insurance. Sierra user attempts to revise it.
@@ -424,15 +423,13 @@ async function runValidation() {
 
   const canonicalChal = db.getChallenge('CHAL-NV-49281')!;
   const baseline = canonicalChal.baseline;
-  const requirements = canonicalChal.requirements;
   const canonicalOffers = db.getOffers('CHAL-NV-49281');
   const testComp = db.getCompetitionForChallenge('CHAL-NV-49281')!;
 
   const evaluationSummary = evaluateCompetitionRoundState(
     testComp,
     canonicalOffers,
-    baseline,
-    requirements
+    baseline
   );
 
   // 3.1 Prohibited fields are absent from summary
@@ -455,9 +452,9 @@ async function runValidation() {
   // 3.4 Consumer-Selected Factual Sorting (Permitted per Section 40)
   // Consumer sorts by annual savings high -> low:
   const sortedBySavings = [...evaluationSummary.offerComparisons].sort(
-    (a, b) => b.comparison.annualSavings - a.comparison.annualSavings
+    (a, b) => b.comparison.annualPremiumDifference - a.comparison.annualPremiumDifference
   );
-  assert(sortedBySavings[0].comparison.annualSavings >= sortedBySavings[1].comparison.annualSavings, 'Consumer can sort by savings descending');
+  assert(sortedBySavings[0].comparison.annualPremiumDifference >= sortedBySavings[1].comparison.annualPremiumDifference, 'Consumer can sort by annual premium difference descending');
 
   // Consumer sorts by annual premium low -> high:
   const consumerSortedValid = [...evaluationSummary.offerComparisons].sort(
@@ -470,13 +467,11 @@ async function runValidation() {
   // ===========================================================================
   console.log('\n--- 4. SEALED COMPETITION TELEMETRY (ANTI-COLLUSION PRIVACY) ---');
 
-  const sierraSignals = calculateProviderMarketSignals(
+  const sierraSignals = getProviderOfferStatus(
     testComp,
     'org_sierra',
     canonicalOffers,
-    baseline,
-    requirements,
-    2
+    baseline
   );
 
   const signalsJson = JSON.stringify(sierraSignals);
@@ -486,7 +481,7 @@ async function runValidation() {
   assert(!signalsJson.includes('2712'), 'Signals contain zero competitor premium amounts ($2,712)');
   assert(!signalsJson.includes('2172'), 'Signals contain zero competitor premium amounts ($2,172)');
   assert(sierraSignals.yourOffers.length >= 1, 'Provider signals contain only provider own offers (Sierra Travelers)');
-  assert(sierraSignals.totalParticipatingProviders >= 2, 'Aggregate provider count correctly reported');
+  assert(Object.keys(sierraSignals).sort().join(',') === 'windowClosesAt,windowOpen,yourOffers', 'Provider status is restricted to own offers and submission-window status');
 
   // ===========================================================================
   // 5. CORE DOMAIN TEST SUITES VERIFICATION

@@ -1,0 +1,90 @@
+# Phase B Stage 2 Staging-Log Reconciliation
+
+## Disposition
+
+The relayed staging log contains useful field-inventory and neutral-interface
+guidance, but it is not an authoritative implementation record. This file
+records what was adopted, expanded, or rejected against the canonical branch.
+
+## Adopted
+
+- Homeowners, Renters, CGL, and BOP retain separate, versioned policy schemas.
+- Consumer verification must mirror extracted source evidence and remain
+  factual rather than advising the consumer what coverage to purchase.
+- A declared-line/document-line conflict requires review.
+- Ambiguous line evidence remains `INDETERMINATE`; the platform does not infer a
+  line from a filename, account selection, or incomplete text.
+- Property schemas now include source fields for construction/year-built,
+  wind/hail deductible, and water-backup evidence where the document supplies
+  them.
+
+## Expanded
+
+- Classification review is now coupled to the committed extraction
+  disposition. A conflict cannot be persisted as `READY_FOR_CONSUMER` merely
+  because field normalization succeeded.
+- Homeowners and Renters share extraction infrastructure but not field
+  requirements. Renters does not receive fabricated dwelling coverage.
+- Homeowners and Renters now have a line-aware field normalizer that records
+  only facts supported by page-level OCR evidence. Missing required baseline
+  facts produce `REVIEW_REQUIRED`; they are not calculated or defaulted.
+- CGL and BOP share commercial extraction infrastructure but remain distinct:
+  BOP includes commercial-property and business-income evidence; CGL does not.
+- CGL and BOP now use a dedicated commercial normalizer. It records explicit
+  business identity, CGL limits, and—only for BOP—business-property,
+  business-income, extra-expense, and property-deductible evidence.
+- Commercial documents with missing required source facts remain
+  `REVIEW_REQUIRED`; they cannot fall through into the Personal Auto normalizer
+  or receive fabricated limits or inclusion flags.
+
+## Rejected
+
+### Calculated or default coverage facts
+
+The proposed `coverageB = 10% of Coverage A`, water-backup default `0`, and
+Renters dwelling values written as `null` or `0` are rejected. Open Policy must
+record what the source document says. Missing, absent, not applicable, excluded,
+and zero are different facts and cannot be collapsed into one value.
+
+This also rejects the later proposed `PropertyExtractionEngine` implementation:
+its blank `findTokenByCoordinates`/`findTextString` methods do not perform an
+extraction, it initializes missing limits to zero, sets Renters dwelling fields
+to zero, and calculates Coverage B as ten percent of Coverage A. Coordinate-
+aware OCR may be added behind the provider-neutral evidence contract, but it
+cannot change these source-truth rules.
+
+### UI structure described as a legal conclusion
+
+A bounded verification form is useful product behavior, but its shape alone
+does not establish that Open Policy is outside any insurance-licensing or
+negotiation rule. The implemented contract is narrower and testable: consumers
+may correct only fields belonging to the document's declared insurance-line
+schema, corrections retain durable history, and factual comparisons report
+`MATCH`, `DIFFERENT`, `BASELINE_ONLY`, `OFFER_ONLY`, or `NOT_STATED`. The
+comparison contract does not rank, recommend, or characterize either set of
+terms as better or worse.
+
+The durable baseline uses the same rule. Non-Auto facts are preserved under
+their canonical field paths; they are not forced into a Personal Auto vehicle
+or coverage object merely to satisfy the historical data shape.
+
+### Second activation matrix
+
+The proposed `multiLineActivationMatrix` is rejected. It would duplicate the
+existing insurance-line registry, regional rollout configuration, durable
+ruleset/readiness records, provider-authority evaluation, and market-activation
+engine. It also asserted Nevada production activation without evidence.
+
+The governing sequence remains:
+
+`line implementation readiness → regional rollout availability → verified
+jurisdiction rules → provider authority → durable market activation`
+
+No static UI or code object can confer production authority.
+
+### Nevada Personal Auto described as live production
+
+The staging log's “Green - Live In Production” statement is not accepted as
+evidence. Deployment availability, acceptance testing, regulatory verification,
+and production market activation are separate states. Production authorization
+must be read from the durable activation system and its verified prerequisites.

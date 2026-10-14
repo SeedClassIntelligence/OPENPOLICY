@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { PolicyDocumentRecord } from '../types/insurance';
-import { classifyCleanPolicyDocument, classifyInsuranceDocument } from './documentClassification';
+import { assessInsuranceLine, classifyCleanPolicyDocument, classifyInsuranceDocument } from './documentClassification';
 
 const base = {
   documentId: 'DOC-test', documentGeneration: '9', sourceSha256: 'b'.repeat(64)
@@ -52,4 +52,36 @@ test('classification refuses evidence without a clean security disposition', () 
   } satisfies PolicyDocumentRecord;
   assert.throws(() => classifyCleanPolicyDocument({ document, pages: [] }), /CLEAN/);
   assert.doesNotThrow(() => classifyCleanPolicyDocument({ document: { ...document, malwareStatus: 'CLEAN' }, pages: [] }));
+});
+
+test('line evidence matches each property and core commercial contract family', () => {
+  const cases = [
+    ['HOMEOWNERS', 'Homeowners Insurance Policy. Coverage A Dwelling. Other Structures.'],
+    ['RENTERS', 'Renters Insurance Policy. Personal Property. Loss of Use.'],
+    ['COMMERCIAL_GENERAL_LIABILITY', 'Commercial General Liability. Each Occurrence. General Aggregate.'],
+    ['BUSINESS_OWNERS_POLICY', 'Businessowners Policy. Business Personal Property. Business Income and Extra Expense.']
+  ] as const;
+  for (const [declaredLine, text] of cases) {
+    const result = assessInsuranceLine({ declaredLine, pages: [{ pageNumber: 1, text }] });
+    assert.equal(result.disposition, 'MATCH');
+    assert.equal(result.detectedLine, declaredLine);
+  }
+});
+
+test('declared line and document evidence conflict fails into review', () => {
+  const result = classifyInsuranceDocument({ ...base, insuranceLine: 'HOMEOWNERS', pages: [
+    { pageNumber: 1, text: 'Declarations. Coverage limits. Total premium. Commercial General Liability. Each Occurrence. General Aggregate.' }
+  ] });
+  assert.equal(result.classification, 'DECLARATIONS_PAGE');
+  assert.equal(result.lineAssessment?.detectedLine, 'COMMERCIAL_GENERAL_LIABILITY');
+  assert.equal(result.lineAssessment?.disposition, 'CONFLICT');
+  assert.equal(result.requiresReview, true);
+});
+
+test('ambiguous line evidence remains indeterminate rather than guessed', () => {
+  const result = assessInsuranceLine({ declaredLine: 'BUSINESS_OWNERS_POLICY', pages: [
+    { pageNumber: 1, text: 'Policy declarations and premium summary.' }
+  ] });
+  assert.equal(result.disposition, 'INDETERMINATE');
+  assert.equal(result.detectedLine, undefined);
 });

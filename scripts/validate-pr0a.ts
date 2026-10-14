@@ -249,7 +249,7 @@ async function run() {
     assert(caBaseline.body.baseline?.jurisdiction === 'CA', 'Baseline keeps the policy jurisdiction (was dropped)');
     const caChallenge = await request(server, 'POST', '/api/challenges/create', { baselineId: caBaseline.body.baseline.id });
     assert(caChallenge.status === 200 && caChallenge.body.challenge.jurisdiction === 'CA', 'A CA policy produces a CA challenge (was hard-coded NV)');
-    assert(String(caChallenge.body.challenge.referenceNumber).startsWith('CHALLENGE #CA-'), 'Challenge reference carries the determined jurisdiction');
+    assert(String(caChallenge.body.challenge.referenceNumber).startsWith('POLICY REVIEW #CA-'), 'Policy review reference carries the determined jurisdiction');
     assert(!!caChallenge.body.challenge.jurisdictionDeterminationId && !!caChallenge.body.challenge.ruleSetContentSha256, 'Challenge anchors its determination and ruleset content hash');
 
     const nvDoc = await request(server, 'POST', '/api/documents/upload-sample', { sampleId: 'DOC-NV-49281' });
@@ -323,7 +323,7 @@ async function run() {
     assert(submitted.status === 200, `PR-0A shadow offer submission succeeds (${submitted.status}: ${JSON.stringify(submitted.body)})`);
     const offer = submitted.body.offer;
     const challengeNow = (await postgresStore.getChallenge(nvChallengeId))!;
-    const independentLegacy = evaluateOfferQualification(offer, challengeNow.baseline, challengeNow.requirements, await postgresStore.getProviderOrganization(offer.providerId),
+    const independentLegacy = evaluateOfferQualification(offer, challengeNow.baseline, await postgresStore.getProviderOrganization(offer.providerId),
       await postgresStore.getCarrierRelationships(offer.providerId));
     assert(offer.isQualified === independentLegacy.isQualified, `offer.isQualified is exactly the frozen engine's result (${offer.isQualified}); shadow changed nothing`);
     const offerEval = (await jurisdictionStore.getEvaluations({ subjectType: 'OFFER', subjectId: offer.id }))[0];

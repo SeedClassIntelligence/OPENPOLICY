@@ -17,11 +17,14 @@
     "test:authorization": "node --import tsx --test src/server/auth/requestIdentity.test.ts src/server/auth/routeAuthorization.test.ts src/server/auth/notificationAuthorization.test.ts src/server/db/postgresStore.test.ts src/services/apiClient.test.ts src/services/firestoreSecurity.test.ts",
     "test:security-http": "tsx scripts/security-http-probes.ts",
     "test:copy": "node --import tsx --test src/copy/copyLint.test.ts",
+    "test:standard": "node --import tsx --test src/domain/qualificationStandard.test.ts",
+    "lint:copy:report": "tsx scripts/copy-lint.ts --report-only",
     "test:document-intelligence": "node --import tsx --test src/domain/documentIntelligence.test.ts src/domain/documentClassification.test.ts src/domain/policyFieldNormalization.test.ts src/domain/policyFieldCorrection.test.ts src/domain/policyEvidenceVerification.test.ts src/server/policyDocumentIngestion.test.ts src/server/malwareDisposition.test.ts src/server/cloudMalwareScanProvider.test.ts src/server/documentAiOcrProvider.test.ts src/server/policyDocumentExtraction.test.ts"
+    ,"acceptance:seed-offer-cohorts": "tsx scripts/seed-offer-cohort-acceptance.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.8",
-    "@google-cloud/storage": "^7.22.0",
+    "@google-cloud/storage": "8.4.0",
     "@google/genai": "^2.4.0",
     "@opentelemetry/api": "^1.9.1",
     "@tailwindcss/vite": "^4.3.3",
@@ -29,14 +32,15 @@
     "dotenv": "^17.2.3",
     "drizzle-orm": "^0.45.3",
     "express": "^4.21.2",
-    "firebase": "^12.19.0",
-    "firebase-admin": "^13.10.0",
+    "firebase": "13.0.0",
+    "firebase-admin": "14.5.0",
     "google-auth-library": "^10.9.1",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
     "pg": "^8.16.3",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
+    "source-map-js": "1.2.2",
     "vite": "^8.3.0"
   },
   "devDependencies": {
@@ -50,5 +54,11 @@
     "tailwindcss": "^4.3.3",
     "tsx": "^4.21.0",
     "typescript": "^7.0.2"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "overrides": {
+    "@grpc/grpc-js": "1.14.6"
   }
 }

@@ -17,6 +17,7 @@ import { activateVerifiedPolicyToVault } from './pm5ReconciliationEngine';
 import { evaluateOfferQualification } from './qualificationEngine';
 import {
   BindingHandoff,
+  CarrierRelationship,
   Challenge,
   CoverageBaseline,
   IssuedPolicyDocument,
@@ -118,13 +119,24 @@ export function runSemanticCorrectionsTestSuite(): {
     renewalWindowDays: { min: 0, max: 100000 },
     active: true
   };
+  const nvCarrierRelationship: CarrierRelationship = {
+    id: 'rel_d6',
+    providerOrganizationId: 'org_d6',
+    carrierId: 'carrier_d6',
+    carrierName: 'Test Carrier',
+    jurisdiction: 'NV',
+    lineOfBusiness: 'PERSONAL_AUTO',
+    relationshipType: 'AUTHORIZED_BROKER',
+    status: 'ACTIVE'
+  };
   const challengeWith = (jurisdiction: string | undefined): Challenge => ({
     id: 'CHAL-D6',
     referenceNumber: 'CHALLENGE #D6',
     consumerId: 'user_d6',
     coverageBaselineId: 'BL-D6',
     baseline: baselineWith(jurisdiction),
-    requirements: {
+    qualificationStandardVersion: 'QS-1',
+    legacyRequirements: {
       id: 'REQ-D6', ruleSummary: '', minAnnualSavings: 0, maxCollisionDeductible: 1000,
       maxCompDeductible: 1000, mustIncludeRental: false, mustIncludeRoadside: false
     },
@@ -211,7 +223,7 @@ export function runSemanticCorrectionsTestSuite(): {
   test(
     'D6-2e: Future baseline carries the prior baseline vehicle, not a substitute',
     'Vault',
-    priorNoJurisdiction.newBaseline?.vehicle.vin === vehicle.vin
+    priorNoJurisdiction.newBaseline?.vehicle?.vin === vehicle.vin
   );
   const priorCa = activate(baselineWith('CA'));
   test(
@@ -246,7 +258,7 @@ export function runSemanticCorrectionsTestSuite(): {
     discrepanciesDetected: false,
     status: 'VALIDATED'
   };
-  const qual = evaluateOfferQualification(lowLimitOffer, baselineWith('NV'), undefined, org, []);
+  const qual = evaluateOfferQualification(lowLimitOffer, baselineWith('NV'), org, [nvCarrierRelationship]);
   const allReasons = [...qual.qualificationReasons, ...qual.disqualificationReasons];
   test(
     'D6-3a: Qualification never claims statutory minimums/limits were verified',

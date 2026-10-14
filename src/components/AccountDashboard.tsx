@@ -73,7 +73,7 @@ export const AccountDashboard: React.FC<AccountDashboardProps> = ({
   }, [userProfile?.id]);
 
   const totalAnnualSavings = orders.reduce((acc, o) => acc + (o.annualSavings || 0), 0);
-  const totalBidsReceived = challenges.reduce((acc, c) => acc + (c.offersCount || 0), 0);
+  const totalOffersReceived = challenges.reduce((acc, c) => acc + (c.offersCount || 0), 0);
 
   return (
     <div className="space-y-8 animate-fade-in">
@@ -140,7 +140,7 @@ export const AccountDashboard: React.FC<AccountDashboardProps> = ({
               className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-emerald-300 hover:text-white text-xs font-bold rounded-xl border border-slate-700 shadow-md transition cursor-pointer flex items-center space-x-1.5"
             >
               <Plus className="w-4 h-4 text-emerald-400" />
-              <span>Create New Policy Challenge</span>
+              <span>Share Another Policy</span>
             </button>
           </div>
         </div>
@@ -148,20 +148,20 @@ export const AccountDashboard: React.FC<AccountDashboardProps> = ({
         {/* Account Quick Metrics */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-6 mt-6 border-t border-slate-800/80">
           <div className="p-3 bg-slate-800/50 rounded-2xl border border-slate-800">
-            <span className="text-[11px] font-mono text-slate-400 uppercase">Active Challenges</span>
+            <span className="text-[11px] font-mono text-slate-400 uppercase">Policies Shared</span>
             <div className="text-xl font-bold text-white font-mono mt-0.5">{challenges.length}</div>
           </div>
           <div className="p-3 bg-slate-800/50 rounded-2xl border border-slate-800">
-            <span className="text-[11px] font-mono text-slate-400 uppercase">Total Blind Offers</span>
-            <div className="text-xl font-bold text-emerald-400 font-mono mt-0.5">{totalBidsReceived} bids</div>
+            <span className="text-[11px] font-mono text-slate-400 uppercase">Provider Offers Received</span>
+            <div className="text-xl font-bold text-emerald-400 font-mono mt-0.5">{totalOffersReceived} offers</div>
           </div>
           <div className="p-3 bg-slate-800/50 rounded-2xl border border-slate-800">
             <span className="text-[11px] font-mono text-slate-400 uppercase">Bound Policies (Orders)</span>
             <div className="text-xl font-bold text-blue-400 font-mono mt-0.5">{orders.length} active</div>
           </div>
           <div className="p-3 bg-slate-800/50 rounded-2xl border border-slate-800">
-            <span className="text-[11px] font-mono text-slate-400 uppercase">Total Annual Savings</span>
-            <div className="text-xl font-bold text-emerald-400 font-mono mt-0.5">${totalAnnualSavings}/yr</div>
+            <span className="text-[11px] font-mono text-slate-400 uppercase">Combined Annual Premium Difference</span>
+            <div className="text-xl font-bold text-emerald-400 font-mono mt-0.5">-${totalAnnualSavings}/yr</div>
           </div>
         </div>
       </div>
@@ -178,7 +178,7 @@ export const AccountDashboard: React.FC<AccountDashboardProps> = ({
           }`}
         >
           <Layers className="w-4 h-4 text-emerald-500" />
-          <span>My Policy Challenges ({challenges.length})</span>
+          <span>My Shared Policies ({challenges.length})</span>
         </button>
 
         <button
@@ -213,9 +213,9 @@ export const AccountDashboard: React.FC<AccountDashboardProps> = ({
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-base font-bold text-slate-900">Active Market Challenges</h2>
+              <h2 className="text-base font-bold text-slate-900">Policies Open for Offers</h2>
               <p className="text-xs text-slate-500">
-                Your policies currently open for certified blind bidding by licensed carriers.
+                Policies you have shared for eligible insurance providers to review and respond to independently.
               </p>
             </div>
             <button
@@ -233,9 +233,9 @@ export const AccountDashboard: React.FC<AccountDashboardProps> = ({
                 <FileText className="w-6 h-6" />
               </div>
               <div className="space-y-1">
-                <h3 className="text-base font-bold text-slate-900">No active challenges yet</h3>
+                <h3 className="text-base font-bold text-slate-900">No shared policies yet</h3>
                 <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                  Upload your current auto, home, or business policy declarations page to start an inverted blind bidding round.
+                  Upload your current personal auto declarations page so eligible providers can review it and decide whether to send an offer.
                 </p>
               </div>
               <button
@@ -256,11 +256,11 @@ export const AccountDashboard: React.FC<AccountDashboardProps> = ({
                   <div className="space-y-3">
                     <div className="flex items-start justify-between">
                       <div className="flex items-center space-x-2">
-                        {chal.insuranceType === 'AUTO' ? (
+                        {chal.insuranceType === 'PERSONAL_AUTO' ? (
                           <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
                             <Car className="w-4 h-4" />
                           </div>
-                        ) : chal.insuranceType === 'HOME' ? (
+                        ) : chal.insuranceType === 'HOMEOWNERS' || chal.insuranceType === 'RENTERS' ? (
                           <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
                             <HomeIcon className="w-4 h-4" />
                           </div>
@@ -286,15 +286,15 @@ export const AccountDashboard: React.FC<AccountDashboardProps> = ({
                         <div className="font-bold text-slate-900 font-mono">${chal.baselineMonthlyPremium}/mo</div>
                       </div>
                       <div>
-                        <span className="text-[11px] text-slate-400">Blind Offers Received</span>
-                        <div className="font-bold text-emerald-600 font-mono">{chal.offersCount} bids</div>
+                        <span className="text-[11px] text-slate-400">Provider Offers Received</span>
+                        <div className="font-bold text-emerald-600 font-mono">{chal.offersCount} offers</div>
                       </div>
                     </div>
 
                     {chal.bestSavings > 0 && (
                       <div className="p-2.5 bg-emerald-50/70 border border-emerald-200 rounded-xl text-xs flex items-center justify-between">
-                        <span className="text-emerald-800 font-medium">Top Parity Savings:</span>
-                        <span className="font-bold text-emerald-700 font-mono">${chal.bestSavings}/yr saved</span>
+                        <span className="text-emerald-800 font-medium">Lowest submitted annual premium difference:</span>
+                        <span className="font-bold text-emerald-700 font-mono">-${chal.bestSavings}/yr vs current policy</span>
                       </div>
                     )}
                   </div>
@@ -304,7 +304,7 @@ export const AccountDashboard: React.FC<AccountDashboardProps> = ({
                     onClick={() => onSelectChallenge(chal.id)}
                     className="w-full py-2.5 px-3 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition cursor-pointer flex items-center justify-center space-x-1.5 shadow-xs"
                   >
-                    <span>Inspect Bids in Decision Room</span>
+                    <span>Review Offers</span>
                     <ArrowRight className="w-3.5 h-3.5 text-emerald-400" />
                   </button>
                 </div>
@@ -320,7 +320,7 @@ export const AccountDashboard: React.FC<AccountDashboardProps> = ({
           <div>
             <h2 className="text-base font-bold text-slate-900">Bound Policies & Issued Binders</h2>
             <p className="text-xs text-slate-500">
-              Completed insurance orders where you reviewed coverage parity and digitally signed Section 32 statutory consent.
+              Issued policies from offers you selected, with recorded consent and factual reconciliation against the selected offer.
             </p>
           </div>
 
@@ -329,7 +329,7 @@ export const AccountDashboard: React.FC<AccountDashboardProps> = ({
               <CheckCircle2 className="w-10 h-10 text-slate-400 mx-auto" />
               <h3 className="text-base font-bold text-slate-900">No policies bound yet</h3>
               <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                When you accept a winning carrier offer in the comparison room, your signed binder order and digital insurance ID cards will appear here.
+                If you choose a provider offer, documents issued by that provider will appear here after the application and issuance process.
               </p>
             </div>
           ) : (
@@ -365,7 +365,7 @@ export const AccountDashboard: React.FC<AccountDashboardProps> = ({
                     <div className="text-right">
                       <span className="text-[11px] text-slate-400 font-mono">New Rate</span>
                       <div className="text-lg font-black text-slate-900 font-mono">${ord.monthlyPremium}/mo</div>
-                      <span className="text-[11px] font-mono text-emerald-600 font-bold">${ord.annualSavings}/yr saved</span>
+                      <span className="text-[11px] font-mono text-emerald-600 font-bold">-${ord.annualSavings}/yr vs prior policy</span>
                     </div>
 
                     <div className="flex flex-col sm:flex-row gap-2">

@@ -74,7 +74,8 @@ export function runEligibilityEngineTestSuite(): {
       verifiedAt: '2026-01-01T00:00:00Z',
       verifiedBy: 'Consumer'
     },
-    requirements: {
+    qualificationStandardVersion: 'QS-1',
+    legacyRequirements: {
       id: 'REQ-1',
       ruleSummary: 'Beat price without reducing protection',
       minAnnualSavings: 150,
@@ -185,6 +186,26 @@ export function runEligibilityEngineTestSuite(): {
     'Contains LINE_OF_BUSINESS reason'
   );
 
+  const homeownersChallenge: Challenge = {
+    ...mockChallenge,
+    id: 'CHAL-TEST-HOMEOWNERS',
+    insuranceLine: 'HOMEOWNERS'
+  };
+  const evalWrongChallengeLine = evaluateProviderEligibility(
+    homeownersChallenge,
+    activeOrg,
+    [validNvLicense],
+    undefined
+  );
+  test(
+    'Rejects a state-licensed provider that is not configured for the challenge insurance line',
+    'Line of Business',
+    evalWrongChallengeLine.isEligible === false &&
+      evalWrongChallengeLine.reasons.some(r => r.includes('LINE_OF_BUSINESS')),
+    evalWrongChallengeLine.reasons.find(r => r.includes('LINE_OF_BUSINESS')) || 'none',
+    'Contains LINE_OF_BUSINESS reason for HOMEOWNERS'
+  );
+
   // 4. Appetite Evaluation
   const appetiteOutOfState: ProviderAppetite = {
     id: 'app_1',
@@ -202,6 +223,31 @@ export function runEligibilityEngineTestSuite(): {
     evalAppetiteState.isEligible === false && evalAppetiteState.reasons.some(r => r.includes('APPETITE_JURISDICTION')),
     evalAppetiteState.reasons[0] || 'none',
     'Contains APPETITE_JURISDICTION reason'
+  );
+
+  const homeownersOrg: ProviderOrganization = {
+    ...activeOrg,
+    linesOfBusiness: ['HOMEOWNERS']
+  };
+  const personalAutoOnlyAppetite: ProviderAppetite = {
+    ...appetiteOutOfState,
+    id: 'app_personal_auto_only',
+    jurisdictions: ['NV'],
+    linesOfBusiness: ['PERSONAL_AUTO']
+  };
+  const evalWrongAppetiteLine = evaluateProviderEligibility(
+    homeownersChallenge,
+    homeownersOrg,
+    [validNvLicense],
+    personalAutoOnlyAppetite
+  );
+  test(
+    'Rejects a provider whose appetite does not include the challenge insurance line',
+    'Appetite Validation',
+    evalWrongAppetiteLine.isEligible === false &&
+      evalWrongAppetiteLine.reasons.some(r => r.includes('APPETITE_LOB')),
+    evalWrongAppetiteLine.reasons.find(r => r.includes('APPETITE_LOB')) || 'none',
+    'Contains APPETITE_LOB reason for HOMEOWNERS'
   );
 
   // Valid appetite

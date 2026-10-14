@@ -10,16 +10,18 @@ import { db } from './src/server/db';
 import { postgresStore } from './src/server/db/postgresStore';
 import { SAMPLE_DECLARATIONS_PAGES, detectQuoteDiscrepancies } from './src/domain/policyIntelligence';
 import { compareOfferAgainstBaseline } from './src/domain/comparisonEngine';
+import { CURRENT_QUALIFICATION_STANDARD } from './src/domain/qualificationStandard';
 import { explainCoverageComparison, generateDeterministicExplanation } from './src/server/geminiService';
-import { Offer, OfferVersion, CoverageBaseline, ConsumerRequirements, Challenge, Competition, ChallengeInvitation,
+import { Offer, OfferVersion, CoverageBaseline, Challenge, Competition, ChallengeInvitation,
   PlatformNotification, CompetitionActivityEvent, AuditEvent, InformationRequest, OfferVerification,
-  IssuedPolicyDocument, IssuedPolicySnapshot, ReconciliationReport, PolicyVaultItem, VaultDocument } from './src/types/insurance';
+  IssuedPolicyDocument, IssuedPolicySnapshot, ReconciliationReport, PolicyVaultItem, VaultDocument,
+  CannotHonorReasonCode } from './src/types/insurance';
 import { evaluateProviderEligibility, type EligibilityEvaluation } from './src/domain/eligibilityEngine';
 import { evaluateOfferQualification, createOfferVersionSnapshot } from './src/domain/qualificationEngine';
 import {
   evaluateCompetitionRoundState,
-  calculateProviderMarketSignals,
-  advanceCompetitionRound,
+  getProviderOfferStatus,
+  closeSubmissionWindow,
   checkRoundDeadlineStatus,
   filterCompetitionActivityFeedForProvider,
   validateOfferRevision
@@ -30,8 +32,7 @@ import {
   createConsentGrant,
   revokeConsentGrant,
   validateAndExecuteDisclosure,
-  proposeBindingModification,
-  resolveBindingModification,
+  reportSelectedOfferCannotBeHonored,
   transitionBindingStatus
 } from './src/domain/selectionBindingEngine';
 import {
@@ -44,7 +45,7 @@ import {
 } from './src/domain/pm5ReconciliationEngine';
 import { verifyCryptographicAuditChain, processReviewQueueResolution,
   generateRegulatoryAuditProof } from './src/domain/governanceAuditEngine';
-import { assertProductionAuthConfiguration, attachRequestIdentity } from './src/server/auth/requestIdentity';
+import { assertProductionAuthConfiguration, attachRequestIdentity, configuredAuthMode, getFirebaseUserProfile } from './src/server/auth/requestIdentity';
 import { assertBindingRelationship, assertChallengeRelationship, enforceApiAuthorization } from './src/server/auth/routeAuthorization';
 
 import { runComparisonEngineTestSuite } from './src/domain/comparisonEngine.test';
@@ -88,14 +89,20 @@ import { scanPolicyDocument } from './src/server/malwareDisposition';
 import { DocumentAiOcrProvider } from './src/server/documentAiOcrProvider';
 import { extractAndClassifyPolicyDocument } from './src/server/policyDocumentExtraction';
 import { validatePolicyFieldCorrection } from './src/domain/policyFieldCorrection';
+import { canEnterPolicyPipeline, INSURANCE_LINES } from './src/domain/insuranceLineRegistry';
+import { validatePolicyLineOfferFacts } from './src/domain/policyLineOfferContract';
+import { JURISDICTION_LINE_ROLLOUT_MATRIX } from './src/domain/jurisdictionLineAvailability';
+import type { InsuranceLine } from './src/types/jurisdiction';
 
 export const app = express();
 const DEFAULT_PORT = Number(process.env.PORT) || 3000;
 
+const skipFixtureSynchronization = process.env.NODE_ENV !== 'production'
+  && process.env.OPENPOLICY_SKIP_FIXTURE_SYNC === 'true';
 const fixturePersistenceReady = process.env.OPENPOLICY_AUTH_MODE === 'fixture'
   ? postgresStore.init()
       .then(() => postgresStore.seedCanonicalProviderData())
-      .then(() => synchronizeFixturePersistence())
+      .then(() => skipFixtureSynchronization ? undefined : synchronizeFixturePersistence())
   : Promise.resolve();
 
 app.use('/api/policy-documents/ingest', express.raw({ type: () => true, limit: '10mb' }));
@@ -230,7 +237,7 @@ function getAuthenticatedConsumerId(req: express.Request): string {
 async function authorizeChallengeResource(req: express.Request, challengeId: string): Promise<void> {
   const challenge = await postgresStore.getChallenge(challengeId);
   if (!challenge) {
-    const err: any = new Error('Challenge not found');
+    const err: any = new Error('Policy review not found');
     err.statusCode = 404;
     throw err;
   }
@@ -287,7 +294,7 @@ app.get('/api/health', async (req, res) => {
   res.json({
     status: 'ok',
     version: '1.0.0',
-    service: 'Policy Challenge Engine',
+    service: 'Open Policy Offer Review Service',
     uptime: process.uptime(),
     timestamp: new Date().toISOString()
   });
@@ -333,6 +340,19 @@ app.get('/api/metrics', async (req, res) => {
   res.json(db.getMetrics());
 });
 
+// Canonical product capability registry. This describes implementation state;
+// it never grants jurisdictional or provider authority.
+app.get('/api/insurance-lines', (_req, res) => {
+  res.json({ insuranceLines: INSURANCE_LINES });
+});
+
+app.get('/api/rollout/jurisdiction-lines', (_req, res) => {
+  res.json({
+    warning: 'Rollout availability is not regulatory or production authorization.',
+    entries: JURISDICTION_LINE_ROLLOUT_MATRIX
+  });
+});
+
 // ==========================================
 // PR-0A: Jurisdiction framework (read-only)
 // Mutations (rulesets, publication, activation, gates) are store-level only until
@@ -369,7 +389,11 @@ app.get('/api/jurisdictions/:code/market', async (req, res) => {
     if (requested !== 'SANDBOX' && requested !== 'PRODUCTION') {
       return res.status(400).json({ error: 'environment must be SANDBOX or PRODUCTION' });
     }
-    const key = { jurisdictionCode: req.params.code.toUpperCase(), insuranceLine: 'PERSONAL_AUTO' as const, environment: requested as 'SANDBOX' | 'PRODUCTION' };
+    const insuranceLine = String(req.query.insuranceLine || 'PERSONAL_AUTO').toUpperCase() as InsuranceLine;
+    if (!INSURANCE_LINES.some(line => line.code === insuranceLine)) {
+      return res.status(400).json({ error: 'Unknown insuranceLine' });
+    }
+    const key = { jurisdictionCode: req.params.code.toUpperCase(), insuranceLine, environment: requested as 'SANDBOX' | 'PRODUCTION' };
     res.json({ ...(await jurisdictionStore.getMarketStatus(key)), events: await jurisdictionStore.getActivationEvents(key) });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
@@ -411,8 +435,19 @@ app.post('/api/policy-documents/ingest', async (req, res) => {
   try {
     const ownerId = getAuthenticatedConsumerId(req);
     const bytes = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    const insuranceLine = String(req.header('X-Insurance-Line') || '').toUpperCase() as InsuranceLine;
+    if (!INSURANCE_LINES.some(line => line.code === insuranceLine)) {
+      return res.status(400).json({ error: 'INSURANCE_LINE_REQUIRED', message: 'A canonical X-Insurance-Line header is required.' });
+    }
+    if (!canEnterPolicyPipeline(insuranceLine)) {
+      return res.status(409).json({
+        error: 'INSURANCE_LINE_NOT_AVAILABLE',
+        message: `${insuranceLine} is represented in Open Policy but is not accepted by the policy-processing pipeline yet.`
+      });
+    }
     const document = await ingestPolicyDocument({
       ownerId,
+      insuranceLine,
       idempotencyKey: String(req.header('Idempotency-Key') || ''),
       fileName: req.header('X-Document-Filename') || undefined,
       contentType: req.header('Content-Type') || undefined,
@@ -435,6 +470,21 @@ app.post('/api/policy-documents/ingest', async (req, res) => {
     });
   } catch (error: any) {
     res.status(error.statusCode || 503).json({ error: error.code || 'DOCUMENT_INGESTION_FAILED', message: error.message });
+  }
+});
+
+app.get('/api/policy-documents/current-baseline', async (req, res) => {
+  try {
+    const ownerId = getAuthenticatedConsumerId(req);
+    const result = await postgresStore.getLatestVerifiedPolicyBaseline(ownerId);
+    if (!result) return res.status(404).json({ error: 'No verified coverage baseline found' });
+    res.json({
+      documentId: result.document.id,
+      policy: result.policy,
+      baseline: result.baseline
+    });
+  } catch (error: any) {
+    res.status(error.statusCode || 403).json({ error: error.message });
   }
 });
 
@@ -517,7 +567,9 @@ app.get('/api/policy-documents/:documentId/corrections', async (req, res) => {
 app.post('/api/policy-documents/:documentId/corrections', async (req, res) => {
   try {
     const ownerId = getAuthenticatedConsumerId(req);
-    const correction = validatePolicyFieldCorrection(req.body);
+    const document = await postgresStore.getPolicyDocument(ownerId, req.params.documentId);
+    if (!document) return res.status(404).json({ error: 'Policy document not found' });
+    const correction = validatePolicyFieldCorrection(req.body, document.insuranceLine || 'PERSONAL_AUTO');
     const committed = await postgresStore.recordPolicyFieldCorrection({ ownerId, documentId: req.params.documentId, ...correction });
     res.status(201).json({ correction: committed });
   } catch (error: any) {
@@ -569,7 +621,7 @@ app.post('/api/documents/upload-sample', async (req, res) => {
 
   await postgresStore.commitPolicyWithAudit(policy, [
     {
-      eventType: 'POLICY_UPLOADED', actorRole: 'ADMIN', actorId: req.openPolicyIdentity!.uid,
+      eventType: 'POLICY_UPLOADED', actorRole: req.openPolicyIdentity!.role, actorId: req.openPolicyIdentity!.uid,
       details: `Policy ${policy.id} stored in private vault`
     },
     {
@@ -623,7 +675,8 @@ app.post('/api/baselines/create', async (req, res) => {
     vehicle: policy.vehicles[0],
     coverages: policy.coverages,
     verifiedAt: new Date().toISOString(),
-    verifiedBy: verifiedBy || 'Consumer'
+    verifiedBy: verifiedBy || 'Consumer',
+    insuranceLine: policy.insuranceLine || 'PERSONAL_AUTO'
   };
 
   await postgresStore.commitCoverageBaselineWithAudit(baseline, {
@@ -643,7 +696,12 @@ app.post('/api/challenges/create', async (req, res) => {
   } catch (e: any) {
     return res.status(e.statusCode || 401).json({ error: e.message });
   }
-  const { baselineId, requirements } = req.body;
+  const { baselineId } = req.body;
+  if (Object.prototype.hasOwnProperty.call(req.body, 'requirements')) {
+    return res.status(400).json({
+      error: 'Terms are taken from your verified policy and cannot be set.'
+    });
+  }
   const baseline = await postgresStore.getCoverageBaseline(baselineId);
   if (!baseline) {
     return res.status(404).json({ error: 'Coverage baseline not found' });
@@ -676,7 +734,7 @@ app.post('/api/challenges/create', async (req, res) => {
     return res.status(422).json({
       error: 'JURISDICTION_CONFLICT',
       code: 'JURISDICTION_CONFLICT',
-      message: 'Jurisdiction evidence for this policy conflicts; it must be resolved before the challenge can open.',
+      message: 'Jurisdiction evidence for this policy conflicts; it must be resolved before the policy can be shared for offers.',
       determination
     });
   }
@@ -684,27 +742,20 @@ app.post('/api/challenges/create', async (req, res) => {
     return res.status(422).json({
       error: 'JURISDICTION_UNDETERMINED',
       code: 'JURISDICTION_UNDETERMINED',
-      message: 'The governing jurisdiction for this policy could not be determined; the challenge cannot open.',
+      message: 'The governing jurisdiction for this policy could not be determined; the policy cannot be shared for offers.',
       determination
     });
   }
 
   const challenge: Challenge = {
     id: challengeId,
-    referenceNumber: `CHALLENGE #${jurisdiction}-${Math.floor(10000 + Math.random() * 90000)}`,
+    referenceNumber: `POLICY REVIEW #${jurisdiction}-${Math.floor(10000 + Math.random() * 90000)}`,
     consumerId,
     coverageBaselineId: baselineId,
     baseline,
-    requirements: requirements || {
-      id: `REQ-${Date.now()}`,
-      ruleSummary: 'Beat my current price without reducing my protection.',
-      minAnnualSavings: 150,
-      maxCollisionDeductible: 500,
-      maxCompDeductible: 250,
-      mustIncludeRental: true,
-      mustIncludeRoadside: true
-    },
+    qualificationStandardVersion: CURRENT_QUALIFICATION_STANDARD.version,
     jurisdiction,
+    insuranceLine: baseline.insuranceLine || 'PERSONAL_AUTO',
     jurisdictionDeterminationId: determination.id,
     openingTimestamp,
     closingTimestamp: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
@@ -725,12 +776,13 @@ app.post('/api/challenges/create', async (req, res) => {
     id: `COMP-${challengeId.replace('CHAL-', '')}`,
     challengeId,
     status: 'OPEN',
-    currentRound: 'ROUND_1_OPEN',
+    currentRound: 'OPEN',
     openedAt: openingTimestamp,
     closesAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
     participantCount: 0,
-    improvementRoundEnabled: true,
-    finalRoundEnabled: true
+    offerCohortSize: 10,
+    activeOfferCohort: 1,
+    maximumActivatedProviders: 30
   };
   const evaluations: EligibilityEvaluation[] = [];
   const createdInvitations: ChallengeInvitation[] = [];
@@ -743,7 +795,8 @@ app.post('/api/challenges/create', async (req, res) => {
     { eventType: 'COMPETITION_OPENED', actorRole: 'SYSTEM', actorId: 'competition_engine',
       details: `Competition ${competition.id} opened for 48h initial round` }
   ];
-  for (const org of await postgresStore.getProviderOrganizations()) {
+  let eligibleProviderPosition = 0;
+  for (const org of (await postgresStore.getProviderOrganizations()).sort((a, b) => a.id.localeCompare(b.id))) {
     const evaluation = evaluateProviderEligibility(
       challenge, org, await postgresStore.getProviderLicenses(org.id),
       await postgresStore.getProviderAppetite(org.id)
@@ -754,21 +807,28 @@ app.post('/api/challenges/create', async (req, res) => {
       details: `Evaluated ${org.displayName} (${org.id}) for challenge ${challenge.referenceNumber}: ${evaluation.isEligible ? 'ELIGIBLE' : 'INELIGIBLE'} [${evaluation.reasons.join(', ')}]`
     });
     if (!evaluation.isEligible) continue;
+    eligibleProviderPosition += 1;
+    const initiallyActivated = eligibleProviderPosition <= (competition.offerCohortSize || 10);
     const invitation: ChallengeInvitation = {
       id: `INV-${challengeId.replace('CHAL-', '')}-${org.id}`,
       challengeId, competitionId: competition.id, providerOrganizationId: org.id,
       eligibilityResult: 'ELIGIBLE', eligibilityReasons: evaluation.reasons,
-      status: 'INVITED', invitedAt: openingTimestamp, expiresAt: competition.closesAt
+      status: initiallyActivated ? 'INVITED' : 'STANDBY',
+      invitedAt: openingTimestamp,
+      expiresAt: competition.closesAt,
+      offerCohort: initiallyActivated ? 1 : undefined,
+      standbyPosition: eligibleProviderPosition,
+      activatedAt: initiallyActivated ? openingTimestamp : undefined
     };
     createdInvitations.push(invitation);
     openingAudits.push({
       eventType: 'INVITATION_CREATED', actorRole: 'SYSTEM', actorId: 'invitation_service',
       details: `Created challenge invitation ${invitation.id} for ${org.displayName}`
     });
-    openingNotifications.push({
+    if (initiallyActivated) openingNotifications.push({
       id: `NOTIF-${challenge.id}-${org.id}`, type: 'OPPORTUNITY_RECEIVED',
-      title: 'New Policy Challenge Opportunity',
-      message: `New verified ${challenge.jurisdiction} Personal Auto opportunity: ${challenge.referenceNumber}. Current premium: $${challenge.baseline.baselineAnnualPremium}/yr.`,
+      title: 'New Shared Policy Opportunity',
+      message: `New verified ${challenge.jurisdiction} ${(challenge.insuranceLine || 'PERSONAL_AUTO').replaceAll('_', ' ').toLowerCase()} opportunity: ${challenge.referenceNumber}. Current premium: $${challenge.baseline.baselineAnnualPremium}/yr.`,
       timestamp: openingTimestamp, read: false, recipientType: 'PROVIDER_ORGANIZATION',
       recipientProviderOrganizationId: org.id, createdFromEvent: `INVITATION:${invitation.id}`,
       actionTarget: 'OPPORTUNITIES'
@@ -786,7 +846,7 @@ app.post('/api/challenges/create', async (req, res) => {
   });
 
   // CE-3: Instrument VPO_AVAILABLE for every eligible invitation successfully committed
-  for (const inv of createdInvitations) {
+  for (const inv of createdInvitations.filter(invitation => invitation.status === 'INVITED')) {
     // PR-0A shadow: provider jurisdictional authority for each invited provider.
     const invitedOrg = await postgresStore.getProviderOrganization(inv.providerOrganizationId);
     if (invitedOrg) {
@@ -835,13 +895,13 @@ app.get('/api/challenges/:id', async (req, res) => {
   }
   const challenge = await postgresStore.getChallenge(req.params.id);
   if (!challenge) {
-    return res.status(404).json({ error: 'Challenge not found' });
+    return res.status(404).json({ error: 'Policy review not found' });
   }
   const offers = await postgresStore.getOffers(challenge.id);
   
   // Calculate comparisons for each offer
   const comparisons = offers.map(offer => 
-    compareOfferAgainstBaseline(challenge.baseline, challenge.requirements, offer)
+    compareOfferAgainstBaseline(challenge.baseline, offer)
   );
 
   res.json({
@@ -881,13 +941,24 @@ app.post('/api/offers/submit', async (req, res) => {
   offerData.isLatestRevision = offerData.isLatestRevision ?? true;
 
   const challengeForOffer = await postgresStore.getChallenge(offerData.challengeId);
-  if (!challengeForOffer) return res.status(404).json({ error: 'Challenge not found' });
+  if (!challengeForOffer) return res.status(404).json({ error: 'Policy review not found' });
+  const insuranceLine = challengeForOffer.insuranceLine || challengeForOffer.baseline.insuranceLine || 'PERSONAL_AUTO';
+  if (!canEnterPolicyPipeline(insuranceLine)) {
+    return res.status(409).json({ error: `Offer submission is not activated for ${insuranceLine}.` });
+  }
+  if (offerData.insuranceLine && offerData.insuranceLine !== insuranceLine) {
+    return res.status(400).json({ error: 'Offer insurance line does not match the policy review.' });
+  }
+  offerData.insuranceLine = insuranceLine;
+  if (insuranceLine !== 'PERSONAL_AUTO') {
+    offerData.verifiedFacts = validatePolicyLineOfferFacts(insuranceLine, offerData.verifiedFacts);
+  }
   const competitionForOffer = await postgresStore.getCompetitionForChallenge(offerData.challengeId);
-  if (!competitionForOffer) return res.status(404).json({ error: 'Competition not found' });
+  if (!competitionForOffer) return res.status(404).json({ error: 'Offer-submission window not found' });
   const providerForOffer = await postgresStore.getProviderOrganization(offerData.providerId);
   const qualification = evaluateOfferQualification(
-    offerData, challengeForOffer.baseline, challengeForOffer.requirements,
-    providerForOffer, await postgresStore.getCarrierRelationships(offerData.providerId),
+    offerData, challengeForOffer.baseline, providerForOffer,
+    await postgresStore.getCarrierRelationships(offerData.providerId),
     await postgresStore.getOfferVerification(offerData.id)
   );
   offerData.isQualified = qualification.isQualified;
@@ -899,6 +970,8 @@ app.post('/api/offers/submit', async (req, res) => {
     versionNumber: offerData.version || 1, round: offerData.round || 'ROUND_1_OPEN',
     carrier: offerData.carrier, annualPremium: offerData.annualPremium,
     monthlyPremium: offerData.monthlyPremium, coverages: JSON.parse(JSON.stringify(offerData.coverages)),
+    verifiedFacts: offerData.verifiedFacts ? JSON.parse(JSON.stringify(offerData.verifiedFacts)) : undefined,
+    insuranceLine,
     supportingQuoteDocName: offerData.supportingQuoteDocName,
     revisionReason: 'Initial offer submission', submittedAt: offerData.submittedAt
   };
@@ -1022,10 +1095,10 @@ app.post('/api/vault/upload', async (req, res) => {
 });
 
 // ==========================================
-// 10. Competition Engine: Final Round & Incumbent Defense
+// 10. Retired legacy simulation routes
 // ==========================================
 app.post('/api/challenges/:id/final-round', async (req, res) => {
-  res.status(410).json({ error: 'Legacy final-round route retired; use the canonical competition advance-round transition.' });
+  res.status(410).json({ error: 'Legacy final-round route retired; Open Policy now uses one submission window.' });
 });
 
 app.post('/api/challenges/:id/incumbent-defense', async (req, res) => {
@@ -1087,6 +1160,30 @@ app.get('/api/marketplace/my-provider', async (req, res) => {
   }
 });
 
+app.patch('/api/marketplace/my-provider/appetite', async (req, res) => {
+  try {
+    const orgId = await getAuthenticatedProviderOrgId(req);
+    const current = await postgresStore.getProviderAppetite(orgId);
+    if (!current) return res.status(404).json({ error: 'Provider appetite profile not found' });
+
+    const min = Number(req.body?.renewalWindowDays?.min);
+    const max = Number(req.body?.renewalWindowDays?.max);
+    if (!Number.isInteger(min) || !Number.isInteger(max) || min < 0 || max < min || max > 730) {
+      return res.status(400).json({ error: 'renewalWindowDays must contain whole-number min/max values with 0 <= min <= max <= 730' });
+    }
+
+    const updated = {
+      ...current,
+      providerOrganizationId: orgId,
+      renewalWindowDays: { min, max }
+    };
+    await postgresStore.saveProviderAppetite(updated);
+    res.json({ success: true, appetite: await postgresStore.getProviderAppetite(orgId) });
+  } catch (e: any) {
+    res.status(e.statusCode || 400).json({ error: e.message });
+  }
+});
+
 // Legacy route alias for compatibility — resolves from session, not from client param
 app.get('/api/marketplace/active-provider', async (req, res) => {
   try {
@@ -1127,7 +1224,7 @@ app.get('/api/marketplace/opportunities', async (req, res) => {
         currentAnnualPremium: challenge.baseline?.baselineAnnualPremium || 0,
         currentMonthlyPremium: challenge.baseline?.baselineMonthlyPremium || 0,
         coverageBaselineStatus: 'VERIFIED', renewalDaysRemaining: renewalDays,
-        consumerRequirementsSummary: challenge.requirements?.ruleSummary || 'Beat current baseline price with equal or better coverage.',
+        consumerRequirementsSummary: "Offers are compared with the consumer's current policy line by line.",
         competitionClosesAt: competition.closesAt, invitedProvidersCount: challengeInvitations.length,
         participatingProvidersCount: participations.filter(participation => participation.status !== 'WITHDRAWN').length,
         invitationStatus: invitation.status, viewedAt: invitation.viewedAt
@@ -1234,6 +1331,7 @@ app.post('/api/marketplace/invitations/:id/accept', async (req, res) => {
       }
 
       // CE-3: Instrument VPO_ENGAGED only after authoritative marketplace participation successfully created
+      const engagementChallenge = await postgresStore.getChallenge(result.participation.challengeId);
       await commercialStore.projectMarketplaceEvent({
         eventType: 'VPO_ENGAGED',
         sourceEntityType: 'CHALLENGE_PARTICIPATION',
@@ -1241,7 +1339,9 @@ app.post('/api/marketplace/invitations/:id/accept', async (req, res) => {
         providerOrganizationId: result.participation.providerOrganizationId,
         challengeId: result.participation.challengeId,
         competitionId: result.participation.competitionId,
-        occurredAt: result.participation.acceptedAt
+        occurredAt: result.participation.acceptedAt,
+        idempotencyKey: `evt:VPO_ENGAGED:${result.participation.providerOrganizationId}:${result.participation.challengeId}`,
+        metadata: { insuranceLine: engagementChallenge?.insuranceLine || engagementChallenge?.baseline.insuranceLine || 'PERSONAL_AUTO' }
       }).catch(err => console.warn('[CommercialEvent Error]', err));
     } catch (mpErr) {
       // Marketplace failure: rollback usage record to prevent phantom commercial consumption
@@ -1305,8 +1405,8 @@ app.get('/api/marketplace/workspace/:challengeId', async (req, res) => {
     const workspace = {
       challenge: { id: challenge.id, referenceNumber: challenge.referenceNumber, jurisdiction: challenge.jurisdiction, status: challenge.status, openingTimestamp: challenge.openingTimestamp, closingTimestamp: challenge.closingTimestamp },
       competition: { id: competition.id, currentRound: competition.currentRound, status: competition.status, openedAt: competition.openedAt, closesAt: competition.closesAt, participantCount: participations.filter(item => item.status !== 'WITHDRAWN').length, invitedCount: invitations.length },
-      consumerObjective: `Beat $${challenge.baseline.baselineAnnualPremium}/year ($${challenge.baseline.baselineMonthlyPremium}/month) while maintaining equivalent or superior coverage terms.`,
-      baseline, requirements: challenge.requirements,
+      consumerObjective: "Compare the provider's documented offer with the consumer's verified existing policy.",
+      baseline, qualificationStandardVersion: challenge.qualificationStandardVersion || CURRENT_QUALIFICATION_STANDARD.version,
       authorizedRatingInfo: { vehicle: challenge.baseline.vehicle ? { year: challenge.baseline.vehicle.year, make: challenge.baseline.vehicle.make, model: challenge.baseline.vehicle.model, usage: challenge.baseline.vehicle.usage, annualMileage: challenge.baseline.vehicle.annualMileage, garagingZip: challenge.baseline.vehicle.garagingZip, ownership: challenge.baseline.vehicle.ownership } : undefined, driverInfo: { primaryDriverAgeBracket: '35-49', licenseState: challenge.jurisdiction, yearsLicensed: '15+' }, currentPolicyTerm: { effectiveDate: challenge.baseline.effectiveDate, expirationDate: challenge.baseline.expirationDate, termMonths: 12 } },
       participation, myOffers: offers.filter(offer => offer.providerId === orgId),
       informationRequests: informationRequests.filter(request => request.providerOrganizationId === orgId || request.status === 'ANSWERED'),
@@ -1320,51 +1420,119 @@ app.get('/api/marketplace/workspace/:challengeId', async (req, res) => {
 });
 
 app.post('/api/challenges/:id/compete', async (req, res) => {
-  res.status(410).json({ error: 'Legacy competition-opening route retired; challenges open through the canonical transactional challenge lifecycle.' });
+  res.status(410).json({ error: 'This legacy route is retired; policies are shared through the current offer-review flow.' });
 });
 
 // ==========================================
-// PM-2: Competition Engine & Multi-Round Lifecycle API
+// PM-2 / PR-2: Competition Engine & Single Submission Window API
 // ==========================================
 app.get('/api/marketplace/competition/:challengeId/status', async (req, res) => {
   try {
     await authorizeChallengeResource(req, req.params.challengeId);
     const challenge=await postgresStore.getChallenge(req.params.challengeId);const competition=await postgresStore.getCompetitionForChallenge(req.params.challengeId);
-    if(!challenge||!competition)return res.status(404).json({error:'Challenge or competition not found'});
-    const summary=evaluateCompetitionRoundState(competition,await postgresStore.getOffers(req.params.challengeId),challenge.baseline,challenge.requirements);
+    if(!challenge||!competition)return res.status(404).json({error:'Policy review or offer-submission window not found'});
+    const summary=evaluateCompetitionRoundState(competition,await postgresStore.getOffers(req.params.challengeId),challenge.baseline);
     res.json(summary);
   } catch (e: any) {
     res.status(e.statusCode || 400).json({ error: e.message });
   }
 });
 
-app.get('/api/marketplace/competition/:challengeId/signals', async (req, res) => {
+app.get('/api/marketplace/competition/:challengeId/signals', (_req, res) => {
+  res.status(410).json({ error: 'Provider market signals were retired.' });
+});
+
+app.get('/api/marketplace/competition/:challengeId/offer-status', async (req, res) => {
   try {
     const orgId = await getAuthenticatedProviderOrgId(req);
-    const [challenge,competition,offers,invitations,participations]=await Promise.all([postgresStore.getChallenge(req.params.challengeId),postgresStore.getCompetitionForChallenge(req.params.challengeId),postgresStore.getOffers(req.params.challengeId),postgresStore.getAllInvitations(),postgresStore.getAllParticipations()]);
-    if(!challenge||!competition)return res.status(404).json({error:'Challenge or competition not found'});
+    const [challenge,competition,offers,participations]=await Promise.all([postgresStore.getChallenge(req.params.challengeId),postgresStore.getCompetitionForChallenge(req.params.challengeId),postgresStore.getOffers(req.params.challengeId),postgresStore.getAllParticipations()]);
+    if(!challenge||!competition)return res.status(404).json({error:'Policy review or offer-submission window not found'});
     if(!participations.some(p=>p.challengeId===challenge.id&&p.providerOrganizationId===orgId&&p.status!=='WITHDRAWN'))return res.status(403).json({error:'Access Denied: Provider is not an authorized participant'});
-    const signals=calculateProviderMarketSignals(competition,orgId,offers,challenge.baseline,challenge.requirements,invitations.filter(i=>i.challengeId===challenge.id).length);
-    res.json(signals);
+    res.json(getProviderOfferStatus(competition,orgId,offers,challenge.baseline));
   } catch (e: any) {
     res.status(e.statusCode || 400).json({ error: e.message });
   }
 });
 
-app.post('/api/marketplace/competition/:challengeId/advance-round', async (req, res) => {
-  const { targetRound, reason, customDurationHours } = req.body;
+app.post('/api/marketplace/competition/:challengeId/advance-round', (_req, res) => {
+  res.status(410).json({ error: 'Rounds were retired.' });
+});
+
+app.get('/api/marketplace/competition/:challengeId/offer-cohorts', async (req, res) => {
   try {
+    await authorizeChallengeResource(req, req.params.challengeId);
+    res.json(await postgresStore.getOfferCohortStatus(req.params.challengeId));
+  } catch (e: any) {
+    res.status(e.statusCode || 400).json({ error: e.message });
+  }
+});
+
+app.post('/api/marketplace/competition/:challengeId/request-additional-offers', async (req, res) => {
+  try {
+    const consumerId = getAuthenticatedConsumerId(req);
+    await authorizeChallengeResource(req, req.params.challengeId);
+    const expectedActiveCohort = Number(req.body?.expectedActiveCohort);
+    const idempotencyKey = String(req.body?.idempotencyKey || '').trim();
+    if (!Number.isInteger(expectedActiveCohort) || expectedActiveCohort < 1) {
+      return res.status(400).json({ error: 'The current offer cohort is required.' });
+    }
+    if (!idempotencyKey || idempotencyKey.length > 200) {
+      return res.status(400).json({ error: 'A valid idempotency key is required.' });
+    }
+    const challenge = await postgresStore.getChallenge(req.params.challengeId);
+    if (!challenge) return res.status(404).json({ error: 'Policy opportunity not found.' });
+    const standby = (await postgresStore.getInvitationsForChallenge(req.params.challengeId))
+      .filter(invitation => invitation.status === 'STANDBY');
+    const eligibleProviderOrganizationIds: string[] = [];
+    for (const invitation of standby) {
+      const organization = await postgresStore.getProviderOrganization(invitation.providerOrganizationId);
+      if (!organization) continue;
+      const evaluation = evaluateProviderEligibility(
+        challenge,
+        organization,
+        await postgresStore.getProviderLicenses(organization.id),
+        await postgresStore.getProviderAppetite(organization.id)
+      );
+      if (evaluation.isEligible) eligibleProviderOrganizationIds.push(organization.id);
+    }
+    const result = await postgresStore.commitAdditionalOfferCohort({
+      challengeId: req.params.challengeId,
+      consumerId,
+      expectedActiveCohort,
+      idempotencyKey,
+      eligibleProviderOrganizationIds
+    });
+    for (const invitation of result.activated) {
+      await commercialStore.projectMarketplaceEvent({
+        eventType: 'VPO_AVAILABLE',
+        sourceEntityType: 'CHALLENGE_INVITATION',
+        sourceEntityId: invitation.id,
+        providerOrganizationId: invitation.providerOrganizationId,
+        challengeId: invitation.challengeId,
+        competitionId: invitation.competitionId,
+        occurredAt: invitation.activatedAt || new Date().toISOString()
+      }).catch(err => console.warn('[CommercialEvent Error]', err));
+    }
+    res.json({ success: true, ...result });
+  } catch (e: any) {
+    res.status(e.statusCode || 400).json({ error: e.message });
+  }
+});
+
+app.post('/api/marketplace/competition/:challengeId/begin-review', async (req, res) => {
+  try {
+    const consumerId = getAuthenticatedConsumerId(req);
+    await authorizeChallengeResource(req, req.params.challengeId);
     const challenge=await postgresStore.getChallenge(req.params.challengeId);const competition=await postgresStore.getCompetitionForChallenge(req.params.challengeId);
-    if(!challenge||!competition)return res.status(404).json({error:'Challenge or competition not found'});
-    const triggerReason=reason||`Advanced to ${targetRound} by operator`;
-    const candidate=advanceCompetitionRound(competition,targetRound,triggerReason,customDurationHours);
-    const updatedChallenge={...challenge,status:(targetRound==='BEST_AND_FINAL'||targetRound==='ROUND_3_BAFO')?'FINAL_ROUND':(targetRound==='CONSUMER_REVIEW'||targetRound==='CLOSED_PENDING_SELECTION')?'CONSUMER_REVIEW':'OPEN',isFinalRound:targetRound==='BEST_AND_FINAL'||targetRound==='ROUND_3_BAFO'} as Challenge;
+    if(!challenge||!competition)return res.status(404).json({error:'Policy review or offer-submission window not found'});
+    const candidate=closeSubmissionWindow(competition,'CONSUMER_BEGAN_REVIEW');
+    const updatedChallenge={...challenge,status:'CONSUMER_REVIEW'} as Challenge;
     const timestamp=new Date().toISOString();
-    const updatedComp=await postgresStore.commitCompetitionAdvance({competition:candidate,challenge:updatedChallenge,actorId:req.openPolicyIdentity?.uid||'operator',activity:{id:`ACT-ROUND-${competition.id}-${candidate.currentRound}`,competitionId:competition.id,challengeId:challenge.id,timestamp,type:'ROUND_ADVANCED',actorRole:'ADMIN',summary:triggerReason,round:candidate.currentRound}});
-    const summary=evaluateCompetitionRoundState(updatedComp,await postgresStore.getOffers(challenge.id),updatedChallenge.baseline,updatedChallenge.requirements);
+    const updatedComp=await postgresStore.commitCompetitionAdvance({competition:candidate,challenge:updatedChallenge,actorId:consumerId,activity:{id:`ACT-REVIEW-${competition.id}-${timestamp}`,competitionId:competition.id,challengeId:challenge.id,timestamp,type:'CONSUMER_REVIEW_ENTERED',actorRole:'CONSUMER',summary:'Policyholder began reviewing submitted offers',round:candidate.currentRound}});
+    const summary=evaluateCompetitionRoundState(updatedComp,await postgresStore.getOffers(challenge.id),updatedChallenge.baseline);
     res.json({ success: true, competition: updatedComp, summary });
   } catch (e: any) {
-    res.status(400).json({ error: e.message });
+    res.status(e.statusCode || 400).json({ error: e.message });
   }
 });
 
@@ -1422,7 +1590,7 @@ app.get('/api/marketplace/competition/:challengeId/deadline-status', async (req,
   try {
     await authorizeChallengeResource(req, req.params.challengeId);
     const competition=await postgresStore.getCompetitionForChallenge(req.params.challengeId);
-    if(!competition)return res.status(404).json({error:'Competition not found'});
+    if(!competition)return res.status(404).json({error:'Offer-submission window not found'});
     const status=checkRoundDeadlineStatus(competition);
     res.json({ success: true, status });
   } catch (e: any) {
@@ -1434,18 +1602,25 @@ app.post('/api/marketplace/competition/:challengeId/revise-offer/:offerId', asyn
   try {
     const orgId = await getAuthenticatedProviderOrgId(req);
     const [originalOffer,competition,challenge]=await Promise.all([postgresStore.getOffer(req.params.offerId),postgresStore.getCompetitionForChallenge(req.params.challengeId),postgresStore.getChallenge(req.params.challengeId)]);
-    if(!originalOffer||!competition||!challenge)return res.status(404).json({error:'Offer, competition, or challenge not found'});
-    if(originalOffer.challengeId!==challenge.id)return res.status(400).json({error:'Offer does not belong to challenge'});
+    if(!originalOffer||!competition||!challenge)return res.status(404).json({error:'Offer, submission window, or policy review not found'});
+    if(originalOffer.challengeId!==challenge.id)return res.status(400).json({error:'Offer does not belong to this policy review'});
     if(originalOffer.providerId!==orgId)return res.status(403).json({error:'Provider cannot revise another organization offer'});
+    if(Date.now()>=new Date(competition.closesAt).getTime())return res.status(400).json({error:'Offer updates are not permitted after the submission window closes.'});
+    if(!req.body?.revisedData||typeof req.body.revisedData!=='object'||Array.isArray(req.body.revisedData))return res.status(400).json({error:'Revised offer data is required.'});
+    const insuranceLine=challenge.insuranceLine||challenge.baseline.insuranceLine||'PERSONAL_AUTO';
+    if(!canEnterPolicyPipeline(insuranceLine))return res.status(409).json({error:`Offer submission is not activated for ${insuranceLine}.`});
+    if(req.body.revisedData?.insuranceLine&&req.body.revisedData.insuranceLine!==insuranceLine)return res.status(400).json({error:'Offer insurance line does not match the policy review.'});
+    if(insuranceLine!=='PERSONAL_AUTO')req.body.revisedData.verifiedFacts=validatePolicyLineOfferFacts(insuranceLine,req.body.revisedData?.verifiedFacts);
+    req.body.revisedData.insuranceLine=insuranceLine;
     const validation=validateOfferRevision(originalOffer,req.body.revisedData,competition.currentRound);
     if(!validation.valid)return res.status(400).json({error:validation.errors.join('; ')});
     const version=(originalOffer.version||1)+1;const submittedAt=new Date().toISOString();
     const revisedOffer:Offer={...originalOffer,...req.body.revisedData,id:`OFFER-REV-${Date.now()}`,previousOfferId:originalOffer.id,version,isLatestRevision:true,round:competition.currentRound,submittedAt};
     const [provider,relationships]=await Promise.all([postgresStore.getProviderOrganization(orgId),postgresStore.getCarrierRelationships(orgId)]);
-    const qualification=evaluateOfferQualification(revisedOffer,challenge.baseline,challenge.requirements,provider,relationships);
+    const qualification=evaluateOfferQualification(revisedOffer,challenge.baseline,provider,relationships);
     revisedOffer.isQualified=qualification.isQualified;revisedOffer.qualifiedAt=qualification.evaluatedAt;revisedOffer.qualificationReasons=qualification.qualificationReasons;revisedOffer.disqualificationReasons=qualification.disqualificationReasons;
     const versionSnapshot=createOfferVersionSnapshot(revisedOffer,req.body.revisedData.revisionReason||`Revised during ${competition.currentRound}`);versionSnapshot.offerId=originalOffer.id;versionSnapshot.versionNumber=version;
-    const revisedOfferCommitted=await postgresStore.commitOfferRevision({original:originalOffer,revised:revisedOffer,version:versionSnapshot,actorId:orgId,activity:{id:`ACT-REV-${originalOffer.id}-v${version}`,competitionId:competition.id,challengeId:challenge.id,timestamp:submittedAt,type:'OFFER_REVISED',actorRole:'PROVIDER',providerOrganizationId:orgId,summary:`Provider revised ${revisedOffer.carrier} offer`,round:competition.currentRound,metadata:{offerId:revisedOffer.id,version}}});
+    const revisedOfferCommitted=await postgresStore.commitOfferRevision({original:originalOffer,revised:revisedOffer,version:versionSnapshot,actorId:orgId,activity:{id:`ACT-REV-${originalOffer.id}-v${version}`,competitionId:competition.id,challengeId:challenge.id,timestamp:submittedAt,type:'OFFER_REVISED',actorRole:'PROVIDER',providerOrganizationId:orgId,summary:`Provider updated its ${revisedOffer.carrier} offer`,round:competition.currentRound,metadata:{offerId:revisedOffer.id,version}}});
 
     // PR-0A shadow: re-evaluate jurisdiction coverage requirements for the revision (D4).
     await inShadow('offer-qualification', () => shadowOfferQualification(revisedOfferCommitted, challenge));
@@ -1471,16 +1646,6 @@ app.post('/api/marketplace/competition/:challengeId/revise-offer/:offerId', asyn
     res.json({ success: true, offer: revisedOfferCommitted });
   } catch (e: any) {
     res.status(e.statusCode || 400).json({ error: e.message });
-  }
-});
-
-app.post('/api/marketplace/competition/:challengeId/seed-competitors', async (req, res) => {
-  try {
-    db.seedCompetitorOffers(req.params.challengeId);
-    const summary = db.getCompetitionEvaluation(req.params.challengeId);
-    res.json({ success: true, message: 'Seeded competing quote from Apex Insurance (Progressive $2,540/yr)', summary });
-  } catch (e: any) {
-    res.status(400).json({ error: e.message });
   }
 });
 
@@ -1513,7 +1678,7 @@ app.post('/api/marketplace/challenges/:id/information-requests', async (req, res
       return res.status(400).json({ error: 'Missing required fields: requestedField, purpose, purposeExplanation' });
     }
     const competition=await postgresStore.getCompetitionForChallenge(req.params.id);
-    if(!competition)return res.status(404).json({error:'Competition not found'});
+    if(!competition)return res.status(404).json({error:'Offer-submission window not found'});
     const now=new Date().toISOString();
     const request:InformationRequest={id:`INFOREQ-${Date.now()}-${Math.floor(Math.random()*1000)}`,challengeId:req.params.id,competitionId:competition.id,providerOrganizationId:orgId,requestedField,customFieldName,purpose,purposeExplanation,status:'PENDING',requestedAt:now};
     const key=String(req.headers['idempotency-key']||`INFOREQ:${req.params.id}:${orgId}:${requestedField}:${customFieldName||''}:${purpose}`);
@@ -1649,7 +1814,7 @@ app.get('/api/marketplace/offers/:id/qualification', async (req, res) => {
     if (!offer) return res.status(404).json({ error: `Offer ${req.params.id} not found` });
     await authorizeChallengeResource(req, offer.challengeId);
     const challenge = await postgresStore.getChallenge(offer.challengeId);
-    if (!challenge) return res.status(404).json({ error: `Challenge ${offer.challengeId} not found` });
+    if (!challenge) return res.status(404).json({ error: `Policy review ${offer.challengeId} not found` });
     const [provider, relationships, verification] = await Promise.all([
       postgresStore.getProviderOrganization(offer.providerId),
       postgresStore.getCarrierRelationships(offer.providerId),
@@ -1658,7 +1823,6 @@ app.get('/api/marketplace/offers/:id/qualification', async (req, res) => {
     const evaluation = evaluateOfferQualification(
       offer,
       challenge.baseline,
-      challenge.requirements,
       provider,
       relationships,
       verification
@@ -1690,14 +1854,14 @@ app.post('/api/marketplace/challenges/:id/select-version', async (req, res) => {
     }
 
     const challenge = await postgresStore.getChallenge(challengeId);
-    if (!challenge) return res.status(404).json({ error: `Challenge not found: ${challengeId}` });
+    if (!challenge) return res.status(404).json({ error: `Policy review not found: ${challengeId}` });
     if (challenge.consumerId !== consumerId) {
-      return res.status(403).json({ error: 'Unauthorized: Only the challenge owner can select an offer version' });
+      return res.status(403).json({ error: 'Unauthorized: Only the policyholder who shared this policy can select an offer version' });
     }
     const offer = await postgresStore.getOffer(offerId);
     if (!offer) return res.status(404).json({ error: `Offer not found: ${offerId}` });
     if (offer.challengeId !== challengeId) {
-      return res.status(400).json({ error: 'Offer does not belong to the specified challenge' });
+      return res.status(400).json({ error: 'Offer does not belong to the specified policy review' });
     }
     const requestedVersion = Number(versionNumber || 1);
     const offerVersion = (await postgresStore.getOfferVersions(offerId))
@@ -1756,10 +1920,10 @@ app.post('/api/marketplace/binding/:handoffId/grant-consent', async (req, res) =
     const handoff = await postgresStore.getBindingHandoff(handoffId);
     if (!handoff) return res.status(404).json({ error: `Binding handoff not found: ${handoffId}` });
     if (handoff.challengeId !== challengeId) {
-      return res.status(400).json({ error: 'Binding handoff does not belong to the specified challenge' });
+      return res.status(400).json({ error: 'Binding handoff does not belong to the specified policy review' });
     }
     if (handoff.consumerId !== consumerId) {
-      return res.status(403).json({ error: 'Unauthorized: Only the challenge owner can grant consent for this handoff' });
+      return res.status(403).json({ error: 'Unauthorized: Only the policyholder who shared this policy can grant consent for this handoff' });
     }
     if (!handoff.providerOrganizationId) {
       return res.status(403).json({ error: 'Forbidden: Binding handoff has no authoritative provider organization mapping' });
@@ -1823,17 +1987,34 @@ app.post('/api/marketplace/binding/:handoffId/execute-disclosure', async (req, r
     if (!consentGrant) return res.status(404).json({ error: `Consent grant not found: ${consentGrantId}` });
     const challenge = await postgresStore.getChallenge(handoff.challengeId);
     const baseline = challenge?.baseline;
+    const sourcePolicy = baseline ? await postgresStore.getPolicy(baseline.policyId) : undefined;
+    const fixtureMode = configuredAuthMode() === 'fixture';
+    if (!fixtureMode && customConsumerData !== undefined) {
+      return res.status(400).json({ error: 'Provider-supplied consumer data is forbidden for controlled disclosure.' });
+    }
+    if (!fixtureMode && !handoff.consumerId) {
+      return res.status(409).json({ error: 'Binding handoff has no authoritative consumer identity.' });
+    }
+    const consumerProfile = fixtureMode ? undefined : await getFirebaseUserProfile(handoff.consumerId!);
     const fullConsumerData: Record<string, any> = {
-      namedInsured: 'Jane Doe', email: 'jane.doe@example.com', phone: '702-555-0199',
-      addressLine1: '812 Horizon Ridge Pkwy', city: 'Henderson', state: 'NV', postalCode: '89012',
-      garagingAddress: '812 Horizon Ridge Pkwy, Henderson, NV 89012',
-      vin: baseline?.vehicle?.vin || '4T1B11HK5RU123498', driverLicenseNumber: 'NV-DL-8912781',
-      driverLicenseState: 'NV', dateOfBirth: '1988-04-12',
-      drivers: [{ name:'Jane Doe', licenseState:'NV', licenseNumber:'NV-DL-8912781', age:38, isPrimary:true }],
-      vehicles: [{ year:baseline?.vehicle?.year||2022, make:baseline?.vehicle?.make||'Toyota',
-        model:baseline?.vehicle?.model||'Camry', vin:baseline?.vehicle?.vin||'4T1B11HK5RU123498',
-        annualMileage:baseline?.vehicle?.annualMileage||12000, primaryUse:baseline?.vehicle?.usage||'COMMUTE' }],
-      ...(customConsumerData || {})
+      namedInsured: sourcePolicy?.namedInsured,
+      email: consumerProfile?.email,
+      phone: consumerProfile?.phone,
+      addressLine1: consumerProfile?.addressLine1,
+      city: consumerProfile?.city,
+      state: consumerProfile?.state,
+      postalCode: consumerProfile?.postalCode,
+      garagingAddress: consumerProfile?.garagingAddress,
+      driverLicenseNumber: consumerProfile?.driverLicenseNumber,
+      driverLicenseState: consumerProfile?.driverLicenseState,
+      dateOfBirth: consumerProfile?.dateOfBirth,
+      vin: baseline?.vehicle?.vin,
+      vehicles: baseline?.vehicle ? [{
+        year:baseline.vehicle.year, make:baseline.vehicle.make, model:baseline.vehicle.model,
+        vin:baseline.vehicle.vin, annualMileage:baseline.vehicle.annualMileage,
+        primaryUse:baseline.vehicle.usage
+      }] : undefined,
+      ...(fixtureMode ? (customConsumerData || {}) : {})
     };
     const computed = validateAndExecuteDisclosure({
       consentGrant, handoff, fullConsumerData, requestingProviderOrgId:providerOrgId,
@@ -1851,6 +2032,7 @@ app.post('/api/marketplace/binding/:handoffId/execute-disclosure', async (req, r
     };
 
     // CE-3: Instrument AUTHORIZED_CONNECTION only upon successful controlled disclosure
+    const connectionChallenge = await postgresStore.getChallenge(result.disclosureEvent.challengeId);
     await commercialStore.projectMarketplaceEvent({
       eventType: 'AUTHORIZED_CONNECTION',
       sourceEntityType: 'DISCLOSURE_EVENT',
@@ -1858,9 +2040,11 @@ app.post('/api/marketplace/binding/:handoffId/execute-disclosure', async (req, r
       providerOrganizationId: result.disclosureEvent.recipientProviderOrganizationId,
       challengeId: result.disclosureEvent.challengeId,
       occurredAt: result.disclosureEvent.disclosedAt,
+      idempotencyKey: `evt:AUTHORIZED_CONNECTION:${result.disclosureEvent.bindingHandoffId}`,
       metadata: {
         consentGrantId: result.disclosureEvent.consentGrantId,
-        bindingHandoffId: result.disclosureEvent.bindingHandoffId
+        bindingHandoffId: result.disclosureEvent.bindingHandoffId,
+        insuranceLine: connectionChallenge?.insuranceLine || connectionChallenge?.baseline.insuranceLine || 'PERSONAL_AUTO'
       }
     }).catch(err => console.warn('[CommercialEvent Error]', err));
 
@@ -1875,141 +2059,32 @@ app.post('/api/marketplace/binding/:handoffId/execute-disclosure', async (req, r
   }
 });
 
-// 5. Propose Underwriting Modification (carrier changes terms; selected OfferVersion remains immutable)
-app.post('/api/marketplace/binding/:handoffId/propose-modification', async (req, res) => {
+// 5. Retired post-selection negotiation routes. Historical records remain readable.
+for (const retiredPath of ['propose-modification', 'resolve-modification', 'accept-modification', 'reject-modification']) {
+  app.post(`/api/marketplace/binding/:handoffId/${retiredPath}`, (_req, res) => {
+    res.status(410).json({ error: 'Post-selection modification negotiation through Open Policy is retired.' });
+  });
+}
+
+// 6. Provider factual report: selected offer cannot be honored as submitted.
+app.post('/api/marketplace/binding/:handoffId/cannot-honor', async (req, res) => {
   try {
-    const handoffId = req.params.handoffId;
-    const {
-      carrier,
-      originalAnnualPremium,
-      modifiedAnnualPremium,
-      coverageChanges,
-      underwritingReason
-    } = req.body;
-
-    if (modifiedAnnualPremium === undefined || modifiedAnnualPremium === null) {
-      return res.status(400).json({ error: 'modifiedAnnualPremium is required' });
+    const allowedKeys = new Set(['reasonCode']);
+    if (Object.keys(req.body || {}).some(key => !allowedKeys.has(key))) {
+      return res.status(400).json({ error: 'Only reasonCode is accepted; revised price, coverage, or terms cannot be transmitted through this endpoint.' });
     }
-
-    if (!underwritingReason) {
-      return res.status(400).json({ error: 'underwritingReason is required' });
-    }
-
     const providerOrgId = await getAuthenticatedProviderOrgId(req);
     const providerUserId = await getAuthenticatedProviderUserId(req);
-
-    const handoff = await postgresStore.getBindingHandoff(handoffId);
-    if (!handoff) return res.status(404).json({ error: `Binding handoff not found: ${handoffId}` });
-    const selectedOffer = handoff.offerId ? await postgresStore.getOffer(handoff.offerId) : undefined;
-    const computed = proposeBindingModification({
+    const handoff = await postgresStore.getBindingHandoff(req.params.handoffId);
+    if (!handoff) return res.status(404).json({ error: `Binding handoff not found: ${req.params.handoffId}` });
+    const computed = reportSelectedOfferCannotBeHonored({
       handoff,
       providerOrgId,
       providerUserId,
-      carrier: carrier || handoff.carrier,
-      originalAnnualPremium: originalAnnualPremium ?? selectedOffer?.annualPremium ?? 0,
-      modifiedAnnualPremium: Number(modifiedAnnualPremium),
-      coverageChanges: coverageChanges || [],
-      underwritingReason
+      reasonCode: req.body.reasonCode as CannotHonorReasonCode
     });
-    const committed = await postgresStore.commitBindingModificationProposal({
-      modification: computed.modification,
-      handoff: computed.updatedHandoff
-    });
-    res.json({ success: true, modification: committed.modification, handoff: committed.handoff });
-  } catch (e: any) {
-    res.status(e.statusCode || 400).json({ error: e.message });
-  }
-});
-
-// 6. Resolve Underwriting Modification (ACCEPT / REJECT by consumer)
-app.post('/api/marketplace/binding/:handoffId/resolve-modification', async (req, res) => {
-  try {
-    const { modificationId, decision, rejectionReason } = req.body;
-    const consumerId = getAuthenticatedConsumerId(req);
-
-    if (!modificationId) {
-      return res.status(400).json({ error: 'modificationId is required' });
-    }
-
-    if (decision !== 'ACCEPT' && decision !== 'REJECT') {
-      return res.status(400).json({ error: "decision must be 'ACCEPT' or 'REJECT'" });
-    }
-
-    const modification = await postgresStore.getBindingModification(modificationId);
-    if (!modification) return res.status(404).json({ error: `Binding modification not found: ${modificationId}` });
-    const handoff = await postgresStore.getBindingHandoff(modification.bindingHandoffId);
-    if (!handoff) return res.status(404).json({ error: `Binding handoff not found: ${modification.bindingHandoffId}` });
-    const computed = resolveBindingModification({
-      modification,
-      handoff,
-      consumerId,
-      decision,
-      rejectionReason
-    });
-    const committed = await postgresStore.commitBindingModificationResolution({
-      modification: computed.resolvedModification,
-      handoff: computed.updatedHandoff,
-      consumerId
-    });
-    res.json({ success: true, modification: committed.modification, handoff: committed.handoff });
-  } catch (e: any) {
-    res.status(e.statusCode || 400).json({ error: e.message });
-  }
-});
-
-// Route aliases for explicit accept / reject actions
-app.post('/api/marketplace/binding/:handoffId/accept-modification', async (req, res) => {
-  try {
-    const { modificationId } = req.body;
-    const consumerId = getAuthenticatedConsumerId(req);
-
-    if (!modificationId) {
-      return res.status(400).json({ error: 'modificationId is required' });
-    }
-
-    const modification = await postgresStore.getBindingModification(modificationId);
-    if (!modification) return res.status(404).json({ error: `Binding modification not found: ${modificationId}` });
-    const handoff = await postgresStore.getBindingHandoff(modification.bindingHandoffId);
-    if (!handoff) return res.status(404).json({ error: 'Binding handoff not found' });
-    const computed = resolveBindingModification({
-      modification,
-      handoff,
-      consumerId,
-      decision: 'ACCEPT'
-    });
-    const result = await postgresStore.commitBindingModificationResolution({
-      modification: computed.resolvedModification, handoff: computed.updatedHandoff, consumerId
-    });
-    res.json({ success: true, modification: result.modification, handoff: result.handoff });
-  } catch (e: any) {
-    res.status(e.statusCode || 400).json({ error: e.message });
-  }
-});
-
-app.post('/api/marketplace/binding/:handoffId/reject-modification', async (req, res) => {
-  try {
-    const { modificationId, rejectionReason } = req.body;
-    const consumerId = getAuthenticatedConsumerId(req);
-
-    if (!modificationId) {
-      return res.status(400).json({ error: 'modificationId is required' });
-    }
-
-    const modification = await postgresStore.getBindingModification(modificationId);
-    if (!modification) return res.status(404).json({ error: `Binding modification not found: ${modificationId}` });
-    const handoff = await postgresStore.getBindingHandoff(modification.bindingHandoffId);
-    if (!handoff) return res.status(404).json({ error: 'Binding handoff not found' });
-    const computed = resolveBindingModification({
-      modification,
-      handoff,
-      consumerId,
-      decision: 'REJECT',
-      rejectionReason
-    });
-    const result = await postgresStore.commitBindingModificationResolution({
-      modification: computed.resolvedModification, handoff: computed.updatedHandoff, consumerId
-    });
-    res.json({ success: true, modification: result.modification, handoff: result.handoff });
+    const committed = await postgresStore.commitBindingHonorFailure({ failure: computed.failure, handoff: computed.updatedHandoff });
+    res.json({ success: true, failure: committed.failure, handoff: committed.handoff });
   } catch (e: any) {
     res.status(e.statusCode || 400).json({ error: e.message });
   }
@@ -2019,10 +2094,18 @@ app.post('/api/marketplace/binding/:handoffId/reject-modification', async (req, 
 app.post('/api/marketplace/binding/:handoffId/update-status', async (req, res) => {
   try {
     const handoffId = req.params.handoffId;
-    const { newStatus, declineReason, policyNumber, finalPremium } = req.body;
+    const { newStatus, declineReason, policyNumber } = req.body;
+
+    if ('finalPremium' in (req.body || {}) || 'coverageChanges' in (req.body || {}) || 'revisedTerms' in (req.body || {})) {
+      return res.status(400).json({ error: 'Revised insurance price or coverage terms cannot be transmitted through binding status updates.' });
+    }
 
     if (!newStatus) {
       return res.status(400).json({ error: 'newStatus is required' });
+    }
+
+    if (!['APPLICATION_SUBMITTED', 'UNDERWRITING', 'BOUND'].includes(newStatus)) {
+      return res.status(400).json({ error: 'Binding status updates are limited to APPLICATION_SUBMITTED, UNDERWRITING, and BOUND. Use cannot-honor for an unavailable selected offer.' });
     }
 
     const providerOrgId = await getAuthenticatedProviderOrgId(req);
@@ -2037,25 +2120,8 @@ app.post('/api/marketplace/binding/:handoffId/update-status', async (req, res) =
       activeModifications: modifications,
       declineReason
     });
-    updatedHandoff = { ...updatedHandoff, policyNumber: policyNumber || updatedHandoff.policyNumber,
-      finalPremium: finalPremium ?? updatedHandoff.finalPremium };
+    updatedHandoff = { ...updatedHandoff, policyNumber: policyNumber || updatedHandoff.policyNumber };
     updatedHandoff = await postgresStore.commitBindingStatus(updatedHandoff, providerOrgId);
-
-    // CE-3: Instrument BOUND_ACQUISITION only when authoritative BindingHandoff reaches BOUND
-    if (updatedHandoff.status === 'BOUND') {
-      await commercialStore.projectMarketplaceEvent({
-        eventType: 'BOUND_ACQUISITION',
-        sourceEntityType: 'BINDING_HANDOFF',
-        sourceEntityId: updatedHandoff.id,
-        providerOrganizationId: updatedHandoff.providerOrganizationId || providerOrgId,
-        challengeId: updatedHandoff.challengeId,
-        occurredAt: updatedHandoff.boundAt || updatedHandoff.updatedAt || new Date().toISOString(),
-        metadata: {
-          policyNumber: updatedHandoff.policyNumber,
-          finalPremium: updatedHandoff.finalPremium
-        }
-      }).catch(err => console.warn('[CommercialEvent Error]', err));
-    }
 
     res.json({ success: true, handoff: updatedHandoff });
   } catch (e: any) {
@@ -2082,6 +2148,7 @@ app.get('/api/marketplace/binding/:handoffId', async (req, res) => {
   const consentGrants = await postgresStore.getConsentGrants(handoff.challengeId);
   const disclosureEvents = await postgresStore.getDisclosureEvents(handoff.id);
   const modifications = await postgresStore.getBindingModifications(handoff.id);
+  const honorFailure = await postgresStore.getBindingHonorFailure(handoff.id);
 
   res.json({
     success: true,
@@ -2089,7 +2156,8 @@ app.get('/api/marketplace/binding/:handoffId', async (req, res) => {
     selection,
     consentGrants,
     disclosureEvents,
-    modifications
+    modifications,
+    honorFailure
   });
 });
 
@@ -2106,6 +2174,7 @@ app.get('/api/marketplace/challenges/:id/selection-binding', async (req, res) =>
   const consentGrants = await postgresStore.getConsentGrants(challengeId);
   const modifications = handoff ? await postgresStore.getBindingModifications(handoff.id) : [];
   const disclosureEvents = handoff ? await postgresStore.getDisclosureEvents(handoff.id) : [];
+  const honorFailure = handoff ? await postgresStore.getBindingHonorFailure(handoff.id) : undefined;
 
   res.json({
     success: true,
@@ -2113,7 +2182,8 @@ app.get('/api/marketplace/challenges/:id/selection-binding', async (req, res) =>
     handoff,
     consentGrants,
     modifications,
-    disclosureEvents
+    disclosureEvents,
+    honorFailure
   });
 });
 
@@ -2202,7 +2272,7 @@ app.post('/api/marketplace/binding/:handoffId/reconcile', async (req, res) => {
     let newBaseline: CoverageBaseline | undefined;
     if (report.verdict === 'MATCH' || report.verdict === 'AUTHORIZED_VARIANCE') {
       const challenge = await postgresStore.getChallenge(handoff.challengeId);
-      if (!challenge) return res.status(404).json({ error: 'Challenge not found' });
+      if (!challenge) return res.status(404).json({ error: 'Policy review not found' });
       const activated = pm5ActivateVault({ handoff,selection,offerVersion,acceptedModifications,report,
         snapshot:latestSnapshot,document:latestDocument,currentBaseline:challenge.baseline });
       vaultItem=activated.vaultItem; newBaseline=activated.newBaseline;
@@ -2213,6 +2283,15 @@ app.post('/api/marketplace/binding/:handoffId/reconcile', async (req, res) => {
     // CE-3: Instrument VERIFIED_BOUND_OUTCOME when issued outcome passes PM-5 evidence/reconciliation
     const isVerified = result.report.verdict === 'MATCH' || result.report.verdict === 'AUTHORIZED_VARIANCE';
     if (isVerified) {
+      await commercialStore.projectMarketplaceEvent({
+        eventType: 'BOUND_ACQUISITION',
+        sourceEntityType: 'ISSUED_POLICY_DOCUMENT',
+        sourceEntityId: latestDocument.id,
+        providerOrganizationId: requireHandoffProviderOrganization(handoff),
+        challengeId: result.report.challengeId,
+        occurredAt: result.report.reconciledAt,
+        metadata: { bindingHandoffId: handoff.id, evidenceVerified: true }
+      }).catch(err => console.warn('[CommercialEvent Error]', err));
       await commercialStore.projectMarketplaceEvent({
         eventType: 'VERIFIED_BOUND_OUTCOME',
         sourceEntityType: 'RECONCILIATION_REPORT',
@@ -2302,7 +2381,7 @@ app.post('/api/marketplace/binding/:handoffId/consumer-verify', async (req, res)
     const handoff = await postgresStore.getBindingHandoff(currentReport.bindingHandoffId!);
     if (!handoff) return res.status(404).json({ error: 'Binding handoff not found' });
     const challenge = await postgresStore.getChallenge(currentReport.challengeId!);
-    if (!challenge) return res.status(404).json({ error: 'Challenge not found' });
+    if (!challenge) return res.status(404).json({ error: 'Policy review not found' });
     const updatedReport = pm5ProcessReview({ report:currentReport,consumerId,
       challengeConsumerId:challenge.consumerId,decision,disputeNotes });
     let vaultItem:PolicyVaultItem|undefined; let newBaseline:CoverageBaseline|undefined;
@@ -2320,6 +2399,15 @@ app.post('/api/marketplace/binding/:handoffId/consumer-verify', async (req, res)
 
     // CE-3: Instrument VERIFIED_BOUND_OUTCOME if consumer accepts variance
     if (result.report.status === 'CONSUMER_ACCEPTED_VARIANCE') {
+      await commercialStore.projectMarketplaceEvent({
+        eventType: 'BOUND_ACQUISITION',
+        sourceEntityType: 'RECONCILIATION_REPORT',
+        sourceEntityId: result.report.id,
+        providerOrganizationId: requireHandoffProviderOrganization(handoff),
+        challengeId: result.report.challengeId,
+        occurredAt: result.report.reconciledAt,
+        metadata: { bindingHandoffId: handoff.id, consumerConfirmed: true }
+      }).catch(err => console.warn('[CommercialEvent Error]', err));
       await commercialStore.projectMarketplaceEvent({
         eventType: 'VERIFIED_BOUND_OUTCOME',
         sourceEntityType: 'RECONCILIATION_REPORT',
@@ -2477,6 +2565,11 @@ app.post('/api/commercial/agreements/enroll', async (req, res) => {
   try {
     const orgId = await getAuthenticatedProviderOrgId(req);
     const { planId, planCode, planVersionId, customTerms, enforcementPolicy } = req.body;
+    const suppliedRates = customTerms?.rates && Object.keys(customTerms.rates).length > 0;
+    const suppliedUnitPrice = customTerms && Object.keys(customTerms).some(key => /(?:rate|price).*cents|unitpricecents/i.test(key));
+    if (suppliedRates || suppliedUnitPrice) {
+      return res.status(403).json({ error: 'Provider-supplied commercial pricing terms are not permitted.' });
+    }
 
     let targetPlanId = planId;
     if (!targetPlanId && planCode) {
@@ -2508,6 +2601,29 @@ app.post('/api/commercial/agreements/enroll', async (req, res) => {
   } catch (e: any) {
     const status = e.statusCode || 400;
     res.status(status).json({ error: e.message });
+  }
+});
+
+// Platform financial administration. This is deliberately separate from
+// provider self-enrollment and is protected by the centralized /admin rule.
+app.post('/api/admin/commercial/agreements/enroll', async (req, res) => {
+  try {
+    const { providerOrganizationId, planId, planCode, planVersionId, customTerms, enforcementPolicy } = req.body || {};
+    if (!providerOrganizationId) return res.status(400).json({ error: 'providerOrganizationId is required.' });
+    let targetPlanId = planId;
+    if (!targetPlanId && planCode) {
+      const plan = await commercialStore.getCommercialPlanByCode(planCode);
+      if (!plan) return res.status(404).json({ error: `Commercial plan with code '${planCode}' not found` });
+      targetPlanId = plan.id;
+    }
+    if (!targetPlanId) return res.status(400).json({ error: 'planId or planCode is required.' });
+    const enrolled = await commercialStore.enrollCommercialAgreement({
+      providerOrgId: providerOrganizationId, planId: targetPlanId, planVersionId,
+      customTerms, enforcementPolicy, actorRole: 'ADMIN'
+    });
+    res.status(201).json({ success: true, ...enrolled });
+  } catch (e: any) {
+    res.status(e.statusCode || 400).json({ error: e.message });
   }
 });
 
@@ -3138,9 +3254,9 @@ app.post('/api/admin/audit-chain/generate-proof', async (req, res) => {
 // ==========================================
 app.get('/api/docs/spec', async (req, res) => {
   res.json({
-    name: 'Policy Challenge High-Performance Engine API',
+    name: 'Open Policy Offer Review API',
     version: '1.0.0',
-    description: 'Decoupled domain microservices specification for consumer insurance competition',
+    description: 'API specification for current-policy sharing, independent provider offers, factual comparison, consumer selection, and issued-policy reconciliation',
     architecture: {
       packages: [
         { name: '@policy-challenge/policy-schema', responsibility: 'Carrier-independent canonical insurance representation' },
@@ -3199,7 +3315,6 @@ export async function synchronizeFixturePersistence(): Promise<void> {
     if (policyIds.has(baseline.policyId)) await postgresStore.saveCoverageBaseline(baseline);
   }
   for (const challenge of db.getChallenges()) {
-    if (challenge.requirements) await postgresStore.saveConsumerRequirements(challenge.requirements);
     await postgresStore.saveChallenge(challenge);
   }
   const competitions = db.getAllCompetitions();
@@ -3217,12 +3332,10 @@ export async function synchronizeFixturePersistence(): Promise<void> {
       id: reference.competitionId,
       challengeId: reference.challengeId,
       status: 'OPEN',
-      currentRound: 'ROUND_1_OPEN',
+      currentRound: 'OPEN',
       openedAt,
       closesAt: new Date(new Date(openedAt).getTime() + 48 * 3600 * 1000).toISOString(),
-      participantCount: 1,
-      improvementRoundEnabled: true,
-      finalRoundEnabled: true
+      participantCount: 1
     });
     competitionIds.add(reference.competitionId);
   }
@@ -3253,7 +3366,7 @@ async function startServer() {
   try {
     await postgresStore.init();
     await postgresStore.seedCanonicalProviderData();
-    if (process.env.OPENPOLICY_AUTH_MODE === 'fixture') {
+    if (process.env.OPENPOLICY_AUTH_MODE === 'fixture' && !skipFixtureSynchronization) {
       await synchronizeFixturePersistence();
     }
     await commercialStore.seedCanonicalPlans();
@@ -3270,15 +3383,30 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
+    app.use(express.static(distPath, {
+      index: false,
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith('index.html')) {
+          res.setHeader('Cache-Control', 'no-store');
+        } else if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        }
+      }
+    }));
+    // Never answer a missing hashed asset request with index.html. Doing so
+    // turns an ordinary stale-cache miss into an opaque blank React page.
+    app.get('/assets/*', (_req, res) => {
+      res.status(404).type('text/plain').send('Asset not found');
+    });
     app.get('*', async (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
 
   function tryListen(portToTry: number) {
     const server = app.listen(portToTry, '0.0.0.0', () => {
-      console.log(`Policy Challenge Server running on http://localhost:${portToTry}`);
+      console.log(`Open Policy server running on http://localhost:${portToTry}`);
     });
 
     server.on('error', (err: any) => {

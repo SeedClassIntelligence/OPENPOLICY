@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { PostgresStore } from './postgresStore';
+import { runMigrations, SQL_MIGRATION_V12, SQL_MIGRATION_V13 } from './migrate';
 import {
   createSelection,
   initiateBindingHandoff,
@@ -17,6 +18,58 @@ import {
   reconcileIssuedPolicy,
   activateVerifiedPolicyToVault
 } from '../../domain/pm5ReconciliationEngine';
+
+test('PR-2 migration collapses legacy rounds idempotently while retaining legacy evidence', async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openpolicy-pr2-migration-'));
+  const database = await runMigrations(dataDir);
+  try {
+    const payload = JSON.stringify({ currentRound: 'BEST_AND_FINAL', status: 'BEST_AND_FINAL', roundHistory: [{ round: 'IMPROVEMENT' }], isBafoTriggered: true });
+    await database.query(
+      `INSERT INTO competitions (id, challenge_id, jurisdiction, line_of_business, status, current_round, participant_count, opened_at, closes_at, rules, payload)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      ['COMP-PR2-LEGACY', 'CHAL-PR2-LEGACY', 'NV', 'PERSONAL_AUTO', 'BEST_AND_FINAL', 'BEST_AND_FINAL', 1, '2026-01-01T00:00:00.000Z', '2026-01-02T00:00:00.000Z', '{}', payload]
+    );
+    await database.exec(SQL_MIGRATION_V12);
+    await database.exec(SQL_MIGRATION_V12);
+    const migrated = await database.query<any>(`SELECT status, current_round, legacy_round_state, payload FROM competitions WHERE id='COMP-PR2-LEGACY'`);
+    assert.equal(migrated.rows[0].status, 'CONSUMER_REVIEW');
+    assert.equal(migrated.rows[0].current_round, 'CONSUMER_REVIEW');
+    assert.equal(migrated.rows[0].legacy_round_state, 'BEST_AND_FINAL');
+    assert.deepEqual(JSON.parse(migrated.rows[0].payload).legacyRoundHistory, [{ round: 'IMPROVEMENT' }]);
+    const audits = await database.query<any>(`SELECT count(*)::int AS count FROM audit_events WHERE id='AUDIT-PR2-COMP-PR2-LEGACY'`);
+    assert.equal(audits.rows[0].count, 1);
+  } finally {
+    await database.close();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('PR-3 migration is idempotent and preserves historical modification evidence', async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openpolicy-pr3-migration-'));
+  const database = await runMigrations(dataDir);
+  try {
+    await database.query(
+      `INSERT INTO binding_handoffs (id,binding_reference,challenge_id,consumer_id,provider_organization_id,carrier,status,created_at,updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      ['HND-PR3-HIST','BIND-PR3-HIST','CHAL-PR3-HIST','consumer_fixture','org_apex','Historical Carrier','MODIFICATION_PENDING','2026-01-01T00:00:00.000Z','2026-01-01T00:00:00.000Z']
+    );
+    await database.query(
+      `INSERT INTO binding_modifications (id,binding_handoff_id,challenge_id,provider_organization_id,provider_user_id,carrier,original_annual_premium,modified_annual_premium,coverage_changes,underwriting_reason,proposed_at,status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      ['MOD-PR3-HIST','HND-PR3-HIST','CHAL-PR3-HIST','org_apex','user_apex_1','Historical Carrier',2400,2500,'[]','Historical evidence','2026-01-01T00:00:00.000Z','ACCEPTED']
+    );
+    await database.exec(SQL_MIGRATION_V13);
+    await database.exec(SQL_MIGRATION_V13);
+    const modifications = await database.query<any>(`SELECT * FROM binding_modifications WHERE id='MOD-PR3-HIST'`);
+    assert.equal(modifications.rows.length, 1);
+    assert.equal(modifications.rows[0].modified_annual_premium, 2500);
+    const table = await database.query<any>(`SELECT count(*)::int AS count FROM information_schema.tables WHERE table_name='binding_honor_failures'`);
+    assert.equal(table.rows[0].count, 1);
+  } finally {
+    await database.close();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
 
 test('required durable storage fails closed instead of falling back to PGlite', () => {
   const before = { ...process.env };
@@ -48,6 +101,97 @@ test('explicit local validator storage remains available when durability is not 
     fs.rmSync(dataDir, { recursive: true, force: true });
     if (before === undefined) delete process.env.OPENPOLICY_REQUIRE_DURABLE_STORAGE;
     else process.env.OPENPOLICY_REQUIRE_DURABLE_STORAGE = before;
+  }
+});
+
+test('consumer-controlled offer cohorts activate standby providers atomically and idempotently', async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openpolicy-offer-cohorts-'));
+  const store = new PostgresStore(dataDir);
+  try {
+    await store.init();
+    const db = await store.getPgClient();
+    const now = new Date().toISOString();
+    for (let index = 1; index <= 7; index += 1) {
+      await db.query(
+        `INSERT INTO provider_organizations
+         (id,legal_name,display_name,organization_type,verification_status,marketplace_status,states,lines_of_business,created_at)
+         VALUES ($1,$2,$2,'AGENCY','VERIFIED','ACTIVE','["NV"]','["PERSONAL_AUTO"]',$3);`,
+        [`org_cohort_${index}`, `Cohort Provider ${index}`, now]
+      );
+    }
+    const competition = {
+      id: 'COMP-COHORT-1', challengeId: 'CHAL-COHORT-1', status: 'OPEN' as const,
+      currentRound: 'OPEN' as const, openedAt: now,
+      closesAt: new Date(Date.now() + 3600000).toISOString(), participantCount: 0,
+      offerCohortSize: 2, activeOfferCohort: 1, maximumActivatedProviders: 6
+    };
+    await store.saveCompetition(competition);
+    for (let index = 1; index <= 7; index += 1) {
+      await store.saveInvitation({
+        id: `INV-COHORT-${index}`, challengeId: competition.challengeId,
+        competitionId: competition.id, providerOrganizationId: `org_cohort_${index}`,
+        eligibilityResult: 'ELIGIBLE', eligibilityReasons: ['cohort fixture'],
+        status: index <= 2 ? 'INVITED' : 'STANDBY', invitedAt: now,
+        expiresAt: competition.closesAt, offerCohort: index <= 2 ? 1 : undefined,
+        standbyPosition: index, activatedAt: index <= 2 ? now : undefined
+      });
+    }
+
+    const first = await store.commitAdditionalOfferCohort({
+      challengeId: competition.challengeId, consumerId: 'consumer_cohort', expectedActiveCohort: 1,
+      idempotencyKey: 'cohort-request-1',
+      eligibleProviderOrganizationIds: Array.from({ length: 7 }, (_, index) => `org_cohort_${index + 1}`)
+    });
+    assert.equal(first.activated.length, 2);
+    assert.deepEqual(first.activated.map(inv => inv.id), ['INV-COHORT-3', 'INV-COHORT-4']);
+    assert.equal(first.status.activeCohort, 2);
+    assert.equal(first.status.activatedProviderCount, 4);
+
+    const retry = await store.commitAdditionalOfferCohort({
+      challengeId: competition.challengeId, consumerId: 'consumer_cohort', expectedActiveCohort: 1,
+      idempotencyKey: 'cohort-request-1',
+      eligibleProviderOrganizationIds: Array.from({ length: 7 }, (_, index) => `org_cohort_${index + 1}`)
+    });
+    assert.deepEqual(retry.activated.map(inv => inv.id), first.activated.map(inv => inv.id), 'same idempotency key replays the original result');
+    assert.equal(retry.status.activatedProviderCount, 4);
+    const notificationsAfterRetry = await db.query<{ count: number }>(
+      `SELECT COUNT(*)::int AS count FROM platform_notifications WHERE created_from_event LIKE 'INVITATION_ACTIVATED:%';`
+    );
+    assert.equal(notificationsAfterRetry.rows[0]?.count, 2, 'idempotent retry cannot duplicate provider notifications');
+
+    const simultaneous = await Promise.all([
+      store.commitAdditionalOfferCohort({
+        challengeId: competition.challengeId, consumerId: 'consumer_cohort', expectedActiveCohort: 2,
+        idempotencyKey: 'cohort-request-2a',
+        eligibleProviderOrganizationIds: Array.from({ length: 7 }, (_, index) => `org_cohort_${index + 1}`)
+      }),
+      store.commitAdditionalOfferCohort({
+        challengeId: competition.challengeId, consumerId: 'consumer_cohort', expectedActiveCohort: 2,
+        idempotencyKey: 'cohort-request-2b',
+        eligibleProviderOrganizationIds: Array.from({ length: 7 }, (_, index) => `org_cohort_${index + 1}`)
+      })
+    ]);
+    assert.equal(simultaneous.reduce((sum, result) => sum + result.activated.length, 0), 2,
+      'simultaneous requests activate only one cohort');
+    assert.equal(simultaneous[0].status.activatedProviderCount, 6);
+    assert.equal(simultaneous[1].status.activatedProviderCount, 6);
+    assert.equal(simultaneous[1].status.canRequestAdditionalOffers, false, 'configured activation ceiling is fail-closed');
+    assert.equal((await store.getInvitation('INV-COHORT-7'))?.status, 'STANDBY');
+
+    const persistedCompetition = await store.getCompetitionForChallenge(competition.challengeId);
+    assert.ok(persistedCompetition);
+    const closedCompetition = { ...persistedCompetition, status: 'CONSUMER_REVIEW' as const };
+    await store.saveCompetition(closedCompetition);
+    await assert.rejects(
+      () => store.commitAdditionalOfferCohort({
+        challengeId: competition.challengeId, consumerId: 'consumer_cohort', expectedActiveCohort: 3,
+        idempotencyKey: 'cohort-request-after-close', eligibleProviderOrganizationIds: ['org_cohort_7']
+      }),
+      /cannot be activated after the submission window closes/
+    );
+  } finally {
+    await store.close();
+    fs.rmSync(dataDir, { recursive: true, force: true });
   }
 });
 
@@ -90,16 +234,16 @@ test('foundation records survive an empty-process restart and continue mutating 
     await first.seedCanonicalProviderData();
     const challenge = {
       id: 'CHAL-RESTART-1', referenceNumber: 'CHALLENGE #X1-RESTART',
-      consumerId: 'consumer_restart', coverageBaselineId: baseline.id, baseline, requirements,
+      consumerId: 'consumer_restart', coverageBaselineId: baseline.id, baseline,
+      qualificationStandardVersion: 'QS-1', legacyRequirements: requirements,
       jurisdiction: 'X1', openingTimestamp: '2026-01-01T00:00:00.000Z',
       closingTimestamp: '2026-02-01T00:00:00.000Z', status: 'OPEN' as const,
       disclosureLevel: 'MARKETPLACE_ANONYMOUS' as const, offersCount: 0
     };
     const competition = {
       id: 'COMP-RESTART-1', challengeId: challenge.id, status: 'OPEN' as const,
-      currentRound: 'ROUND_1_OPEN' as const, openedAt: challenge.openingTimestamp,
-      closesAt: '2026-01-03T00:00:00.000Z', participantCount: 0,
-      improvementRoundEnabled: true, finalRoundEnabled: true
+      currentRound: 'OPEN' as const, openedAt: challenge.openingTimestamp,
+      closesAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(), participantCount: 0
     };
     const invitation = {
       id: 'INV-RESTART-1', challengeId: challenge.id, competitionId: competition.id,
@@ -130,7 +274,10 @@ test('foundation records survive an empty-process restart and continue mutating 
     assert.deepEqual(await second.getCoverageBaseline(baseline.id), baseline);
     assert.deepEqual(await second.getConsumerRequirements(requirements.id), requirements);
     assert.deepEqual(await second.getChallenge(challenge.id), challenge);
-    assert.deepEqual(await second.getCompetition(competition.id), competition);
+    const restartedCompetition = await second.getCompetition(competition.id);
+    assert.equal(restartedCompetition?.status, 'OPEN');
+    assert.equal(restartedCompetition?.currentRound, 'OPEN');
+    assert.equal(restartedCompetition?.closesAt, competition.closesAt);
     assert.deepEqual(await second.getInvitation(invitation.id), invitation);
     assert.equal((await second.getCompetitionActivity(challenge.id))[0]?.id, 'ACT-RESTART-1');
     const accepted = await second.acceptInvitation(invitation.id, 'org_sierra');

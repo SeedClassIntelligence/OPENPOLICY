@@ -28,7 +28,21 @@ export interface Jurisdiction {
   kind: JurisdictionKind;
 }
 
-export type InsuranceLine = 'PERSONAL_AUTO';
+/**
+ * Canonical insurance-line identifiers used across marketplace, regulatory,
+ * provider-authority, and activation boundaries. Availability is governed by
+ * the insurance-line registry and jurisdiction-line activation; membership in
+ * this type never grants production authority.
+ */
+export type InsuranceLine =
+  | 'PERSONAL_AUTO'
+  | 'HOMEOWNERS'
+  | 'RENTERS'
+  | 'COMMERCIAL_AUTO'
+  | 'COMMERCIAL_GENERAL_LIABILITY'
+  | 'BUSINESS_OWNERS_POLICY'
+  | 'TERM_LIFE'
+  | 'INDIVIDUAL_HEALTH';
 
 // ---------------------------------------------------------------------------
 // Provenance

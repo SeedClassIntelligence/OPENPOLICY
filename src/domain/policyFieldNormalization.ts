@@ -37,6 +37,7 @@ const policyDate = (value: string) => {
   return Number.isNaN(date.getTime()) ? undefined : candidate;
 };
 const upper = (value: string) => value.toUpperCase();
+const coverageIncluded = (value: string) => /\bDECLINED\b/i.test(value) ? 0 : 1;
 
 const RULES: Rule[] = [
   { fieldPath: 'policyNumber', patterns: [/\bpolicy\s*(?:number|no\.?|#)\s*[:#-]?\s*([A-Z0-9][A-Z0-9-]{3,})/i], confidence: .96 },
@@ -56,6 +57,16 @@ const RULES: Rule[] = [
   { fieldPath: 'coverage.bodilyInjury.perPersonLimit', patterns: [/\bBodily injury liability\b[\s\S]{0,220}?\bProperty damage liability\b[\s\S]{0,220}?\$([\d,]+)[ \t]+each\s+person\b/i], transform: money, confidence: .97 },
   { fieldPath: 'coverage.bodilyInjury.perAccidentLimit', patterns: [/\bBodily injury liability\b[\s\S]{0,220}?\bProperty damage liability\b[\s\S]{0,260}?\$[\d,]+[ \t]+each\s+person[\s\S]{0,80}?\$([\d,]+)[ \t]+each accident\b/i], transform: money, confidence: .97 },
   { fieldPath: 'coverage.propertyDamage.propertyLimit', patterns: [/\bBodily injury liability\b[\s\S]{0,220}?\bProperty damage liability\b[\s\S]{0,320}?\$[\d,]+[ \t]+each\s+person[\s\S]{0,80}?\$[\d,]+[ \t]+each accident[\s\S]{0,80}?\$([\d,]+)[ \t]+each accident\b/i], transform: money, confidence: .97 }
+  ,{ fieldPath: 'coverage.medicalPayments.included', patterns: [/\bMedical payments\b([\s\S]{0,120}?)(?=\bRental\b)/i], transform: coverageIncluded, confidence: .97 }
+  ,{ fieldPath: 'coverage.rentalReimbursement.included', patterns: [/\bRental\b([\s\S]{0,120}?)(?=\bUninsured\/underinsured motorist bodily injury\b)/i], transform: coverageIncluded, confidence: .97 }
+  ,{ fieldPath: 'coverage.umUim.included', patterns: [/\bUninsured\/underinsured motorist bodily injury\b([\s\S]{0,120}?)(?=\bComprehensive\b)/i], transform: coverageIncluded, confidence: .97 }
+  ,{ fieldPath: 'coverage.comprehensive.included', patterns: [/\bComprehensive\b([\s\S]{0,120}?)(?=\bCollision\b)/i], transform: coverageIncluded, confidence: .97 }
+  ,{ fieldPath: 'coverage.collision.included', patterns: [
+    /\bCollision\b([\s\S]{0,240}?\bDECLINED\b)/i,
+    /\bCollision\b([\s\S]{0,160}?\bPremium\s*:\s*\$?[\d,.]+)/i,
+    /\bCollision\b([\s\S]{0,240}?)(?=\bPolicy number\b)/i
+  ], transform: coverageIncluded, confidence: .97 }
+  ,{ fieldPath: 'coverage.roadsideAssistance.included', patterns: [/\bRoadside\b([\s\S]{0,120}?)(?=\bRideshare\b|\bFees\b)/i], transform: coverageIncluded, confidence: .97 }
 ];
 
 function evidence(documentId: string, page: ProviderNeutralOcrPage, match: RegExpMatchArray, confidence: number): SourceEvidence {
@@ -98,7 +109,9 @@ export function normalizePolicyFields(input: {
     'policyNumber','carrier','namedInsured','jurisdiction','effectiveDate','expirationDate','annualPremium',
     'vehicle.vin','vehicle.year','vehicle.make','vehicle.model','vehicle.usage','vehicle.annualMileage',
     'vehicle.garagingZip','vehicle.ownership','coverage.bodilyInjury.perPersonLimit',
-    'coverage.bodilyInjury.perAccidentLimit','coverage.propertyDamage.propertyLimit'
+    'coverage.bodilyInjury.perAccidentLimit','coverage.propertyDamage.propertyLimit',
+    'coverage.medicalPayments.included','coverage.rentalReimbursement.included','coverage.umUim.included',
+    'coverage.comprehensive.included','coverage.collision.included','coverage.roadsideAssistance.included'
   ];
   const found = new Set(fields.map(field => field.fieldPath));
   const criticalIssues = required.filter(field => !found.has(field)).map(field => `Missing required field: ${field}`);

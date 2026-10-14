@@ -12,12 +12,11 @@
 
 import { PolicyChallengeDatabase } from '../server/db';
 import { evaluateProviderEligibility } from './eligibilityEngine';
-import { calculateProviderMarketSignals, validateOfferRevision } from './competitionEngine';
+import { getProviderOfferStatus, validateOfferRevision } from './competitionEngine';
 import { compareOfferAgainstBaseline } from './comparisonEngine';
 import { 
   Challenge, 
   CoverageBaseline, 
-  ConsumerRequirements, 
   Offer, 
   ProviderOrganization, 
   ProviderAppetite,
@@ -300,13 +299,11 @@ export function runPM1AcceptanceTestSuite(): {
   };
 
   const allOffers = [offerA, offerC, offerD];
-  const sierraSignals = calculateProviderMarketSignals(
+  const sierraSignals = getProviderOfferStatus(
     competition,
     'org_sierra',
     allOffers,
-    challenge.baseline,
-    challenge.requirements,
-    3
+    challenge.baseline
   );
 
   const signalsJson = JSON.stringify(sierraSignals);
@@ -335,7 +332,7 @@ export function runPM1AcceptanceTestSuite(): {
   );
 
   test(
-    'SEALED TEST 2: Provider market signals contain zero prohibited ranking or leader contention calculations',
+    'SEALED TEST 2: Provider offer status contains zero ranking or provider-change prompts',
     !containsProhibitedRankStrings,
     `containsProhibitedWords=${containsProhibitedRankStrings}`,
     'containsProhibitedWords=false',
@@ -344,28 +341,27 @@ export function runPM1AcceptanceTestSuite(): {
 
   test(
     'SEALED TEST 3: Provider receives permitted factual marketplace state',
-    sierraSignals.totalParticipatingProviders === 3 &&
-    sierraSignals.currentRound === 'ROUND_1_OPEN' &&
+    sierraSignals.windowOpen === false &&
     sierraSignals.yourOffers.length === 1 &&
-    sierraSignals.yourOffers[0].isVerified === true &&
+    sierraSignals.yourOffers[0].validationStatus === 'VALIDATED' &&
     sierraSignals.yourOffers[0].annualPremium === 2490,
-    `participants=${sierraSignals.totalParticipatingProviders}, round=${sierraSignals.currentRound}, ownOfferPremium=${sierraSignals.yourOffers[0]?.annualPremium}`,
-    'participants=3, round=ROUND_1_OPEN, ownOfferPremium=2490',
-    'Factual telemetry includes participant count, round, and own offer verified status'
+    `windowOpen=${sierraSignals.windowOpen}, ownOfferPremium=${sierraSignals.yourOffers[0]?.annualPremium}`,
+    'windowOpen=false, ownOfferPremium=2490',
+    'Provider status includes only window state and the provider own offer'
   );
 
   // =========================================================================
   // 5. CONSUMER TRANSPARENCY TEST (Sections 5, 6, 20 - MANDATORY)
   // =========================================================================
   // Consumer sees factual offer comparison without platform-defined winners
-  const compA = compareOfferAgainstBaseline(challenge.baseline, challenge.requirements, offerA);
-  const compC = compareOfferAgainstBaseline(challenge.baseline, challenge.requirements, offerC);
+  const compA = compareOfferAgainstBaseline(challenge.baseline, offerA);
+  const compC = compareOfferAgainstBaseline(challenge.baseline, offerC);
 
   const consumerComparisonFactsA = {
     carrier: compA.carrier,
     annualPremium: compA.offerAnnualPremium,
-    annualSavings: compA.annualSavings,
-    differenceFormatted: `-$${compA.annualSavings}/year`,
+    annualSavings: compA.annualPremiumDifference,
+    differenceFormatted: `-$${compA.annualPremiumDifference}/year`,
     classification: compA.classification,
     materialImprovementsCount: compA.materialImprovements.length,
     materialReductionsCount: compA.materialReductions.length,
@@ -375,8 +371,8 @@ export function runPM1AcceptanceTestSuite(): {
   const consumerComparisonFactsC = {
     carrier: compC.carrier,
     annualPremium: compC.offerAnnualPremium,
-    annualSavings: compC.annualSavings,
-    differenceFormatted: `-$${compC.annualSavings}/year`,
+    annualSavings: compC.annualPremiumDifference,
+    differenceFormatted: `-$${compC.annualPremiumDifference}/year`,
     classification: compC.classification,
     materialImprovementsCount: compC.materialImprovements.length,
     materialReductionsCount: compC.materialReductions.length,
@@ -397,12 +393,13 @@ export function runPM1AcceptanceTestSuite(): {
   );
 
   // =========================================================================
-  // 6. OFFER VERSIONING & MULTI-DIMENSIONAL IMPROVEMENT (Sections 7 & 8)
+  // 6. IMMUTABLE OFFER VERSIONING FOR PROVIDER-INITIATED UPDATES
   // =========================================================================
   // Version 1: $2,490/yr
   // Revised Version 2: $2,510/yr with upgraded lower deductible and added rental reimbursement
   const revisedData: Partial<Offer> = {
     carrier: 'Safeco Insurance',
+    revisionReason: 'PROVIDER_UPDATED_QUOTE',
     annualPremium: 2510,
     monthlyPremium: 209,
     coverages: challenge.baseline.coverages.map(c => 
@@ -410,10 +407,10 @@ export function runPM1AcceptanceTestSuite(): {
     )
   };
 
-  const revisionValidation = validateOfferRevision(offerA, revisedData, 'ROUND_2_IMPROVEMENT');
+  const revisionValidation = validateOfferRevision(offerA, revisedData, 'OPEN');
 
   test(
-    'Improvement round permits multi-dimensional proposition improvement without narrow price non-regression restriction',
+    'Open submission window permits a provider-initiated documented offer update',
     revisionValidation.valid === true && revisionValidation.errors.length === 0,
     `valid=${revisionValidation.valid}, errors=${revisionValidation.errors.join(';')}`,
     'valid=true, errors=[]',
@@ -421,12 +418,13 @@ export function runPM1AcceptanceTestSuite(): {
   );
 
   // Submit revision in testDb during improvement round and verify offer versioning
-  competition.currentRound = 'ROUND_2_IMPROVEMENT';
+  competition.currentRound = 'OPEN';
   const revisedOffer = testDb.reviseOfferInCompetition(
     challenge.id,
     'OFFER-B',
     {
       carrier: 'Travelers Property Casualty',
+      revisionReason: 'PROVIDER_UPDATED_QUOTE',
       annualPremium: 2470,
       monthlyPremium: 206
     },

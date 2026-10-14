@@ -1,12 +1,11 @@
 /**
- * PM-3 Competition Rounds, Multi-Dimensional Improvements & Sealed Telemetry
+ * PM-3 / PR-2 Single Submission Window, Offer Updates & Sealed Telemetry
  * Comprehensive End-to-End Acceptance Validation Suite
  * 
  * Verifies:
  *   1. PM-1 Non-Regression Invariants (Persistence, Identity, Tenant Isolation, Anti-Ranking)
  *   2. PM-2 Non-Regression Invariants (InfoRequests, Multi-Carrier, OfferVersions, Verifications)
- *   3. Canonical Round Progression:
- *      OPEN -> IMPROVEMENT -> BEST_AND_FINAL -> CLOSED -> CONSUMER_REVIEW
+ *   3. Canonical progression: OPEN -> CONSUMER_REVIEW
  *   4. Configurable Round Deadlines and Countdown Status Evaluation
  *   5. Section 40 Multi-Dimensional Offer Improvement (deductible, limit, endorsement, price)
  *   6. "Keep Current Offer" Confirmation Mechanics
@@ -27,7 +26,7 @@ import { PostgresStore } from '../src/server/db/postgresStore';
 import { db } from '../src/server/db';
 import { app, synchronizeFixturePersistence } from '../server';
 import {
-  advanceCompetitionRound,
+  closeSubmissionWindow,
   checkRoundDeadlineStatus,
   validateOfferRevision,
   filterCompetitionActivityFeedForProvider,
@@ -166,17 +165,9 @@ async function main() {
     }
   };
 
-  const toImp = advanceCompetitionRound(testComp, 'IMPROVEMENT', 'Entering Improvement Round');
-  assert(toImp.currentRound === 'IMPROVEMENT' && toImp.status === 'IMPROVEMENT', 'Transition OPEN -> IMPROVEMENT sets canonical state');
-
-  const toBafo = advanceCompetitionRound(toImp, 'BEST_AND_FINAL', 'Entering BAFO');
-  assert(toBafo.currentRound === 'BEST_AND_FINAL' && toBafo.status === 'BEST_AND_FINAL' && toBafo.isBafoTriggered === true, 'Transition IMPROVEMENT -> BEST_AND_FINAL triggers BAFO');
-
-  const toClosed = advanceCompetitionRound(toBafo, 'CLOSED', 'Bidding closed');
-  assert(toClosed.currentRound === 'CLOSED' && toClosed.status === 'CLOSED', 'Transition BEST_AND_FINAL -> CLOSED locks bidding');
-
-  const toReview = advanceCompetitionRound(toClosed, 'CONSUMER_REVIEW', 'Entering Consumer Review');
-  assert(toReview.currentRound === 'CONSUMER_REVIEW' && toReview.status === 'CONSUMER_REVIEW', 'Transition CLOSED -> CONSUMER_REVIEW opens consumer selection');
+  const toReview = closeSubmissionWindow(testComp, 'CONSUMER_BEGAN_REVIEW', new Date('2026-09-21T12:00:00Z'));
+  assert(toReview.currentRound === 'CONSUMER_REVIEW' && toReview.status === 'CONSUMER_REVIEW', 'Policyholder can end OPEN and begin consumer review');
+  assert(toReview.closesAt === '2026-09-21T12:00:00.000Z', 'Early submission-window close is recorded');
 
   // ------------------------------------------------------------------
   // GATEMARK: Multi-Dimensional Offer Improvements
@@ -209,43 +200,46 @@ async function main() {
   };
 
   // Price improvement
-  const revPrice = validateOfferRevision(origOffer, { carrier: 'Travelers', annualPremium: 2350 }, 'IMPROVEMENT');
-  assert(revPrice.valid && revPrice.improvementDimensions!.some(d => d.includes('Lower annual premium')), 'Detects price reduction improvement');
+  const revPrice = validateOfferRevision(origOffer, { carrier: 'Travelers', annualPremium: 2350, revisionReason: 'PROVIDER_UPDATED_QUOTE' }, 'OPEN');
+  assert(revPrice.valid && revPrice.improvementDimensions!.some(d => d.includes('Annual premium changed')), 'Accepts provider-initiated quote update');
 
   // Deductible improvement without price change
   const revDed = validateOfferRevision(origOffer, {
     carrier: 'Travelers',
+    revisionReason: 'PROVIDER_UPDATED_QUOTE',
     annualPremium: 2500,
     coverages: [
       { id: '1', code: 'COLLISION', name: 'Collision', category: 'PHYSICAL_DAMAGE', deductible: 500, isIncluded: true },
       { id: '2', code: 'COMPREHENSIVE', name: 'Comp', category: 'PHYSICAL_DAMAGE', deductible: 250, isIncluded: true },
       { id: '3', code: 'BODILY_INJURY', name: 'BI', category: 'LIABILITY', perPersonLimit: 50000, perAccidentLimit: 100000, isIncluded: true }
     ]
-  }, 'IMPROVEMENT');
+  }, 'OPEN');
   assert(revDed.valid && revDed.improvementDimensions!.some(d => d.includes('Lower collision deductible')), 'Detects deductible reduction improvement');
 
   // Limit improvement
   const revLimit = validateOfferRevision(origOffer, {
     carrier: 'Travelers',
+    revisionReason: 'PROVIDER_UPDATED_QUOTE',
     annualPremium: 2500,
     coverages: [
       { id: '1', code: 'COLLISION', name: 'Collision', category: 'PHYSICAL_DAMAGE', deductible: 1000, isIncluded: true },
       { id: '2', code: 'COMPREHENSIVE', name: 'Comp', category: 'PHYSICAL_DAMAGE', deductible: 500, isIncluded: true },
       { id: '3', code: 'BODILY_INJURY', name: 'BI', category: 'LIABILITY', perPersonLimit: 100000, perAccidentLimit: 300000, isIncluded: true }
     ]
-  }, 'BEST_AND_FINAL');
+  }, 'OPEN');
   assert(revLimit.valid && revLimit.improvementDimensions!.some(d => d.includes('Higher bodily injury')), 'Detects liability limit increase improvement');
 
   // Endorsement improvement
   const revEndorsements = validateOfferRevision(origOffer, {
     carrier: 'Travelers',
+    revisionReason: 'PROVIDER_UPDATED_QUOTE',
     annualPremium: 2550,
     coverages: [
       ...origOffer.coverages,
       { id: '4', code: 'RENTAL_REIMBURSEMENT', name: 'Rental', category: 'ADDITIONAL', isIncluded: true },
       { id: '5', code: 'ROADSIDE_ASSISTANCE', name: 'Roadside', category: 'ADDITIONAL', isIncluded: true }
     ]
-  }, 'IMPROVEMENT');
+  }, 'OPEN');
   assert(revEndorsements.valid && revEndorsements.improvementDimensions!.some(d => d.includes('rental')), 'Detects rental endorsement addition');
   assert(revEndorsements.valid && revEndorsements.improvementDimensions!.some(d => d.includes('roadside')), 'Detects roadside endorsement addition');
 
@@ -316,18 +310,13 @@ async function main() {
     assert(resDeadline.status === 200 && resDeadline.data.success === true, 'GET /api/marketplace/competition/:id/deadline-status returns 200');
     assert(resDeadline.data.status.round !== undefined, 'Deadline status reports active round');
 
-    // 2. Advance Round endpoint (Canonical: OPEN -> IMPROVEMENT)
+    // 2. Policyholder ends the one submission window and begins review
     const resAdvance = await makeRequest(port, {
       method: 'POST',
-      path: `/api/marketplace/competition/${challengeId}/advance-round`,
-      body: {
-        targetRound: 'IMPROVEMENT',
-        reason: 'Advancing to improvement round for test validation',
-        customDurationHours: 24
-      }
+      path: `/api/marketplace/competition/${challengeId}/begin-review`
     });
-    assert(resAdvance.status === 200 && resAdvance.data.success === true, 'POST advance-round returns 200', JSON.stringify(resAdvance.data));
-    assert(resAdvance.data.competition.currentRound === 'IMPROVEMENT', 'Competition advanced to IMPROVEMENT');
+    assert(resAdvance.status === 200 && resAdvance.data.success === true, 'POST begin-review returns 200', JSON.stringify(resAdvance.data));
+    assert(resAdvance.data.competition.currentRound === 'CONSUMER_REVIEW', 'Competition entered CONSUMER_REVIEW');
 
     // 3. Keep Current Offer endpoint
     // Apex confirms current offer OFFER-A is kept

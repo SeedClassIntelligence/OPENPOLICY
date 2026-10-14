@@ -787,6 +787,14 @@ ALTER TABLE challenges ADD COLUMN IF NOT EXISTS jurisdiction_determination_id TE
 ALTER TABLE challenges ADD COLUMN IF NOT EXISTS rule_set_id TEXT;
 ALTER TABLE challenges ADD COLUMN IF NOT EXISTS rule_set_content_sha256 TEXT;
 ALTER TABLE challenges ADD COLUMN IF NOT EXISTS regulatory_evaluation_date TEXT;
+ALTER TABLE challenges ADD COLUMN IF NOT EXISTS qualification_standard_version TEXT;
+ALTER TABLE challenges ADD COLUMN IF NOT EXISTS legacy_requirements_data TEXT;
+UPDATE challenges
+SET legacy_requirements_data = requirements_data
+WHERE legacy_requirements_data IS NULL AND requirements_data IS NOT NULL;
+UPDATE challenges
+SET qualification_standard_version = 'QS-1'
+WHERE qualification_standard_version IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_jrs_jurisdiction_line_status ON jurisdiction_rule_sets (jurisdiction_code, insurance_line, status);
 CREATE INDEX IF NOT EXISTS idx_jr_ruleset_point ON jurisdiction_rules (rule_set_id, enforcement_point);
@@ -1127,6 +1135,93 @@ CREATE TABLE IF NOT EXISTS policy_document_classifications (
 );
 `;
 
+export const SQL_MIGRATION_V12 = `
+-- PR-2: collapse retired live rounds into one submission window without deleting history.
+ALTER TABLE competitions ADD COLUMN IF NOT EXISTS legacy_round_state TEXT;
+
+INSERT INTO audit_events (id, timestamp, event_type, actor_role, actor_id, details, hash)
+SELECT 'AUDIT-PR2-' || id, CURRENT_TIMESTAMP::text, 'LEGACY_ROUND_COLLAPSED', 'SYSTEM',
+       'pr2_migration', 'Competition ' || id || ' migrated from ' || current_round,
+       'PR2-LEGACY-ROUND-' || id
+FROM competitions
+WHERE current_round IN ('ROUND_1_OPEN','IMPROVEMENT','ROUND_2_IMPROVEMENT','BEST_AND_FINAL','ROUND_3_BAFO')
+ON CONFLICT (id) DO NOTHING;
+
+UPDATE competitions
+SET legacy_round_state = COALESCE(legacy_round_state, current_round),
+    current_round = CASE WHEN closes_at::timestamptz > CURRENT_TIMESTAMP THEN 'OPEN' ELSE 'CONSUMER_REVIEW' END,
+    status = CASE WHEN closes_at::timestamptz > CURRENT_TIMESTAMP THEN 'OPEN' ELSE 'CONSUMER_REVIEW' END,
+    payload = CASE WHEN payload IS NULL THEN NULL ELSE
+      ((payload::jsonb - 'currentRound' - 'status' - 'isBafoTriggered' - 'roundDeadlines' - 'roundDurationsHours' - 'roundOffersCount') ||
+       jsonb_build_object('currentRound', CASE WHEN closes_at::timestamptz > CURRENT_TIMESTAMP THEN 'OPEN' ELSE 'CONSUMER_REVIEW' END,
+                          'status', CASE WHEN closes_at::timestamptz > CURRENT_TIMESTAMP THEN 'OPEN' ELSE 'CONSUMER_REVIEW' END,
+                          'legacyRoundHistory', COALESCE(payload::jsonb->'roundHistory', '[]'::jsonb)))::text END
+WHERE current_round IN ('ROUND_1_OPEN','IMPROVEMENT','ROUND_2_IMPROVEMENT','BEST_AND_FINAL','ROUND_3_BAFO');
+
+UPDATE challenges
+SET status = 'CONSUMER_REVIEW',
+    payload = CASE WHEN payload IS NULL THEN NULL ELSE
+      ((payload::jsonb - 'status' - 'isFinalRound') || jsonb_build_object('status','CONSUMER_REVIEW'))::text END
+WHERE status = 'FINAL_ROUND';
+`;
+
+export const SQL_MIGRATION_V13 = `
+-- PR-3: factual selected-offer unavailability reports. Historical binding
+-- modifications and their audit events remain untouched and queryable.
+CREATE TABLE IF NOT EXISTS binding_honor_failures (
+  id TEXT PRIMARY KEY,
+  binding_handoff_id TEXT NOT NULL UNIQUE REFERENCES binding_handoffs(id) ON DELETE RESTRICT,
+  challenge_id TEXT NOT NULL,
+  provider_organization_id TEXT NOT NULL,
+  provider_user_id TEXT NOT NULL,
+  reason_code TEXT NOT NULL CHECK (reason_code IN (
+    'UNDERWRITING_INELIGIBLE',
+    'MATERIAL_APPLICATION_INFORMATION_CHANGED',
+    'CARRIER_DECLINED',
+    'PROVIDER_AUTHORITY_UNAVAILABLE',
+    'SELECTED_PRODUCT_UNAVAILABLE',
+    'APPLICATION_INCOMPLETE',
+    'OTHER_OPERATIONAL_FAILURE'
+  )),
+  reported_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_binding_honor_failures_challenge
+  ON binding_honor_failures(challenge_id, reported_at);
+`;
+
+export const SQL_MIGRATION_V14 = `
+-- Multi-line offer evidence: preserve the exact line and provider-stated
+-- coverage facts on every immutable OfferVersion.
+ALTER TABLE offer_versions ADD COLUMN IF NOT EXISTS insurance_line TEXT;
+ALTER TABLE offer_versions ADD COLUMN IF NOT EXISTS verified_facts TEXT;
+`;
+
+export const SQL_MIGRATION_V15 = `
+-- Consumer-controlled offer cohorts: explicit durable configuration, stable
+-- standby ordering, activation history, and request idempotency.
+ALTER TABLE competitions ADD COLUMN IF NOT EXISTS initial_cohort_size INTEGER NOT NULL DEFAULT 10 CHECK (initial_cohort_size > 0);
+ALTER TABLE competitions ADD COLUMN IF NOT EXISTS total_activation_ceiling INTEGER NOT NULL DEFAULT 30 CHECK (total_activation_ceiling >= initial_cohort_size);
+ALTER TABLE competitions ADD COLUMN IF NOT EXISTS active_offer_cohort INTEGER NOT NULL DEFAULT 1 CHECK (active_offer_cohort > 0);
+ALTER TABLE challenge_invitations ADD COLUMN IF NOT EXISTS standby_position INTEGER;
+ALTER TABLE challenge_invitations ADD COLUMN IF NOT EXISTS offer_cohort INTEGER;
+ALTER TABLE challenge_invitations ADD COLUMN IF NOT EXISTS activated_at TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_invitation_standby_position
+  ON challenge_invitations (challenge_id, standby_position) WHERE standby_position IS NOT NULL;
+CREATE TABLE IF NOT EXISTS offer_cohort_activation_requests (
+  idempotency_key TEXT PRIMARY KEY,
+  challenge_id TEXT NOT NULL,
+  competition_id TEXT NOT NULL REFERENCES competitions(id) ON DELETE CASCADE,
+  consumer_id TEXT NOT NULL,
+  expected_active_cohort INTEGER NOT NULL,
+  resulting_active_cohort INTEGER NOT NULL,
+  activated_invitation_ids TEXT NOT NULL,
+  requested_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_offer_cohort_requests_challenge
+  ON offer_cohort_activation_requests (challenge_id, requested_at);
+`;
+
 export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR || './data/openpolicy_pg') {
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
@@ -1179,7 +1274,23 @@ export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR ||
     await pglite.query(
       `INSERT INTO _migrations (name) VALUES ('0011_production_document_intelligence') ON CONFLICT (name) DO NOTHING;`
     );
-    console.log(`[Open Policy DB] Migrations 0001 through 0011 applied successfully.`);
+    await pglite.exec(SQL_MIGRATION_V12);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0012_single_submission_window') ON CONFLICT (name) DO NOTHING;`
+    );
+    await pglite.exec(SQL_MIGRATION_V13);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0013_retire_binding_negotiation') ON CONFLICT (name) DO NOTHING;`
+    );
+    await pglite.exec(SQL_MIGRATION_V14);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0014_multiline_offer_evidence') ON CONFLICT (name) DO NOTHING;`
+    );
+    await pglite.exec(SQL_MIGRATION_V15);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0015_consumer_controlled_offer_cohorts') ON CONFLICT (name) DO NOTHING;`
+    );
+    console.log(`[Open Policy DB] Migrations 0001 through 0015 applied successfully.`);
     return pglite;
   } catch (error) {
     console.error(`[Open Policy DB] Migration error:`, error);

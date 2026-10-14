@@ -6,7 +6,6 @@
 import {
   Policy,
   CoverageBaseline,
-  ConsumerRequirements,
   Challenge,
   Offer,
   BindingHandoff,
@@ -26,7 +25,7 @@ import {
   ChallengeParticipation,
   OpportunityPreview,
   DeclineReason,
-  ProviderMarketSignal,
+  ProviderOfferStatus,
   CompetitionEvaluationSummary,
   BindingHandoffDossier,
   DetailedPostBindReconciliation,
@@ -45,7 +44,6 @@ import {
   QualifiedOffer,
   CompetitionActivityEvent,
   RoundDeadlineStatus,
-  RoundDeadlineConfig,
   CompetitionActivityType,
   Selection,
   ConsentGrant,
@@ -70,8 +68,8 @@ import { compareOfferAgainstBaseline } from '../domain/comparisonEngine';
 import { evaluateProviderEligibility, EligibilityEvaluation } from '../domain/eligibilityEngine';
 import { 
   evaluateCompetitionRoundState, 
-  calculateProviderMarketSignals, 
-  advanceCompetitionRound as advanceCompRoundLogic, 
+  getProviderOfferStatus,
+  closeSubmissionWindow,
   validateOfferRevision,
   checkRoundDeadlineStatus,
   filterCompetitionActivityFeedForProvider
@@ -114,7 +112,6 @@ import { postgresStore } from './db/postgresStore';
 export class PolicyChallengeDatabase {
   private policies: Map<string, Policy> = new Map();
   private baselines: Map<string, CoverageBaseline> = new Map();
-  private requirements: Map<string, ConsumerRequirements> = new Map();
   private challenges: Map<string, Challenge> = new Map();
   private offers: Map<string, Offer> = new Map();
   private handoffs: Map<string, BindingHandoff> = new Map();
@@ -206,7 +203,6 @@ export class PolicyChallengeDatabase {
   public seedCanonicalDataset() {
     this.policies.clear();
     this.baselines.clear();
-    this.requirements.clear();
     this.challenges.clear();
     this.offers.clear();
     this.handoffs.clear();
@@ -425,20 +421,7 @@ export class PolicyChallengeDatabase {
     this.baselines.set(baselineId, baseline);
     this.recordAudit('BASELINE_CREATED', 'SYSTEM', 'baseline_engine', `Generated immutable CoverageBaseline version 1 from verified policy`);
 
-    // 3. Consumer Requirements
-    const reqId = 'REQ-NV-49281';
-    const requirements: ConsumerRequirements = {
-      id: reqId,
-      ruleSummary: 'Offers should cost less and not reduce my coverage.',
-      minAnnualSavings: 100,
-      maxCollisionDeductible: 500,
-      maxCompDeductible: 250,
-      mustIncludeRental: true,
-      mustIncludeRoadside: true
-    };
-    this.requirements.set(reqId, requirements);
-
-    // 4. Challenge
+    // 3. Challenge
     const challengeId = 'CHAL-NV-49281';
     const challenge: Challenge = {
       id: challengeId,
@@ -446,7 +429,7 @@ export class PolicyChallengeDatabase {
       consumerId: 'user_consumer_1',
       coverageBaselineId: baselineId,
       baseline,
-      requirements,
+      qualificationStandardVersion: 'QS-1',
       jurisdiction: 'NV',
       openingTimestamp: '2026-09-18T14:30:00Z',
       closingTimestamp: '2026-10-18T14:30:00Z',
@@ -463,12 +446,10 @@ export class PolicyChallengeDatabase {
       id: compId,
       challengeId,
       status: 'OPEN',
-      currentRound: 'ROUND_1_OPEN',
+      currentRound: 'OPEN',
       openedAt: '2026-09-18T14:35:00Z',
       closesAt: '2026-09-20T14:35:00Z',
-      participantCount: 1,
-      improvementRoundEnabled: true,
-      finalRoundEnabled: true
+      participantCount: 1
     };
     this.competitions.set(compId, comp);
 
@@ -958,8 +939,8 @@ export class PolicyChallengeDatabase {
       {
         id: 'NOTIF-2',
         type: 'CHALLENGE_OPENED',
-        title: 'Marketplace Competition Active',
-        message: 'Challenge #NV-49281 opened. Verified baseline ($2,964/yr) distributed to licensed providers.',
+        title: 'Policy Shared for Provider Review',
+        message: 'Policy review #NV-49281 opened. Authorized baseline details ($2,964/yr current premium) were made available to eligible licensed providers.',
         timestamp: '2026-09-19T08:30:00Z',
         read: true,
         readAt: '2026-09-19T09:00:00Z',
@@ -971,8 +952,8 @@ export class PolicyChallengeDatabase {
       {
         id: 'NOTIF-3',
         type: 'OFFER_RECEIVED',
-        title: 'Competitive Offer from Travelers',
-        message: 'Travelers submitted an offer saving $516/yr ($204/mo) with upgraded $250k property limit.',
+        title: 'Offer Received from Travelers',
+        message: 'Travelers submitted an offer at $204/mo, an annual premium difference of -$516, with a stated $250k property-damage limit.',
         timestamp: '2026-09-19T11:42:00Z',
         read: false,
         recipientType: 'CONSUMER',
@@ -983,8 +964,8 @@ export class PolicyChallengeDatabase {
       {
         id: 'NOTIF-4',
         type: 'OFFER_RECEIVED',
-        title: 'Coverage Reduction Warning',
-        message: 'National General submitted Offer C ($181/mo) but stripped rental and tripled your collision deductible.',
+        title: 'Coverage Differences Identified',
+        message: 'National General submitted Offer C at $181/mo. The offer does not state rental coverage and lists a higher collision deductible than the current policy.',
         timestamp: '2026-09-19T16:06:00Z',
         read: false,
         recipientType: 'CONSUMER',
@@ -1414,7 +1395,6 @@ export class PolicyChallengeDatabase {
 
     const challenge = this.challenges.get(offer.challengeId);
     const baseline = challenge?.baseline || ({} as any);
-    const requirements = challenge?.requirements;
     const providerOrg = this.getProviderOrganization(offer.providerId);
     const carrierRels = this.carrierRelationships.get(offer.providerId) || [];
     const verification = this.offerVerifications.get(offer.id);
@@ -1422,7 +1402,6 @@ export class PolicyChallengeDatabase {
     const evalResult = evaluateOfferQualification(
       offer,
       baseline,
-      requirements,
       providerOrg,
       carrierRels,
       verification
@@ -1613,7 +1592,6 @@ export class PolicyChallengeDatabase {
       const qualResult = evaluateOfferQualification(
         offer,
         chal.baseline,
-        chal.requirements,
         providerOrg,
         carrierRels,
         verification
@@ -1688,7 +1666,7 @@ export class PolicyChallengeDatabase {
     if (!chal || !offer) throw new Error('Challenge or Offer not found');
 
     const baseline = chal.baseline;
-    const comp = compareOfferAgainstBaseline(baseline, chal.requirements, offer);
+    const comp = compareOfferAgainstBaseline(baseline, offer);
     const materialReductionCodes = comp.materialReductions.map(r => r.fieldCode);
 
     // Validate informed consent per Section 40
@@ -1728,6 +1706,11 @@ export class PolicyChallengeDatabase {
 
     const bindingRef = `BIND-NV-${Math.floor(100000 + Math.random() * 900000)}`;
     const handoffId = `HND-${Date.now()}`;
+    if (!baseline.vehicle) {
+      const err: any = new Error('Personal Auto binding handoff requires a verified vehicle baseline.');
+      err.statusCode = 409;
+      throw err;
+    }
 
     const handoff: BindingHandoff = {
       id: handoffId,
@@ -1809,7 +1792,7 @@ export class PolicyChallengeDatabase {
         ipAddressHash: this.generateHash(`${params.consumerContact.email}|${Date.now()}`),
         termsVersion: 'v2026.3-consumer-rights',
         discrepanciesExplicitlyApproved: params.acknowledgedReductions || [],
-        priceImprovementAnnual: comp.annualSavings
+        priceImprovementAnnual: comp.annualPremiumDifference
       },
       dossierHash: this.generateHash(`${dossierId}|${bindingRef}|${offer.quoteNumber}`),
       sourceBaselinePolicyId: baseline.policyId
@@ -2028,46 +2011,9 @@ export class PolicyChallengeDatabase {
   }
 
   public initiateFinalRound(challengeId: string): Challenge {
-    const challenge = this.challenges.get(challengeId);
-    if (!challenge) throw new Error('Challenge not found');
-
-    challenge.status = 'FINAL_ROUND';
-    challenge.isFinalRound = true;
-
-    // Sharpen existing offers in the final round
-    const offerA = this.offers.get('OFFER-A');
-    if (offerA) {
-      offerA.annualPremium = 2580; // reduced from 2712
-      offerA.monthlyPremium = 215;
-    }
-
-    const offerB = this.offers.get('OFFER-B');
-    if (offerB) {
-      offerB.annualPremium = 2388; // reduced from 2448
-      offerB.monthlyPremium = 199; // below $200!
-    }
-
-    this.recordAudit(
-      'FINAL_ROUND_INITIATED',
-      'CONSUMER',
-      challenge.consumerId,
-      `Consumer initiated Best & Final round. Providers notified to submit their sharpened rates.`
-    );
-
-    this.addNotification({
-      id: `NOTIF-${Date.now()}`,
-      type: 'FINAL_ROUND_OPENED',
-      title: 'Best & Final Improvement Round Active',
-      message: 'Providers have submitted sharpened final rates. Travelers reduced to $199/mo ($2,388/yr) while maintaining upgraded limits.',
-      timestamp: new Date().toISOString(),
-      read: false,
-      recipientType: 'CONSUMER',
-      recipientConsumerId: challenge.consumerId,
-      createdFromEvent: `FINAL_ROUND:${challenge.id}`,
-      actionTarget: 'COMPETITION_ROOM'
-    });
-
-    return challenge;
+    const error: any = new Error(`Final-round simulation is retired for challenge ${challengeId}; Open Policy uses one submission window.`);
+    error.statusCode = 410;
+    throw error;
   }
 
   public requestIncumbentDefense(challengeId: string): Offer {
@@ -2120,8 +2066,8 @@ export class PolicyChallengeDatabase {
     this.addNotification({
       id: `NOTIF-${Date.now()}`,
       type: 'INCUMBENT_DEFENSE',
-      title: 'Current Carrier Defended Policy',
-      message: 'GEICO submitted a retention counter-offer saving $300/year ($222/mo) with identical protection to defend your business.',
+      title: 'Offer Received from Current Carrier',
+      message: 'GEICO submitted an offer at $222/mo, an annual premium difference of -$300, with stated coverage matching the recorded baseline.',
       timestamp: new Date().toISOString(),
       read: false,
       recipientType: 'CONSUMER',
@@ -2233,12 +2179,10 @@ export class PolicyChallengeDatabase {
         id: compId,
         challengeId,
         status: 'OPEN',
-        currentRound: 'ROUND_1_OPEN',
+        currentRound: 'OPEN',
         openedAt: new Date().toISOString(),
         closesAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(), // 48 hours default (Section 22)
-        participantCount: 0,
-        improvementRoundEnabled: true,
-        finalRoundEnabled: true
+        participantCount: 0
       };
       this.competitions.set(newComp.id, newComp);
       comp = newComp;
@@ -2298,7 +2242,7 @@ export class PolicyChallengeDatabase {
           this.addNotification({
             id: `NOTIF-${Date.now()}-${org.id}`,
             type: 'OPPORTUNITY_RECEIVED',
-            title: 'New Policy Challenge Opportunity',
+            title: 'New Shared Policy Opportunity',
             message: `New verified ${challenge.jurisdiction} Personal Auto opportunity: ${challenge.referenceNumber}. Current premium: $${challenge.baseline?.baselineAnnualPremium}/yr.`,
             timestamp: new Date().toISOString(),
             read: false,
@@ -2368,7 +2312,7 @@ export class PolicyChallengeDatabase {
           currentMonthlyPremium: chal.baseline?.baselineMonthlyPremium || 0,
           coverageBaselineStatus: 'VERIFIED',
           renewalDaysRemaining: renewalDays,
-          consumerRequirementsSummary: chal.requirements?.ruleSummary || 'Beat current baseline price with equal or better coverage.',
+          consumerRequirementsSummary: "Offers are compared with the consumer's current policy line by line.",
           competitionClosesAt: comp.closesAt,
           invitedProvidersCount: invitedCount,
           participatingProvidersCount: participatingCount,
@@ -2609,6 +2553,11 @@ export class PolicyChallengeDatabase {
       err.statusCode = 404;
       throw err;
     }
+    if (!challenge.baseline.vehicle) {
+      const err: any = new Error('Personal Auto provider workspace requires a verified vehicle baseline.');
+      err.statusCode = 409;
+      throw err;
+    }
 
     // 2. Filter provider's own offers ONLY (Strict competitor privacy - Section 24)
     const myOffers = Array.from(this.offers.values()).filter(
@@ -2638,14 +2587,6 @@ export class PolicyChallengeDatabase {
         termMonths: 12
       }
     };
-
-    const invitedCount = Array.from(this.challengeInvitations.values()).filter(
-      i => i.challengeId === challengeId
-    ).length;
-
-    const participatingCount = Array.from(this.challengeParticipations.values()).filter(
-      p => p.challengeId === challengeId && p.status !== 'WITHDRAWN'
-    ).length;
 
     // Mask direct consumer identity in baseline object per Progressive Disclosure Stage B
     const sanitizedBaseline: CoverageBaseline = {
@@ -2680,13 +2621,11 @@ export class PolicyChallengeDatabase {
         currentRound: competition.currentRound,
         status: competition.status,
         openedAt: competition.openedAt,
-        closesAt: competition.closesAt,
-        participantCount: participatingCount,
-        invitedCount
+        closesAt: competition.closesAt
       },
-      consumerObjective: `Beat $${challenge.baseline.baselineAnnualPremium}/year ($${challenge.baseline.baselineMonthlyPremium}/month) while maintaining equivalent or superior coverage terms.`,
+      consumerObjective: "Compare the provider's documented offer with the consumer's verified existing policy.",
       baseline: sanitizedBaseline,
-      requirements: challenge.requirements,
+      qualificationStandardVersion: challenge.qualificationStandardVersion || 'QS-1',
       authorizedRatingInfo,
       participation,
       myOffers,
@@ -2701,10 +2640,9 @@ export class PolicyChallengeDatabase {
   }
 
   /**
-   * PM-2: Returns sealed provider market signals for the active provider.
-   * Strictly respects Section 12 & 24: zero competitor leakage.
+   * PR-2: Returns only the active provider's own offers and submission-window status.
    */
-  public getCompetitionMarketSignals(challengeId: string, orgId: string): ProviderMarketSignal {
+  public getProviderOfferStatus(challengeId: string, orgId: string): ProviderOfferStatus {
     const challenge = this.challenges.get(challengeId);
     if (!challenge) {
       const err: any = new Error(`Challenge ${challengeId} not found`);
@@ -2719,7 +2657,7 @@ export class PolicyChallengeDatabase {
       throw err;
     }
 
-    // Tenant Isolation: Only participating providers can access sealed market signals
+    // Tenant isolation: only participating providers can access their own status.
     const participation = Array.from(this.challengeParticipations.values()).find(
       p => p.challengeId === challengeId && p.providerOrganizationId === orgId && p.status !== 'WITHDRAWN'
     );
@@ -2730,20 +2668,11 @@ export class PolicyChallengeDatabase {
     }
 
     const allOffers = Array.from(this.offers.values()).filter(o => o.challengeId === challengeId);
-    const invitedCount = Array.from(this.challengeInvitations.values()).filter(i => i.challengeId === challengeId).length;
-
-    return calculateProviderMarketSignals(
-      competition,
-      orgId,
-      allOffers,
-      challenge.baseline,
-      challenge.requirements,
-      invitedCount
-    );
+    return getProviderOfferStatus(competition, orgId, allOffers, challenge.baseline);
   }
 
   /**
-   * PM-2: Evaluates overall competition state, readiness, and deterministic ranking
+   * PM-2: Evaluates factual offer state without ranking.
    */
   public getCompetitionEvaluation(challengeId: string): CompetitionEvaluationSummary {
     const challenge = this.challenges.get(challengeId);
@@ -2761,8 +2690,7 @@ export class PolicyChallengeDatabase {
     return evaluateCompetitionRoundState(
       competition,
       allOffers,
-      challenge.baseline,
-      challenge.requirements
+      challenge.baseline
     );
   }
 
@@ -2818,15 +2746,9 @@ export class PolicyChallengeDatabase {
   }
 
   /**
-   * PM-3: Advances competition round with state validation and canonical lifecycle:
-   * OPEN -> IMPROVEMENT -> BEST_AND_FINAL -> CLOSED -> CONSUMER_REVIEW
+   * PR-2: Policyholder closes the single submission window and begins review.
    */
-  public advanceCompetition(
-    challengeId: string,
-    targetRound: CompetitionRound,
-    reason: string,
-    customDurationHours?: number
-  ): Competition {
+  public beginConsumerReview(challengeId: string): Competition {
     const challenge = this.challenges.get(challengeId);
     if (!challenge) {
       throw new Error(`Challenge ${challengeId} not found`);
@@ -2837,22 +2759,10 @@ export class PolicyChallengeDatabase {
       throw new Error(`Competition not found for challenge ${challengeId}`);
     }
 
-    const updatedComp = advanceCompRoundLogic(comp, targetRound, reason, customDurationHours);
+    const updatedComp = closeSubmissionWindow(comp, 'CONSUMER_BEGAN_REVIEW');
     this.competitions.set(comp.id, updatedComp);
 
-    // Update challenge status to match round per canonical lifecycle
-    if (targetRound === 'OPEN' || targetRound === 'ROUND_1_OPEN') {
-      challenge.status = 'OPEN';
-    } else if (targetRound === 'IMPROVEMENT' || targetRound === 'ROUND_2_IMPROVEMENT') {
-      challenge.status = 'OPEN';
-    } else if (targetRound === 'BEST_AND_FINAL' || targetRound === 'ROUND_3_BAFO') {
-      challenge.status = 'FINAL_ROUND';
-      challenge.isFinalRound = true;
-    } else if (targetRound === 'CLOSED') {
-      challenge.status = 'OPEN';
-    } else if (targetRound === 'CONSUMER_REVIEW' || targetRound === 'CLOSED_PENDING_SELECTION') {
-      challenge.status = 'CONSUMER_REVIEW';
-    }
+    challenge.status = 'CONSUMER_REVIEW';
     this.challenges.set(challenge.id, challenge);
 
     postgresStore.saveCompetition(updatedComp).catch(err => {
@@ -2860,18 +2770,14 @@ export class PolicyChallengeDatabase {
     });
 
     this.recordAudit(
-      'COMPETITION_ROUND_ADVANCED',
-      'SYSTEM',
-      'COMPETITION_ENGINE',
-      `Competition ${comp.id} advanced to ${targetRound}. Reason: ${reason}`
+      'COMPETITION_ROUND_ADVANCED', 'CONSUMER', challenge.consumerId,
+      `Policyholder began reviewing offers for ${comp.id}`
     );
 
     this.recordCompetitionActivity(challengeId, {
-      type: 'ROUND_ADVANCED',
-      actorRole: 'SYSTEM',
-      summary: `Competition round advanced to ${targetRound}. Deadline: ${updatedComp.closesAt}`,
-      round: targetRound,
-      metadata: { targetRound, reason, customDurationHours, closesAt: updatedComp.closesAt }
+      type: 'CONSUMER_REVIEW_ENTERED', actorRole: 'CONSUMER',
+      summary: 'Policyholder began reviewing submitted offers',
+      round: 'CONSUMER_REVIEW', metadata: { closesAt: updatedComp.closesAt }
     });
 
     const participantOrgIds = Array.from(new Set(Array.from(this.challengeParticipations.values())
@@ -2880,14 +2786,14 @@ export class PolicyChallengeDatabase {
     for (const providerOrganizationId of participantOrgIds) {
       this.addNotification({
         id: `NOTIF-${Date.now()}-${providerOrganizationId}`,
-        type: (targetRound === 'ROUND_3_BAFO' || targetRound === 'BEST_AND_FINAL') ? 'FINAL_ROUND_OPENED' : 'COMPETITION_UPDATE',
-        title: (targetRound === 'ROUND_3_BAFO' || targetRound === 'BEST_AND_FINAL') ? 'BAFO Final Round Initiated' : `Competition Advanced: ${targetRound}`,
-        message: `Challenge #${challenge.referenceNumber} entered ${targetRound}. Participating providers notified.`,
+        type: 'COMPETITION_UPDATE',
+        title: 'Submission window closed',
+        message: `The policyholder began reviewing submitted offers for ${challenge.referenceNumber}.`,
         timestamp: new Date().toISOString(),
         read: false,
         recipientType: 'PROVIDER_ORGANIZATION',
         recipientProviderOrganizationId: providerOrganizationId,
-        createdFromEvent: `COMPETITION_ROUND:${updatedComp.id}:${targetRound}`
+        createdFromEvent: `CONSUMER_REVIEW:${updatedComp.id}`
       });
     }
 
@@ -3170,7 +3076,6 @@ export class PolicyChallengeDatabase {
     const qualResult = evaluateOfferQualification(
       revisedOffer,
       challenge.baseline,
-      challenge.requirements,
       providerOrg,
       carrierRels
     );
@@ -3194,70 +3099,6 @@ export class PolicyChallengeDatabase {
     });
 
     return revisedOffer;
-  }
-
-  /**
-   * PM-2 Helper: Seeds realistic competing quotes for challenge from Apex Insurance and other licensed markets
-   */
-  public seedCompetitorOffers(challengeId: string) {
-    const challenge = this.challenges.get(challengeId);
-    if (!challenge) return;
-
-    const baseCoverages = challenge.baseline.coverages;
-
-    // Apex Insurance - Progressive Northern ($2,540/yr, $424 savings)
-    const apexOffer: Offer = {
-      id: `OFFER-APEX-${Date.now()}-1`,
-      challengeId,
-      providerId: 'org_apex',
-      providerName: 'Apex Insurance Services LLC',
-      providerLicense: 'NV-LIC-841920',
-      carrier: 'Progressive Northern Insurance',
-      quoteNumber: 'PGR-NV-882103',
-      annualPremium: 2540,
-      monthlyPremium: 212,
-      termMonths: 12,
-      effectiveDate: challenge.baseline.effectiveDate,
-      expirationDate: challenge.baseline.expirationDate,
-      supportingQuoteDocName: 'Progressive_NV_Official_Quote_882103.pdf',
-      submittedAt: new Date(Date.now() - 3600000).toISOString(),
-      discrepanciesDetected: false,
-      status: 'VALIDATED',
-      round: 'ROUND_1_OPEN',
-      version: 1,
-      tierLabel: 'Competitive Baseline Match',
-      coverages: baseCoverages
-    };
-
-    this.offers.set(apexOffer.id, apexOffer);
-
-    // Also register Apex participation if not already
-    const apexPart = Array.from(this.challengeParticipations.values()).find(
-      p => p.challengeId === challengeId && p.providerOrganizationId === 'org_apex'
-    );
-    if (!apexPart) {
-      const partId = `part_${challengeId}_org_apex`;
-      this.challengeParticipations.set(partId, {
-        id: partId,
-        challengeId,
-        competitionId: `comp_${challengeId}`,
-        providerOrganizationId: 'org_apex',
-        acceptedAt: new Date(Date.now() - 7200000).toISOString(),
-        status: 'ACTIVE',
-        lastActivityAt: new Date().toISOString()
-      });
-    }
-
-    // Update challenge offersCount
-    challenge.offersCount = Array.from(this.offers.values()).filter(o => o.challengeId === challengeId).length;
-    this.challenges.set(challenge.id, challenge);
-
-    this.recordAudit(
-      'OFFER_SUBMITTED',
-      'PROVIDER',
-      'org_apex',
-      `Apex Insurance Services submitted Progressive Northern Quote ($2,540/yr)`
-    );
   }
 
   // ==========================================

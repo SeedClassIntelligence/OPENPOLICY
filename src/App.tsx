@@ -1,12 +1,12 @@
 /**
- * Policy Challenge Main Application
- * Consumer-Controlled Insurance Competition Platform
+ * Open Policy Main Application
+ * Consumer-Controlled Insurance Offer Review Platform
  */
 
 import React, { useState, useEffect } from 'react';
 import { Header, ActivePerspective } from './components/Header';
 import { LandingPage } from './components/LandingPage';
-import { ConsumerPortal } from './components/ConsumerPortal';
+import { ConsumerPortal, type ConsumerStep } from './components/ConsumerPortal';
 import { ProviderPortal } from './components/ProviderPortal';
 import { AdminConsole } from './components/AdminConsole';
 import { TelemetryDashboard } from './components/TelemetryDashboard';
@@ -15,17 +15,20 @@ import { AuthProvider, useAuth, UserRole } from './context/AuthContext';
 import { AuthModal } from './components/AuthModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Challenge, Offer } from './types/insurance';
-import { canEnterMarketplaceDestination, destinationForRole } from './auth/roleAccess';
+import { canEnterMarketplaceDestination, canEnterOwnerDestination, destinationForRole } from './auth/roleAccess';
 import { apiFetch } from './services/apiClient';
+import { canEnterPolicyPipeline, getInsuranceLineDefinition } from './domain/insuranceLineRegistry';
 
 function MainApp() {
-  const { isAuthenticated, userRole, userProfile, isDemoUser, openAuthModal } = useAuth();
+  const { isAuthenticated, userRole, userProfile, isDemoUser, loading: authLoading, openAuthModal } = useAuth();
   const [activePerspective, setActivePerspective] = useState<ActivePerspective>('LANDING');
-  const [consumerInitialStep, setConsumerInitialStep] = useState<'UPLOAD_EXTRACT' | 'ACCOUNT_DASHBOARD'>('UPLOAD_EXTRACT');
+  const [consumerInitialStep, setConsumerInitialStep] = useState<ConsumerStep>('UPLOAD_EXTRACT');
   const [challenge, setChallenge] = useState<Challenge | null>(null);
   const [offers, setOffers] = useState<Offer[]>([]);
   const [loading, setLoading] = useState(true);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const requestedLine = userProfile?.requestedInsuranceLine || 'PERSONAL_AUTO';
+  const requestedLineAvailable = canEnterPolicyPipeline(requestedLine);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -35,12 +38,21 @@ function MainApp() {
   const loadData = async () => {
     try {
       const res = await apiFetch('/api/challenges');
+      if (!res.ok) throw new Error(`Could not load consumer policy reviews (${res.status})`);
       const challenges: Challenge[] = await res.json();
       if (challenges.length > 0) {
-        const chalRes = await apiFetch(`/api/challenges/${challenges[0].id}`);
+        const latestChallenge = [...challenges].sort((left, right) =>
+          Date.parse(right.openingTimestamp) - Date.parse(left.openingTimestamp)
+        )[0];
+        const chalRes = await apiFetch(`/api/challenges/${latestChallenge.id}`);
         const chalData = await chalRes.json();
         setChallenge(chalData.challenge);
         setOffers(chalData.offers);
+        setConsumerInitialStep('COMPETITION_ROOM');
+      } else {
+        setChallenge(null);
+        setOffers([]);
+        setConsumerInitialStep('UPLOAD_EXTRACT');
       }
     } catch (e) {
       console.error('Failed to load initial challenges:', e);
@@ -50,13 +62,28 @@ function MainApp() {
   };
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (authLoading) return;
+    if (!isAuthenticated || userRole !== 'CONSUMER') {
+      setChallenge(null);
+      setOffers([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    void loadData();
+  }, [authLoading, isAuthenticated, userRole, userProfile?.id]);
 
   const handlePerspectiveChange = (
     perspective: ActivePerspective, 
-    step?: 'UPLOAD_EXTRACT' | 'ACCOUNT_DASHBOARD'
+    step?: ConsumerStep
   ) => {
+    const ownerDestination = perspective === 'ADMIN_AUDIT' || perspective === 'TELEMETRY' || perspective === 'ARCHITECTURE_TESTS';
+    if (ownerDestination && !canEnterOwnerDestination(userRole, perspective)) {
+      if (!isAuthenticated) openAuthModal({ initialMode: 'SIGN_IN' });
+      showToast('Owner operations require an authenticated Open Policy administrator account.');
+      return;
+    }
+
     // Protected Perspectives: Consumers and Providers require authentication
     if (!isAuthenticated && (perspective === 'CONSUMER' || perspective === 'PROVIDER')) {
       const targetRole: 'CONSUMER' | 'PROVIDER' = perspective === 'PROVIDER' ? 'PROVIDER' : 'CONSUMER';
@@ -67,7 +94,7 @@ function MainApp() {
       showToast(
         perspective === 'PROVIDER' 
           ? 'Please register your agency or sign in to access the Provider Quoting Desk.' 
-          : 'Please create an account or sign in to start your policy challenge.'
+          : 'Please create an account or sign in to share your current policy for provider review.'
       );
       return;
     }
@@ -99,7 +126,10 @@ function MainApp() {
   };
 
   const handleAuthSuccess = (role: UserRole) => {
-    if (role === 'PROVIDER') {
+    if (role === 'ADMIN') {
+      setActivePerspective('ADMIN_AUDIT');
+      showToast('Owner identity loaded. Administrative controls are available.');
+    } else if (role === 'PROVIDER') {
       setActivePerspective('PROVIDER');
       showToast('Provider identity loaded. License verification determines desk access.');
     } else {
@@ -147,18 +177,32 @@ function MainApp() {
               <LandingPage
                 onNavigateConsumer={() => handlePerspectiveChange('CONSUMER', 'UPLOAD_EXTRACT')}
                 onNavigateProvider={() => handlePerspectiveChange('PROVIDER')}
+                onAuthSuccess={handleAuthSuccess}
                 onNavigateAdmin={() => handlePerspectiveChange('ADMIN_AUDIT')}
                 onNavigateTelemetry={() => handlePerspectiveChange('TELEMETRY')}
                 onNavigateArchitecture={() => handlePerspectiveChange('ARCHITECTURE_TESTS')}
               />
             )}
 
-            {activePerspective === 'CONSUMER' && (
+            {activePerspective === 'CONSUMER' && !requestedLineAvailable && (
+              <div className="max-w-2xl mx-auto bg-white border border-amber-200 rounded-3xl p-8 shadow-sm">
+                <p className="text-xs font-mono uppercase tracking-wider text-amber-700">Insurance-line availability</p>
+                <h2 className="text-xl font-bold text-slate-900 mt-2">
+                  {getInsuranceLineDefinition(requestedLine).displayName} processing is not open yet
+                </h2>
+                <p className="text-sm text-slate-600 mt-3 leading-relaxed">
+                  Your account and requested insurance type are recorded. Open Policy will not send this document type through the personal-auto pipeline. Availability requires line-specific document intelligence, regulatory approval, provider authority, and jurisdiction activation.
+                </p>
+              </div>
+            )}
+
+            {activePerspective === 'CONSUMER' && requestedLineAvailable && (
               <ErrorBoundary 
                 fallbackTitle="Unable to Display Consumer Experience" 
                 onReset={loadData}
               >
                 <ConsumerPortal
+                  insuranceLine={requestedLine}
                   challenge={challenge}
                   offers={offers}
                   onRefreshData={loadData}
@@ -191,19 +235,19 @@ function MainApp() {
               </ErrorBoundary>
             )}
 
-            {activePerspective === 'ADMIN_AUDIT' && (
+            {activePerspective === 'ADMIN_AUDIT' && userRole === 'ADMIN' && (
               <ErrorBoundary fallbackTitle="Unable to Display Audit Console">
                 <AdminConsole onRefreshData={loadData} />
               </ErrorBoundary>
             )}
 
-            {activePerspective === 'TELEMETRY' && (
+            {activePerspective === 'TELEMETRY' && userRole === 'ADMIN' && (
               <ErrorBoundary fallbackTitle="Unable to Display Telemetry Dashboard">
                 <TelemetryDashboard />
               </ErrorBoundary>
             )}
 
-            {activePerspective === 'ARCHITECTURE_TESTS' && (
+            {activePerspective === 'ARCHITECTURE_TESTS' && userRole === 'ADMIN' && (
               <ErrorBoundary fallbackTitle="Unable to Display System Specifications">
                 <ArchitectureDocs />
               </ErrorBoundary>
@@ -225,7 +269,7 @@ function MainApp() {
         <footer className="w-full bg-slate-900 border-t border-slate-800 py-4 text-center text-xs text-slate-400">
           <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
             <p className="font-mono text-[11px]">
-              Open Policy Engine • Consumer Insurance Competition Model
+              Open Policy • Independent Provider Offers • Factual Policy Comparison
             </p>
             <div className="flex items-center space-x-3 text-[11px] text-slate-400">
               <span>PostgreSQL Integrity</span>

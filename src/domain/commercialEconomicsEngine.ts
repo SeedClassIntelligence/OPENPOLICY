@@ -45,6 +45,7 @@ import {
   SettlementAllocation,
   ProviderAccountBalance
 } from '../types/insurance';
+import { connectionPriceForInsuranceLine } from './commercialPriceBook';
 
 /**
  * Creates a new CommercialAccount for a ProviderOrganization.
@@ -563,10 +564,36 @@ export function rateCommercialEvent(params: {
   const snapshot = planVersion.termsSnapshot || {};
   const rates = (snapshot.rates as Record<string, number | undefined>) || {};
 
+  const determinationApproved = snapshot.compensationDeterminationApproved === true &&
+    typeof snapshot.determinationReference === 'string' && snapshot.determinationReference.trim().length > 0;
+  if (['AUTHORIZED_CONNECTION', 'BOUND_ACQUISITION', 'VERIFIED_BOUND_OUTCOME'].includes(event.eventType) && !determinationApproved) {
+    return {
+      disposition: 'NOT_BILLABLE', billable: false,
+      commercialEventId: event.id, providerOrganizationId: event.providerOrganizationId,
+      commercialAgreementId: agreement.id, commercialPlanVersionId: planVersion.id,
+      chargeCode: `${event.eventType}_DETERMINATION_PENDING`, quantity: 1,
+      unitPriceCents: 0, amountCents: 0, currency: 'USD',
+      reason: 'COMPENSATION_DETERMINATION_PENDING', ratedAt
+    };
+  }
+
   switch (event.eventType) {
     case 'AUTHORIZED_CONNECTION': {
       const included = snapshot.includedAuthorizedConnections ?? ((snapshot.rates as any)?.AUTHORIZED_CONNECTION_INCLUDED as number) ?? 0;
-      const unitPrice = rates.AUTHORIZED_CONNECTION_CENTS ?? snapshot.authorizedConnectionUnitPriceCents ?? 0;
+      const linePrice = connectionPriceForInsuranceLine(snapshot, String(event.metadata?.insuranceLine || ''));
+      const unitPrice = linePrice ?? rates.AUTHORIZED_CONNECTION_CENTS ?? snapshot.authorizedConnectionUnitPriceCents ?? 0;
+
+      if (snapshot.authorizedConnectionCentsByInsuranceLine && linePrice === undefined) {
+        return {
+          disposition: 'NOT_RATED', billable: false,
+          commercialEventId: event.id, providerOrganizationId: event.providerOrganizationId,
+          commercialAgreementId: agreement.id, commercialPlanVersionId: planVersion.id,
+          chargeCode: 'AUTHORIZED_CONNECTION_LINE_UNRESOLVED', quantity: 1,
+          unitPriceCents: 0, amountCents: 0, currency: 'USD',
+          reason: 'A canonical insurance line is required to apply the published connection price.', ratedAt,
+          error: 'INSURANCE_LINE_REQUIRED'
+        };
+      }
 
       if (priorUsageCount < included) {
         return {
@@ -605,7 +632,9 @@ export function rateCommercialEvent(params: {
             chargeCode: 'AUTHORIZED_CONNECTION_UNIT',
             unitPriceCents: unitPrice,
             includedCapacity: included,
-            priorUsageCount
+            priorUsageCount,
+            insuranceLine: event.metadata?.insuranceLine,
+            priceBookId: snapshot.priceBookId
           }
         };
       }
@@ -708,6 +737,19 @@ export function rateCommercialEvent(params: {
     }
 
     case 'VPO_ENGAGED': {
+      const engagementPrice = rates.VPO_ENGAGED_CENTS ?? snapshot.qualifiedEngagementUnitPriceCents ?? 0;
+      if (engagementPrice > 0) {
+        return {
+          disposition: 'BILLABLE', billable: true,
+          commercialEventId: event.id, providerOrganizationId: event.providerOrganizationId,
+          commercialAgreementId: agreement.id, commercialPlanVersionId: planVersion.id,
+          chargeCode: 'QUALIFIED_ENGAGEMENT_FEE', quantity: 1,
+          unitPriceCents: engagementPrice, amountCents: engagementPrice, currency: 'USD',
+          reason: 'One qualified provider engagement delivered for this policy opportunity.', ratedAt,
+          pricingSnapshot: { chargeCode: 'QUALIFIED_ENGAGEMENT_FEE', unitPriceCents: engagementPrice,
+            challengeId: event.challengeId, priceBookId: snapshot.priceBookId }
+        };
+      }
       const overagePrice = rates.VPO_ENGAGEMENT_OVERAGE_CENTS ?? rates.ENGAGEMENT_OVERAGE_CENTS ?? 0;
       const isOverage = event.metadata?.isOverage === true || priorUsageCount >= (snapshot.includedEngagementCapacity ?? Infinity);
       if (isOverage && overagePrice > 0) {
@@ -982,6 +1024,29 @@ export function assembleDraftInvoice(params: {
     billingPeriodId: billingPeriod.id,
     createdAt: now
   });
+
+  // Contracted recurring add-ons are anchored to the same immutable plan
+  // version as the base subscription. The catalog price and purchased quantity
+  // must both exist; an unknown or non-positive selection fails closed.
+  const addOnPrices = planVersion.termsSnapshot.recurringAddOns || {};
+  const selectedAddOns = planVersion.termsSnapshot.selectedRecurringAddOns || {};
+  for (const [code, quantity] of Object.entries(selectedAddOns).sort(([a], [b]) => a.localeCompare(b))) {
+    const unitPriceCents = addOnPrices[code];
+    if (!Number.isInteger(quantity) || quantity <= 0 || !Number.isInteger(unitPriceCents) || unitPriceCents < 0) {
+      throw new Error(`Invalid contracted recurring add-on selection: ${code}`);
+    }
+    lineItems.push({
+      id: `lin_addon_${invoiceId}_${code}`,
+      invoiceId,
+      lineType: 'SUBSCRIPTION',
+      description: `Recurring Add-on: ${code}`,
+      quantity,
+      unitPriceCents,
+      amountCents: unitPriceCents * quantity,
+      billingPeriodId: billingPeriod.id,
+      createdAt: now
+    });
+  }
 
   // 2. Transactional Usage & Outcome Charges (From CE-4 BillableEvents)
   for (const be of billableEvents) {

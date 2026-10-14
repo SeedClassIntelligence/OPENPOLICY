@@ -1,18 +1,23 @@
 import crypto from 'node:crypto';
 import type { CoverageBaseline, NormalizedPolicyFieldPath, Policy, PolicyFieldCorrection, PolicyNormalizationResult } from '../types/insurance';
+import type { InsuranceLine } from '../types/jurisdiction';
+import { getPolicyLineSchema } from './policyLineSchemas';
 
-const REQUIRED: NormalizedPolicyFieldPath[] = [
+const PERSONAL_AUTO_REQUIRED: NormalizedPolicyFieldPath[] = [
   'policyNumber','carrier','namedInsured','jurisdiction','effectiveDate','expirationDate','annualPremium',
   'vehicle.vin','vehicle.year','vehicle.make','vehicle.model','vehicle.usage','vehicle.annualMileage',
   'vehicle.garagingZip','vehicle.ownership','coverage.bodilyInjury.perPersonLimit',
-  'coverage.bodilyInjury.perAccidentLimit','coverage.propertyDamage.propertyLimit'
+  'coverage.bodilyInjury.perAccidentLimit','coverage.propertyDamage.propertyLimit',
+  'coverage.medicalPayments.included','coverage.rentalReimbursement.included','coverage.umUim.included',
+  'coverage.comprehensive.included','coverage.collision.included','coverage.roadsideAssistance.included'
 ];
 const stableId = (prefix: string, value: string) => `${prefix}-${crypto.createHash('sha256').update(value).digest('hex').slice(0, 24)}`;
 
 export function buildVerifiedPolicyAndBaseline(input: {
   ownerId: string; documentName: string; normalization: PolicyNormalizationResult;
-  corrections: PolicyFieldCorrection[]; verifiedAt?: string;
+  corrections: PolicyFieldCorrection[]; insuranceLine?: InsuranceLine; verifiedAt?: string;
 }): { policy: Policy; baseline: CoverageBaseline } {
+  const insuranceLine = input.insuranceLine || 'PERSONAL_AUTO';
   const values = new Map<NormalizedPolicyFieldPath, string | number>();
   for (const field of input.normalization.fields) values.set(field.fieldPath, field.value);
   for (const correction of input.corrections) {
@@ -20,7 +25,15 @@ export function buildVerifiedPolicyAndBaseline(input: {
       values.set(correction.fieldPath as NormalizedPolicyFieldPath, correction.afterValue as string | number);
     }
   }
-  const missing = REQUIRED.filter(field => !values.has(field));
+  const required = insuranceLine === 'PERSONAL_AUTO'
+    ? PERSONAL_AUTO_REQUIRED
+    : (getPolicyLineSchema(insuranceLine)?.fields
+      .filter(field => field.requiredForBaseline)
+      .map(field => field.path as NormalizedPolicyFieldPath) || []);
+  if (insuranceLine !== 'PERSONAL_AUTO' && required.length === 0) {
+    throw Object.assign(new Error(`Verified baseline creation is not implemented for ${insuranceLine}.`), { statusCode: 422 });
+  }
+  const missing = required.filter(field => !values.has(field));
   if (missing.length) throw Object.assign(new Error(`Consumer verification requires: ${missing.join(', ')}`), { statusCode: 422 });
   const text = (field: NormalizedPolicyFieldPath) => String(values.get(field));
   const number = (field: NormalizedPolicyFieldPath) => Number(values.get(field));
@@ -31,25 +44,39 @@ export function buildVerifiedPolicyAndBaseline(input: {
   }
   const verifiedAt = input.verifiedAt || new Date().toISOString();
   const policyId = stableId('POL', `${input.ownerId}:${input.normalization.documentId}:${input.normalization.extractionRunId}`);
-  const policy: Policy = {
+  const commonPolicy: Policy = {
     id: policyId, policyNumber: text('policyNumber'), carrier: text('carrier'), jurisdiction: text('jurisdiction'),
     namedInsured: text('namedInsured'), effectiveDate, expirationDate,
     termMonths: Math.max(1, Math.round((new Date(expirationDate).getTime() - new Date(effectiveDate).getTime()) / 2629800000)),
     annualPremium: number('annualPremium'), monthlyPremium: Math.round(number('annualPremium') / 12 * 100) / 100,
     status: 'VERIFIED', drivers: [], sourceDocumentId: input.normalization.documentId, sourceDocumentName: input.documentName,
+    insuranceLine,
+    verifiedFacts: Object.fromEntries(values) as Partial<Record<NormalizedPolicyFieldPath, string | number>>,
+    vehicles: [],
+    coverages: []
+  };
+  const policy: Policy = insuranceLine !== 'PERSONAL_AUTO' ? commonPolicy : {
+    ...commonPolicy,
     vehicles: [{ vin:text('vehicle.vin').toUpperCase(), year:number('vehicle.year'), make:text('vehicle.make'), model:text('vehicle.model'),
       usage:text('vehicle.usage') as any, annualMileage:number('vehicle.annualMileage'), garagingZip:text('vehicle.garagingZip'), ownership:text('vehicle.ownership') as any }],
     coverages: [
       { id:stableId('COV', `${policyId}:BODILY_INJURY`),code:'BODILY_INJURY',name:'Bodily Injury Liability',category:'LIABILITY',isIncluded:true,
         perPersonLimit:number('coverage.bodilyInjury.perPersonLimit'),perAccidentLimit:number('coverage.bodilyInjury.perAccidentLimit') },
       { id:stableId('COV', `${policyId}:PROPERTY_DAMAGE`),code:'PROPERTY_DAMAGE',name:'Property Damage Liability',category:'LIABILITY',isIncluded:true,
-        propertyLimit:number('coverage.propertyDamage.propertyLimit') }
+        propertyLimit:number('coverage.propertyDamage.propertyLimit') },
+      { id:stableId('COV', `${policyId}:MEDICAL_PAYMENTS`),code:'MEDICAL_PAYMENTS',name:'Medical Payments',category:'MEDICAL',isIncluded:number('coverage.medicalPayments.included') === 1 },
+      { id:stableId('COV', `${policyId}:RENTAL_REIMBURSEMENT`),code:'RENTAL_REIMBURSEMENT',name:'Rental Reimbursement',category:'ADDITIONAL',isIncluded:number('coverage.rentalReimbursement.included') === 1 },
+      { id:stableId('COV', `${policyId}:UM_UIM`),code:'UM_UIM',name:'Uninsured/Underinsured Motorist',category:'LIABILITY',isIncluded:number('coverage.umUim.included') === 1 },
+      { id:stableId('COV', `${policyId}:COMPREHENSIVE`),code:'COMPREHENSIVE',name:'Comprehensive Coverage',category:'PHYSICAL_DAMAGE',isIncluded:number('coverage.comprehensive.included') === 1 },
+      { id:stableId('COV', `${policyId}:COLLISION`),code:'COLLISION',name:'Collision Coverage',category:'PHYSICAL_DAMAGE',isIncluded:number('coverage.collision.included') === 1 },
+      { id:stableId('COV', `${policyId}:ROADSIDE_ASSISTANCE`),code:'ROADSIDE_ASSISTANCE',name:'Roadside Assistance',category:'ADDITIONAL',isIncluded:number('coverage.roadsideAssistance.included') === 1 }
     ]
   };
   const baseline: CoverageBaseline = {
     id:stableId('BL', `${policyId}:1`),policyId,version:1,carrier:policy.carrier,effectiveDate,expirationDate,
     baselineAnnualPremium:policy.annualPremium,baselineMonthlyPremium:policy.monthlyPremium,jurisdiction:policy.jurisdiction,
-    vehicle:policy.vehicles[0],coverages:policy.coverages,verifiedAt,verifiedBy:input.ownerId
+    vehicle:policy.vehicles[0],coverages:policy.coverages,verifiedFacts:policy.verifiedFacts,verifiedAt,verifiedBy:input.ownerId,
+    insuranceLine
   };
   return { policy, baseline };
 }

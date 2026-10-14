@@ -9,7 +9,6 @@
 import {
   CoverageBaseline,
   CoverageItem,
-  ConsumerRequirements,
   FieldComparison,
   FieldComparisonResult,
   Offer,
@@ -89,6 +88,22 @@ export function compareCoverageItem(
       explanation: `New additional protection added that consumer did not previously possess.`,
       isMaterialReduction: false,
       isMaterialImprovement: true
+    };
+  }
+
+  // A verified baseline records explicit exclusions. An offer may omit those
+  // excluded items entirely; that is still an equivalent absent coverage.
+  if ((!baselineItem || !baselineItem.isIncluded) && (!offerItem || !offerItem.isIncluded)) {
+    return {
+      fieldCode: code,
+      fieldName: name,
+      category,
+      baselineValueFormatted: 'Not Included',
+      offerValueFormatted: 'Not Included',
+      result: 'EQUIVALENT',
+      explanation: 'Neither policy includes this coverage.',
+      isMaterialReduction: false,
+      isMaterialImprovement: false
     };
   }
 
@@ -274,8 +289,8 @@ export function compareCoverageItem(
 
 export function formatClassification(c: WholeOfferClassification): string {
   switch (c) {
-    case 'BASELINE_MATCH': return 'BASELINE MATCH';
-    case 'BASELINE_PLUS': return 'BASELINE PLUS';
+    case 'BASELINE_MATCH': return 'MATCHES CURRENT COVERAGE';
+    case 'BASELINE_PLUS': return 'ADDITIONAL STATED COVERAGE';
     case 'COVERAGE_CHANGED': return 'COVERAGE CHANGED';
     case 'REVIEW_REQUIRED': return 'REVIEW REQUIRED';
   }
@@ -286,13 +301,12 @@ export function formatClassification(c: WholeOfferClassification): string {
  */
 export function compareOfferAgainstBaseline(
   baseline: CoverageBaseline,
-  requirements: ConsumerRequirements,
   offer: Offer
 ): OfferComparison {
   const currentAnnual = baseline.baselineAnnualPremium;
   const offerAnnual = offer.annualPremium;
-  const annualSavings = currentAnnual - offerAnnual;
-  const monthlySavings = Math.round(annualSavings / 12);
+  const annualPremiumDifference = currentAnnual - offerAnnual;
+  const monthlyPremiumDifference = Math.round(annualPremiumDifference / 12);
 
   // Compare every coverage in baseline
   const fieldComparisons: FieldComparison[] = [];
@@ -342,49 +356,6 @@ export function compareOfferAgainstBaseline(
     summaryHeadline = `Exact coverage parity across all verified protection categories.`;
   }
 
-  // Check consumer requirements
-  const requirementViolations: string[] = [];
-
-  if (annualSavings < requirements.minAnnualSavings) {
-    requirementViolations.push(
-      `Does not meet requested minimum savings of $${requirements.minAnnualSavings}/yr (actual: $${annualSavings}/yr).`
-    );
-  }
-
-  const collComp = fieldComparisons.find(f => f.fieldCode === 'COLLISION');
-  if (collComp) {
-    const oColl = offer.coverages.find(c => c.code === 'COLLISION');
-    if (oColl?.deductible && oColl.deductible > requirements.maxCollisionDeductible) {
-      requirementViolations.push(
-        `Collision deductible ($${oColl.deductible}) exceeds your strict requirement limit ($${requirements.maxCollisionDeductible}).`
-      );
-    }
-  }
-
-  const compComp = fieldComparisons.find(f => f.fieldCode === 'COMPREHENSIVE');
-  if (compComp) {
-    const oComp = offer.coverages.find(c => c.code === 'COMPREHENSIVE');
-    if (oComp?.deductible && oComp.deductible > requirements.maxCompDeductible) {
-      requirementViolations.push(
-        `Comprehensive deductible ($${oComp.deductible}) exceeds your strict requirement limit ($${requirements.maxCompDeductible}).`
-      );
-    }
-  }
-
-  if (requirements.mustIncludeRental) {
-    const oRental = offer.coverages.find(c => c.code === 'RENTAL_REIMBURSEMENT');
-    if (!oRental || !oRental.isIncluded) {
-      requirementViolations.push(`Rental Reimbursement is required by consumer but not included.`);
-    }
-  }
-
-  if (requirements.mustIncludeRoadside) {
-    const oRoadside = offer.coverages.find(c => c.code === 'ROADSIDE_ASSISTANCE');
-    if (!oRoadside || !oRoadside.isIncluded) {
-      requirementViolations.push(`Roadside Assistance is required by consumer but not included.`);
-    }
-  }
-
   return {
     offerId: offer.id,
     challengeId: offer.challengeId,
@@ -392,8 +363,8 @@ export function compareOfferAgainstBaseline(
     providerName: offer.providerName,
     currentAnnualPremium: currentAnnual,
     offerAnnualPremium: offerAnnual,
-    annualSavings,
-    monthlySavings,
+    annualPremiumDifference,
+    monthlyPremiumDifference,
     classification,
     summaryHeadline,
     materialReductions,
@@ -404,8 +375,6 @@ export function compareOfferAgainstBaseline(
     worseFieldsCount: worseCount,
     differentFieldsCount: differentCount,
     unknownFieldsCount: unknownCount,
-    totalFieldsCount: fieldComparisons.length,
-    meetsConsumerRequirements: requirementViolations.length === 0,
-    requirementViolations
+    totalFieldsCount: fieldComparisons.length
   };
 }

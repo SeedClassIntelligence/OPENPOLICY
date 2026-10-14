@@ -9,14 +9,15 @@
 import {
   Offer,
   CoverageBaseline,
-  ConsumerRequirements,
   ProviderOrganization,
   CarrierRelationship,
   OfferVerification,
+  OfferStandardResult,
   OfferVersion,
   InformationRequest,
   VerifiedSupplementalFact
 } from '../types/insurance';
+import { evaluateOfferAgainstStandard } from './qualificationStandard';
 
 export interface JurisdictionalStatutoryRule {
   jurisdiction: string;
@@ -80,6 +81,7 @@ export interface QualificationResult {
   disqualificationReasons: string[];
   evaluatedAt: string;
   applicableRuleVersion?: string;
+  standard: OfferStandardResult;
 }
 
 /**
@@ -90,7 +92,6 @@ export interface QualificationResult {
 export function evaluateOfferQualification(
   offer: Offer,
   baseline: CoverageBaseline,
-  requirements?: ConsumerRequirements,
   providerOrg?: ProviderOrganization,
   carrierRelationships: CarrierRelationship[] = [],
   verification?: OfferVerification,
@@ -127,12 +128,10 @@ export function evaluateOfferQualification(
             normalizedCarrier.includes(rel.carrierName.toLowerCase()))
   );
 
-  if (carrierRelationships.length > 0 && !matchingRel) {
+  if (!matchingRel) {
     disqualificationReasons.push(`Provider '${offer.providerName}' does not have an active appointment or broker authorization for carrier '${offer.carrier}'.`);
   } else if (matchingRel) {
     qualificationReasons.push(`Carrier '${offer.carrier}' appointment verified (${matchingRel.relationshipType}).`);
-  } else {
-    qualificationReasons.push(`Carrier '${offer.carrier}' stated with broker representation.`);
   }
 
   // 3. Supporting Quote Document Association (Section 30)
@@ -218,7 +217,8 @@ export function evaluateOfferQualification(
     qualificationReasons,
     disqualificationReasons,
     evaluatedAt: new Date().toISOString(),
-    applicableRuleVersion
+    applicableRuleVersion,
+    standard: evaluateOfferAgainstStandard(baseline, offer)
   };
 }
 
@@ -277,6 +277,8 @@ export function createOfferVersionSnapshot(
     annualPremium: existingOffer.annualPremium,
     monthlyPremium: existingOffer.monthlyPremium,
     coverages: JSON.parse(JSON.stringify(existingOffer.coverages)),
+    verifiedFacts: existingOffer.verifiedFacts ? JSON.parse(JSON.stringify(existingOffer.verifiedFacts)) : undefined,
+    insuranceLine: existingOffer.insuranceLine,
     supportingQuoteDocName: existingOffer.supportingQuoteDocName,
     revisionReason: revisionReason || 'Offer updated by provider',
     submittedAt: existingOffer.submittedAt,

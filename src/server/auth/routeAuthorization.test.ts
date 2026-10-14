@@ -41,6 +41,8 @@ const admin: RequestIdentity = { uid: 'admin-a', role: 'ADMIN', source: 'FIREBAS
 test('public routes do not require identity', () => {
   assert.equal(invoke('GET', '/health').next, true);
   assert.equal(invoke('GET', '/commercial/plans').next, true);
+  assert.equal(invoke('GET', '/insurance-lines').next, true);
+  assert.equal(invoke('GET', '/rollout/jurisdiction-lines').next, true);
 });
 
 test('sensitive routes reject anonymous callers', () => {
@@ -58,8 +60,18 @@ test('wrong actor type is forbidden while intended actor is admitted to domain c
   assert.equal(invoke('GET', '/challenges', consumer).next, true);
   assert.equal(invoke('GET', '/marketplace/opportunities', consumer).status, 403);
   assert.equal(invoke('GET', '/marketplace/opportunities', provider).next, true);
-  assert.equal(invoke('POST', '/marketplace/competition/c/advance-round', provider).status, 403);
-  assert.equal(invoke('POST', '/marketplace/competition/c/advance-round', admin).next, true);
+  assert.equal(invoke('POST', '/marketplace/competition/c/begin-review', provider).status, 403);
+  assert.equal(invoke('POST', '/marketplace/competition/c/begin-review', consumer).next, true);
+  assert.equal(invoke('POST', '/marketplace/competition/c/request-additional-offers', provider).status, 403);
+  assert.equal(invoke('POST', '/marketplace/competition/c/request-additional-offers', consumer).next, true);
+  assert.equal(invoke('GET', '/marketplace/competition/c/offer-cohorts', provider).status, 403);
+  assert.equal(invoke('GET', '/marketplace/competition/c/offer-cohorts', consumer).next, true);
+  assert.equal(invoke('GET', '/marketplace/competition/c/offer-status', consumer).status, 403);
+  assert.equal(invoke('GET', '/marketplace/competition/c/offer-status', provider).next, true);
+  assert.equal(invoke('POST', '/marketplace/binding/h/cannot-honor', consumer).status, 403);
+  assert.equal(invoke('POST', '/marketplace/binding/h/cannot-honor', provider).next, true);
+  assert.equal(invoke('POST', '/admin/commercial/agreements/enroll', provider).status, 403);
+  assert.equal(invoke('POST', '/admin/commercial/agreements/enroll', admin).next, true);
 });
 
 test('real policy-document ingestion is consumer-only and never public or provider-controlled', () => {
@@ -76,15 +88,29 @@ test('real policy-document ingestion is consumer-only and never public or provid
   assert.equal(invoke('POST', '/policy-documents/DOC-1/verify', consumer).next, true);
   assert.equal(invoke('GET', '/policy-documents/DOC-1', provider).status, 403);
   assert.equal(invoke('GET', '/policy-documents/DOC-1', consumer).next, true);
+  assert.equal(invoke('GET', '/policy-documents/current-baseline', consumer).next, true);
 });
 
-test('founder-approved directory, notification, and fixture-only route policies are enforced', () => {
+test('verified sample policy upload supports the advertised consumer demo without admitting providers', () => {
+  assert.equal(invoke('POST', '/documents/upload-sample').status, 401);
+  assert.equal(invoke('POST', '/documents/upload-sample', provider).status, 403);
+  assert.equal(invoke('POST', '/documents/upload-sample', consumer).next, true);
+  assert.equal(invoke('POST', '/documents/upload-sample', admin).next, true);
+});
+
+test('coverage baseline confirmation supports the consumer flow without admitting providers', () => {
+  assert.equal(invoke('POST', '/baselines/create').status, 401);
+  assert.equal(invoke('POST', '/baselines/create', provider).status, 403);
+  assert.equal(invoke('POST', '/baselines/create', consumer).next, true);
+  assert.equal(invoke('POST', '/baselines/create', admin).next, true);
+});
+
+test('founder-approved directory and notification route policies are enforced', () => {
   assert.equal(invoke('GET', '/marketplace/users', provider).status, 403);
   assert.equal(invoke('GET', '/marketplace/users', admin).next, true);
   assert.equal(invoke('GET', '/marketplace/providers', consumer).next, true);
   assert.equal(invoke('GET', '/marketplace/providers', provider).next, true);
   assert.equal(invoke('GET', '/notifications', consumer).next, true);
-  assert.equal(invoke('POST', '/marketplace/competition/c/seed-competitors', admin).status, 404);
 });
 
 test('fixture bypass requires an explicit process-only switch and is forbidden by production auth mode', () => {

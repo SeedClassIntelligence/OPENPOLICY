@@ -2,11 +2,13 @@ import type { NextFunction, Request, Response } from 'express';
 import { configuredAuthMode, type IdentityRole } from './requestIdentity';
 import type { RequestIdentity } from './requestIdentity';
 
-type RouteRule = { methods?: string[]; pattern: RegExp; roles: IdentityRole[] | 'PUBLIC' | 'DECISION_REQUIRED' | 'FIXTURE_ONLY' };
+type RouteRule = { methods?: string[]; pattern: RegExp; roles: IdentityRole[] | 'PUBLIC' | 'DECISION_REQUIRED' };
 
 const rules: RouteRule[] = [
   { pattern: /^\/health$/, roles: 'PUBLIC' },
   { pattern: /^\/jurisdictions(?:\/[^/]+\/(?:rulesets|market))?$/, roles: 'PUBLIC' },
+  { pattern: /^\/insurance-lines$/, roles: 'PUBLIC' },
+  { pattern: /^\/rollout\/jurisdiction-lines$/, roles: 'PUBLIC' },
   { pattern: /^\/documents\/samples$/, roles: 'PUBLIC' },
   { methods: ['POST'], pattern: /^\/offers\/validate-quote$/, roles: 'PUBLIC' },
   { methods: ['POST'], pattern: /^\/explain-comparison$/, roles: 'PUBLIC' },
@@ -17,12 +19,12 @@ const rules: RouteRule[] = [
   { pattern: /^\/marketplace\/users$/, roles: ['ADMIN'] },
   { pattern: /^\/marketplace\/providers$/, roles: ['CONSUMER', 'PROVIDER', 'ADMIN'] },
   { pattern: /^\/notifications(?:\/[^/]+\/read)?$/, roles: ['CONSUMER', 'PROVIDER', 'ADMIN'] },
-  { methods: ['POST'], pattern: /^\/marketplace\/competition\/[^/]+\/seed-competitors$/, roles: 'FIXTURE_ONLY' },
 
   { pattern: /^\/(?:tests\/run|metrics|jurisdiction-evaluations|audit-events|reset)$/, roles: ['ADMIN'] },
-  { methods: ['POST'], pattern: /^\/(?:documents\/upload-sample|policies\/[^/]+\/verify|baselines\/create)$/, roles: ['ADMIN'] },
+  { methods: ['POST'], pattern: /^\/documents\/upload-sample$/, roles: ['CONSUMER', 'ADMIN'] },
+  { methods: ['POST'], pattern: /^\/baselines\/create$/, roles: ['CONSUMER', 'ADMIN'] },
+  { methods: ['POST'], pattern: /^\/policies\/[^/]+\/verify$/, roles: ['ADMIN'] },
   { methods: ['POST'], pattern: /^\/challenges\/[^/]+\/(?:compete|final-round|incumbent-defense)$/, roles: ['ADMIN'] },
-  { methods: ['POST'], pattern: /^\/marketplace\/competition\/[^/]+\/advance-round$/, roles: ['ADMIN'] },
   { methods: ['POST'], pattern: /^\/marketplace\/offers\/[^/]+\/verify-document$/, roles: ['PROVIDER'] },
   { methods: ['GET'], pattern: /^\/marketplace\/offers\/[^/]+\/qualification$/, roles: ['CONSUMER', 'PROVIDER', 'ADMIN'] },
   { pattern: /^\/commercial\/(?:rating\/(?:run|reconcile|runs(?:\/[^/]+)?)|events\/reconcile)$/, roles: ['ADMIN'] },
@@ -36,14 +38,18 @@ const rules: RouteRule[] = [
   { methods: ['GET'], pattern: /^\/policy-documents\/[^/]+$/, roles: ['CONSUMER'] },
   { pattern: /^\/marketplace\/(?:vault\/|challenges\/[^/]+\/select-version|supplemental-facts\/[^/]+\/consent)/, roles: ['CONSUMER'] },
   { methods: ['POST'], pattern: /^\/marketplace\/competition\/[^/]+\/keep-current-policy$/, roles: ['CONSUMER'] },
+  { methods: ['POST'], pattern: /^\/marketplace\/competition\/[^/]+\/begin-review$/, roles: ['CONSUMER'] },
+  { methods: ['POST'], pattern: /^\/marketplace\/competition\/[^/]+\/request-additional-offers$/, roles: ['CONSUMER'] },
+  { methods: ['GET'], pattern: /^\/marketplace\/competition\/[^/]+\/offer-cohorts$/, roles: ['CONSUMER'] },
   { methods: ['POST'], pattern: /^\/marketplace\/binding\/[^/]+\/(?:grant-consent|revoke-consent|resolve-modification|accept-modification|reject-modification|consumer-verify)$/, roles: ['CONSUMER'] },
 
   { pattern: /^\/marketplace\/(?:my-provider|active-provider|opportunities|invitations\/|competitions|workspace\/)/, roles: ['PROVIDER'] },
+  { methods: ['GET'], pattern: /^\/marketplace\/competition\/[^/]+\/offer-status$/, roles: ['PROVIDER'] },
   { methods: ['POST'], pattern: /^\/offers\/submit$/, roles: ['PROVIDER'] },
   { pattern: /^\/commercial\//, roles: ['PROVIDER'] },
   { methods: ['POST'], pattern: /^\/marketplace\/competition\/[^/]+\/(?:keep-current-offer\/[^/]+|withdraw|revise-offer\/[^/]+)$/, roles: ['PROVIDER'] },
   { methods: ['POST'], pattern: /^\/marketplace\/(?:challenges\/[^/]+\/information-requests|information-requests\/[^/]+\/answer)$/, roles: ['PROVIDER'] },
-  { methods: ['POST'], pattern: /^\/marketplace\/binding\/[^/]+\/(?:execute-disclosure|propose-modification|update-status|upload-issued-policy|reconcile)$/, roles: ['PROVIDER'] },
+  { methods: ['POST'], pattern: /^\/marketplace\/binding\/[^/]+\/(?:execute-disclosure|propose-modification|cannot-honor|update-status|upload-issued-policy|reconcile)$/, roles: ['PROVIDER'] },
 ];
 
 export function authorizationRuleFor(method: string, path: string): RouteRule | undefined {
@@ -105,11 +111,6 @@ export function enforceApiAuthorization(req: Request, res: Response, next: NextF
     res.status(403).json({ error: 'Forbidden', message: 'Authorization policy for this route requires an explicit architecture decision.' });
     return;
   }
-  if (rule?.roles === 'FIXTURE_ONLY') {
-    res.status(404).json({ error: 'Not Found' });
-    return;
-  }
-
   const identity = req.openPolicyIdentity;
   if (!identity) {
     res.status(401).json({ error: 'Unauthorized', message: 'Verified identity required.' });

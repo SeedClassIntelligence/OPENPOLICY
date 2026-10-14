@@ -47,7 +47,7 @@ export const PERSPECTIVES: PerspectiveMeta[] = [
     id: 'LANDING',
     title: 'Landing Page & Doctrine',
     label: 'Overview',
-    description: 'Front-facing introduction: inverted competition model, live simulator, comparison table, and product doctrine.',
+    description: 'Public introduction to policy sharing, provider offers, factual comparison, and policyholder choice.',
     icon: Globe,
     color: 'text-teal-400',
     badgeBg: 'bg-teal-600'
@@ -56,7 +56,7 @@ export const PERSPECTIVES: PerspectiveMeta[] = [
     id: 'CONSUMER',
     title: 'Consumer Experience',
     label: 'Consumer',
-    description: 'Policyholder view: baseline policy review, side-by-side carrier offers, and savings reconciliation.',
+    description: 'Policyholder view: current policy review, side-by-side provider offers, and issued-policy reconciliation.',
     icon: UserCheck,
     color: 'text-emerald-400',
     badgeBg: 'bg-emerald-600'
@@ -72,9 +72,9 @@ export const PERSPECTIVES: PerspectiveMeta[] = [
   },
   {
     id: 'ADMIN_AUDIT',
-    title: 'Audit & Review Queue',
-    label: 'Audit',
-    description: 'Regulatory compliance: quote sheet validation, anti-steering checks, and audit trails.',
+    title: 'Owner Operations',
+    label: 'Owner',
+    description: 'Restricted owner operations: rollout oversight, review queues, governance, and audit trails.',
     icon: FileText,
     color: 'text-amber-400',
     badgeBg: 'bg-amber-600'
@@ -217,6 +217,7 @@ export const Header: React.FC<HeaderProps> = ({
 
                   if (isAuthenticated && p.id === 'CONSUMER' && userRole !== 'CONSUMER') return null;
                   if (isAuthenticated && p.id === 'PROVIDER' && userRole !== 'PROVIDER') return null;
+                  if ((p.id === 'ADMIN_AUDIT' || p.id === 'TELEMETRY' || p.id === 'ARCHITECTURE_TESTS') && userRole !== 'ADMIN') return null;
 
                   // Primary perspectives always visible; secondary hidden below xl unless active
                   const isPrimary = p.id === 'LANDING' || p.id === 'CONSUMER' || p.id === 'PROVIDER';
@@ -276,6 +277,7 @@ export const Header: React.FC<HeaderProps> = ({
                     const Icon = p.icon;
                     if (isAuthenticated && p.id === 'CONSUMER' && userRole !== 'CONSUMER') return null;
                     if (isAuthenticated && p.id === 'PROVIDER' && userRole !== 'PROVIDER') return null;
+                    if ((p.id === 'ADMIN_AUDIT' || p.id === 'TELEMETRY' || p.id === 'ARCHITECTURE_TESTS') && userRole !== 'ADMIN') return null;
                     return (
                       <button
                         key={p.id}
@@ -442,16 +444,17 @@ export const Header: React.FC<HeaderProps> = ({
               </div>
             )}
 
-            {/* Reset Button */}
-            <button
-              id="reset-canonical-btn"
-              onClick={onReset}
-              title="Reset state to canonical baseline and sample offers"
-              className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 bg-slate-800/80 hover:bg-slate-700 px-2.5 py-1.5 rounded-lg border border-slate-700 transition"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span className="hidden md:inline">Reset</span>
-            </button>
+            {userRole === 'ADMIN' && (
+              <button
+                id="reset-canonical-btn"
+                onClick={onReset}
+                title="Reset state to canonical baseline and sample offers"
+                className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 bg-slate-800/80 hover:bg-slate-700 px-2.5 py-1.5 rounded-lg border border-slate-700 transition"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span className="hidden md:inline">Reset</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -490,19 +493,19 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Scrollable Body */}
           <div className="p-5 sm:p-6 overflow-y-auto space-y-4 flex-1">
             <p className="text-sm text-slate-600 leading-relaxed italic border-l-2 border-emerald-500 pl-3">
-              "This platform reverses the conventional insurance-shopping relationship. The consumer begins with: Here is the insurance I already have. Here is what I am paying. Compete for my business without disguising reduced protection as savings."
+              "The policyholder shares the insurance they have and what they currently pay. Providers review that information independently and may send an offer. Open Policy shows the differences without choosing for the policyholder."
             </p>
 
             <div className="space-y-2 text-sm">
               {[
                 { n: 1, title: 'Consumer Sovereignty', desc: 'The consumer owns the policy, the information and the decision.' },
                 { n: 2, title: 'Friction Reduction', desc: 'The platform reduces the work required to bring that policy to market.' },
-                { n: 3, title: 'Inverted Competition', desc: 'Providers compete for the consumer rather than forcing the consumer to repeatedly shop providers.' },
-                { n: 4, title: 'Protection-Price Separation', desc: 'Lower price alone does not constitute a better offer.' },
+                { n: 3, title: 'Independent Offers', desc: 'Providers review a shared policy independently and decide whether to send an offer.' },
+                { n: 4, title: 'Protection-Price Separation', desc: 'Premium differences and coverage differences are displayed separately.' },
                 { n: 5, title: 'Visible Differences', desc: 'Coverage differences must be visible.' },
                 { n: 6, title: 'Epistemic Humility', desc: 'Unknown information must remain unknown. AI may never invent missing coverage.' },
                 { n: 7, title: 'Deliberate Progressive Disclosure', desc: 'Personal information is disclosed deliberately rather than indiscriminately distributed.' },
-                { n: 8, title: 'Commercial Neutrality', desc: 'Providers cannot purchase an undisclosed advantage in competitive results.' },
+                { n: 8, title: 'Commercial Neutrality', desc: 'Provider fees do not change how offers are displayed.' },
                 { n: 9, title: 'Deterministic Control', desc: 'The platform explains the market; the consumer controls the outcome.' },
               ].map(({ n, title, desc }) => (
                 <div key={n} className="p-3 rounded-lg bg-slate-50 border border-slate-200 flex items-start space-x-2.5">

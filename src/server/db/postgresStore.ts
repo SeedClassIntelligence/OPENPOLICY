@@ -1,7 +1,7 @@
 import { PGlite } from '@electric-sql/pglite';
 import fs from 'fs';
 import pg from 'pg';
-import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8, SQL_MIGRATION_V9, SQL_MIGRATION_V10, SQL_MIGRATION_V11 } from './migrate';
+import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8, SQL_MIGRATION_V9, SQL_MIGRATION_V10, SQL_MIGRATION_V11, SQL_MIGRATION_V12, SQL_MIGRATION_V13, SQL_MIGRATION_V14, SQL_MIGRATION_V15 } from './migrate';
 import { buildVerifiedPolicyAndBaseline } from '../../domain/policyEvidenceVerification';
 import {
   ProviderOrganization,
@@ -26,13 +26,14 @@ import {
   DisclosureEvent,
   BindingHandoff,
   BindingModification,
+  BindingHonorFailure,
   IssuedPolicyDocument,
   IssuedPolicySnapshot,
   ReconciliationReport,
   PolicyVaultItem,
   PlatformNotification,
   CoverageBaseline,
-  ConsumerRequirements,
+  LegacyConsumerRequirements,
   CompetitionActivityEvent,
   ReviewQueueItem,
   ReviewQueueStatus,
@@ -226,6 +227,22 @@ export class PostgresStore {
         await this.sql.query(
           `INSERT INTO _migrations (name) VALUES ('0011_production_document_intelligence') ON CONFLICT (name) DO NOTHING;`
         );
+        await this.sql.exec(SQL_MIGRATION_V12);
+        await this.sql.query(
+          `INSERT INTO _migrations (name) VALUES ('0012_single_submission_window') ON CONFLICT (name) DO NOTHING;`
+        );
+        await this.sql.exec(SQL_MIGRATION_V13);
+        await this.sql.query(
+          `INSERT INTO _migrations (name) VALUES ('0013_retire_binding_negotiation') ON CONFLICT (name) DO NOTHING;`
+        );
+        await this.sql.exec(SQL_MIGRATION_V14);
+        await this.sql.query(
+          `INSERT INTO _migrations (name) VALUES ('0014_multiline_offer_evidence') ON CONFLICT (name) DO NOTHING;`
+        );
+        await this.sql.exec(SQL_MIGRATION_V15);
+        await this.sql.query(
+          `INSERT INTO _migrations (name) VALUES ('0015_consumer_controlled_offer_cohorts') ON CONFLICT (name) DO NOTHING;`
+        );
         this.isReady = true;
         console.log(
           this.useCloudSql
@@ -326,6 +343,34 @@ export class PostgresStore {
       `SELECT payload FROM policy_documents WHERE id=$1 AND owner_id=$2;`, [documentId, ownerId]
     );
     return result.rows[0] ? JSON.parse(result.rows[0].payload) as PolicyDocumentRecord : undefined;
+  }
+
+  public async getLatestVerifiedPolicyBaseline(ownerId: string): Promise<{
+    document: PolicyDocumentRecord;
+    policy: Policy;
+    baseline: CoverageBaseline;
+  } | undefined> {
+    await this.ensureReady();
+    const result = await this.sql!.query<{
+      document_payload: string;
+      policy_payload: string;
+      baseline_payload: string;
+    }>(
+      `SELECT d.payload AS document_payload, p.payload AS policy_payload, b.payload AS baseline_payload
+       FROM policy_documents d
+       JOIN policies p ON p.payload::jsonb->>'sourceDocumentId'=d.id
+       JOIN coverage_baselines b ON b.policy_id=p.id
+       WHERE d.owner_id=$1 AND d.status='BASELINE_CREATED'
+       ORDER BY d.updated_at DESC, b.version DESC
+       LIMIT 1;`,
+      [ownerId]
+    );
+    if (!result.rows[0]) return undefined;
+    return {
+      document: JSON.parse(result.rows[0].document_payload) as PolicyDocumentRecord,
+      policy: JSON.parse(result.rows[0].policy_payload) as Policy,
+      baseline: JSON.parse(result.rows[0].baseline_payload) as CoverageBaseline
+    };
   }
 
   public async recordPolicyDocumentMalwareDisposition(input: {
@@ -597,7 +642,8 @@ export class PostgresStore {
       }));
       const verifiedAt = new Date().toISOString();
       const { policy, baseline } = buildVerifiedPolicyAndBaseline({
-        ownerId: input.ownerId, documentName: document.originalFileName, normalization, corrections, verifiedAt
+        ownerId: input.ownerId, documentName: document.originalFileName, normalization, corrections,
+        insuranceLine: document.insuranceLine || 'PERSONAL_AUTO', verifiedAt
       });
       await client.query(
         `INSERT INTO policies (id,policy_number,carrier,jurisdiction,named_insured,effective_date,expiration_date,annual_premium,status,payload)
@@ -846,7 +892,21 @@ export class PostgresStore {
     id: string; challenge_id: string; status: string; current_round: string;
     participant_count: number; opened_at: string; closes_at: string; payload: string | null;
   }): Competition {
-    if (row.payload) return JSON.parse(row.payload) as Competition;
+    if (row.payload) {
+      const persisted = JSON.parse(row.payload) as Competition & { currentRound: string; status: string; roundHistory?: Competition['legacyRoundHistory'] };
+      persisted.offerCohortSize = Number((row as any).initial_cohort_size || persisted.offerCohortSize || 10);
+      persisted.maximumActivatedProviders = Number((row as any).total_activation_ceiling || persisted.maximumActivatedProviders || 30);
+      persisted.activeOfferCohort = Number((row as any).active_offer_cohort || persisted.activeOfferCohort || 1);
+      const legacy = ['ROUND_1_OPEN', 'IMPROVEMENT', 'ROUND_2_IMPROVEMENT', 'BEST_AND_FINAL', 'ROUND_3_BAFO'].includes(persisted.currentRound);
+      if (!legacy) return persisted as Competition;
+      const windowOpen = new Date(persisted.closesAt).getTime() > Date.now();
+      return {
+        ...persisted,
+        currentRound: windowOpen ? 'OPEN' : 'CONSUMER_REVIEW',
+        status: windowOpen ? 'OPEN' : 'CONSUMER_REVIEW',
+        legacyRoundHistory: persisted.legacyRoundHistory || persisted.roundHistory
+      } as Competition;
+    }
     return {
       id: row.id,
       challengeId: row.challenge_id,
@@ -855,8 +915,9 @@ export class PostgresStore {
       openedAt: row.opened_at,
       closesAt: row.closes_at,
       participantCount: row.participant_count,
-      improvementRoundEnabled: true,
-      finalRoundEnabled: true
+      offerCohortSize: Number((row as any).initial_cohort_size || 10),
+      maximumActivatedProviders: Number((row as any).total_activation_ceiling || 30),
+      activeOfferCohort: Number((row as any).active_offer_cohort || 1)
     };
   }
 
@@ -906,7 +967,13 @@ export class PostgresStore {
     status: string; invited_at: string; viewed_at: string | null; accepted_at: string | null;
     declined_at: string | null; decline_reason: string | null; decline_notes: string | null; payload: string | null;
   }): ChallengeInvitation {
-    if (row.payload) return JSON.parse(row.payload) as ChallengeInvitation;
+    if (row.payload) {
+      const persisted = JSON.parse(row.payload) as ChallengeInvitation;
+      persisted.standbyPosition = Number((row as any).standby_position || persisted.standbyPosition || 0) || undefined;
+      persisted.offerCohort = Number((row as any).offer_cohort || persisted.offerCohort || 0) || undefined;
+      persisted.activatedAt = (row as any).activated_at || persisted.activatedAt;
+      return persisted;
+    }
     return {
       id: row.id,
       challengeId: row.challenge_id,
@@ -921,7 +988,10 @@ export class PostgresStore {
       declinedAt: row.declined_at || undefined,
       declineReason: (row.decline_reason as ChallengeInvitation['declineReason']) || undefined,
       declineNotes: row.decline_notes || undefined,
-      expiresAt: new Date(Date.now() + 48 * 3600 * 1000).toISOString()
+      expiresAt: new Date(Date.now() + 48 * 3600 * 1000).toISOString(),
+      standbyPosition: Number((row as any).standby_position || 0) || undefined,
+      offerCohort: Number((row as any).offer_cohort || 0) || undefined,
+      activatedAt: (row as any).activated_at || undefined
     };
   }
 
@@ -1025,14 +1095,24 @@ export class PostgresStore {
     id: string; user_id: string; reference_number: string; jurisdiction: string;
     status: string; created_at: string; baseline_data: string | null; requirements_data: string | null; payload?: string | null;
   }): Challenge {
-    if (row.payload) return JSON.parse(row.payload) as Challenge;
+    if (row.payload) {
+      const persisted = JSON.parse(row.payload) as Challenge & { requirements?: LegacyConsumerRequirements };
+      const legacyRequirements = persisted.legacyRequirements || persisted.requirements;
+      const { requirements: _historicalRequirements, ...canonical } = persisted;
+      return {
+        ...canonical,
+        qualificationStandardVersion: persisted.qualificationStandardVersion || 'QS-1',
+        ...(legacyRequirements ? { legacyRequirements } : {})
+      } as Challenge;
+    }
     return {
       id: row.id,
       referenceNumber: row.reference_number,
       consumerId: row.user_id,
       coverageBaselineId: 'base_1',
       baseline: row.baseline_data ? JSON.parse(row.baseline_data) : ({} as any),
-      requirements: row.requirements_data ? JSON.parse(row.requirements_data) : ({} as any),
+      qualificationStandardVersion: 'QS-1',
+      legacyRequirements: row.requirements_data ? JSON.parse(row.requirements_data) : undefined,
       jurisdiction: row.jurisdiction,
       openingTimestamp: row.created_at,
       closingTimestamp: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
@@ -1276,7 +1356,8 @@ export class PostgresStore {
       id: string; offer_id: string; version_number: number; round: string;
       carrier: string; annual_premium: number; monthly_premium: number;
       coverages: string; supporting_quote_doc_name: string; revision_reason: string;
-      submitted_at: string; superseded_at: string | null;
+      submitted_at: string; superseded_at: string | null; insurance_line: string | null;
+      verified_facts: string | null;
     }>(`SELECT * FROM offer_versions WHERE offer_id = $1 ORDER BY version_number ASC;`, [offerId]);
     return res.rows.map(row => ({
       id: row.id,
@@ -1287,6 +1368,8 @@ export class PostgresStore {
       annualPremium: row.annual_premium,
       monthlyPremium: row.monthly_premium,
       coverages: JSON.parse(row.coverages || '[]'),
+      verifiedFacts: row.verified_facts ? JSON.parse(row.verified_facts) : undefined,
+      insuranceLine: (row.insurance_line || undefined) as OfferVersion['insuranceLine'],
       supportingQuoteDocName: row.supporting_quote_doc_name,
       revisionReason: row.revision_reason,
       submittedAt: row.submitted_at,
@@ -1395,7 +1478,11 @@ export class PostgresStore {
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        ON CONFLICT (provider_organization_id) DO UPDATE SET
          jurisdictions = EXCLUDED.jurisdictions,
-         lines_of_business = EXCLUDED.lines_of_business;`,
+         lines_of_business = EXCLUDED.lines_of_business,
+         target_vehicle_years_min = EXCLUDED.target_vehicle_years_min,
+         target_vehicle_years_max = EXCLUDED.target_vehicle_years_max,
+         preferred_risk_tiers = EXCLUDED.preferred_risk_tiers,
+         excluded_vehicle_types = EXCLUDED.excluded_vehicle_types;`,
       [
         appetite.providerOrganizationId,
         JSON.stringify(appetite.jurisdictions),
@@ -1413,13 +1500,16 @@ export class PostgresStore {
   public async saveCompetition(comp: Competition) {
     await this.ensureReady();
     await this.sql!.query(
-      `INSERT INTO competitions (id, challenge_id, jurisdiction, line_of_business, status, current_round, participant_count, opened_at, closes_at, rules, payload)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      `INSERT INTO competitions (id, challenge_id, jurisdiction, line_of_business, status, current_round, participant_count, opened_at, closes_at, rules, payload, initial_cohort_size, total_activation_ceiling, active_offer_cohort)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        ON CONFLICT (id) DO UPDATE SET
          status = EXCLUDED.status,
          current_round = EXCLUDED.current_round,
          participant_count = EXCLUDED.participant_count,
          closes_at = EXCLUDED.closes_at,
+         initial_cohort_size = EXCLUDED.initial_cohort_size,
+         total_activation_ceiling = EXCLUDED.total_activation_ceiling,
+         active_offer_cohort = EXCLUDED.active_offer_cohort,
          payload = EXCLUDED.payload,
          version = competitions.version + 1;`,
       [
@@ -1433,7 +1523,7 @@ export class PostgresStore {
         comp.openedAt,
         comp.closesAt,
         JSON.stringify((comp as any).rules || {}),
-        JSON.stringify(comp)
+        JSON.stringify(comp), comp.offerCohortSize || 10, comp.maximumActivatedProviders || 30, comp.activeOfferCohort || 1
       ]
     );
   }
@@ -1454,6 +1544,147 @@ export class PostgresStore {
       await this.appendAuditInTransaction(client,{eventType:'COMPETITION_ROUND_ADVANCED',actorRole:'ADMIN',actorId:input.actorId,details:e.summary});
       return input.competition;
     });
+  }
+
+  public async getOfferCohortStatus(challengeId: string) {
+    await this.ensureReady();
+    const [competition, invitations, offers] = await Promise.all([
+      this.getCompetitionForChallenge(challengeId),
+      this.getInvitationsForChallenge(challengeId),
+      this.getOffers(challengeId)
+    ]);
+    if (!competition) throw Object.assign(new Error('Offer-submission window not found'), { statusCode: 404 });
+    const activated = invitations.filter(inv => inv.status !== 'STANDBY' && inv.eligibilityResult === 'ELIGIBLE');
+    const standby = invitations.filter(inv => inv.status === 'STANDBY');
+    const maximum = competition.maximumActivatedProviders || 30;
+    const submissionWindowOpen = competition.status === 'OPEN' && Date.now() < new Date(competition.closesAt).getTime();
+    return {
+      challengeId,
+      submissionWindowOpen,
+      activeCohort: competition.activeOfferCohort || 1,
+      cohortSize: competition.offerCohortSize || 10,
+      activatedProviderCount: activated.length,
+      standbyProviderCount: standby.length,
+      currentOfferCount: offers.filter(offer => offer.status !== 'WITHDRAWN').length,
+      canRequestAdditionalOffers: submissionWindowOpen && standby.length > 0 && activated.length < maximum
+    };
+  }
+
+  public async commitAdditionalOfferCohort(input: {
+    challengeId: string;
+    consumerId: string;
+    expectedActiveCohort: number;
+    idempotencyKey: string;
+    eligibleProviderOrganizationIds: string[];
+  }): Promise<{ status: Awaited<ReturnType<PostgresStore['getOfferCohortStatus']>>; activated: ChallengeInvitation[] }> {
+    await this.ensureReady();
+    const activated = await this.sql!.transaction(async client => {
+      const competitionResult = await client.query<any>(`SELECT * FROM competitions WHERE challenge_id=$1 FOR UPDATE;`, [input.challengeId]);
+      if (!competitionResult.rows[0]) throw Object.assign(new Error('Offer-submission window not found'), { statusCode: 404 });
+      const competition = this._mapCompetition(competitionResult.rows[0]);
+      if (competition.status !== 'OPEN' || Date.now() >= new Date(competition.closesAt).getTime()) {
+        throw Object.assign(new Error('Additional providers cannot be activated after the submission window closes.'), { statusCode: 409 });
+      }
+      const priorRequest = await client.query<any>(
+        `SELECT * FROM offer_cohort_activation_requests WHERE idempotency_key=$1;`,
+        [input.idempotencyKey]
+      );
+      if (priorRequest.rows[0]) {
+        const prior = priorRequest.rows[0];
+        if (prior.challenge_id !== input.challengeId || prior.consumer_id !== input.consumerId) {
+          throw Object.assign(new Error('Idempotency key was already used for another offer-cohort request.'), { statusCode: 409 });
+        }
+        const invitationIds = JSON.parse(prior.activated_invitation_ids || '[]') as string[];
+        if (invitationIds.length === 0) return [];
+        const replay = await client.query<any>(
+          `SELECT * FROM challenge_invitations WHERE id = ANY($1::text[]) ORDER BY standby_position,id;`,
+          [invitationIds]
+        );
+        return replay.rows.map((row: any) => this._mapInvitation(row));
+      }
+
+      const currentCohort = competition.activeOfferCohort || 1;
+      if (input.expectedActiveCohort !== currentCohort) {
+        await client.query(
+          `INSERT INTO offer_cohort_activation_requests
+           (idempotency_key,challenge_id,competition_id,consumer_id,expected_active_cohort,resulting_active_cohort,activated_invitation_ids,requested_at)
+           VALUES ($1,$2,$3,$4,$5,$6,'[]',$7);`,
+          [input.idempotencyKey,input.challengeId,competition.id,input.consumerId,input.expectedActiveCohort,currentCohort,new Date().toISOString()]
+        );
+        return [];
+      }
+
+      const invitationResult = await client.query<any>(`SELECT * FROM challenge_invitations WHERE challenge_id=$1 FOR UPDATE;`, [input.challengeId]);
+      const invitations = invitationResult.rows.map((row: any) => this._mapInvitation(row));
+      const currentlyActivated = invitations.filter(inv => inv.status !== 'STANDBY' && inv.eligibilityResult === 'ELIGIBLE').length;
+      const maximum = competition.maximumActivatedProviders || 30;
+      const remainingCapacity = Math.max(0, maximum - currentlyActivated);
+      const cohortSize = Math.min(competition.offerCohortSize || 10, remainingCapacity);
+      const next = invitations
+        .filter(inv => inv.status === 'STANDBY' && input.eligibleProviderOrganizationIds.includes(inv.providerOrganizationId))
+        .sort((a, b) => (a.standbyPosition || Number.MAX_SAFE_INTEGER) - (b.standbyPosition || Number.MAX_SAFE_INTEGER) || a.id.localeCompare(b.id))
+        .slice(0, cohortSize);
+      if (next.length === 0) {
+        await client.query(
+          `INSERT INTO offer_cohort_activation_requests
+           (idempotency_key,challenge_id,competition_id,consumer_id,expected_active_cohort,resulting_active_cohort,activated_invitation_ids,requested_at)
+           VALUES ($1,$2,$3,$4,$5,$6,'[]',$7);`,
+          [input.idempotencyKey,input.challengeId,competition.id,input.consumerId,input.expectedActiveCohort,currentCohort,new Date().toISOString()]
+        );
+        return [];
+      }
+
+      const now = new Date().toISOString();
+      const nextCohort = currentCohort + 1;
+      for (const invitation of next) {
+        invitation.status = 'INVITED';
+        invitation.offerCohort = nextCohort;
+        invitation.activatedAt = now;
+        await client.query(
+          `UPDATE challenge_invitations SET status='INVITED', invited_at=$2, offer_cohort=$4, activated_at=$2, payload=$3, version=version+1 WHERE id=$1;`,
+          [invitation.id, now, JSON.stringify(invitation), nextCohort]
+        );
+        await client.query(
+          `INSERT INTO platform_notifications
+           (id,type,title,message,timestamp,is_read,recipient_type,recipient_provider_organization_id,created_from_event,action_target)
+           VALUES ($1,'OPPORTUNITY_RECEIVED','New Shared Policy Opportunity',$2,$3,FALSE,'PROVIDER_ORGANIZATION',$4,$5,'OPPORTUNITIES')
+           ON CONFLICT (id) DO NOTHING;`,
+          [`NOTIF-COHORT-${nextCohort}-${invitation.id}`,
+           `A verified policy opportunity is available for independent review. Other providers' offers and the consumer's reasons for requesting additional offers are not disclosed.`,
+           now, invitation.providerOrganizationId, `INVITATION_ACTIVATED:${invitation.id}`]
+        );
+        await this.appendAuditInTransaction(client, {
+          eventType: 'INVITATION_ACTIVATED', actorRole: 'SYSTEM', actorId: 'offer_cohort_service',
+          details: `Activated invitation ${invitation.id} in consumer-requested offer cohort ${nextCohort}`
+        });
+      }
+      const updatedCompetition = { ...competition, activeOfferCohort: nextCohort };
+      await client.query(`UPDATE competitions SET active_offer_cohort=$2,payload=$3,version=version+1 WHERE id=$1;`, [competition.id, nextCohort, JSON.stringify(updatedCompetition)]);
+      const activity: CompetitionActivityEvent = {
+        id: `ACT-ADDITIONAL-OFFERS-${competition.id}-${nextCohort}`,
+        competitionId: competition.id, challengeId: input.challengeId, timestamp: now,
+        type: 'ADDITIONAL_OFFERS_REQUESTED', actorRole: 'CONSUMER',
+        summary: `Policyholder requested additional independent offers; ${next.length} providers activated`,
+        round: competition.currentRound, metadata: { cohort: nextCohort, activatedProviderCount: next.length }
+      };
+      await client.query(
+        `INSERT INTO competition_activity_events (id,competition_id,challenge_id,occurred_at,event_type,provider_organization_id,payload)
+         VALUES ($1,$2,$3,$4,$5,NULL,$6) ON CONFLICT(id) DO NOTHING;`,
+        [activity.id, activity.competitionId, activity.challengeId, activity.timestamp, activity.type, JSON.stringify(activity)]
+      );
+      await this.appendAuditInTransaction(client, {
+        eventType: 'ADDITIONAL_OFFERS_REQUESTED', actorRole: 'CONSUMER', actorId: input.consumerId,
+        details: `Consumer requested offer cohort ${nextCohort} for ${input.challengeId}; activated ${next.length} standby providers without disclosing prior offers`
+      });
+      await client.query(
+        `INSERT INTO offer_cohort_activation_requests
+         (idempotency_key,challenge_id,competition_id,consumer_id,expected_active_cohort,resulting_active_cohort,activated_invitation_ids,requested_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8);`,
+        [input.idempotencyKey,input.challengeId,competition.id,input.consumerId,input.expectedActiveCohort,nextCohort,JSON.stringify(next.map(invitation => invitation.id)),now]
+      );
+      return next;
+    });
+    return { status: await this.getOfferCohortStatus(input.challengeId), activated };
   }
 
   public async commitProviderWithdrawal(input:{challengeId:string;organizationId:string;reason:string;notes?:string}):Promise<ChallengeParticipation>{
@@ -1506,8 +1737,8 @@ export class PostgresStore {
   public async saveInvitation(inv: ChallengeInvitation) {
     await this.ensureReady();
     await this.sql!.query(
-      `INSERT INTO challenge_invitations (id, challenge_id, competition_id, provider_organization_id, status, invited_at, viewed_at, accepted_at, declined_at, decline_reason, decline_notes, payload)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      `INSERT INTO challenge_invitations (id, challenge_id, competition_id, provider_organization_id, status, invited_at, viewed_at, accepted_at, declined_at, decline_reason, decline_notes, standby_position, offer_cohort, activated_at, payload)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
        ON CONFLICT (id) DO UPDATE SET
          status = EXCLUDED.status,
          viewed_at = EXCLUDED.viewed_at,
@@ -1515,6 +1746,9 @@ export class PostgresStore {
          declined_at = EXCLUDED.declined_at,
          decline_reason = EXCLUDED.decline_reason,
          decline_notes = EXCLUDED.decline_notes,
+         standby_position = EXCLUDED.standby_position,
+         offer_cohort = EXCLUDED.offer_cohort,
+         activated_at = EXCLUDED.activated_at,
          payload = EXCLUDED.payload,
          version = challenge_invitations.version + 1;`,
       [
@@ -1529,6 +1763,9 @@ export class PostgresStore {
         inv.declinedAt || null,
         inv.declineReason || null,
         inv.declineNotes || null,
+        inv.standbyPosition || null,
+        inv.offerCohort || null,
+        inv.activatedAt || null,
         JSON.stringify(inv)
       ]
     );
@@ -1708,8 +1945,9 @@ export class PostgresStore {
     }
     await this.sql!.query(
       `INSERT INTO challenges (id, user_id, reference_number, jurisdiction, status, created_at, baseline_data, requirements_data,
-         jurisdiction_determination_id, rule_set_id, rule_set_content_sha256, regulatory_evaluation_date, payload)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+         jurisdiction_determination_id, rule_set_id, rule_set_content_sha256, regulatory_evaluation_date, payload,
+         qualification_standard_version, legacy_requirements_data)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
        ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, payload = EXCLUDED.payload,
          version = challenges.version + 1;`,
       [
@@ -1720,12 +1958,14 @@ export class PostgresStore {
         chal.status,
         chal.openingTimestamp || (chal as any).createdAt || new Date().toISOString(),
         JSON.stringify(chal.baseline || {}),
-        JSON.stringify(chal.requirements || {}),
+        null,
         chal.jurisdictionDeterminationId ?? null,
         chal.ruleSetId ?? null,
         chal.ruleSetContentSha256 ?? null,
         chal.regulatoryEvaluationDate ?? null,
-        JSON.stringify(chal)
+        JSON.stringify(chal),
+        chal.qualificationStandardVersion || 'QS-1',
+        chal.legacyRequirements ? JSON.stringify(chal.legacyRequirements) : null
       ]
     );
   }
@@ -1742,43 +1982,45 @@ export class PostgresStore {
     const { challenge, competition, invitations, notifications, activity, audits } = input;
     await this.sql!.transaction(async client => {
       await client.query(
-        `INSERT INTO consumer_requirements (id, payload) VALUES ($1, $2)
-         ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload;`,
-        [challenge.requirements.id, JSON.stringify(challenge.requirements)]
-      );
-      await client.query(
         `INSERT INTO challenges (id, user_id, reference_number, jurisdiction, status, created_at,
            baseline_data, requirements_data, jurisdiction_determination_id, rule_set_id,
-           rule_set_content_sha256, regulatory_evaluation_date, payload)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+           rule_set_content_sha256, regulatory_evaluation_date, payload,
+           qualification_standard_version, legacy_requirements_data)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
          ON CONFLICT (id) DO NOTHING;`,
         [challenge.id, challenge.consumerId, challenge.referenceNumber, challenge.jurisdiction,
          challenge.status, challenge.openingTimestamp, JSON.stringify(challenge.baseline),
-         JSON.stringify(challenge.requirements), challenge.jurisdictionDeterminationId || null,
+         null, challenge.jurisdictionDeterminationId || null,
          challenge.ruleSetId || null, challenge.ruleSetContentSha256 || null,
-         challenge.regulatoryEvaluationDate || null, JSON.stringify(challenge)]
+         challenge.regulatoryEvaluationDate || null, JSON.stringify(challenge),
+         challenge.qualificationStandardVersion || 'QS-1',
+         challenge.legacyRequirements ? JSON.stringify(challenge.legacyRequirements) : null]
       );
       await client.query(
         `INSERT INTO competitions (id, challenge_id, jurisdiction, line_of_business, status,
-           current_round, participant_count, opened_at, closes_at, rules, payload)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+           current_round, participant_count, opened_at, closes_at, rules, initial_cohort_size,
+           total_activation_ceiling, active_offer_cohort, payload)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
          ON CONFLICT (id) DO NOTHING;`,
-        [competition.id, competition.challengeId, challenge.jurisdiction, 'PERSONAL_AUTO',
+        [competition.id, competition.challengeId, challenge.jurisdiction, challenge.insuranceLine || 'PERSONAL_AUTO',
          competition.status, competition.currentRound, competition.participantCount,
-         competition.openedAt, competition.closesAt, '{}', JSON.stringify(competition)]
+         competition.openedAt, competition.closesAt, '{}', competition.offerCohortSize || 10,
+         competition.maximumActivatedProviders || 30, competition.activeOfferCohort || 1,
+         JSON.stringify(competition)]
       );
       for (const invitation of invitations) {
         await client.query(
           `INSERT INTO challenge_invitations (id, challenge_id, competition_id,
              provider_organization_id, status, invited_at, viewed_at, accepted_at,
-             declined_at, decline_reason, decline_notes, payload)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+             declined_at, decline_reason, decline_notes, standby_position, offer_cohort, activated_at, payload)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
            ON CONFLICT (id) DO NOTHING;`,
           [invitation.id, invitation.challengeId, invitation.competitionId,
            invitation.providerOrganizationId, invitation.status, invitation.invitedAt,
            invitation.viewedAt || null, invitation.acceptedAt || null,
            invitation.declinedAt || null, invitation.declineReason || null,
-           invitation.declineNotes || null, JSON.stringify(invitation)]
+           invitation.declineNotes || null, invitation.standbyPosition || null,
+           invitation.offerCohort || null, invitation.activatedAt || null, JSON.stringify(invitation)]
         );
       }
       await client.query(
@@ -1930,7 +2172,8 @@ export class PostgresStore {
     return res.rows[0] ? JSON.parse(res.rows[0].payload) as CoverageBaseline : undefined;
   }
 
-  public async saveConsumerRequirements(requirements: ConsumerRequirements): Promise<void> {
+  /** @deprecated Historical records only. New challenges never write this table. */
+  public async saveConsumerRequirements(requirements: LegacyConsumerRequirements): Promise<void> {
     await this.ensureReady();
     await this.sql!.query(
       `INSERT INTO consumer_requirements (id, payload) VALUES ($1, $2)
@@ -1939,12 +2182,13 @@ export class PostgresStore {
     );
   }
 
-  public async getConsumerRequirements(id: string): Promise<ConsumerRequirements | undefined> {
+  /** @deprecated Historical records only. */
+  public async getConsumerRequirements(id: string): Promise<LegacyConsumerRequirements | undefined> {
     await this.ensureReady();
     const res = await this.sql!.query<{ payload: string }>(
       `SELECT payload FROM consumer_requirements WHERE id = $1;`, [id]
     );
-    return res.rows[0] ? JSON.parse(res.rows[0].payload) as ConsumerRequirements : undefined;
+    return res.rows[0] ? JSON.parse(res.rows[0].payload) as LegacyConsumerRequirements : undefined;
   }
 
   public async saveCompetitionActivity(event: CompetitionActivityEvent): Promise<boolean> {
@@ -2104,12 +2348,13 @@ export class PostgresStore {
       await client.query(
         `INSERT INTO offer_versions (id, offer_id, version_number, round, carrier,
            annual_premium, monthly_premium, coverages, supporting_quote_doc_name,
-           revision_reason, submitted_at, superseded_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12);`,
+           revision_reason, submitted_at, superseded_at, insurance_line, verified_facts)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14);`,
         [version.id, version.offerId, version.versionNumber, version.round, version.carrier,
          version.annualPremium, version.monthlyPremium, JSON.stringify(version.coverages || []),
          version.supportingQuoteDocName || '', version.revisionReason, version.submittedAt,
-         version.supersededAt || null]
+         version.supersededAt || null, version.insuranceLine || null,
+         version.verifiedFacts ? JSON.stringify(version.verifiedFacts) : null]
       );
       challenge.offersCount = Number(challenge.offersCount || 0) + 1;
       challenge.status = 'OFFERS_RECEIVED';
@@ -2141,7 +2386,7 @@ export class PostgresStore {
       const o=input.revised;
       await client.query(`INSERT INTO offers (id,challenge_id,provider_id,provider_name,carrier,annual_premium,monthly_premium,status,round,version,previous_offer_id,is_latest_revision,payload) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,TRUE,$12);`,[o.id,o.challengeId,o.providerId,o.providerName,o.carrier,o.annualPremium,o.monthlyPremium,o.status,o.round,o.version,o.previousOfferId,JSON.stringify(o)]);
       const v=input.version;
-      await client.query(`INSERT INTO offer_versions (id,offer_id,version_number,round,carrier,annual_premium,monthly_premium,coverages,supporting_quote_doc_name,revision_reason,submitted_at,superseded_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12);`,[v.id,v.offerId,v.versionNumber,v.round,v.carrier,v.annualPremium,v.monthlyPremium,JSON.stringify(v.coverages),v.supportingQuoteDocName,v.revisionReason,v.submittedAt,v.supersededAt||null]);
+      await client.query(`INSERT INTO offer_versions (id,offer_id,version_number,round,carrier,annual_premium,monthly_premium,coverages,supporting_quote_doc_name,revision_reason,submitted_at,superseded_at,insurance_line,verified_facts) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14);`,[v.id,v.offerId,v.versionNumber,v.round,v.carrier,v.annualPremium,v.monthlyPremium,JSON.stringify(v.coverages),v.supportingQuoteDocName,v.revisionReason,v.submittedAt,v.supersededAt||null,v.insuranceLine||null,v.verifiedFacts?JSON.stringify(v.verifiedFacts):null]);
       const e=input.activity;await client.query(`INSERT INTO competition_activity_events (id,competition_id,challenge_id,occurred_at,event_type,provider_organization_id,payload) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(id) DO NOTHING;`,[e.id,e.competitionId,e.challengeId,e.timestamp,e.type,e.providerOrganizationId||null,JSON.stringify(e)]);
       await this.appendAuditInTransaction(client,{eventType:'OFFER_SUBMITTED',actorRole:'PROVIDER',actorId:input.actorId,details:`Provider revised offer ${input.original.id} to version ${v.versionNumber}`});
       return o;
@@ -2226,8 +2471,9 @@ export class PostgresStore {
     await this.sql!.query(
       `INSERT INTO offer_versions (
         id, offer_id, version_number, round, carrier, annual_premium, monthly_premium,
-        coverages, supporting_quote_doc_name, revision_reason, submitted_at, superseded_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        coverages, supporting_quote_doc_name, revision_reason, submitted_at, superseded_at,
+        insurance_line, verified_facts
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
       ON CONFLICT (id) DO UPDATE SET
         superseded_at = EXCLUDED.superseded_at;`,
       [
@@ -2242,7 +2488,9 @@ export class PostgresStore {
         ver.supportingQuoteDocName,
         ver.revisionReason,
         ver.submittedAt,
-        ver.supersededAt || null
+        ver.supersededAt || null,
+        ver.insuranceLine || null,
+        ver.verifiedFacts ? JSON.stringify(ver.verifiedFacts) : null
       ]
     );
   }
@@ -2627,6 +2875,74 @@ export class PostgresStore {
     await this.ensureReady();
     const result = await this.sql!.query<any>(`SELECT * FROM binding_modifications WHERE id=$1;`, [id]);
     return result.rows[0] ? this.mapBindingModification(result.rows[0]) : undefined;
+  }
+
+  private mapBindingHonorFailure(row: any): BindingHonorFailure {
+    return {
+      id: row.id,
+      bindingHandoffId: row.binding_handoff_id,
+      challengeId: row.challenge_id,
+      providerOrganizationId: row.provider_organization_id,
+      providerUserId: row.provider_user_id,
+      reasonCode: row.reason_code,
+      reportedAt: row.reported_at
+    } as BindingHonorFailure;
+  }
+
+  public async getBindingHonorFailure(handoffId: string): Promise<BindingHonorFailure | undefined> {
+    await this.ensureReady();
+    const result = await this.sql!.query<any>(`SELECT * FROM binding_honor_failures WHERE binding_handoff_id=$1;`, [handoffId]);
+    return result.rows[0] ? this.mapBindingHonorFailure(result.rows[0]) : undefined;
+  }
+
+  public async commitBindingHonorFailure(input: {
+    failure: BindingHonorFailure;
+    handoff: BindingHandoff;
+  }): Promise<{ failure: BindingHonorFailure; handoff: BindingHandoff }> {
+    await this.ensureReady();
+    return this.sql!.transaction(async client => {
+      const handoffResult = await client.query<any>(`SELECT * FROM binding_handoffs WHERE id=$1 FOR UPDATE;`, [input.handoff.id]);
+      if (!handoffResult.rows[0]) throw Object.assign(new Error(`Binding handoff not found: ${input.handoff.id}`), { statusCode: 404 });
+      const durable = this.mapBindingHandoff(handoffResult.rows[0]);
+      if (durable.providerOrganizationId !== input.failure.providerOrganizationId) {
+        throw Object.assign(new Error('Provider organization is not authorized for this binding handoff'), { statusCode: 403 });
+      }
+      if (!durable.consumerId) {
+        throw Object.assign(new Error('Binding handoff has no authoritative consumer mapping'), { statusCode: 403 });
+      }
+      const existing = await client.query<any>(`SELECT * FROM binding_honor_failures WHERE binding_handoff_id=$1;`, [durable.id]);
+      if (existing.rows[0]) return { failure: this.mapBindingHonorFailure(existing.rows[0]), handoff: durable };
+      const failure = input.failure;
+      await client.query(
+        `INSERT INTO binding_honor_failures
+          (id,binding_handoff_id,challenge_id,provider_organization_id,provider_user_id,reason_code,reported_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7);`,
+        [failure.id,failure.bindingHandoffId,failure.challengeId,failure.providerOrganizationId,
+          failure.providerUserId,failure.reasonCode,failure.reportedAt]
+      );
+      await client.query(
+        `UPDATE binding_handoffs SET status='DECLINED',declined_at=$2,decline_reason=$3,updated_at=$2 WHERE id=$1;`,
+        [durable.id,failure.reportedAt,failure.reasonCode]
+      );
+      await client.query(
+        `INSERT INTO platform_notifications
+          (id,type,title,message,timestamp,is_read,recipient_type,recipient_consumer_id,created_from_event,action_target)
+         VALUES ($1,'SELECTED_OFFER_UNAVAILABLE',$2,$3,$4,FALSE,'CONSUMER',$5,$6,$7)
+         ON CONFLICT (id) DO NOTHING;`,
+        [`NOTIF-${failure.id}`,'Selected offer cannot be honored as submitted',
+          `The selected provider reported that the selected offer cannot be honored as submitted. Reason: ${failure.reasonCode}. No replacement terms were proposed through Open Policy.`,
+          failure.reportedAt,durable.consumerId,`SELECTED_OFFER_CANNOT_BE_HONORED:${failure.id}`,'BINDING_HANDOFF']
+      );
+      await this.appendAuditInTransaction(client, {
+        eventType: 'SELECTED_OFFER_CANNOT_BE_HONORED', actorRole: 'PROVIDER', actorId: failure.providerUserId,
+        details: `Provider ${failure.providerOrganizationId} reported handoff ${durable.id} cannot honor selected OfferVersion ${durable.offerVersionId}; reason ${failure.reasonCode}`
+      });
+      await this.appendAuditInTransaction(client, {
+        eventType: 'BINDING_STATUS_CHANGED', actorRole: 'PROVIDER', actorId: failure.providerUserId,
+        details: `Handoff ${durable.id} status updated from ${durable.status} to DECLINED without changing consent or selected OfferVersion`
+      });
+      return { failure, handoff: { ...input.handoff, status: 'DECLINED', declinedAt: failure.reportedAt, declineReason: failure.reasonCode, updatedAt: failure.reportedAt } };
+    });
   }
 
   public async commitBindingModificationProposal(input: {
@@ -3654,12 +3970,10 @@ export class PostgresStore {
       id: 'COMP-NV-49281',
       challengeId: 'CHAL-NV-49281',
       status: 'OPEN',
-      currentRound: 'ROUND_1_OPEN',
+      currentRound: 'OPEN',
       openedAt: '2026-09-18T14:35:00Z',
       closesAt: '2026-09-20T14:35:00Z',
-      participantCount: 1,
-      improvementRoundEnabled: true,
-      finalRoundEnabled: true
+      participantCount: 1
     });
 
     await this.saveInvitation({
