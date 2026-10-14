@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   ShieldCheck,
   ArrowRight,
@@ -43,6 +43,7 @@ import { ActivePerspective } from './Header';
 import { useAuth } from '../context/AuthContext';
 import { AuthModal } from './AuthModal';
 import { INSURANCE_LINE_REGISTRY } from '../domain/insuranceLineRegistry';
+import { ProviderLandingPage } from './ProviderLandingPage';
 
 interface LandingPageProps {
   onNavigateConsumer: () => void;
@@ -64,6 +65,22 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   const { isAuthenticated, userRole, openAuthModal } = useAuth();
 
   const [landingSignupRole, setLandingSignupRole] = useState<'CONSUMER' | 'PROVIDER'>('CONSUMER');
+  const [publicPage, setPublicPage] = useState<'CONSUMER' | 'PROVIDER'>(() =>
+    window.location.pathname === '/providers' ? 'PROVIDER' : 'CONSUMER'
+  );
+
+  useEffect(() => {
+    const syncFromLocation = () => setPublicPage(window.location.pathname === '/providers' ? 'PROVIDER' : 'CONSUMER');
+    window.addEventListener('popstate', syncFromLocation);
+    return () => window.removeEventListener('popstate', syncFromLocation);
+  }, []);
+
+  const navigatePublicPage = (page: 'CONSUMER' | 'PROVIDER') => {
+    const path = page === 'PROVIDER' ? '/providers' : '/';
+    window.history.pushState({}, '', path);
+    setPublicPage(page);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   const handleStartPolicyReviewClick = () => {
     if (isAuthenticated && userRole === 'CONSUMER') {
@@ -302,11 +319,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       categoryLabel: 'Platform Economics',
       doctrineTag: 'Doctrine 08 · Commercial Neutrality',
       question: 'How is Open Policy funded if you never sell consumer contact information or accept advertising?',
-      answer: 'Open Policy adheres strictly to Commercial Neutrality (Doctrine 08). Traditional aggregator sites accept paid promotions that bias top placements. Open Policy charges zero fees to consumers and charges participating carriers a flat, uniform protocol settlement fee only when a policy is successfully bound. No carrier can buy algorithmic favoritism or sponsored visibility.',
+      answer: 'Open Policy charges consumers nothing. Participating provider organizations pay published, versioned membership and service charges tied to defined events such as qualified engagement and a consumer-authorized connection. These charges never change provider activation order, offer presentation, or consumer selection.',
       keyPoints: [
         'Zero sponsored results or algorithmic pay-to-play',
-        'Uniform flat settlement fee upon successful binding only',
-        'Transparent platform economics aligned with consumer value'
+        'Qualified engagement and authorized connection remain distinct events',
+        'Published provider pricing does not purchase preferential placement'
       ]
     },
     {
@@ -355,6 +372,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     setOpenFaqIds([]);
   };
 
+  if (publicPage === 'PROVIDER') {
+    return (
+      <ProviderLandingPage
+        onBackToPolicyholders={() => navigatePublicPage('CONSUMER')}
+        onEnterProviderDesk={onNavigateProvider}
+      />
+    );
+  }
+
   return (
     <div className="w-full">
       {/* 1. Full-Width Hero Section */}
@@ -399,11 +425,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
             <button
               id="hero-provider-desk-btn"
-              onClick={handleProviderDeskClick}
+              onClick={() => navigatePublicPage('PROVIDER')}
               className="w-full sm:w-auto inline-flex items-center justify-center space-x-2 px-6 py-3.5 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-semibold text-sm rounded-xl border border-slate-700 transition cursor-pointer"
             >
               <Briefcase className="w-4 h-4 text-blue-400" />
-              <span>Provider Quoting Desk</span>
+              <span>For Providers &amp; Carriers</span>
             </button>
 
             <a

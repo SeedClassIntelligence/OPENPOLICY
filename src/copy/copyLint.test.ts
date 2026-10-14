@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 const publicCopyFiles = [
   new URL('../../index.html', import.meta.url),
   new URL('../components/LandingPage.tsx', import.meta.url),
+  new URL('../components/ProviderLandingPage.tsx', import.meta.url),
   new URL('./landing.ts', import.meta.url),
 ];
 
@@ -164,6 +165,7 @@ test('sign-in provides privacy-preserving Firebase password recovery', () => {
 
 test('public copy preserves the founder-approved operating boundaries', () => {
   const landing = readFileSync(new URL('../components/LandingPage.tsx', import.meta.url), 'utf8')
+    + readFileSync(new URL('../components/ProviderLandingPage.tsx', import.meta.url), 'utf8')
     + readFileSync(new URL('./landing.ts', import.meta.url), 'utf8');
   assert.match(landing, /current policy/i);
   assert.match(landing, /licensed providers?/i);
@@ -172,4 +174,14 @@ test('public copy preserves the founder-approved operating boundaries', () => {
   assert.match(landing, /keep your current policy/i);
   assert.match(landing, /licensed provider conducts the subsequent insurance transaction/i);
   assert.doesNotMatch(landing, /requirements you set|minimum price difference, maximum deductibles/i);
+});
+
+test('provider landing page preserves access, neutrality, and transaction boundaries', () => {
+  const providerLanding = readFileSync(new URL('../components/ProviderLandingPage.tsx', import.meta.url), 'utf8');
+  assert.match(providerLanding, /Eligibility comes before access/);
+  assert.match(providerLanding, /Consumer-authorized connections/);
+  assert.match(providerLanding, /payment never changes provider order or consumer presentation/);
+  assert.match(providerLanding, /licensed provider conducts application, underwriting/);
+  assert.match(providerLanding, /compensation-determination and market-activation gates/);
+  assert.doesNotMatch(providerLanding, /\bbid(?:ding|s)?\b|\bauction(?:ed|ing|s)?\b|\brank(?:ed|ing|s)?\b/i);
 });
