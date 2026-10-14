@@ -47,6 +47,7 @@ import { verifyCryptographicAuditChain, processReviewQueueResolution,
   generateRegulatoryAuditProof } from './src/domain/governanceAuditEngine';
 import { assertProductionAuthConfiguration, attachRequestIdentity, configuredAuthMode, getFirebaseUserProfile } from './src/server/auth/requestIdentity';
 import { assertBindingRelationship, assertChallengeRelationship, enforceApiAuthorization } from './src/server/auth/routeAuthorization';
+import { assertDirectSettlementMutationAllowed } from './src/server/paymentCollectionBoundary';
 
 import { runComparisonEngineTestSuite } from './src/domain/comparisonEngine.test';
 import { runEligibilityEngineTestSuite } from './src/domain/eligibilityEngine.test';
@@ -3030,6 +3031,7 @@ app.post('/api/commercial/invoices/:id/finalize', async (req, res) => {
 // 8. Record Payment
 app.post('/api/commercial/payments', async (req, res) => {
   try {
+    assertDirectSettlementMutationAllowed();
     const orgId = await getAuthenticatedProviderOrgId(req);
     const { amountCents, paymentMethod, invoiceId, externalReference, idempotencyKey } = req.body;
     if (!amountCents || !paymentMethod) {
@@ -3066,6 +3068,7 @@ app.post('/api/commercial/payments', async (req, res) => {
 // 9. Record Refund
 app.post('/api/commercial/refunds', async (req, res) => {
   try {
+    assertDirectSettlementMutationAllowed();
     const orgId = await getAuthenticatedProviderOrgId(req);
     const { paymentId, amountCents, reason, idempotencyKey } = req.body;
     if (!paymentId || !amountCents || !reason) {
