@@ -220,7 +220,10 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
       const res = await apiFetch(`/api/marketplace/competition/${challenge.id}/request-additional-offers`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ expectedActiveCohort: offerCohortStatus.activeCohort })
+        body: JSON.stringify({
+          expectedActiveCohort: offerCohortStatus.activeCohort,
+          idempotencyKey: `additional-offers:${challenge.id}:${offerCohortStatus.activeCohort}`
+        })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Additional providers could not be activated.');

@@ -1469,13 +1469,35 @@ app.post('/api/marketplace/competition/:challengeId/request-additional-offers', 
     const consumerId = getAuthenticatedConsumerId(req);
     await authorizeChallengeResource(req, req.params.challengeId);
     const expectedActiveCohort = Number(req.body?.expectedActiveCohort);
+    const idempotencyKey = String(req.body?.idempotencyKey || '').trim();
     if (!Number.isInteger(expectedActiveCohort) || expectedActiveCohort < 1) {
       return res.status(400).json({ error: 'The current offer cohort is required.' });
+    }
+    if (!idempotencyKey || idempotencyKey.length > 200) {
+      return res.status(400).json({ error: 'A valid idempotency key is required.' });
+    }
+    const challenge = await postgresStore.getChallenge(req.params.challengeId);
+    if (!challenge) return res.status(404).json({ error: 'Policy opportunity not found.' });
+    const standby = (await postgresStore.getInvitationsForChallenge(req.params.challengeId))
+      .filter(invitation => invitation.status === 'STANDBY');
+    const eligibleProviderOrganizationIds: string[] = [];
+    for (const invitation of standby) {
+      const organization = await postgresStore.getProviderOrganization(invitation.providerOrganizationId);
+      if (!organization) continue;
+      const evaluation = evaluateProviderEligibility(
+        challenge,
+        organization,
+        await postgresStore.getProviderLicenses(organization.id),
+        await postgresStore.getProviderAppetite(organization.id)
+      );
+      if (evaluation.isEligible) eligibleProviderOrganizationIds.push(organization.id);
     }
     const result = await postgresStore.commitAdditionalOfferCohort({
       challengeId: req.params.challengeId,
       consumerId,
-      expectedActiveCohort
+      expectedActiveCohort,
+      idempotencyKey,
+      eligibleProviderOrganizationIds
     });
     for (const invitation of result.activated) {
       await commercialStore.projectMarketplaceEvent({

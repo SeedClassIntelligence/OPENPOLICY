@@ -67,6 +67,9 @@ export const competitions = pgTable('competitions', {
   participantCount: integer('participant_count').notNull().default(0),
   openedAt: text('opened_at').notNull(),
   closesAt: text('closes_at').notNull(),
+  initialCohortSize: integer('initial_cohort_size').notNull().default(10),
+  totalActivationCeiling: integer('total_activation_ceiling').notNull().default(30),
+  activeOfferCohort: integer('active_offer_cohort').notNull().default(1),
   rules: text('rules') // JSON string
 });
 
@@ -81,7 +84,21 @@ export const challengeInvitations = pgTable('challenge_invitations', {
   acceptedAt: text('accepted_at'),
   declinedAt: text('declined_at'),
   declineReason: text('decline_reason'),
-  declineNotes: text('decline_notes')
+  declineNotes: text('decline_notes'),
+  standbyPosition: integer('standby_position'),
+  offerCohort: integer('offer_cohort'),
+  activatedAt: text('activated_at')
+});
+
+export const offerCohortActivationRequests = pgTable('offer_cohort_activation_requests', {
+  idempotencyKey: text('idempotency_key').primaryKey(),
+  challengeId: text('challenge_id').notNull(),
+  competitionId: text('competition_id').notNull().references(() => competitions.id),
+  consumerId: text('consumer_id').notNull(),
+  expectedActiveCohort: integer('expected_active_cohort').notNull(),
+  resultingActiveCohort: integer('resulting_active_cohort').notNull(),
+  activatedInvitationIds: text('activated_invitation_ids').notNull(),
+  requestedAt: text('requested_at').notNull()
 });
 
 export const challengeParticipations = pgTable('challenge_participations', {

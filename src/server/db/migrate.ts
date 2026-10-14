@@ -1197,6 +1197,31 @@ ALTER TABLE offer_versions ADD COLUMN IF NOT EXISTS insurance_line TEXT;
 ALTER TABLE offer_versions ADD COLUMN IF NOT EXISTS verified_facts TEXT;
 `;
 
+export const SQL_MIGRATION_V15 = `
+-- Consumer-controlled offer cohorts: explicit durable configuration, stable
+-- standby ordering, activation history, and request idempotency.
+ALTER TABLE competitions ADD COLUMN IF NOT EXISTS initial_cohort_size INTEGER NOT NULL DEFAULT 10 CHECK (initial_cohort_size > 0);
+ALTER TABLE competitions ADD COLUMN IF NOT EXISTS total_activation_ceiling INTEGER NOT NULL DEFAULT 30 CHECK (total_activation_ceiling >= initial_cohort_size);
+ALTER TABLE competitions ADD COLUMN IF NOT EXISTS active_offer_cohort INTEGER NOT NULL DEFAULT 1 CHECK (active_offer_cohort > 0);
+ALTER TABLE challenge_invitations ADD COLUMN IF NOT EXISTS standby_position INTEGER;
+ALTER TABLE challenge_invitations ADD COLUMN IF NOT EXISTS offer_cohort INTEGER;
+ALTER TABLE challenge_invitations ADD COLUMN IF NOT EXISTS activated_at TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_invitation_standby_position
+  ON challenge_invitations (challenge_id, standby_position) WHERE standby_position IS NOT NULL;
+CREATE TABLE IF NOT EXISTS offer_cohort_activation_requests (
+  idempotency_key TEXT PRIMARY KEY,
+  challenge_id TEXT NOT NULL,
+  competition_id TEXT NOT NULL REFERENCES competitions(id) ON DELETE CASCADE,
+  consumer_id TEXT NOT NULL,
+  expected_active_cohort INTEGER NOT NULL,
+  resulting_active_cohort INTEGER NOT NULL,
+  activated_invitation_ids TEXT NOT NULL,
+  requested_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_offer_cohort_requests_challenge
+  ON offer_cohort_activation_requests (challenge_id, requested_at);
+`;
+
 export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR || './data/openpolicy_pg') {
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
@@ -1261,7 +1286,11 @@ export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR ||
     await pglite.query(
       `INSERT INTO _migrations (name) VALUES ('0014_multiline_offer_evidence') ON CONFLICT (name) DO NOTHING;`
     );
-    console.log(`[Open Policy DB] Migrations 0001 through 0014 applied successfully.`);
+    await pglite.exec(SQL_MIGRATION_V15);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0015_consumer_controlled_offer_cohorts') ON CONFLICT (name) DO NOTHING;`
+    );
+    console.log(`[Open Policy DB] Migrations 0001 through 0015 applied successfully.`);
     return pglite;
   } catch (error) {
     console.error(`[Open Policy DB] Migration error:`, error);

@@ -838,6 +838,9 @@ export class CommercialStore {
     // 1. Scan Invitations -> VPO_AVAILABLE & VPO_VIEWED
     const invitations = await postgresStore.getAllInvitations();
     for (const inv of invitations) {
+      // Standby is an ordering state, not marketplace access. Reconciliation must
+      // never manufacture VPO_AVAILABLE for a provider the consumer has not activated.
+      if (inv.status === 'STANDBY' || inv.status === 'INELIGIBLE') continue;
       await projectOne({
         eventType: 'VPO_AVAILABLE',
         sourceEntityType: 'CHALLENGE_INVITATION',

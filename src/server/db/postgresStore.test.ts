@@ -138,7 +138,9 @@ test('consumer-controlled offer cohorts activate standby providers atomically an
     }
 
     const first = await store.commitAdditionalOfferCohort({
-      challengeId: competition.challengeId, consumerId: 'consumer_cohort', expectedActiveCohort: 1
+      challengeId: competition.challengeId, consumerId: 'consumer_cohort', expectedActiveCohort: 1,
+      idempotencyKey: 'cohort-request-1',
+      eligibleProviderOrganizationIds: Array.from({ length: 7 }, (_, index) => `org_cohort_${index + 1}`)
     });
     assert.equal(first.activated.length, 2);
     assert.deepEqual(first.activated.map(inv => inv.id), ['INV-COHORT-3', 'INV-COHORT-4']);
@@ -146,18 +148,47 @@ test('consumer-controlled offer cohorts activate standby providers atomically an
     assert.equal(first.status.activatedProviderCount, 4);
 
     const retry = await store.commitAdditionalOfferCohort({
-      challengeId: competition.challengeId, consumerId: 'consumer_cohort', expectedActiveCohort: 1
+      challengeId: competition.challengeId, consumerId: 'consumer_cohort', expectedActiveCohort: 1,
+      idempotencyKey: 'cohort-request-1',
+      eligibleProviderOrganizationIds: Array.from({ length: 7 }, (_, index) => `org_cohort_${index + 1}`)
     });
-    assert.equal(retry.activated.length, 0, 'retry with stale cohort cannot activate another group');
+    assert.deepEqual(retry.activated.map(inv => inv.id), first.activated.map(inv => inv.id), 'same idempotency key replays the original result');
     assert.equal(retry.status.activatedProviderCount, 4);
+    const notificationsAfterRetry = await db.query<{ count: number }>(
+      `SELECT COUNT(*)::int AS count FROM platform_notifications WHERE created_from_event LIKE 'INVITATION_ACTIVATED:%';`
+    );
+    assert.equal(notificationsAfterRetry.rows[0]?.count, 2, 'idempotent retry cannot duplicate provider notifications');
 
-    const second = await store.commitAdditionalOfferCohort({
-      challengeId: competition.challengeId, consumerId: 'consumer_cohort', expectedActiveCohort: 2
-    });
-    assert.equal(second.activated.length, 2);
-    assert.equal(second.status.activatedProviderCount, 6);
-    assert.equal(second.status.canRequestAdditionalOffers, false, 'configured activation ceiling is fail-closed');
+    const simultaneous = await Promise.all([
+      store.commitAdditionalOfferCohort({
+        challengeId: competition.challengeId, consumerId: 'consumer_cohort', expectedActiveCohort: 2,
+        idempotencyKey: 'cohort-request-2a',
+        eligibleProviderOrganizationIds: Array.from({ length: 7 }, (_, index) => `org_cohort_${index + 1}`)
+      }),
+      store.commitAdditionalOfferCohort({
+        challengeId: competition.challengeId, consumerId: 'consumer_cohort', expectedActiveCohort: 2,
+        idempotencyKey: 'cohort-request-2b',
+        eligibleProviderOrganizationIds: Array.from({ length: 7 }, (_, index) => `org_cohort_${index + 1}`)
+      })
+    ]);
+    assert.equal(simultaneous.reduce((sum, result) => sum + result.activated.length, 0), 2,
+      'simultaneous requests activate only one cohort');
+    assert.equal(simultaneous[0].status.activatedProviderCount, 6);
+    assert.equal(simultaneous[1].status.activatedProviderCount, 6);
+    assert.equal(simultaneous[1].status.canRequestAdditionalOffers, false, 'configured activation ceiling is fail-closed');
     assert.equal((await store.getInvitation('INV-COHORT-7'))?.status, 'STANDBY');
+
+    const persistedCompetition = await store.getCompetitionForChallenge(competition.challengeId);
+    assert.ok(persistedCompetition);
+    const closedCompetition = { ...persistedCompetition, status: 'CONSUMER_REVIEW' as const };
+    await store.saveCompetition(closedCompetition);
+    await assert.rejects(
+      () => store.commitAdditionalOfferCohort({
+        challengeId: competition.challengeId, consumerId: 'consumer_cohort', expectedActiveCohort: 3,
+        idempotencyKey: 'cohort-request-after-close', eligibleProviderOrganizationIds: ['org_cohort_7']
+      }),
+      /cannot be activated after the submission window closes/
+    );
   } finally {
     await store.close();
     fs.rmSync(dataDir, { recursive: true, force: true });
