@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   ArrowRight, BadgeCheck, Building2, Check, Eye, FileCheck2,
-  Lock, ShieldCheck, Users, WalletCards, X
+  Lock, ShieldCheck, Users, X
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -113,13 +113,43 @@ export const ProviderLandingPage: React.FC<ProviderLandingPageProps> = ({
           <article className="rounded-2xl border border-slate-200 bg-white p-7"><ShieldCheck className="h-7 w-7 text-emerald-600"/><h3 className="mt-4 text-lg font-bold">Provider-owned transaction</h3><p className="mt-2 text-sm leading-6 text-slate-600">After consumer-authorized connection, the licensed provider conducts application, underwriting, revised-term, binding, and issuance activity on its own channel.</p></article>
         </section>
 
+        <section className="space-y-8">
+          <div className="mx-auto max-w-3xl text-center">
+            <p className="font-mono text-xs font-bold uppercase tracking-wider text-emerald-700">A different provider opportunity</p>
+            <h2 className="mt-3 text-3xl font-extrabold tracking-tight">From shared contact inquiry to verified policy opportunity</h2>
+            <p className="mt-4 text-sm leading-6 text-slate-600">Open Policy is not a contact list. It organizes a consumer-authorized opportunity around policy evidence, provider authority, documented offers, factual comparison, and a deliberate connection chosen by the consumer.</p>
+          </div>
+          <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl">
+            <div className="grid grid-cols-[minmax(8rem,.65fr)_1fr_1fr] border-b border-slate-200 bg-slate-100 text-xs font-bold sm:text-sm">
+              <div className="p-4 sm:p-5">Provider consideration</div>
+              <div className="border-l border-slate-200 p-4 text-slate-600 sm:p-5">Conventional shared-contact model</div>
+              <div className="border-l border-emerald-200 bg-emerald-50 p-4 text-emerald-900 sm:p-5">Open Policy</div>
+            </div>
+            {[
+              ['Consumer readiness', 'An inquiry may arrive before the consumer has organized current-policy information.', 'The consumer has shared a current policy and confirmed the extracted coverage baseline.'],
+              ['Opportunity information', 'Information may be limited to contact details and a short questionnaire.', 'An activated provider reviews authorized policy facts and relevant risk information without receiving early contact access.'],
+              ['Provider access', 'The same inquiry may be distributed broadly and immediately.', 'Access is limited by organization status, licensing, carrier authority, jurisdiction, insurance line, capacity, and cohort activation.'],
+              ['Offer process', 'Follow-up begins with calls, messages, or separate intake before a documented offer exists.', 'The provider independently prepares and submits its own documented offer during the open window.'],
+              ['Consumer review', 'The consumer may have to assemble and compare responses across separate channels.', 'Open Policy displays factual price and coverage differences against the verified existing-policy baseline.'],
+              ['Connection', 'Contact information may be distributed before the consumer chooses a provider.', 'Identity and connection details are disclosed only after the consumer selects an offer and authorizes the handoff.'],
+              ['After selection', 'The handoff path and evidence may vary by source.', 'The licensed provider conducts the subsequent insurance transaction on its own channel while Open Policy preserves selection, consent, and reconciliation evidence.']
+            ].map(([label, conventional, openPolicy]) => (
+              <div key={label} className="grid grid-cols-[minmax(8rem,.65fr)_1fr_1fr] border-b border-slate-100 text-xs leading-5 last:border-b-0 sm:text-sm sm:leading-6">
+                <div className="p-4 font-bold text-slate-900 sm:p-5">{label}</div>
+                <div className="border-l border-slate-100 p-4 text-slate-600 sm:p-5">{conventional}</div>
+                <div className="border-l border-emerald-100 bg-emerald-50/60 p-4 text-slate-800 sm:p-5">{openPolicy}</div>
+              </div>
+            ))}
+          </div>
+        </section>
+
         <section className="rounded-3xl bg-slate-900 p-8 text-white sm:p-12">
-          <div className="grid gap-10 lg:grid-cols-[1fr_.9fr] lg:items-center">
-            <div><p className="font-mono text-xs uppercase tracking-wider text-emerald-400">Commercial model</p><h2 className="mt-3 text-3xl font-extrabold">Pay for governed infrastructure and delivered value—not placement.</h2><p className="mt-4 text-sm leading-6 text-slate-300">The published price book separates membership, qualified engagement, and consumer-authorized connection events. Activation, ordering, offer display, and consumer selection remain commercially neutral.</p></div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-2xl border border-slate-700 bg-slate-950 p-5"><WalletCards className="h-5 w-5 text-emerald-400"/><p className="mt-3 text-2xl font-extrabold">$499</p><p className="text-xs text-slate-400">Monthly provider membership</p></div>
-              <div className="rounded-2xl border border-slate-700 bg-slate-950 p-5"><WalletCards className="h-5 w-5 text-emerald-400"/><p className="mt-3 text-2xl font-extrabold">$35</p><p className="text-xs text-slate-400">Qualified engagement</p></div>
-              <div className="col-span-2 rounded-2xl border border-slate-700 bg-slate-950 p-5 text-xs leading-5 text-slate-400">Insurance-line connection prices are contractually versioned. Applicable connection charges remain subject to the compensation-determination and market-activation gates.</div>
+          <div className="grid gap-10 lg:grid-cols-[1fr_1.1fr] lg:items-center">
+            <div><p className="font-mono text-xs uppercase tracking-wider text-emerald-400">What the opportunity represents</p><h2 className="mt-3 text-3xl font-extrabold">A governed path to earn a consumer-authorized connection.</h2><p className="mt-4 text-sm leading-6 text-slate-300">Providers do not purchase the consumer’s decision. They receive a controlled opportunity to evaluate verified policy information, determine what they can offer, document it, and be considered on the facts.</p></div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {['Verified existing-policy baseline', 'Authorized policy and risk facts', 'Independent documented offer', 'Factual consumer comparison', 'Consumer-controlled continuation', 'Consumer-authorized provider connection'].map(item => (
+                <div key={item} className="flex items-start gap-3 rounded-2xl border border-slate-700 bg-slate-950 p-4 text-sm text-slate-200"><Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400"/><span>{item}</span></div>
+              ))}
             </div>
           </div>
         </section>
