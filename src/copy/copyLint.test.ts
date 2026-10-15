@@ -190,7 +190,8 @@ test('public consumer and provider tabs route to their landing experiences befor
   const app = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');
   const header = readFileSync(new URL('../components/Header.tsx', import.meta.url), 'utf8');
   assert.match(app, /perspective === 'PROVIDER' \? '\/providers' : '\/'/);
-  assert.match(app, /document\.getElementById\('create-account'\)\?\.scrollIntoView/);
+  assert.match(app, /window\.setTimeout\(\(\) => window\.scrollTo\(\{ top: 0/);
+  assert.doesNotMatch(app, /document\.getElementById\('create-account'\)\?\.scrollIntoView/);
   assert.match(app, /window\.dispatchEvent\(new PopStateEvent\('popstate'\)\)/);
   assert.match(header, /if \(!isAuthenticated && p\.id === 'LANDING'\) return null/);
   assert.match(header, /p\.id === 'PROVIDER' \? publicLandingPath === '\/providers'/);

@@ -91,13 +91,7 @@ function MainApp() {
       window.history.pushState({}, '', path);
       window.dispatchEvent(new PopStateEvent('popstate'));
       setActivePerspective('LANDING');
-      window.setTimeout(() => {
-        if (perspective === 'CONSUMER') {
-          document.getElementById('create-account')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        } else {
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-        }
-      }, 0);
+      window.setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 0);
       return;
     }
 
