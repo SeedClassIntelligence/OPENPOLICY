@@ -44,6 +44,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
   const [loading, setLoading] = useState(true);
   const [insuranceLines, setInsuranceLines] = useState<any[]>([]);
   const [jurisdictionLineEntries, setJurisdictionLineEntries] = useState<any[]>([]);
+  const [ownerOverview, setOwnerOverview] = useState<any | null>(null);
   const [filterType, setFilterType] = useState<string>('ALL');
   const [searchTerm, setSearchTerm] = useState<string>('');
   
@@ -88,12 +89,13 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [eventsRes, queueRes, verifyRes, linesRes, rolloutRes] = await Promise.all([
+      const [eventsRes, queueRes, verifyRes, linesRes, rolloutRes, overviewRes] = await Promise.all([
         apiFetch('/api/audit-events'),
         apiFetch('/api/admin/review-queue'),
         apiFetch('/api/admin/audit-chain/verify'),
         apiFetch('/api/insurance-lines'),
-        apiFetch('/api/rollout/jurisdiction-lines')
+        apiFetch('/api/rollout/jurisdiction-lines'),
+        apiFetch('/api/admin/overview')
       ]);
 
       const eventsData = await eventsRes.json();
@@ -101,12 +103,14 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
       const verifyData = await verifyRes.json();
       const linesData = await linesRes.json();
       const rolloutData = await rolloutRes.json();
+      const overviewData = await overviewRes.json();
 
       setAuditEvents(eventsData);
       setReviewQueue(queueData);
       setVerificationResult(verifyData);
       setInsuranceLines(linesData.insuranceLines || []);
       setJurisdictionLineEntries(rolloutData.entries || []);
+      if (overviewRes.ok) setOwnerOverview(overviewData);
     } catch (e) {
       console.error('Failed to load admin audit console data:', e);
     } finally {
@@ -334,15 +338,15 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
           <div className="flex items-center space-x-2">
             <span className="text-xs font-mono font-bold bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded border border-amber-500/30 flex items-center space-x-1">
               <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
-              <span>REGULATORY COMPLIANCE & GOVERNANCE • PM-4</span>
+              <span>RESTRICTED OWNER OPERATIONS</span>
             </span>
-            <span className="text-[11px] font-mono text-slate-400">Jurisdiction: NV DOI</span>
+            <span className="text-[11px] font-mono text-slate-400">Server-authoritative control plane</span>
           </div>
           <h2 className="text-xl font-bold text-white mt-1">
-            Section 32/33: Append-Only Audit Trail & Human Review Queue
+            Open Policy Owner Control Center
           </h2>
           <p className="text-xs text-slate-400">
-            Cryptographically chained SHA-256 event ledger, human-in-the-loop review tickets, Merkle tree root verification, and Section 34 regulatory compliance proofs.
+            One protected view of marketplace operations, provider organizations, commercial administration, rollout readiness, reviews and immutable audit evidence.
           </p>
         </div>
 
@@ -367,8 +371,78 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
         </div>
       </div>
 
+      <nav aria-label="Owner console sections" className="sticky top-20 z-20 flex gap-2 overflow-x-auto rounded-xl border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur">
+        {[
+          ['#owner-overview', 'Overview'], ['#owner-providers', 'Providers'],
+          ['#owner-commercial', 'Commercial'], ['#owner-rollout', 'Markets'],
+          ['#owner-reviews', 'Reviews'], ['#owner-audit', 'Audit']
+        ].map(([href, label]) => (
+          <a key={href} href={href} className="whitespace-nowrap rounded-lg px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-900 hover:text-white">{label}</a>
+        ))}
+      </nav>
+
+      {/* Owner-wide operational overview. Consumer identity count is intentionally
+          not guessed: Firebase identity and PostgreSQL business state remain
+          separate authorities until a dedicated administrative identity index exists. */}
+      <section id="owner-overview" className="scroll-mt-36 rounded-xl border border-slate-200 bg-white p-5 shadow-xs space-y-4">
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-2">
+          <div>
+            <p className="text-[10px] font-mono font-bold uppercase tracking-wider text-emerald-700">Platform overview</p>
+            <h3 className="text-base font-bold text-slate-950">Current durable operating state</h3>
+            <p className="text-xs text-slate-500">Live counts come from PostgreSQL. No dashboard-only business state is created here.</p>
+          </div>
+          <span className="text-[10px] font-mono text-slate-400">{ownerOverview?.generatedAt ? `Updated ${new Date(ownerOverview.generatedAt).toLocaleString()}` : 'Loading authoritative state…'}</span>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3">
+          {[
+            ['Providers', ownerOverview?.counts?.activeProviderOrganizations ?? '—', `${ownerOverview?.counts?.providerOrganizations ?? '—'} total`],
+            ['Provider users', ownerOverview?.counts?.activeProviderUsers ?? '—', `${ownerOverview?.counts?.providerUsers ?? '—'} total`],
+            ['Open opportunities', ownerOverview?.counts?.openCompetitions ?? '—', `${ownerOverview?.counts?.competitions ?? '—'} total`],
+            ['Policies', ownerOverview?.counts?.policies ?? '—', 'durable records'],
+            ['Baselines', ownerOverview?.counts?.verifiedBaselines ?? '—', 'coverage baselines'],
+            ['Handoffs', ownerOverview?.counts?.bindingHandoffs ?? '—', 'authorized lifecycle'],
+            ['Vault items', ownerOverview?.counts?.policyVaultItems ?? '—', 'issued evidence'],
+            ['Reviews', ownerOverview?.counts?.pendingReviews ?? '—', `${ownerOverview?.counts?.auditEvents ?? '—'} audit events`]
+          ].map(([label, value, note]) => (
+            <div key={String(label)} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <span className="block text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</span>
+              <strong className="mt-1 block text-xl text-slate-950">{value}</strong>
+              <span className="text-[10px] text-slate-500">{note}</span>
+            </div>
+          ))}
+        </div>
+        <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-[11px] text-blue-900">
+          Consumer account totals are not shown because Firebase Authentication is the identity authority and the current owner API does not maintain a separate, trustworthy consumer directory. Policy and lifecycle totals above are authoritative PostgreSQL counts.
+        </div>
+        <div id="owner-providers" className="scroll-mt-36 space-y-3 pt-2">
+          <div>
+            <h4 className="text-sm font-bold text-slate-950">Provider organization registry</h4>
+            <p className="text-[11px] text-slate-500">Authoritative marketplace organizations and their current operating status.</p>
+          </div>
+          <div className="overflow-x-auto rounded-xl border border-slate-200">
+            <table className="min-w-full divide-y divide-slate-200 text-left text-xs">
+              <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500"><tr>
+                <th className="px-3 py-2">Organization</th><th className="px-3 py-2">Verification</th><th className="px-3 py-2">Marketplace</th><th className="px-3 py-2">Users</th><th className="px-3 py-2">Jurisdictions</th><th className="px-3 py-2">Lines</th>
+              </tr></thead>
+              <tbody className="divide-y divide-slate-100">
+                {(ownerOverview?.organizations || []).map((organization: any) => (
+                  <tr key={organization.id} className="hover:bg-slate-50">
+                    <td className="px-3 py-2"><strong className="block text-slate-900">{organization.displayName}</strong><span className="font-mono text-[10px] text-slate-400">{organization.id}</span></td>
+                    <td className="px-3 py-2 text-slate-700">{organization.verificationStatus}</td>
+                    <td className="px-3 py-2 text-slate-700">{organization.marketplaceStatus}</td>
+                    <td className="px-3 py-2 text-slate-700">{organization.userCount}</td>
+                    <td className="px-3 py-2 text-slate-700">{organization.states?.join(', ') || '—'}</td>
+                    <td className="px-3 py-2 text-slate-700">{organization.linesOfBusiness?.join(', ') || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
       {/* Owner financial control plane */}
-      <section className="rounded-xl border border-emerald-200 bg-white p-5 shadow-xs space-y-4">
+      <section id="owner-commercial" className="scroll-mt-36 rounded-xl border border-emerald-200 bg-white p-5 shadow-xs space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
             <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-emerald-700">
@@ -378,8 +452,15 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
             <p className="text-xs text-slate-500">Authorized administrators control paid activation. Providers can view terms, invoices and balances, and initiate secure payment only.</p>
           </div>
           <div className="flex gap-2 w-full md:w-auto">
-            <input value={financialOrgId} onChange={event => setFinancialOrgId(event.target.value)}
-              placeholder="Provider organization ID" className="min-w-0 flex-1 md:w-64 rounded-lg border border-slate-300 px-3 py-2 text-xs" />
+            <select value={financialOrgId} onChange={event => { setFinancialOrgId(event.target.value); setFinancialSummary(null); }}
+              className="min-w-0 flex-1 md:w-72 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs">
+              <option value="">Select a provider organization</option>
+              {(ownerOverview?.organizations || []).map((organization: any) => (
+                <option key={organization.id} value={organization.id}>
+                  {organization.displayName} · {organization.marketplaceStatus} · {organization.id}
+                </option>
+              ))}
+            </select>
             <button type="button" onClick={loadFinancialSummary} disabled={financialBusy || !financialOrgId.trim()}
               className="rounded-lg bg-slate-950 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">Inspect</button>
           </div>
@@ -528,7 +609,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
       </section>
 
       {/* Owner operations: insurance-line and regional rollout oversight. */}
-      <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-6 space-y-4">
+      <div id="owner-rollout" className="scroll-mt-36 bg-white rounded-xl shadow-xs border border-slate-200 p-6 space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-100 pb-4">
           <div className="flex items-start gap-3">
             <div className="p-2 rounded-lg bg-slate-900 text-emerald-400"><Globe2 className="w-5 h-5" /></div>
@@ -670,7 +751,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
       {/* ========================================================================= */}
       {/* 2. SECTION 32 HUMAN-IN-THE-LOOP REVIEW QUEUE                              */}
       {/* ========================================================================= */}
-      <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-6 space-y-4">
+      <div id="owner-reviews" className="scroll-mt-36 bg-white rounded-xl shadow-xs border border-slate-200 p-6 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
           <div className="flex items-center space-x-2">
             <ShieldAlert className="w-5 h-5 text-amber-600" />
@@ -817,7 +898,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
       {/* ========================================================================= */}
       {/* 3. APPEND-ONLY CRYPTOGRAPHIC AUDIT TRAIL TABLE (Section 33)              */}
       {/* ========================================================================= */}
-      <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-6 space-y-4">
+      <div id="owner-audit" className="scroll-mt-36 bg-white rounded-xl shadow-xs border border-slate-200 p-6 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
           <div>
             <h3 className="text-base font-bold text-slate-900">

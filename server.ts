@@ -1182,6 +1182,58 @@ app.get('/api/marketplace/providers', async (req, res) => {
   }
 });
 
+// Owner control-plane read model. This endpoint exposes operational identifiers
+// only to a verified platform administrator so the owner console can select the
+// authoritative organization instead of requiring an error-prone pasted ID.
+app.get('/api/admin/overview', async (_req, res) => {
+  try {
+    const [organizations, providerUsers, competitions, challenges, policies, baselines,
+      handoffs, vaultItems, auditEvents, reviewQueue] = await Promise.all([
+      postgresStore.getProviderOrganizations(),
+      postgresStore.getProviderUsers(),
+      postgresStore.getAllCompetitions(),
+      postgresStore.getChallenges(),
+      postgresStore.getPolicies(),
+      postgresStore.getCoverageBaselines(),
+      postgresStore.getBindingHandoffs(),
+      postgresStore.getPolicyVaultItems(),
+      postgresStore.getAuditEvents(),
+      postgresStore.getReviewQueue()
+    ]);
+    res.json({
+      generatedAt: new Date().toISOString(),
+      organizations: organizations.map(org => ({
+        id: org.id,
+        displayName: org.displayName,
+        legalName: org.legalName,
+        organizationType: org.organizationType,
+        verificationStatus: org.verificationStatus,
+        marketplaceStatus: org.marketplaceStatus,
+        states: org.states,
+        linesOfBusiness: org.linesOfBusiness,
+        userCount: providerUsers.filter(user => user.organizationId === org.id).length
+      })),
+      counts: {
+        providerOrganizations: organizations.length,
+        activeProviderOrganizations: organizations.filter(org => org.marketplaceStatus === 'ACTIVE').length,
+        providerUsers: providerUsers.length,
+        activeProviderUsers: providerUsers.filter(user => user.status === 'ACTIVE').length,
+        competitions: competitions.length,
+        openCompetitions: competitions.filter(item => !['CLOSED', 'WITHDRAWN', 'EXPIRED'].includes(String(item.status))).length,
+        policies: policies.length,
+        verifiedBaselines: baselines.length,
+        bindingHandoffs: handoffs.length,
+        policyVaultItems: vaultItems.length,
+        auditEvents: auditEvents.length,
+        pendingReviews: reviewQueue.filter(item => item.status === 'PENDING_REVIEW' || item.status === 'UNDER_INVESTIGATION').length,
+        consumers: null
+      }
+    });
+  } catch (e: any) {
+    res.status(e.statusCode || 500).json({ error: e.message });
+  }
+});
+
 // GET /api/marketplace/my-provider — derives org from authenticated session (x-provider-user-id)
 // BLOCKER 2/3 FIX: Server resolves authenticated provider context. Client does not select its own org.
 app.get('/api/marketplace/my-provider', async (req, res) => {
