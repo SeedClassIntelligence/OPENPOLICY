@@ -2768,6 +2768,28 @@ export class CommercialStore {
     return invoices;
   }
 
+  public async getPlatformFinancialOverview(): Promise<Record<string, unknown>> {
+    const client=await this.getClient();
+    const [invoiceTotals,paymentTotals,refundTotals,eventTotals,recentInvoices,recentPayments,recentRefunds]=await Promise.all([
+      client.query<any>(`SELECT COUNT(*)::int AS count,COALESCE(SUM(total_due_cents),0)::bigint AS invoiced_cents,COALESCE(SUM(balance_due_cents),0)::bigint AS outstanding_cents,COUNT(*) FILTER (WHERE status='PAST_DUE')::int AS past_due_count FROM invoices;`),
+      client.query<any>(`SELECT COUNT(*)::int AS count,COALESCE(SUM(amount_cents) FILTER (WHERE status='SUCCEEDED'),0)::bigint AS collected_cents,COUNT(*) FILTER (WHERE status='FAILED')::int AS failed_count,COUNT(*) FILTER (WHERE status='PENDING')::int AS pending_count FROM payment_records;`),
+      client.query<any>(`SELECT COUNT(*)::int AS count,COALESCE(SUM(amount_cents),0)::bigint AS refunded_cents FROM refund_records;`),
+      client.query<any>(`SELECT e.event_type,COUNT(*)::int AS event_count,COALESCE(SUM(b.amount_cents),0)::bigint AS rated_cents FROM commercial_events e LEFT JOIN billable_events b ON b.commercial_event_id=e.id GROUP BY e.event_type ORDER BY e.event_type;`),
+      client.query<any>(`SELECT i.id,i.invoice_number,i.provider_organization_id,o.display_name,i.status,i.total_due_cents,i.balance_due_cents,i.created_at FROM invoices i LEFT JOIN provider_organizations o ON o.id=i.provider_organization_id ORDER BY i.created_at DESC LIMIT 25;`),
+      client.query<any>(`SELECT p.id,p.provider_organization_id,o.display_name,p.invoice_id,p.amount_cents,p.status,p.payment_method,p.created_at,p.settled_at FROM payment_records p LEFT JOIN provider_organizations o ON o.id=p.provider_organization_id ORDER BY p.created_at DESC LIMIT 25;`),
+      client.query<any>(`SELECT r.id,r.provider_organization_id,o.display_name,r.original_payment_record_id,r.amount_cents,r.reason,r.refunded_at FROM refund_records r LEFT JOIN provider_organizations o ON o.id=r.provider_organization_id ORDER BY r.refunded_at DESC LIMIT 25;`)
+    ]);
+    const invoices=invoiceTotals.rows[0]||{};const payments=paymentTotals.rows[0]||{};const refunds=refundTotals.rows[0]||{};
+    return {generatedAt:new Date().toISOString(),totals:{invoiceCount:Number(invoices.count||0),invoicedCents:Number(invoices.invoiced_cents||0),
+      outstandingCents:Number(invoices.outstanding_cents||0),pastDueCount:Number(invoices.past_due_count||0),paymentCount:Number(payments.count||0),
+      collectedCents:Number(payments.collected_cents||0),failedPaymentCount:Number(payments.failed_count||0),pendingPaymentCount:Number(payments.pending_count||0),
+      refundCount:Number(refunds.count||0),refundedCents:Number(refunds.refunded_cents||0)},
+      revenueEvents:eventTotals.rows.map(row=>({eventType:row.event_type,eventCount:Number(row.event_count),ratedCents:Number(row.rated_cents)})),
+      recentInvoices:recentInvoices.rows.map(row=>({id:row.id,invoiceNumber:row.invoice_number,providerOrganizationId:row.provider_organization_id,providerName:row.display_name||row.provider_organization_id,status:row.status,totalDueCents:row.total_due_cents,balanceDueCents:row.balance_due_cents,createdAt:row.created_at})),
+      recentPayments:recentPayments.rows.map(row=>({id:row.id,providerOrganizationId:row.provider_organization_id,providerName:row.display_name||row.provider_organization_id,invoiceId:row.invoice_id,amountCents:row.amount_cents,status:row.status,paymentMethod:row.payment_method,createdAt:row.created_at,settledAt:row.settled_at||undefined})),
+      recentRefunds:recentRefunds.rows.map(row=>({id:row.id,providerOrganizationId:row.provider_organization_id,providerName:row.display_name||row.provider_organization_id,paymentId:row.original_payment_record_id,amountCents:row.amount_cents,reason:row.reason,refundedAt:row.refunded_at}))};
+  }
+
   public async getInvoiceLineItems(invoiceId: string, transactionClient?: SqlClient): Promise<InvoiceLineItem[]> {
     const client = transactionClient || await this.getClient();
     const res = await client.query<any>(

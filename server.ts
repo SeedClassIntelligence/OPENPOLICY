@@ -1277,6 +1277,11 @@ app.get('/api/admin/commercial/governance', async (_req, res) => {
   }
 });
 
+app.get('/api/admin/commercial/platform-summary', async (_req,res)=>{
+  try{res.json(await commercialStore.getPlatformFinancialOverview());}
+  catch(e:any){res.status(e.statusCode||500).json({error:e.message});}
+});
+
 app.patch('/api/admin/commercial/premium-services/:serviceCode', async (req, res) => {
   try {
     const service = await postgresStore.changePremiumServiceControl({

@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { PostgresStore } from './postgresStore';
+import { CommercialStore } from './commercialStore';
 
 test('owner compensation determinations are durable, audited, and idempotent', async () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openpolicy-owner-commercial-'));
@@ -72,5 +73,14 @@ test('owner premium-service control is durable, audited, and blocks service use 
     assert.equal((await store.listPremiumServiceControls()).find(item=>item.serviceCode==='API_INTEGRATION')?.status,'DISABLED');
     assert.equal((await store.getAuditEvents()).filter(event=>event.eventType==='PREMIUM_SERVICE_STATUS_CHANGED').length,1);
     await assert.rejects(()=>store.changePremiumServiceControl({serviceCode:'API_INTEGRATION',status:'ENABLED',actorId:'firebase-owner-uid',reason:''}),/reason is required/);
+  }finally{await store.close();fs.rmSync(dataDir,{recursive:true,force:true});}
+});
+
+test('platform financial overview is rebuilt from canonical ledgers without dashboard state',async()=>{
+  const dataDir=fs.mkdtempSync(path.join(os.tmpdir(),'openpolicy-owner-financials-'));
+  const store=new PostgresStore(dataDir);const commercial=new CommercialStore(store);
+  try{await store.init();const overview:any=await commercial.getPlatformFinancialOverview();
+    assert.deepEqual(overview.totals,{invoiceCount:0,invoicedCents:0,outstandingCents:0,pastDueCount:0,paymentCount:0,collectedCents:0,failedPaymentCount:0,pendingPaymentCount:0,refundCount:0,refundedCents:0});
+    assert.deepEqual(overview.revenueEvents,[]);assert.deepEqual(overview.recentInvoices,[]);assert.deepEqual(overview.recentPayments,[]);assert.deepEqual(overview.recentRefunds,[]);
   }finally{await store.close();fs.rmSync(dataDir,{recursive:true,force:true});}
 });

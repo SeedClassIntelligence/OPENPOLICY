@@ -91,18 +91,20 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
   const [determinationForm, setDeterminationForm] = useState({ jurisdictionCode: 'NV', insuranceLine: 'PERSONAL_AUTO', authorityReference: '', supportingReference: '', determinationSummary: '', effectiveFrom: new Date().toISOString().slice(0, 10) });
   const [priceForm, setPriceForm] = useState({ priceBookId: '', effectiveFrom: '', recurringFeeDollars: 499, engagementDollars: 35 });
   const [premiumServiceReason,setPremiumServiceReason]=useState('');
+  const [platformFinancials,setPlatformFinancials]=useState<any|null>(null);
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [eventsRes, queueRes, verifyRes, linesRes, rolloutRes, overviewRes, governanceRes] = await Promise.all([
+      const [eventsRes, queueRes, verifyRes, linesRes, rolloutRes, overviewRes, governanceRes, platformFinancialsRes] = await Promise.all([
         apiFetch('/api/audit-events'),
         apiFetch('/api/admin/review-queue'),
         apiFetch('/api/admin/audit-chain/verify'),
         apiFetch('/api/insurance-lines'),
         apiFetch('/api/rollout/jurisdiction-lines'),
         apiFetch('/api/admin/overview'),
-        apiFetch('/api/admin/commercial/governance')
+        apiFetch('/api/admin/commercial/governance'),
+        apiFetch('/api/admin/commercial/platform-summary')
       ]);
 
       const eventsData = await eventsRes.json();
@@ -112,6 +114,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
       const rolloutData = await rolloutRes.json();
       const overviewData = await overviewRes.json();
       const governanceData = await governanceRes.json();
+      const platformFinancialsData = await platformFinancialsRes.json();
 
       setAuditEvents(eventsData);
       setReviewQueue(queueData);
@@ -120,6 +123,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
       setJurisdictionLineEntries(rolloutData.entries || []);
       if (overviewRes.ok) setOwnerOverview(overviewData);
       if (governanceRes.ok) setCommercialGovernance(governanceData);
+      if (platformFinancialsRes.ok) setPlatformFinancials(platformFinancialsData);
     } catch (e) {
       console.error('Failed to load admin audit console data:', e);
     } finally {
@@ -594,6 +598,23 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
               <div className={`mt-2 font-bold ${service.status==='ENABLED'?'text-emerald-700':'text-rose-700'}`}>{service.status}</div>
               <button disabled={financialBusy||!premiumServiceReason.trim()} onClick={()=>changePremiumService(service.serviceCode,service.status==='ENABLED'?'DISABLED':'ENABLED')} className="mt-2 w-full rounded border px-2 py-1.5 text-[10px] font-bold disabled:opacity-50">{service.status==='ENABLED'?'Disable service':'Enable accepted service'}</button>
             </div>)}
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-slate-200 p-4 space-y-3">
+          <div><h4 className="text-sm font-bold text-slate-950">Platform revenue and payment operations</h4><p className="text-[11px] text-slate-500">Aggregated directly from invoices, processor-backed payment records, refunds and the immutable commercial event ledger.</p></div>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs">
+            {[
+              ['Invoiced',platformFinancials?.totals?.invoicedCents],['Collected',platformFinancials?.totals?.collectedCents],
+              ['Outstanding',platformFinancials?.totals?.outstandingCents],['Refunded',platformFinancials?.totals?.refundedCents]
+            ].map(([label,value])=><div key={String(label)} className="rounded-lg border bg-slate-50 p-3"><span className="block text-slate-500">{label}</span><strong>${((Number(value)||0)/100).toFixed(2)}</strong></div>)}
+            <div className="rounded-lg border bg-slate-50 p-3"><span className="block text-slate-500">Payment exceptions</span><strong>{platformFinancials?.totals?.failedPaymentCount||0} failed · {platformFinancials?.totals?.pendingPaymentCount||0} pending</strong></div>
+          </div>
+          <div className="overflow-x-auto rounded-lg border">
+            <table className="min-w-full text-left text-[11px]"><thead className="bg-slate-50 text-slate-500"><tr><th className="px-3 py-2">Revenue event</th><th className="px-3 py-2">Recorded</th><th className="px-3 py-2">Rated value</th></tr></thead><tbody>
+              {(platformFinancials?.revenueEvents||[]).map((item:any)=><tr key={item.eventType} className="border-t"><td className="px-3 py-2 font-mono">{item.eventType}</td><td className="px-3 py-2">{item.eventCount}</td><td className="px-3 py-2">${((item.ratedCents||0)/100).toFixed(2)}</td></tr>)}
+              {!platformFinancials?.revenueEvents?.length&&<tr><td colSpan={3} className="px-3 py-4 text-center text-slate-500">No commercial events recorded yet.</td></tr>}
+            </tbody></table>
           </div>
         </div>
 
