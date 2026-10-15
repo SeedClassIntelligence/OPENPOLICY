@@ -1332,6 +1332,31 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_settlement_refund_allocation
   ON settlement_allocations(refund_record_id) WHERE refund_record_id IS NOT NULL;
 `;
 
+export const SQL_MIGRATION_V19 = `
+-- Owner commercial governance: durable compensation determinations and
+-- immutable, administrator-created price-book versions.
+CREATE TABLE IF NOT EXISTS compensation_determinations (
+  id TEXT PRIMARY KEY,
+  jurisdiction_code TEXT NOT NULL,
+  insurance_line TEXT NOT NULL,
+  charge_type TEXT NOT NULL,
+  status TEXT NOT NULL,
+  effective_from TEXT NOT NULL,
+  effective_until TEXT,
+  authority_reference TEXT NOT NULL,
+  supporting_reference TEXT NOT NULL,
+  determination_summary TEXT NOT NULL,
+  approved_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  revoked_at TEXT,
+  revoke_reason TEXT,
+  idempotency_key TEXT NOT NULL UNIQUE,
+  CHECK (status IN ('APPROVED', 'REVOKED', 'EXPIRED'))
+);
+CREATE INDEX IF NOT EXISTS idx_compensation_determinations_scope
+  ON compensation_determinations(jurisdiction_code, insurance_line, charge_type, status);
+`;
+
 export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR || './data/openpolicy_pg') {
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
@@ -1412,7 +1437,11 @@ export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR ||
     await pglite.query(
       `INSERT INTO _migrations (name) VALUES ('0018_processor_settlement_idempotency') ON CONFLICT (name) DO NOTHING;`
     );
-    console.log(`[Open Policy DB] Migrations 0001 through 0018 applied successfully.`);
+    await pglite.exec(SQL_MIGRATION_V19);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0019_owner_commercial_governance') ON CONFLICT (name) DO NOTHING;`
+    );
+    console.log(`[Open Policy DB] Migrations 0001 through 0019 applied successfully.`);
     return pglite;
   } catch (error) {
     console.error(`[Open Policy DB] Migration error:`, error);

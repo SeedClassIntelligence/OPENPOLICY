@@ -1,7 +1,7 @@
 import { PGlite } from '@electric-sql/pglite';
 import fs from 'fs';
 import pg from 'pg';
-import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8, SQL_MIGRATION_V9, SQL_MIGRATION_V10, SQL_MIGRATION_V11, SQL_MIGRATION_V12, SQL_MIGRATION_V13, SQL_MIGRATION_V14, SQL_MIGRATION_V15, SQL_MIGRATION_V16, SQL_MIGRATION_V17, SQL_MIGRATION_V18 } from './migrate';
+import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8, SQL_MIGRATION_V9, SQL_MIGRATION_V10, SQL_MIGRATION_V11, SQL_MIGRATION_V12, SQL_MIGRATION_V13, SQL_MIGRATION_V14, SQL_MIGRATION_V15, SQL_MIGRATION_V16, SQL_MIGRATION_V17, SQL_MIGRATION_V18, SQL_MIGRATION_V19 } from './migrate';
 import { buildVerifiedPolicyAndBaseline } from '../../domain/policyEvidenceVerification';
 import {
   ProviderOrganization,
@@ -42,7 +42,26 @@ import {
   PolicyDocumentClassificationResult,
   PolicyNormalizationResult
   ,PolicyFieldCorrection, NormalizedPolicyFieldPath
+  ,CommercialPlanVersion
 } from '../../types/insurance';
+
+export interface CompensationDetermination {
+  id: string;
+  jurisdictionCode: string;
+  insuranceLine: string;
+  chargeType: string;
+  status: 'APPROVED' | 'REVOKED' | 'EXPIRED';
+  effectiveFrom: string;
+  effectiveUntil?: string;
+  authorityReference: string;
+  supportingReference: string;
+  determinationSummary: string;
+  approvedBy: string;
+  createdAt: string;
+  revokedAt?: string;
+  revokeReason?: string;
+  idempotencyKey: string;
+}
 
 export interface SqlClient {
   query<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<{ rows: T[]; rowCount?: number }>;
@@ -255,6 +274,10 @@ export class PostgresStore {
         await this.sql.query(
           `INSERT INTO _migrations (name) VALUES ('0018_processor_settlement_idempotency') ON CONFLICT (name) DO NOTHING;`
         );
+        await this.sql.exec(SQL_MIGRATION_V19);
+        await this.sql.query(
+          `INSERT INTO _migrations (name) VALUES ('0019_owner_commercial_governance') ON CONFLICT (name) DO NOTHING;`
+        );
         this.isReady = true;
         console.log(
           this.useCloudSql
@@ -273,6 +296,86 @@ export class PostgresStore {
   public async getPgClient(): Promise<SqlClient> {
     await this.ensureReady();
     return this.sql!;
+  }
+
+  public async listCompensationDeterminations(): Promise<CompensationDetermination[]> {
+    await this.ensureReady();
+    const result = await this.sql!.query<any>(`SELECT * FROM compensation_determinations ORDER BY created_at DESC;`);
+    return result.rows.map(row => ({
+      id: row.id, jurisdictionCode: row.jurisdiction_code, insuranceLine: row.insurance_line,
+      chargeType: row.charge_type, status: row.status, effectiveFrom: row.effective_from,
+      effectiveUntil: row.effective_until || undefined, authorityReference: row.authority_reference,
+      supportingReference: row.supporting_reference, determinationSummary: row.determination_summary,
+      approvedBy: row.approved_by, createdAt: row.created_at, revokedAt: row.revoked_at || undefined,
+      revokeReason: row.revoke_reason || undefined, idempotencyKey: row.idempotency_key
+    }));
+  }
+
+  public async approveCompensationDetermination(input: Omit<CompensationDetermination, 'id' | 'status' | 'approvedBy' | 'createdAt'> & { actorId: string }): Promise<CompensationDetermination> {
+    await this.ensureReady();
+    for (const field of ['jurisdictionCode', 'insuranceLine', 'chargeType', 'authorityReference', 'supportingReference', 'determinationSummary', 'idempotencyKey'] as const) {
+      if (!String(input[field] || '').trim()) throw Object.assign(new Error(`${field} is required.`), { statusCode: 400 });
+    }
+    if (!Number.isFinite(Date.parse(input.effectiveFrom))) throw Object.assign(new Error('effectiveFrom must be a valid timestamp.'), { statusCode: 400 });
+    const now = new Date().toISOString();
+    return this.sql!.transaction(async client => {
+      const existing = await client.query<any>(`SELECT * FROM compensation_determinations WHERE idempotency_key=$1;`, [input.idempotencyKey]);
+      if (existing.rows[0]) {
+        const row = existing.rows[0];
+        return { id:row.id,jurisdictionCode:row.jurisdiction_code,insuranceLine:row.insurance_line,chargeType:row.charge_type,
+          status:row.status,effectiveFrom:row.effective_from,effectiveUntil:row.effective_until||undefined,
+          authorityReference:row.authority_reference,supportingReference:row.supporting_reference,
+          determinationSummary:row.determination_summary,approvedBy:row.approved_by,createdAt:row.created_at,
+          revokedAt:row.revoked_at||undefined,revokeReason:row.revoke_reason||undefined,idempotencyKey:row.idempotency_key };
+      }
+      const id = `cd_${crypto.randomUUID()}`;
+      await client.query(`INSERT INTO compensation_determinations
+        (id,jurisdiction_code,insurance_line,charge_type,status,effective_from,effective_until,authority_reference,supporting_reference,determination_summary,approved_by,created_at,idempotency_key)
+        VALUES ($1,$2,$3,$4,'APPROVED',$5,$6,$7,$8,$9,$10,$11,$12);`,
+        [id,input.jurisdictionCode.toUpperCase(),input.insuranceLine,input.chargeType,input.effectiveFrom,input.effectiveUntil||null,input.authorityReference,input.supportingReference,input.determinationSummary,input.actorId,now,input.idempotencyKey]);
+      await this.appendAuditInTransaction(client,{eventType:'COMPENSATION_DETERMINATION_APPROVED',actorRole:'ADMIN',actorId:input.actorId,
+        details:`Approved ${input.chargeType} compensation determination ${id} for ${input.jurisdictionCode.toUpperCase()}/${input.insuranceLine}; authority ${input.authorityReference}.`});
+      return { ...input, id, status:'APPROVED', approvedBy:input.actorId, createdAt:now, jurisdictionCode:input.jurisdictionCode.toUpperCase() };
+    });
+  }
+
+  public async createGovernedCommercialPlanVersion(input: { planId: string; effectiveFrom: string; billingInterval: CommercialPlanVersion['billingInterval']; recurringFeeCents: number; termsSnapshot: CommercialPlanVersion['termsSnapshot']; actorId: string }): Promise<CommercialPlanVersion> {
+    await this.ensureReady();
+    if (!Number.isFinite(Date.parse(input.effectiveFrom)) || Date.parse(input.effectiveFrom) <= Date.now()) throw Object.assign(new Error('effectiveFrom must be a future timestamp.'), { statusCode: 400 });
+    if (!Number.isInteger(input.recurringFeeCents) || input.recurringFeeCents < 0) throw Object.assign(new Error('recurringFeeCents must be a non-negative integer.'), { statusCode: 400 });
+    return this.sql!.transaction(async client => {
+      const plan = await client.query<{id:string}>(`SELECT id FROM commercial_plans WHERE id=$1 AND status='ACTIVE' FOR UPDATE;`,[input.planId]);
+      if (!plan.rows[0]) throw Object.assign(new Error('Active commercial plan not found.'), { statusCode: 404 });
+      const current = await client.query<{version:number}>(`SELECT version FROM commercial_plan_versions WHERE plan_id=$1 ORDER BY version DESC LIMIT 1;`,[input.planId]);
+      const version = (current.rows[0]?.version || 0) + 1;
+      const now = new Date().toISOString();
+      const record: CommercialPlanVersion = { id:`cpv_${input.planId}_v${version}`,planId:input.planId,version,effectiveFrom:input.effectiveFrom,
+        billingInterval:input.billingInterval,recurringFeeCents:input.recurringFeeCents,currency:'USD',termsSnapshot:input.termsSnapshot,createdAt:now };
+      await client.query(`INSERT INTO commercial_plan_versions (id,plan_id,version,effective_from,effective_until,billing_interval,recurring_fee_cents,currency,terms_snapshot,created_at)
+        VALUES ($1,$2,$3,$4,NULL,$5,$6,'USD',$7,$8);`,[record.id,record.planId,record.version,record.effectiveFrom,record.billingInterval,record.recurringFeeCents,JSON.stringify(record.termsSnapshot),record.createdAt]);
+      await this.appendAuditInTransaction(client,{eventType:'COMMERCIAL_PLAN_VERSION_CREATED',actorRole:'ADMIN',actorId:input.actorId,
+        details:`Created immutable future commercial plan version ${record.id}, effective ${record.effectiveFrom}.`});
+      return record;
+    });
+  }
+
+  public async revokeCompensationDetermination(input: { id: string; actorId: string; reason: string }): Promise<CompensationDetermination> {
+    await this.ensureReady();
+    if (!input.reason.trim()) throw Object.assign(new Error('A revocation reason is required.'), { statusCode: 400 });
+    return this.sql!.transaction(async client => {
+      const current = await client.query<any>(`SELECT * FROM compensation_determinations WHERE id=$1 FOR UPDATE;`,[input.id]);
+      if (!current.rows[0]) throw Object.assign(new Error('Compensation determination not found.'), { statusCode: 404 });
+      if (current.rows[0].status === 'REVOKED') throw Object.assign(new Error('Compensation determination is already revoked.'), { statusCode: 409 });
+      const revokedAt = new Date().toISOString();
+      await client.query(`UPDATE compensation_determinations SET status='REVOKED',revoked_at=$2,revoke_reason=$3 WHERE id=$1;`,[input.id,revokedAt,input.reason.trim()]);
+      await this.appendAuditInTransaction(client,{eventType:'COMPENSATION_DETERMINATION_REVOKED',actorRole:'ADMIN',actorId:input.actorId,
+        details:`Revoked compensation determination ${input.id}: ${input.reason.trim()}`});
+      const row={...current.rows[0],status:'REVOKED',revoked_at:revokedAt,revoke_reason:input.reason.trim()};
+      return { id:row.id,jurisdictionCode:row.jurisdiction_code,insuranceLine:row.insurance_line,chargeType:row.charge_type,status:row.status,
+        effectiveFrom:row.effective_from,effectiveUntil:row.effective_until||undefined,authorityReference:row.authority_reference,
+        supportingReference:row.supporting_reference,determinationSummary:row.determination_summary,approvedBy:row.approved_by,
+        createdAt:row.created_at,revokedAt:row.revoked_at,revokeReason:row.revoke_reason,idempotencyKey:row.idempotency_key };
+    });
   }
 
 
@@ -981,9 +1084,12 @@ export class PostgresStore {
   }): ChallengeInvitation {
     if (row.payload) {
       const persisted = JSON.parse(row.payload) as ChallengeInvitation;
-      persisted.standbyPosition = Number((row as any).standby_position || persisted.standbyPosition || 0) || undefined;
-      persisted.offerCohort = Number((row as any).offer_cohort || persisted.offerCohort || 0) || undefined;
-      persisted.activatedAt = (row as any).activated_at || persisted.activatedAt;
+      const standbyPosition = Number((row as any).standby_position || persisted.standbyPosition || 0);
+      const offerCohort = Number((row as any).offer_cohort || persisted.offerCohort || 0);
+      const activatedAt = (row as any).activated_at || persisted.activatedAt;
+      if (standbyPosition) persisted.standbyPosition = standbyPosition;
+      if (offerCohort) persisted.offerCohort = offerCohort;
+      if (activatedAt) persisted.activatedAt = activatedAt;
       return persisted;
     }
     return {
@@ -1001,9 +1107,9 @@ export class PostgresStore {
       declineReason: (row.decline_reason as ChallengeInvitation['declineReason']) || undefined,
       declineNotes: row.decline_notes || undefined,
       expiresAt: new Date(Date.now() + 48 * 3600 * 1000).toISOString(),
-      standbyPosition: Number((row as any).standby_position || 0) || undefined,
-      offerCohort: Number((row as any).offer_cohort || 0) || undefined,
-      activatedAt: (row as any).activated_at || undefined
+      ...(Number((row as any).standby_position || 0) ? { standbyPosition: Number((row as any).standby_position) } : {}),
+      ...(Number((row as any).offer_cohort || 0) ? { offerCohort: Number((row as any).offer_cohort) } : {}),
+      ...((row as any).activated_at ? { activatedAt: (row as any).activated_at } : {})
     };
   }
 

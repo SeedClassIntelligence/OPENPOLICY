@@ -1260,6 +1260,88 @@ app.patch('/api/admin/providers/:organizationId/status', async (req, res) => {
   }
 });
 
+app.get('/api/admin/commercial/governance', async (_req, res) => {
+  try {
+    const plans = await commercialStore.listActivePlans();
+    const planVersions = await Promise.all(plans.map(plan => commercialStore.getLatestPlanVersion(plan.id)));
+    const determinations = await postgresStore.listCompensationDeterminations();
+    res.json({
+      plans: plans.map((plan, index) => ({ ...plan, latestVersion: planVersions[index] || null })),
+      compensationDeterminations: determinations
+    });
+  } catch (e: any) {
+    res.status(e.statusCode || 500).json({ error: e.message });
+  }
+});
+
+app.post('/api/admin/commercial/compensation-determinations', async (req, res) => {
+  try {
+    const determination = await postgresStore.approveCompensationDetermination({
+      jurisdictionCode: String(req.body?.jurisdictionCode || ''),
+      insuranceLine: String(req.body?.insuranceLine || ''),
+      chargeType: String(req.body?.chargeType || 'AUTHORIZED_CONNECTION'),
+      effectiveFrom: String(req.body?.effectiveFrom || ''),
+      effectiveUntil: req.body?.effectiveUntil ? String(req.body.effectiveUntil) : undefined,
+      authorityReference: String(req.body?.authorityReference || ''),
+      supportingReference: String(req.body?.supportingReference || ''),
+      determinationSummary: String(req.body?.determinationSummary || ''),
+      idempotencyKey: String(req.body?.idempotencyKey || ''),
+      actorId: req.openPolicyIdentity!.uid
+    });
+    res.status(201).json({ success: true, determination });
+  } catch (e: any) {
+    res.status(e.statusCode || 500).json({ error: e.message });
+  }
+});
+
+app.post('/api/admin/commercial/compensation-determinations/:id/revoke', async (req, res) => {
+  try {
+    const determination = await postgresStore.revokeCompensationDetermination({
+      id:req.params.id,actorId:req.openPolicyIdentity!.uid,reason:String(req.body?.reason||'')
+    });
+    res.json({ success:true, determination });
+  } catch(e:any) { res.status(e.statusCode||500).json({error:e.message}); }
+});
+
+app.post('/api/admin/commercial/plans/:planId/versions', async (req, res) => {
+  try {
+    const latest = await commercialStore.getLatestPlanVersion(req.params.planId);
+    if (!latest) return res.status(404).json({ error: 'Commercial plan version not found.' });
+    const recurringFeeCents = Number(req.body?.recurringFeeCents);
+    const qualifiedEngagementUnitPriceCents = Number(req.body?.qualifiedEngagementUnitPriceCents);
+    if (!Number.isInteger(qualifiedEngagementUnitPriceCents) || qualifiedEngagementUnitPriceCents < 0) {
+      return res.status(400).json({ error: 'qualifiedEngagementUnitPriceCents must be a non-negative integer.' });
+    }
+    const connectionPrices = req.body?.authorizedConnectionCentsByInsuranceLine;
+    const priceBookId = String(req.body?.priceBookId || '').trim();
+    if (!priceBookId) return res.status(400).json({ error: 'priceBookId is required.' });
+    if (!connectionPrices || typeof connectionPrices !== 'object' || Array.isArray(connectionPrices) ||
+        Object.values(connectionPrices).some(value => !Number.isInteger(Number(value)) || Number(value) < 0)) {
+      return res.status(400).json({ error: 'authorizedConnectionCentsByInsuranceLine must contain non-negative integer prices.' });
+    }
+    const version = await postgresStore.createGovernedCommercialPlanVersion({
+      planId: req.params.planId,
+      effectiveFrom: String(req.body?.effectiveFrom || ''),
+      billingInterval: latest.billingInterval,
+      recurringFeeCents,
+      // Preserve all existing contractual terms. Price publication does not
+      // activate compensation: that requires a separately approved, scoped
+      // determination and a later explicit activation gate.
+      termsSnapshot: {
+        ...latest.termsSnapshot,
+        priceBookId,
+        qualifiedEngagementUnitPriceCents,
+        authorizedConnectionCentsByInsuranceLine: Object.fromEntries(Object.entries(connectionPrices).map(([key, value]) => [key, Number(value)])),
+        compensationDeterminationApproved: false
+      },
+      actorId: req.openPolicyIdentity!.uid
+    });
+    res.status(201).json({ success: true, version });
+  } catch (e: any) {
+    res.status(e.statusCode || 500).json({ error: e.message });
+  }
+});
+
 // GET /api/marketplace/my-provider — derives org from authenticated session (x-provider-user-id)
 // BLOCKER 2/3 FIX: Server resolves authenticated provider context. Client does not select its own org.
 app.get('/api/marketplace/my-provider', async (req, res) => {

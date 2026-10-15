@@ -87,17 +87,21 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
   const [financialMessage, setFinancialMessage] = useState<string | null>(null);
   const [providerStatusReason, setProviderStatusReason] = useState('');
   const [providerStatusBusy, setProviderStatusBusy] = useState<string | null>(null);
+  const [commercialGovernance, setCommercialGovernance] = useState<any | null>(null);
+  const [determinationForm, setDeterminationForm] = useState({ jurisdictionCode: 'NV', insuranceLine: 'PERSONAL_AUTO', authorityReference: '', supportingReference: '', determinationSummary: '', effectiveFrom: new Date().toISOString().slice(0, 10) });
+  const [priceForm, setPriceForm] = useState({ priceBookId: '', effectiveFrom: '', recurringFeeDollars: 499, engagementDollars: 35 });
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [eventsRes, queueRes, verifyRes, linesRes, rolloutRes, overviewRes] = await Promise.all([
+      const [eventsRes, queueRes, verifyRes, linesRes, rolloutRes, overviewRes, governanceRes] = await Promise.all([
         apiFetch('/api/audit-events'),
         apiFetch('/api/admin/review-queue'),
         apiFetch('/api/admin/audit-chain/verify'),
         apiFetch('/api/insurance-lines'),
         apiFetch('/api/rollout/jurisdiction-lines'),
-        apiFetch('/api/admin/overview')
+        apiFetch('/api/admin/overview'),
+        apiFetch('/api/admin/commercial/governance')
       ]);
 
       const eventsData = await eventsRes.json();
@@ -106,6 +110,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
       const linesData = await linesRes.json();
       const rolloutData = await rolloutRes.json();
       const overviewData = await overviewRes.json();
+      const governanceData = await governanceRes.json();
 
       setAuditEvents(eventsData);
       setReviewQueue(queueData);
@@ -113,6 +118,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
       setInsuranceLines(linesData.insuranceLines || []);
       setJurisdictionLineEntries(rolloutData.entries || []);
       if (overviewRes.ok) setOwnerOverview(overviewData);
+      if (governanceRes.ok) setCommercialGovernance(governanceData);
     } catch (e) {
       console.error('Failed to load admin audit console data:', e);
     } finally {
@@ -321,6 +327,39 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
     }
   };
 
+  const approveCompensationDetermination = async () => {
+    setFinancialBusy(true); setFinancialMessage(null);
+    try {
+      const response = await apiFetch('/api/admin/commercial/compensation-determinations', {
+        method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({
+          ...determinationForm, chargeType:'AUTHORIZED_CONNECTION',
+          effectiveFrom:`${determinationForm.effectiveFrom}T00:00:00.000Z`,
+          idempotencyKey:`comp:${determinationForm.jurisdictionCode}:${determinationForm.insuranceLine}:${determinationForm.authorityReference}`
+        })
+      });
+      const data=await response.json(); if(!response.ok) throw new Error(data.error||'Determination could not be recorded.');
+      setFinancialMessage('Compensation determination recorded with immutable audit evidence. Charges remain disabled until separately activated.');
+      await loadData();
+    } catch(error:any){setFinancialMessage(error?.message||'Determination could not be recorded.');} finally{setFinancialBusy(false);}
+  };
+
+  const publishFuturePriceVersion = async () => {
+    const plan=commercialGovernance?.plans?.[0]; if(!plan?.latestVersion) return;
+    setFinancialBusy(true); setFinancialMessage(null);
+    try {
+      const response=await apiFetch(`/api/admin/commercial/plans/${encodeURIComponent(plan.id)}/versions`,{
+        method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+          priceBookId:priceForm.priceBookId,effectiveFrom:`${priceForm.effectiveFrom}T00:00:00.000Z`,
+          recurringFeeCents:Math.round(priceForm.recurringFeeDollars*100),
+          qualifiedEngagementUnitPriceCents:Math.round(priceForm.engagementDollars*100),
+          authorizedConnectionCentsByInsuranceLine:plan.latestVersion.termsSnapshot.authorizedConnectionCentsByInsuranceLine||{}
+        })
+      });
+      const data=await response.json(); if(!response.ok) throw new Error(data.error||'Price version could not be published.');
+      setFinancialMessage(`Immutable price-book version ${data.version.version} published for future effect.`); await loadData();
+    } catch(error:any){setFinancialMessage(error?.message||'Price version could not be published.');} finally{setFinancialBusy(false);}
+  };
+
   // Filtered Events
   const filteredEvents = auditEvents.filter(event => {
     const matchesFilter = 
@@ -501,6 +540,36 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
             </select>
             <button type="button" onClick={loadFinancialSummary} disabled={financialBusy || !financialOrgId.trim()}
               className="rounded-lg bg-slate-950 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">Inspect</button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          <div className="rounded-xl border border-slate-200 p-4 space-y-3">
+            <div><h4 className="text-sm font-bold text-slate-950">Future price-book version</h4><p className="text-[11px] text-slate-500">Publishes a new immutable version. Existing agreements retain their historical version.</p></div>
+            <div className="grid grid-cols-2 gap-2">
+              <input value={priceForm.priceBookId} onChange={e=>setPriceForm({...priceForm,priceBookId:e.target.value})} placeholder="Price book ID" className="rounded-lg border px-3 py-2 text-xs" />
+              <input type="date" value={priceForm.effectiveFrom} onChange={e=>setPriceForm({...priceForm,effectiveFrom:e.target.value})} className="rounded-lg border px-3 py-2 text-xs" />
+              <label className="text-[11px] text-slate-600">Membership USD<input type="number" min={0} value={priceForm.recurringFeeDollars} onChange={e=>setPriceForm({...priceForm,recurringFeeDollars:Number(e.target.value)})} className="mt-1 w-full rounded-lg border px-3 py-2 text-xs" /></label>
+              <label className="text-[11px] text-slate-600">Qualified engagement USD<input type="number" min={0} value={priceForm.engagementDollars} onChange={e=>setPriceForm({...priceForm,engagementDollars:Number(e.target.value)})} className="mt-1 w-full rounded-lg border px-3 py-2 text-xs" /></label>
+            </div>
+            <button onClick={publishFuturePriceVersion} disabled={financialBusy||!priceForm.priceBookId||!priceForm.effectiveFrom} className="w-full rounded-lg bg-slate-950 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">Publish immutable future version</button>
+            <p className="text-[10px] text-slate-500">Latest: v{commercialGovernance?.plans?.[0]?.latestVersion?.version||'—'} · Compensation activation is never inferred from a price change.</p>
+          </div>
+          <div className="rounded-xl border border-amber-200 bg-amber-50/40 p-4 space-y-3">
+            <div><h4 className="text-sm font-bold text-slate-950">Compensation determination registry</h4><p className="text-[11px] text-slate-500">Records scoped legal/compliance authority. It does not silently activate a charge.</p></div>
+            <div className="grid grid-cols-2 gap-2">
+              <input value={determinationForm.jurisdictionCode} onChange={e=>setDeterminationForm({...determinationForm,jurisdictionCode:e.target.value.toUpperCase()})} placeholder="Jurisdiction" className="rounded-lg border px-3 py-2 text-xs" />
+              <select value={determinationForm.insuranceLine} onChange={e=>setDeterminationForm({...determinationForm,insuranceLine:e.target.value})} className="rounded-lg border px-3 py-2 text-xs">{insuranceLines.map((line:any)=><option key={line.code} value={line.code}>{line.displayName||line.code}</option>)}</select>
+              <input value={determinationForm.authorityReference} onChange={e=>setDeterminationForm({...determinationForm,authorityReference:e.target.value})} placeholder="Authority/counsel reference" className="rounded-lg border px-3 py-2 text-xs" />
+              <input type="date" value={determinationForm.effectiveFrom} onChange={e=>setDeterminationForm({...determinationForm,effectiveFrom:e.target.value})} className="rounded-lg border px-3 py-2 text-xs" />
+              <input value={determinationForm.supportingReference} onChange={e=>setDeterminationForm({...determinationForm,supportingReference:e.target.value})} placeholder="Immutable supporting record" className="col-span-2 rounded-lg border px-3 py-2 text-xs" />
+              <textarea value={determinationForm.determinationSummary} onChange={e=>setDeterminationForm({...determinationForm,determinationSummary:e.target.value})} placeholder="Scope, conditions and conclusion" className="col-span-2 rounded-lg border px-3 py-2 text-xs" />
+            </div>
+            <button onClick={approveCompensationDetermination} disabled={financialBusy||!determinationForm.authorityReference||!determinationForm.supportingReference||!determinationForm.determinationSummary} className="w-full rounded-lg bg-amber-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">Record approved determination</button>
+            <div className="max-h-32 space-y-1 overflow-auto">
+              {(commercialGovernance?.compensationDeterminations||[]).map((item:any)=><div key={item.id} className="rounded border bg-white px-2 py-1.5 text-[10px] text-slate-600"><strong className={item.status==='APPROVED'?'text-emerald-700':'text-rose-700'}>{item.status}</strong> · {item.jurisdictionCode} · {item.insuranceLine}<br/><span className="font-mono">{item.authorityReference}</span></div>)}
+              {!commercialGovernance?.compensationDeterminations?.length&&<p className="text-[10px] text-slate-500">No compensation determinations recorded.</p>}
+            </div>
           </div>
         </div>
 
