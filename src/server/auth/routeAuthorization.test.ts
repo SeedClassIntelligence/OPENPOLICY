@@ -53,6 +53,13 @@ test('financial mutations preserve processor and platform authority boundaries',
   assert.equal(invoke('POST', '/commercial/invoices/invoice-a/payment-session', provider).next, true);
 });
 
+test('provider integration APIs require provider identity', () => {
+  assert.equal(invoke('GET', '/integrations/v1/opportunities').status, 401);
+  assert.equal(invoke('GET', '/integrations/v1/opportunities', consumer).status, 403);
+  assert.equal(invoke('GET', '/integrations/v1/opportunities', provider).next, true);
+  assert.equal(invoke('GET', '/integrations/v1/reports/summary', admin).status, 403);
+});
+
 test('sensitive routes reject anonymous callers', () => {
   for (const [method, path] of [
     ['GET', '/challenges'],

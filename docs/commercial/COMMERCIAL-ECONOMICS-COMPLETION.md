@@ -43,6 +43,17 @@ The executable accounting architecture is connected from authoritative commercia
 8. The Medicare connection price was registered but not technically fail-closed. V1 rating now returns `INSURANCE_LINE_NOT_OPERATIONAL` while preserving the published $200 price.
 9. The V1 contract now explicitly records consumer price `$0`, every free marketplace event, the $100–$350 connection range, unpriced outcome events and unavailable insurance lines.
 
+## Premium service delivery checkpoint
+
+The four priced services now have durable, tenant-scoped backend delivery boundaries:
+
+- workflow automation: entitlement-gated deterministic opportunity triage rules that do not change marketplace eligibility, ordering, or consumer presentation;
+- enterprise reporting: entitlement-gated marketplace and commercial summaries built only from the authenticated provider organization's records;
+- API integration: one-time-revealed, hash-stored, scoped and revocable provider credentials with tenant-scoped read APIs;
+- multi-location administration: durable office records and producer assignments with cross-organization assignment rejection.
+
+Purchase remains unavailable pending provider-facing administration UI and full HTTP adversarial acceptance. Backend existence alone is not represented as completed service delivery.
+
 ## Verification evidence
 
 - TypeScript: passed.

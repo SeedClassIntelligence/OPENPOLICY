@@ -13,7 +13,7 @@ export interface RequestIdentity {
   providerUserId?: string;
   providerOrganizationId?: string;
   providerStatus?: 'PENDING_VERIFICATION' | 'ACTIVE' | 'REJECTED';
-  source: 'FIREBASE' | 'FIXTURE';
+  source: 'FIREBASE' | 'FIXTURE' | 'API_CREDENTIAL';
 }
 
 declare global {
@@ -145,6 +145,10 @@ export function createRequestIdentityMiddleware(
 ) {
   return async function requestIdentityMiddleware(req: Request, res: Response, next: NextFunction) {
   try {
+    if (req.openPolicyIdentity) {
+      next();
+      return;
+    }
     if (configuredAuthMode(env) === 'fixture') {
       req.openPolicyIdentity = resolveFixtureIdentity(req);
       next();

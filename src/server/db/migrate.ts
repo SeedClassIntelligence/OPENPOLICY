@@ -1257,6 +1257,71 @@ ALTER TABLE invoice_line_items ADD CONSTRAINT chk_invoice_line_source_exclusivit
 );
 `;
 
+export const SQL_MIGRATION_V17 = `
+-- Premium provider services. All records remain tenant-scoped and require an
+-- active commercial entitlement before use.
+CREATE TABLE IF NOT EXISTS provider_workflow_rules (
+  id TEXT PRIMARY KEY,
+  provider_organization_id TEXT NOT NULL REFERENCES provider_organizations(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  jurisdictions TEXT NOT NULL,
+  insurance_lines TEXT NOT NULL,
+  risk_markets TEXT NOT NULL,
+  action TEXT NOT NULL CHECK (action IN ('PRIORITIZE','STANDARD_REVIEW','DO_NOT_PURSUE')),
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_provider_workflow_rules_org
+  ON provider_workflow_rules(provider_organization_id, enabled);
+
+CREATE TABLE IF NOT EXISTS provider_api_credentials (
+  id TEXT PRIMARY KEY,
+  provider_organization_id TEXT NOT NULL REFERENCES provider_organizations(id) ON DELETE CASCADE,
+  label TEXT NOT NULL,
+  token_prefix TEXT NOT NULL,
+  token_hash TEXT NOT NULL UNIQUE,
+  scopes TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('ACTIVE','REVOKED')),
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  last_used_at TEXT,
+  revoked_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_provider_api_credentials_org
+  ON provider_api_credentials(provider_organization_id, status);
+
+CREATE TABLE IF NOT EXISTS provider_locations (
+  id TEXT PRIMARY KEY,
+  provider_organization_id TEXT NOT NULL REFERENCES provider_organizations(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  jurisdiction TEXT NOT NULL,
+  address_line1 TEXT NOT NULL,
+  address_line2 TEXT,
+  city TEXT NOT NULL,
+  postal_code TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('ACTIVE','INACTIVE')),
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(provider_organization_id, name)
+);
+CREATE INDEX IF NOT EXISTS idx_provider_locations_org
+  ON provider_locations(provider_organization_id, status);
+
+CREATE TABLE IF NOT EXISTS provider_location_assignments (
+  provider_organization_id TEXT NOT NULL REFERENCES provider_organizations(id) ON DELETE CASCADE,
+  location_id TEXT NOT NULL REFERENCES provider_locations(id) ON DELETE CASCADE,
+  provider_user_id TEXT NOT NULL REFERENCES provider_users(id) ON DELETE CASCADE,
+  assigned_by TEXT NOT NULL,
+  assigned_at TEXT NOT NULL,
+  PRIMARY KEY(location_id, provider_user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_provider_location_assignments_user
+  ON provider_location_assignments(provider_organization_id, provider_user_id);
+`;
+
 export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR || './data/openpolicy_pg') {
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
@@ -1329,7 +1394,11 @@ export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR ||
     await pglite.query(
       `INSERT INTO _migrations (name) VALUES ('0016_negotiated_service_charges') ON CONFLICT (name) DO NOTHING;`
     );
-    console.log(`[Open Policy DB] Migrations 0001 through 0016 applied successfully.`);
+    await pglite.exec(SQL_MIGRATION_V17);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0017_premium_provider_services') ON CONFLICT (name) DO NOTHING;`
+    );
+    console.log(`[Open Policy DB] Migrations 0001 through 0017 applied successfully.`);
     return pglite;
   } catch (error) {
     console.error(`[Open Policy DB] Migration error:`, error);

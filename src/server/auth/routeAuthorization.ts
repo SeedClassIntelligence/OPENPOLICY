@@ -14,6 +14,7 @@ const rules: RouteRule[] = [
   { methods: ['POST'], pattern: /^\/explain-comparison$/, roles: 'PUBLIC' },
   { pattern: /^\/commercial\/plans$/, roles: 'PUBLIC' },
   { methods: ['POST'], pattern: /^\/commercial\/stripe\/webhook$/, roles: 'PUBLIC' },
+  { pattern: /^\/integrations\/v1\//, roles: ['PROVIDER'] },
   { pattern: /^\/docs\/spec$/, roles: 'PUBLIC' },
 
   // These directory/notification semantics are not established by the domain model.

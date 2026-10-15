@@ -62,6 +62,7 @@ import { runPM4AcceptanceTestSuite } from './src/domain/pm4SelectionBinding.test
 import { runPM5DomainTestSuite } from './src/domain/pm5Reconciliation.test';
 import { runCommercialEconomicsTestSuite } from './src/domain/commercialEconomics.test';
 import { commercialStore } from './src/server/db/commercialStore';
+import { premiumServicesStore, type ApiScope } from './src/server/db/premiumServicesStore';
 import { jurisdictionStore } from './src/server/db/jurisdictionStore';
 import { determineJurisdiction } from './src/domain/jurisdictionDetermination';
 import { JurisdictionSignal } from './src/types/jurisdiction';
@@ -110,6 +111,23 @@ const fixturePersistenceReady = process.env.OPENPOLICY_AUTH_MODE === 'fixture'
 app.use('/api/policy-documents/ingest', express.raw({ type: () => true, limit: '10mb' }));
 app.use('/api/commercial/stripe/webhook', express.raw({ type: 'application/json', limit: '1mb' }));
 app.use(express.json({ limit: '10mb' }));
+app.use('/api/integrations/v1', async (req, res, next) => {
+  try {
+    const authorization = String(req.headers.authorization || '');
+    const token = authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : '';
+    const requiredScope: ApiScope = req.path.startsWith('/reports') ? 'reports:read'
+      : req.path.startsWith('/offers') ? 'offers:read' : 'opportunities:read';
+    const authenticated = await premiumServicesStore.authenticateApiToken(token, requiredScope);
+    req.openPolicyIdentity = {
+      uid: authenticated.providerUserId, providerUserId: authenticated.providerUserId,
+      providerOrganizationId: authenticated.providerOrganizationId,
+      providerStatus: 'ACTIVE', role: 'PROVIDER', source: 'API_CREDENTIAL'
+    };
+    next();
+  } catch (error: any) {
+    res.status(error.statusCode || 401).json({ error: error.message });
+  }
+});
 app.use('/api', async (_req, res, next) => {
   try {
     await fixturePersistenceReady;
@@ -231,6 +249,16 @@ async function getAuthenticatedProviderUserId(req: express.Request): Promise<str
     throw err;
   }
   return user.id;
+}
+
+async function getAuthenticatedProviderAdministrator(req: express.Request) {
+  const organizationId = await getAuthenticatedProviderOrgId(req);
+  const providerUserId = await getAuthenticatedProviderUserId(req);
+  const user = await postgresStore.getProviderUser(providerUserId);
+  if (!user || !['OWNER', 'ADMIN'].includes(user.role)) {
+    throw Object.assign(new Error('Provider owner or administrator authority required.'), { statusCode: 403 });
+  }
+  return { organizationId, providerUserId };
 }
 
 function getAuthenticatedConsumerId(req: express.Request): string {
@@ -2567,6 +2595,118 @@ app.get('/api/commercial/entitlements', async (req, res) => {
     const status = e.statusCode || 400;
     res.status(status).json({ error: e.message });
   }
+});
+
+async function buildEnterpriseReport(providerOrganizationId: string) {
+  await premiumServicesStore.requireEntitlement(providerOrganizationId, 'ENTERPRISE_REPORTING');
+  const [invitations, participations, offers, events, billableEvents, invoices, payments, refunds, balance] = await Promise.all([
+    postgresStore.getInvitationsForOrg(providerOrganizationId),
+    postgresStore.getParticipationsForOrg(providerOrganizationId),
+    postgresStore.getOffers(),
+    commercialStore.getCommercialEventsForOrg(providerOrganizationId, 10_000),
+    commercialStore.getBillableEvents({ providerOrganizationId, limit: 10_000 }),
+    commercialStore.getInvoicesForOrg(providerOrganizationId),
+    commercialStore.getPaymentsForOrg(providerOrganizationId),
+    commercialStore.getRefundsForOrg(providerOrganizationId),
+    commercialStore.getAuthoritativeAccountBalance(providerOrganizationId)
+  ]);
+  const ownOffers = offers.filter(offer => offer.providerId === providerOrganizationId);
+  const eventCounts = events.reduce<Record<string, number>>((counts, event) => {
+    counts[event.eventType] = (counts[event.eventType] || 0) + 1; return counts;
+  }, {});
+  return { providerOrganizationId, generatedAt: new Date().toISOString(),
+    marketplace: { activatedOpportunities: invitations.filter(item => item.status !== 'STANDBY').length,
+      standbyOpportunities: invitations.filter(item => item.status === 'STANDBY').length,
+      engagements: participations.length, offersSubmitted: ownOffers.length, eventCounts },
+    commercial: { grossRatedCents: billableEvents.reduce((sum, item) => sum + item.amountCents, 0),
+      invoices: invoices.length, successfulPayments: payments.filter(item => item.status === 'SUCCEEDED').length,
+      refunds: refunds.length, balance }
+  };
+}
+
+app.get('/api/commercial/premium/report', async (req, res) => {
+  try {
+    const orgId = await getAuthenticatedProviderOrgId(req);
+    res.json({ success: true, report: await buildEnterpriseReport(orgId) });
+  } catch (e: any) { res.status(e.statusCode || 400).json({ error: e.message }); }
+});
+
+app.get('/api/commercial/premium/workflow-rules', async (req, res) => {
+  try { const orgId = await getAuthenticatedProviderOrgId(req);
+    res.json({ success: true, rules: await premiumServicesStore.listWorkflowRules(orgId) });
+  } catch (e: any) { res.status(e.statusCode || 400).json({ error: e.message }); }
+});
+app.post('/api/commercial/premium/workflow-rules', async (req, res) => {
+  try { const actor = await getAuthenticatedProviderAdministrator(req);
+    const rule = await premiumServicesStore.createWorkflowRule({ providerOrganizationId: actor.organizationId,
+      name: req.body?.name || '', jurisdictions: req.body?.jurisdictions || [], insuranceLines: req.body?.insuranceLines || [],
+      riskMarkets: req.body?.riskMarkets || [], action: req.body?.action, actorId: actor.providerUserId });
+    res.status(201).json({ success: true, rule });
+  } catch (e: any) { res.status(e.statusCode || 400).json({ error: e.message }); }
+});
+app.post('/api/commercial/premium/workflow-rules/evaluate', async (req, res) => {
+  try { const orgId = await getAuthenticatedProviderOrgId(req);
+    res.json({ success: true, result: await premiumServicesStore.evaluateWorkflow(orgId, req.body || {}) });
+  } catch (e: any) { res.status(e.statusCode || 400).json({ error: e.message }); }
+});
+
+app.get('/api/commercial/premium/api-credentials', async (req, res) => {
+  try { const actor = await getAuthenticatedProviderAdministrator(req);
+    res.json({ success: true, credentials: await premiumServicesStore.listApiCredentials(actor.organizationId) });
+  } catch (e: any) { res.status(e.statusCode || 400).json({ error: e.message }); }
+});
+app.post('/api/commercial/premium/api-credentials', async (req, res) => {
+  try { const actor = await getAuthenticatedProviderAdministrator(req);
+    const credential = await premiumServicesStore.createApiCredential({ providerOrganizationId: actor.organizationId,
+      label: req.body?.label || '', scopes: req.body?.scopes || [], actorId: actor.providerUserId });
+    res.status(201).json({ success: true, credential });
+  } catch (e: any) { res.status(e.statusCode || 400).json({ error: e.message }); }
+});
+app.post('/api/commercial/premium/api-credentials/:id/revoke', async (req, res) => {
+  try { const actor = await getAuthenticatedProviderAdministrator(req);
+    res.json({ success: true, credential: await premiumServicesStore.revokeApiCredential(actor.organizationId, req.params.id) });
+  } catch (e: any) { res.status(e.statusCode || 400).json({ error: e.message }); }
+});
+
+app.get('/api/commercial/premium/locations', async (req, res) => {
+  try { const orgId = await getAuthenticatedProviderOrgId(req);
+    res.json({ success: true, locations: await premiumServicesStore.listLocations(orgId) });
+  } catch (e: any) { res.status(e.statusCode || 400).json({ error: e.message }); }
+});
+app.post('/api/commercial/premium/locations', async (req, res) => {
+  try { const actor = await getAuthenticatedProviderAdministrator(req);
+    const location = await premiumServicesStore.createLocation({ providerOrganizationId: actor.organizationId,
+      name: req.body?.name || '', jurisdiction: req.body?.jurisdiction || '', addressLine1: req.body?.addressLine1 || '',
+      addressLine2: req.body?.addressLine2, city: req.body?.city || '', postalCode: req.body?.postalCode || '', actorId: actor.providerUserId });
+    res.status(201).json({ success: true, location });
+  } catch (e: any) { res.status(e.statusCode || 400).json({ error: e.message }); }
+});
+app.post('/api/commercial/premium/locations/:id/assign', async (req, res) => {
+  try { const actor = await getAuthenticatedProviderAdministrator(req);
+    const assignment = await premiumServicesStore.assignLocation({ providerOrganizationId: actor.organizationId,
+      locationId: req.params.id, providerUserId: req.body?.providerUserId || '', actorId: actor.providerUserId });
+    res.status(201).json({ success: true, assignment });
+  } catch (e: any) { res.status(e.statusCode || 400).json({ error: e.message }); }
+});
+
+app.get('/api/integrations/v1/opportunities', async (req, res) => {
+  try { const orgId = await getAuthenticatedProviderOrgId(req);
+    const invitations = (await postgresStore.getInvitationsForOrg(orgId)).filter(item => item.status !== 'STANDBY');
+    res.json({ data: invitations.map(item => ({ invitationId: item.id, challengeId: item.challengeId,
+      competitionId: item.competitionId, status: item.status, offerCohort: item.offerCohort,
+      activatedAt: item.activatedAt, expiresAt: item.expiresAt })) });
+  } catch (e: any) { res.status(e.statusCode || 400).json({ error: e.message }); }
+});
+app.get('/api/integrations/v1/offers', async (req, res) => {
+  try { const orgId = await getAuthenticatedProviderOrgId(req);
+    const offers = (await postgresStore.getOffers()).filter(item => item.providerId === orgId);
+    res.json({ data: offers });
+  } catch (e: any) { res.status(e.statusCode || 400).json({ error: e.message }); }
+});
+app.get('/api/integrations/v1/reports/summary', async (req, res) => {
+  try { const orgId = await getAuthenticatedProviderOrgId(req);
+    res.json({ data: await buildEnterpriseReport(orgId) });
+  } catch (e: any) { res.status(e.statusCode || 400).json({ error: e.message }); }
 });
 
 // 5. Explicit Commercial Enrollment Command (CE-2)
