@@ -2673,15 +2673,15 @@ export class CommercialStore {
     );
   }
 
-  public async getInvoiceById(id: string): Promise<Invoice | undefined> {
-    const client = await this.getClient();
+  public async getInvoiceById(id: string, transactionClient?: SqlClient): Promise<Invoice | undefined> {
+    const client = transactionClient || await this.getClient();
     const res = await client.query<any>(
       `SELECT * FROM invoices WHERE id = $1;`,
       [id]
     );
     if (res.rows.length === 0) return undefined;
     const r = res.rows[0];
-    const lineItems = await this.getInvoiceLineItems(id);
+    const lineItems = await this.getInvoiceLineItems(id, client);
     return {
       id: r.id,
       invoiceNumber: r.invoice_number,
@@ -2757,8 +2757,8 @@ export class CommercialStore {
     return invoices;
   }
 
-  public async getInvoiceLineItems(invoiceId: string): Promise<InvoiceLineItem[]> {
-    const client = await this.getClient();
+  public async getInvoiceLineItems(invoiceId: string, transactionClient?: SqlClient): Promise<InvoiceLineItem[]> {
+    const client = transactionClient || await this.getClient();
     const res = await client.query<any>(
       `SELECT * FROM invoice_line_items WHERE invoice_id = $1 ORDER BY created_at ASC;`,
       [invoiceId]
@@ -3017,8 +3017,8 @@ export class CommercialStore {
   // Settlement Ledger Methods
   // =========================================================================
 
-  public async savePaymentRecord(payment: PaymentRecord): Promise<void> {
-    const client = await this.getClient();
+  public async savePaymentRecord(payment: PaymentRecord, transactionClient?: SqlClient): Promise<void> {
+    const client = transactionClient || await this.getClient();
     await client.query(
       `INSERT INTO payment_records (
         id, provider_organization_id, invoice_id, amount_cents, currency,
@@ -3046,8 +3046,8 @@ export class CommercialStore {
     );
   }
 
-  public async getPaymentRecordById(id: string): Promise<PaymentRecord | undefined> {
-    const client = await this.getClient();
+  public async getPaymentRecordById(id: string, transactionClient?: SqlClient): Promise<PaymentRecord | undefined> {
+    const client = transactionClient || await this.getClient();
     const res = await client.query<any>(
       `SELECT * FROM payment_records WHERE id = $1;`,
       [id]
@@ -3070,12 +3070,12 @@ export class CommercialStore {
     };
   }
 
-  public async getPaymentRecordByIdempotencyKey(idempotencyKey: string): Promise<PaymentRecord | undefined> {
-    const client = await this.getClient();
+  public async getPaymentRecordByIdempotencyKey(idempotencyKey: string, transactionClient?: SqlClient): Promise<PaymentRecord | undefined> {
+    const client = transactionClient || await this.getClient();
     const res = await client.query<{ id: string }>(
       `SELECT id FROM payment_records WHERE idempotency_key = $1;`, [idempotencyKey]
     );
-    return res.rows[0] ? this.getPaymentRecordById(res.rows[0].id) : undefined;
+    return res.rows[0] ? this.getPaymentRecordById(res.rows[0].id, client) : undefined;
   }
 
   public async getPaymentsForOrg(providerOrganizationId: string): Promise<PaymentRecord[]> {
@@ -3100,8 +3100,8 @@ export class CommercialStore {
     }));
   }
 
-  public async saveRefundRecord(refund: RefundRecord): Promise<void> {
-    const client = await this.getClient();
+  public async saveRefundRecord(refund: RefundRecord, transactionClient?: SqlClient): Promise<void> {
+    const client = transactionClient || await this.getClient();
     await client.query(
       `INSERT INTO refund_records (
         id, original_payment_record_id, provider_organization_id, amount_cents,
@@ -3121,8 +3121,8 @@ export class CommercialStore {
     );
   }
 
-  public async getRefundsForPayment(paymentId: string): Promise<RefundRecord[]> {
-    const client = await this.getClient();
+  public async getRefundsForPayment(paymentId: string, transactionClient?: SqlClient): Promise<RefundRecord[]> {
+    const client = transactionClient || await this.getClient();
     const res = await client.query<any>(
       `SELECT * FROM refund_records WHERE original_payment_record_id = $1 ORDER BY refunded_at ASC;`,
       [paymentId]
@@ -3139,8 +3139,8 @@ export class CommercialStore {
     }));
   }
 
-  public async getRefundByIdempotencyKey(idempotencyKey: string): Promise<RefundRecord | undefined> {
-    const client = await this.getClient();
+  public async getRefundByIdempotencyKey(idempotencyKey: string, transactionClient?: SqlClient): Promise<RefundRecord | undefined> {
+    const client = transactionClient || await this.getClient();
     const res = await client.query<any>(`SELECT * FROM refund_records WHERE idempotency_key = $1;`, [idempotencyKey]);
     if (!res.rows[0]) return undefined;
     const r = res.rows[0];
@@ -3170,8 +3170,8 @@ export class CommercialStore {
     }));
   }
 
-  public async saveSettlementAllocation(allocation: SettlementAllocation): Promise<void> {
-    const client = await this.getClient();
+  public async saveSettlementAllocation(allocation: SettlementAllocation, transactionClient?: SqlClient): Promise<void> {
+    const client = transactionClient || await this.getClient();
     await client.query(
       `INSERT INTO settlement_allocations (
         id, payment_record_id, refund_record_id, invoice_id, amount_allocated_cents, allocated_at
@@ -3187,8 +3187,8 @@ export class CommercialStore {
     );
   }
 
-  public async getAllocationsForInvoice(invoiceId: string): Promise<SettlementAllocation[]> {
-    const client = await this.getClient();
+  public async getAllocationsForInvoice(invoiceId: string, transactionClient?: SqlClient): Promise<SettlementAllocation[]> {
+    const client = transactionClient || await this.getClient();
     const res = await client.query<any>(
       `SELECT * FROM settlement_allocations WHERE invoice_id = $1 ORDER BY allocated_at ASC;`,
       [invoiceId]
@@ -3212,22 +3212,33 @@ export class CommercialStore {
     idempotencyKey?: string;
   }): Promise<{ payment: PaymentRecord; allocation?: SettlementAllocation; updatedInvoice?: Invoice }> {
     const client = await this.getClient();
+    return client.transaction(transactionClient => this.recordPaymentTransaction(params, transactionClient));
+  }
+
+  private async recordPaymentTransaction(params: {
+    providerOrganizationId: string;
+    amountCents: number;
+    paymentMethod: PaymentMethod;
+    invoiceId?: string;
+    externalReference?: string;
+    idempotencyKey?: string;
+  }, client: SqlClient): Promise<{ payment: PaymentRecord; allocation?: SettlementAllocation; updatedInvoice?: Invoice }> {
     const now = new Date().toISOString();
     let paymentId = `pay_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
     const idempotencyKey = params.idempotencyKey || `pay:${params.providerOrganizationId}:${Date.now()}`;
 
-    const existing = await this.getPaymentRecordByIdempotencyKey(idempotencyKey);
+    const existing = await this.getPaymentRecordByIdempotencyKey(idempotencyKey, client);
     if (existing) {
       if (existing.providerOrganizationId !== params.providerOrganizationId ||
           existing.amountCents !== params.amountCents || existing.invoiceId !== params.invoiceId) {
         throw Object.assign(new Error('Payment idempotency key was already used with different settlement facts.'), { statusCode: 409 });
       }
       if (existing.status === 'SUCCEEDED') {
-        const allocations = params.invoiceId ? await this.getAllocationsForInvoice(params.invoiceId) : [];
+        const allocations = params.invoiceId ? await this.getAllocationsForInvoice(params.invoiceId, client) : [];
         return {
           payment: existing,
           allocation: allocations.find(item => item.paymentRecordId === existing.id),
-          updatedInvoice: params.invoiceId ? await this.getInvoiceById(params.invoiceId) : undefined
+          updatedInvoice: params.invoiceId ? await this.getInvoiceById(params.invoiceId, client) : undefined
         };
       }
       paymentId = existing.id;
@@ -3247,14 +3258,17 @@ export class CommercialStore {
       createdAt: now
     };
 
-    await this.savePaymentRecord(payment);
+    await this.savePaymentRecord(payment, client);
 
     let allocation: SettlementAllocation | undefined;
     let updatedInvoice: Invoice | undefined;
 
     if (params.invoiceId) {
-      const invoice = await this.getInvoiceById(params.invoiceId);
+      const invoice = await this.getInvoiceById(params.invoiceId, client);
       if (invoice) {
+        if (params.amountCents > invoice.balanceDueCents) {
+          throw Object.assign(new Error('Processor payment exceeds the authoritative invoice balance.'), { statusCode: 409 });
+        }
         const allocId = `alc_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
         allocation = {
           id: allocId,
@@ -3263,10 +3277,10 @@ export class CommercialStore {
           amountAllocatedCents: params.amountCents,
           allocatedAt: now
         };
-        await this.saveSettlementAllocation(allocation);
+        await this.saveSettlementAllocation(allocation, client);
 
         // Recompute invoice balance
-        const allAllocations = await this.getAllocationsForInvoice(invoice.id);
+        const allAllocations = await this.getAllocationsForInvoice(invoice.id, client);
         const netAllocated = allAllocations.reduce((acc, a) => acc + (a.refundRecordId ? -a.amountAllocatedCents : a.amountAllocatedCents), 0);
         const newBalance = Math.max(0, invoice.totalDueCents - netAllocated);
         const newStatus: InvoiceStatus = newBalance === 0 ? 'PAID' : (netAllocated > 0 ? 'PARTIALLY_PAID' : invoice.status);
@@ -3304,25 +3318,34 @@ export class CommercialStore {
     idempotencyKey?: string;
   }): Promise<{ refund: RefundRecord; allocation?: SettlementAllocation; updatedInvoice?: Invoice }> {
     const client = await this.getClient();
+    return client.transaction(transactionClient => this.recordRefundTransaction(params, transactionClient));
+  }
+
+  private async recordRefundTransaction(params: {
+    paymentId: string;
+    amountCents: number;
+    reason: string;
+    idempotencyKey?: string;
+  }, client: SqlClient): Promise<{ refund: RefundRecord; allocation?: SettlementAllocation; updatedInvoice?: Invoice }> {
     if (params.idempotencyKey) {
-      const existing = await this.getRefundByIdempotencyKey(params.idempotencyKey);
+      const existing = await this.getRefundByIdempotencyKey(params.idempotencyKey, client);
       if (existing) {
         if (existing.originalPaymentRecordId !== params.paymentId || existing.amountCents !== params.amountCents) {
           throw Object.assign(new Error('Refund idempotency key was already used with different refund facts.'), { statusCode: 409 });
         }
-        const original = await this.getPaymentRecordById(params.paymentId);
-        const allocations = original?.invoiceId ? await this.getAllocationsForInvoice(original.invoiceId) : [];
+        const original = await this.getPaymentRecordById(params.paymentId, client);
+        const allocations = original?.invoiceId ? await this.getAllocationsForInvoice(original.invoiceId, client) : [];
         return {
           refund: existing,
           allocation: allocations.find(item => item.refundRecordId === existing.id),
-          updatedInvoice: original?.invoiceId ? await this.getInvoiceById(original.invoiceId) : undefined
+          updatedInvoice: original?.invoiceId ? await this.getInvoiceById(original.invoiceId, client) : undefined
         };
       }
     }
-    const payment = await this.getPaymentRecordById(params.paymentId);
+    const payment = await this.getPaymentRecordById(params.paymentId, client);
     if (!payment) throw new Error(`PaymentRecord not found: ${params.paymentId}`);
 
-    const existingRefunds = await this.getRefundsForPayment(payment.id);
+    const existingRefunds = await this.getRefundsForPayment(payment.id, client);
     const priorTotal = existingRefunds.reduce((acc, r) => acc + r.amountCents, 0);
 
     const refund = buildRefundRecord({
@@ -3333,13 +3356,13 @@ export class CommercialStore {
       idempotencyKey: params.idempotencyKey
     });
 
-    await this.saveRefundRecord(refund);
+    await this.saveRefundRecord(refund, client);
 
     let allocation: SettlementAllocation | undefined;
     let updatedInvoice: Invoice | undefined;
 
     if (payment.invoiceId) {
-      const invoice = await this.getInvoiceById(payment.invoiceId);
+      const invoice = await this.getInvoiceById(payment.invoiceId, client);
       if (invoice) {
         const allocId = `alc_ref_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
         allocation = {
@@ -3350,10 +3373,10 @@ export class CommercialStore {
           amountAllocatedCents: refund.amountCents,
           allocatedAt: refund.refundedAt
         };
-        await this.saveSettlementAllocation(allocation);
+        await this.saveSettlementAllocation(allocation, client);
 
         // Recompute invoice balance
-        const allAllocations = await this.getAllocationsForInvoice(invoice.id);
+        const allAllocations = await this.getAllocationsForInvoice(invoice.id, client);
         const netAllocated = allAllocations.reduce((acc, a) => acc + (a.refundRecordId ? -a.amountAllocatedCents : a.amountAllocatedCents), 0);
         const newBalance = Math.max(0, invoice.totalDueCents - netAllocated);
         const newStatus: InvoiceStatus = newBalance === 0 ? 'PAID' : (netAllocated > 0 ? 'PARTIALLY_PAID' : 'ISSUED');

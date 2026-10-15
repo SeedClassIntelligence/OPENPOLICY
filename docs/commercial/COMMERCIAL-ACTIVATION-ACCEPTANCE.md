@@ -47,12 +47,19 @@ states map conservatively: `succeeded` settles the ledger;
 `processing`/action-required states remain pending; cancelled or payment-method
 failures are recorded as failed. Only a succeeded processor event creates a
 settlement allocation and changes the invoice balance. Processor retries reuse
-the same payment idempotency identity.
+the same payment idempotency identity. Out-of-order delivery cannot downgrade a
+terminal success, and a delayed pending event cannot reopen a failed payment.
 
 Refunds are platform-admin operations. Stripe executes the refund first; Open
 Policy records the append-only refund and reverses the invoice allocation only
-after Stripe reports success. Stripe refund IDs form the refund idempotency
-boundary.
+after Stripe reports success. Stripe refund IDs—not caller-selected request
+keys—form the refund idempotency boundary.
+
+Migration `0018_processor_settlement_idempotency` makes successful payment and
+refund allocations unique at the database boundary. Payment/refund recording,
+allocation, and invoice-balance changes execute in one transaction; processor
+replay returns the original result, and an overpayment rolls back without
+creating a successful ledger record.
 
 Required secret/runtime configuration:
 
@@ -70,19 +77,17 @@ Production direct HTTP payment mutation remains disabled. Production collection
 must use the Stripe hosted-session and signed-webhook path. Missing Stripe
 configuration fails closed with `PAYMENT_PROCESSOR_NOT_CONFIGURED`.
 
-Before live activation, the Stripe integration still requires:
+The code boundary now includes hosted customer/payment collection, signed raw
+webhooks, replay-safe processor identities, conservative status mapping,
+processor-first refunds, invoice allocation/reconciliation, fail-closed secret
+configuration, audit evidence, and platform-admin-only refund authority.
 
-- provider customer/payment-method setup without Open Policy handling raw card
-  data;
-- processor-created payment intents or ACH debits;
-- signed webhook verification and replay protection;
-- processor event ID idempotency;
-- authoritative success/failure/pending status mapping;
-- refund execution through the processor before ledger recording;
-- reconciliation between processor settlements and Open Policy invoices;
-- secret management, key rotation, audit evidence, and restricted financial
-  administration;
-- end-to-end sandbox acceptance followed by a controlled production smoke test.
+Before live activation, the remaining external gate is end-to-end Stripe test
+mode acceptance using Secret Manager configuration: card success/failure,
+eligible ACH pending-to-success, signed-webhook replay, processor-first refund,
+settlement reconciliation, and key-rotation procedure. A controlled production
+smoke test follows sandbox acceptance; live collection remains disabled until
+both are documented.
 
 No connection fee may be activated until the separate Nevada compensation
 determination is approved and its durable determination reference is attached

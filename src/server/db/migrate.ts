@@ -1322,6 +1322,16 @@ CREATE INDEX IF NOT EXISTS idx_provider_location_assignments_user
   ON provider_location_assignments(provider_organization_id, provider_user_id);
 `;
 
+export const SQL_MIGRATION_V18 = `
+-- Processor settlement idempotency. A successful payment may settle an invoice
+-- once, and a confirmed refund may reverse that settlement once. These indexes
+-- make webhook replay/concurrency safety a database invariant.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_settlement_payment_allocation
+  ON settlement_allocations(payment_record_id) WHERE refund_record_id IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_settlement_refund_allocation
+  ON settlement_allocations(refund_record_id) WHERE refund_record_id IS NOT NULL;
+`;
+
 export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR || './data/openpolicy_pg') {
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
@@ -1398,7 +1408,11 @@ export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR ||
     await pglite.query(
       `INSERT INTO _migrations (name) VALUES ('0017_premium_provider_services') ON CONFLICT (name) DO NOTHING;`
     );
-    console.log(`[Open Policy DB] Migrations 0001 through 0017 applied successfully.`);
+    await pglite.exec(SQL_MIGRATION_V18);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0018_processor_settlement_idempotency') ON CONFLICT (name) DO NOTHING;`
+    );
+    console.log(`[Open Policy DB] Migrations 0001 through 0018 applied successfully.`);
     return pglite;
   } catch (error) {
     console.error(`[Open Policy DB] Migration error:`, error);

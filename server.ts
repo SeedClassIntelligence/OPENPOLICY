@@ -48,7 +48,7 @@ import { verifyCryptographicAuditChain, processReviewQueueResolution,
 import { assertProductionAuthConfiguration, attachRequestIdentity, configuredAuthMode, getFirebaseUserProfile } from './src/server/auth/requestIdentity';
 import { assertBindingRelationship, assertChallengeRelationship, enforceApiAuthorization } from './src/server/auth/routeAuthorization';
 import { assertDirectSettlementMutationAllowed } from './src/server/paymentCollectionBoundary';
-import { StripePaymentProcessor, mapStripeIntentStatus, stripePaymentMethod, stripeProcessorConfig } from './src/server/stripePaymentProcessor';
+import { StripePaymentProcessor, mapStripeIntentStatus, shouldApplyStripePaymentStatus, stripePaymentMethod, stripeProcessorConfig, stripeRefundLedgerKey } from './src/server/stripePaymentProcessor';
 
 import { runComparisonEngineTestSuite } from './src/domain/comparisonEngine.test';
 import { runEligibilityEngineTestSuite } from './src/domain/eligibilityEngine.test';
@@ -3313,6 +3313,9 @@ app.post('/api/commercial/stripe/webhook', async (req, res) => {
       const mappedStatus = mapStripeIntentStatus(intent.status);
       const paymentIdempotencyKey = `stripe-payment:${intent.id}`;
       const previousPayment = await commercialStore.getPaymentRecordByIdempotencyKey(paymentIdempotencyKey);
+      if (!shouldApplyStripePaymentStatus(previousPayment?.status, mappedStatus)) {
+        return res.json({ received: true, eventId: event.id, ignoredAsStale: true });
+      }
       if (mappedStatus === 'SUCCEEDED') {
         const amount = Number(intent.amount_received || intent.amount);
         await commercialStore.recordPayment({
@@ -3359,7 +3362,7 @@ app.post('/api/commercial/stripe/webhook', async (req, res) => {
 // 9. Record Refund
 app.post('/api/commercial/refunds', async (req, res) => {
   try {
-    const { paymentId, amountCents, reason, idempotencyKey } = req.body;
+    const { paymentId, amountCents, reason } = req.body;
     if (!paymentId || !amountCents || !reason) {
       return res.status(400).json({ error: 'paymentId, amountCents, and reason are required' });
     }
@@ -3374,7 +3377,9 @@ app.post('/api/commercial/refunds', async (req, res) => {
     if (processorRefund.status !== 'succeeded') {
       return res.status(202).json({ success: true, pending: true, processorRefundId: processorRefund.id });
     }
-    const refundIdempotencyKey = idempotencyKey || `stripe-refund:${processorRefund.id}`;
+    // Stripe's immutable refund identity—not a caller-selected key—is the only
+    // safe ledger idempotency boundary after processor execution.
+    const refundIdempotencyKey = stripeRefundLedgerKey(processorRefund.id);
     const previousRefund = await commercialStore.getRefundByIdempotencyKey(refundIdempotencyKey);
     const result = await commercialStore.recordRefund({ paymentId, amountCents: Number(amountCents), reason,
       idempotencyKey: refundIdempotencyKey });
