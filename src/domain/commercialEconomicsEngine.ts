@@ -46,7 +46,7 @@ import {
   SettlementAllocation,
   ProviderAccountBalance
 } from '../types/insurance';
-import { connectionPriceForInsuranceLine } from './commercialPriceBook';
+import { connectionPriceForInsuranceLine, isOperationalConnectionInsuranceLine } from './commercialPriceBook';
 
 /**
  * Creates a new CommercialAccount for a ProviderOrganization.
@@ -605,7 +605,19 @@ export function rateCommercialEvent(params: {
   switch (event.eventType) {
     case 'AUTHORIZED_CONNECTION': {
       const included = snapshot.includedAuthorizedConnections ?? ((snapshot.rates as any)?.AUTHORIZED_CONNECTION_INCLUDED as number) ?? 0;
-      const linePrice = connectionPriceForInsuranceLine(snapshot, String(event.metadata?.insuranceLine || ''));
+      const insuranceLine = String(event.metadata?.insuranceLine || '');
+      if (insuranceLine && !isOperationalConnectionInsuranceLine(snapshot, insuranceLine)) {
+        return {
+          disposition: 'NOT_RATED', billable: false,
+          commercialEventId: event.id, providerOrganizationId: event.providerOrganizationId,
+          commercialAgreementId: agreement.id, commercialPlanVersionId: planVersion.id,
+          chargeCode: 'AUTHORIZED_CONNECTION_LINE_NOT_OPERATIONAL', quantity: 1,
+          unitPriceCents: 0, amountCents: 0, currency: 'USD',
+          reason: 'The published connection price is registered but this insurance line is not operational.', ratedAt,
+          error: 'INSURANCE_LINE_NOT_OPERATIONAL'
+        };
+      }
+      const linePrice = connectionPriceForInsuranceLine(snapshot, insuranceLine);
       const unitPrice = linePrice ?? rates.AUTHORIZED_CONNECTION_CENTS ?? snapshot.authorizedConnectionUnitPriceCents ?? 0;
 
       if (snapshot.authorizedConnectionCentsByInsuranceLine && linePrice === undefined) {

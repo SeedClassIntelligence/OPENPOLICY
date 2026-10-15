@@ -2457,7 +2457,11 @@ export class CommercialStore {
           selectedRecurringAddOns: {},
           implementationServices: { ...OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.implementationServices },
           qualifiedEngagementUnitPriceCents: OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.qualifiedEngagementCents,
+          freeMarketplaceEvents: [...OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.freeMarketplaceEvents],
           authorizedConnectionCentsByInsuranceLine: { ...OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.authorizedConnectionCentsByInsuranceLine },
+          authorizedConnectionMinimumCents: OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.authorizedConnectionMinimumCents,
+          authorizedConnectionMaximumCents: OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.authorizedConnectionMaximumCents,
+          unavailableInsuranceLines: [...OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.unavailableInsuranceLines],
           rates: {
             VPO_ENGAGED_CENTS: OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.qualifiedEngagementCents
           },

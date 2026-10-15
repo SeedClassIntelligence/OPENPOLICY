@@ -32,6 +32,7 @@ const planVersion: CommercialPlanVersion = {
 test('premium price book publishes the founder-authorized subscription and service prices', () => {
   const book = OPEN_POLICY_PREMIUM_PRICE_BOOK_V1;
   assert.equal(book.providerMembershipCentsMonthly, 49_900);
+  assert.equal(book.consumerPriceCents, 0);
   assert.equal(book.includedProducerSeats, 2);
   assert.equal(book.includedJurisdictions, 1);
   assert.deepEqual(book.recurringAddOns, {
@@ -41,6 +42,9 @@ test('premium price book publishes the founder-authorized subscription and servi
   });
   assert.equal(book.implementationServices.ENTERPRISE_IMPLEMENTATION_MIN_CENTS, 250_000);
   assert.equal(book.implementationServices.ENTERPRISE_IMPLEMENTATION_MAX_CENTS, 1_000_000);
+  assert.equal(book.authorizedConnectionMinimumCents, 10_000);
+  assert.equal(book.authorizedConnectionMaximumCents, 35_000);
+  assert.deepEqual(book.unavailableInsuranceLines, ['MEDICARE']);
 });
 
 test('priced premium services remain preserved but unavailable until delivery enforcement exists', () => {
@@ -68,6 +72,7 @@ test('qualified engagement is billed exactly once at $35 by its canonical commer
 
 test('authorized connections use the published insurance-line prices', () => {
   for (const [insuranceLine, expected] of Object.entries(OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.authorizedConnectionCentsByInsuranceLine)) {
+    if (OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.unavailableInsuranceLines.includes(insuranceLine as 'MEDICARE')) continue;
     const event = buildCommercialEvent({
       providerOrganizationId: agreement.providerOrganizationId, eventType: 'AUTHORIZED_CONNECTION',
       sourceEntityType: 'DISCLOSURE_EVENT', sourceEntityId: `disclosure-${insuranceLine}`,
@@ -81,7 +86,9 @@ test('authorized connections use the published insurance-line prices', () => {
 });
 
 test('unpriced acquisition outcomes and telemetry remain zero-rated', () => {
-  for (const eventType of ['BOUND_ACQUISITION', 'VERIFIED_BOUND_OUTCOME', 'VPO_AVAILABLE', 'VPO_VIEWED'] as const) {
+  for (const eventType of [
+    'BOUND_ACQUISITION', 'VERIFIED_BOUND_OUTCOME', ...OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.freeMarketplaceEvents
+  ] as const) {
     const event = buildCommercialEvent({
       providerOrganizationId: agreement.providerOrganizationId, eventType,
       sourceEntityType: 'TEST', sourceEntityId: `source-${eventType}`,
@@ -91,6 +98,21 @@ test('unpriced acquisition outcomes and telemetry remain zero-rated', () => {
     assert.equal(decision.billable, false, eventType);
     assert.equal(decision.amountCents, 0, eventType);
   }
+});
+
+test('Medicare connection price remains registered but cannot be rated in V1', () => {
+  assert.equal(OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.authorizedConnectionCentsByInsuranceLine.MEDICARE, 20_000);
+  const event = buildCommercialEvent({
+    providerOrganizationId: agreement.providerOrganizationId, eventType: 'AUTHORIZED_CONNECTION',
+    sourceEntityType: 'DISCLOSURE_EVENT', sourceEntityId: 'disclosure-medicare',
+    challengeId: 'challenge-medicare', commercialAgreementId: agreement.id,
+    commercialPlanVersionId: planVersion.id, metadata: { insuranceLine: 'MEDICARE' }
+  });
+  const decision = rateCommercialEvent({ event, agreement, planVersion });
+  assert.equal(decision.disposition, 'NOT_RATED');
+  assert.equal(decision.billable, false);
+  assert.equal(decision.amountCents, 0);
+  assert.equal(decision.error, 'INSURANCE_LINE_NOT_OPERATIONAL');
 });
 
 test('connection pricing fails closed when insurance line is absent', () => {

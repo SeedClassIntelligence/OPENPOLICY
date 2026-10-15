@@ -29,6 +29,7 @@ The executable accounting architecture is connected from authoritative commercia
 | `BOUND_ACQUISITION` | Verified downstream acquisition evidence | Recorded, independently configurable, V1 unpriced | No V1 charge | Preserved unpriced |
 | `VERIFIED_BOUND_OUTCOME` | Verified reconciliation outcome | Recorded, independently configurable, V1 unpriced | No V1 charge | Preserved unpriced |
 | `BASELINE_ACTIVATED` | Durable baseline activation | Recorded; no independent V1 charge | No V1 charge | Preserved unpriced |
+| Consumer enrollment and policy upload | Consumer action | No commercial event charge | No consumer invoice | Free in V1 |
 
 ## Gaps found and corrected
 
@@ -39,6 +40,8 @@ The executable accounting architecture is connected from authoritative commercia
 5. Negotiated enterprise implementation had a published range but no executed-agreement charge path. Migration 0016 adds exact, authorized, idempotent one-time charges with supporting references and invoice provenance.
 6. Provider statements did not expose payment/refund history. The provider financial view now includes processor payment status, refunds, invoices, credits and reconstructed balance.
 7. The owner/admin console lacked commercial controls. It now supports provider commercial inspection, admin-only premium activation, capacity add-ons and negotiated implementation charges.
+8. The Medicare connection price was registered but not technically fail-closed. V1 rating now returns `INSURANCE_LINE_NOT_OPERATIONAL` while preserving the published $200 price.
+9. The V1 contract now explicitly records consumer price `$0`, every free marketplace event, the $100–$350 connection range, unpriced outcome events and unavailable insurance lines.
 
 ## Verification evidence
 
