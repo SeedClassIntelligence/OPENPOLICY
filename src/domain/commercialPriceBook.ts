@@ -45,17 +45,10 @@ export const OPEN_POLICY_PREMIUM_PRICE_BOOK_V1 = Object.freeze({
   unpricedOutcomeEvents: Object.freeze(['BOUND_ACQUISITION', 'VERIFIED_BOUND_OUTCOME'] as const)
 });
 
-// These prices remain part of the immutable founder-approved price book, but
-// the corresponding product capabilities do not yet have complete enforced
-// delivery surfaces. They therefore remain deliberately unavailable for new
-// purchase instead of allowing Open Policy to invoice for an undeliverable
-// service. Capacity add-ons (seat and jurisdiction) are operational.
-export const OPEN_POLICY_PREMIUM_V1_UNAVAILABLE_SERVICE_ADD_ONS = Object.freeze([
-  'WORKFLOW_AUTOMATION',
-  'ENTERPRISE_REPORTING',
-  'API_INTEGRATION',
-  'MULTI_LOCATION_ADMINISTRATION'
-] as const);
+// Every priced V1 add-on now has an entitlement-enforced delivery surface.
+// Keep this fail-closed registry for any future price published before its
+// corresponding product capability is accepted.
+export const OPEN_POLICY_PREMIUM_V1_UNAVAILABLE_SERVICE_ADD_ONS = Object.freeze([] as const);
 
 export function isOperationalConnectionInsuranceLine(
   terms: Record<string, unknown>,

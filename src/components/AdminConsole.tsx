@@ -524,7 +524,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
               className="w-full rounded-lg bg-rose-600 px-3 py-2.5 text-xs font-bold text-white disabled:opacity-50">Execute processor-first refund</button>
           </div>
         </div>
-        <p className="text-[10px] text-amber-700">Workflow automation, enterprise reporting, API integration and multi-location administration retain their approved prices but remain unavailable for purchase until their delivery surfaces enforce the corresponding entitlement.</p>
+        <p className="text-[10px] text-emerald-700">Workflow automation, enterprise reporting, API integration and multi-location administration are delivered through tenant-scoped, entitlement-enforced provider services.</p>
       </section>
 
       {/* Owner operations: insurance-line and regional rollout oversight. */}

@@ -52,6 +52,7 @@ import {
 } from '../types/insurance';
 import { detectQuoteDiscrepancies } from '../domain/policyIntelligence';
 import { apiFetch } from '../services/apiClient';
+import { ProviderPremiumServices } from './ProviderPremiumServices';
 
 interface ProviderPortalProps {
   challenge: Challenge | null;
@@ -2464,6 +2465,9 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
               )}
             </div>
           </div>
+
+          {/* 4. Governed Commercial Value Funnel */}
+          <ProviderPremiumServices providerUserId={authenticatedUserId} entitlements={commercialEntitlements} />
 
           {/* 4. Governed Commercial Value Funnel */}
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">

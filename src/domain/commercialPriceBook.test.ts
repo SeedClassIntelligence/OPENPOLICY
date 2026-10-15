@@ -47,12 +47,10 @@ test('premium price book publishes the founder-authorized subscription and servi
   assert.deepEqual(book.unavailableInsuranceLines, ['MEDICARE']);
 });
 
-test('priced premium services remain preserved but unavailable until delivery enforcement exists', () => {
-  assert.deepEqual(OPEN_POLICY_PREMIUM_V1_UNAVAILABLE_SERVICE_ADD_ONS, [
-    'WORKFLOW_AUTOMATION', 'ENTERPRISE_REPORTING', 'API_INTEGRATION', 'MULTI_LOCATION_ADMINISTRATION'
-  ]);
-  for (const code of OPEN_POLICY_PREMIUM_V1_UNAVAILABLE_SERVICE_ADD_ONS) {
-    assert.ok(OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.recurringAddOns[code] > 0, `${code} price remains preserved`);
+test('all priced V1 premium services have accepted entitlement-enforced delivery surfaces', () => {
+  assert.deepEqual(OPEN_POLICY_PREMIUM_V1_UNAVAILABLE_SERVICE_ADD_ONS, []);
+  for (const code of ['WORKFLOW_AUTOMATION','ENTERPRISE_REPORTING','API_INTEGRATION','MULTI_LOCATION_ADMINISTRATION'] as const) {
+    assert.ok(OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.recurringAddOns[code] > 0, `${code} price is published`);
   }
 });
 
@@ -132,7 +130,8 @@ test('contracted recurring add-ons flow into an historically anchored invoice', 
     termsSnapshot: {
       ...planVersion.termsSnapshot,
       recurringAddOns: { ...OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.recurringAddOns },
-      selectedRecurringAddOns: { ADDITIONAL_PRODUCER_SEAT: 2, WORKFLOW_AUTOMATION: 1 }
+      selectedRecurringAddOns: { ADDITIONAL_PRODUCER_SEAT: 2, WORKFLOW_AUTOMATION: 1,
+        ENTERPRISE_REPORTING: 1, API_INTEGRATION: 1, MULTI_LOCATION_ADMINISTRATION: 1 }
     }
   };
   const { invoice, lineItems } = assembleDraftInvoice({
@@ -145,8 +144,8 @@ test('contracted recurring add-ons flow into an historically anchored invoice', 
     planVersion: contractedVersion, billableEvents: [], ratingAdjustments: [],
     invoiceId: 'invoice-pricebook', invoiceNumber: 'INV-PRICEBOOK', now: '2026-12-01T00:00:00.000Z'
   });
-  assert.equal(lineItems.length, 3);
-  assert.equal(invoice.subtotalCents, 49_900 + (2 * 4_900) + 19_900);
+  assert.equal(lineItems.length, 6);
+  assert.equal(invoice.subtotalCents, 49_900 + (2 * 4_900) + 19_900 + 29_900 + 49_900 + 19_900);
 });
 
 test('executed enterprise implementation agreement creates one exact one-time invoice line', () => {

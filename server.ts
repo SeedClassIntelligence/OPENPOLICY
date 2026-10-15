@@ -1197,6 +1197,17 @@ app.get('/api/marketplace/my-provider', async (req, res) => {
   }
 });
 
+app.get('/api/marketplace/my-provider/users', async (req, res) => {
+  try {
+    const actor = await getAuthenticatedProviderAdministrator(req);
+    const users = await postgresStore.getProviderUsers(actor.organizationId);
+    res.json({ users: users.map(user => ({ id: user.id, name: user.name, email: user.email,
+      role: user.role, status: user.status })) });
+  } catch (e: any) {
+    res.status(e.statusCode || 403).json({ error: e.message });
+  }
+});
+
 app.patch('/api/marketplace/my-provider/appetite', async (req, res) => {
   try {
     const orgId = await getAuthenticatedProviderOrgId(req);

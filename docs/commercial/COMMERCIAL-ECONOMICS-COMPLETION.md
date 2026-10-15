@@ -8,9 +8,9 @@ Scope: CE-1 through CE-5 completion audit and implementation
 
 ## Disposition
 
-`NOT COMPLETE — EXTERNAL PAYMENT ACCEPTANCE AND DELIBERATELY UNAVAILABLE SERVICES REMAIN`
+`NOT COMPLETE — EXTERNAL PAYMENT ACCEPTANCE REMAINS`
 
-The executable accounting architecture is connected from authoritative commercial agreement through entitlement/event, rating, invoice, processor-facing payment session, settlement allocation, refund and reconstructed balance. No live charge was initiated. Stripe sandbox collection and refund acceptance still require external credentials and webhook configuration. Four priced service add-ons remain preserved but unavailable for purchase until their product delivery surfaces enforce their entitlements.
+The executable accounting architecture is connected from authoritative commercial agreement through entitlement/event, rating, invoice, processor-facing payment session, settlement allocation, refund and reconstructed balance. No live charge was initiated. Stripe sandbox collection and refund acceptance still require external credentials and webhook configuration. All four priced service add-ons now have tenant-scoped, entitlement-enforced delivery surfaces and provider controls.
 
 ## Revenue coverage matrix
 
@@ -19,10 +19,10 @@ The executable accounting architecture is connected from authoritative commercia
 | $499 monthly membership | Platform-admin activated immutable agreement | Historical plan version creates recurring subscription line | Finalized invoice uses Stripe checkout; signed webhook allocates confirmed payment | Code complete; Stripe sandbox evidence blocked |
 | $49 additional producer seat | Admin-contracted quantity | Recurring add-on line; expands `PROVIDER_SEATS` | Same invoice/payment ledger | Executable |
 | $75 additional jurisdiction | Admin-contracted quantity | Recurring add-on line; expands `JURISDICTION_CAPACITY` | Same invoice/payment ledger | Executable |
-| $199 workflow automation | Price preserved | Purchase is rejected fail-closed | None | Unavailable until workflow capability enforces entitlement |
-| $299 enterprise reporting | Price preserved | Purchase is rejected fail-closed | None | Unavailable until reporting capability enforces entitlement |
-| $499 API integration | Price preserved | Purchase is rejected fail-closed | None | Unavailable until API capability enforces entitlement |
-| $199 multi-location administration | Price preserved | Purchase is rejected fail-closed | None | Unavailable until multi-location capability enforces entitlement |
+| $199 workflow automation | Admin-contracted quantity | Entitlement and recurring invoice line | Same payment ledger | Executable |
+| $299 enterprise reporting | Admin-contracted quantity | Entitlement and recurring invoice line | Same payment ledger | Executable |
+| $499 API integration | Admin-contracted quantity | Entitlement and recurring invoice line | Same payment ledger | Executable |
+| $199 multi-location administration | Admin-contracted quantity | Entitlement and recurring invoice line | Same payment ledger | Executable |
 | $2,500–$10,000 enterprise implementation | Admin records exact executed-agreement amount and supporting reference | Migration 0016 creates an auditable one-time service charge and exactly-once invoice line | Same payment/refund/allocation ledger | Code complete; Stripe sandbox evidence blocked |
 | $35 `VPO_ENGAGED` | Qualified participation, once per provider organization/opportunity | Immutable event → rating → billable event → invoice | Same payment/reconciliation ledger | Executable; external collection evidence blocked |
 | Line-priced `AUTHORIZED_CONNECTION` | Consumer authorization plus successful controlled disclosure | Immutable disclosure-derived event → line-specific rating → invoice | Same payment/reconciliation ledger | Compensation determination required; Medicare non-executable |
@@ -52,7 +52,7 @@ The four priced services now have durable, tenant-scoped backend delivery bounda
 - API integration: one-time-revealed, hash-stored, scoped and revocable provider credentials with tenant-scoped read APIs;
 - multi-location administration: durable office records and producer assignments with cross-organization assignment rejection.
 
-Purchase remains unavailable pending provider-facing administration UI and full HTTP adversarial acceptance. Backend existence alone is not represented as completed service delivery.
+Provider-facing administration is connected in the commercial account portal. The focused HTTP suite verifies entitlement denial, role boundaries, tenant isolation, API scope enforcement, secret non-disclosure, revocation and cross-organization assignment denial.
 
 ## Verification evidence
 
@@ -64,6 +64,8 @@ Purchase remains unavailable pending provider-facing administration UI and full 
 - Payment boundary tests: 2/2.
 - Stripe processor tests: 4/4.
 - Route authorization tests: 11/11.
+- Premium service persistence/security tests: 3/3.
+- Premium service HTTP adversarial acceptance: 13/13.
 - Commercial domain tests: 13/13.
 - Canonical validators: all 11 passed.
   - PM-1: 57/57
@@ -86,9 +88,9 @@ The normal `tsx` test launcher on this Windows host failed before loading tests 
 2. Controlled Stripe sandbox evidence for card and eligible ACH payment, failure, retry, signed-webhook replay, processor-first refund, allocation and balance reconciliation.
 3. Approved compensation determination durably attached before any `AUTHORIZED_CONNECTION` charge becomes executable.
 4. Medicare remains price-preserved and non-executable until added to the governed insurance-line registry by separate authorization.
-5. Workflow automation, enterprise reporting, API integration and multi-location administration remain unavailable until their actual product capabilities and entitlement checks are implemented and accepted.
+5. Provider-facing controls and HTTP adversarial acceptance for workflow automation, enterprise reporting, API integration and multi-location administration are complete.
 6. Production smoke-test authorization before any live collection. No live collection is authorized by this record.
 
 ## Revenue leakage conclusion
 
-No revenue leakage percentage is claimed. The audit identified concrete missing or unauthorized paths and corrected the executable accounting gaps above. External processor acceptance and deliberately unavailable product services remain explicit blockers rather than being counted as captured revenue.
+No revenue leakage percentage is claimed. The audit identified concrete missing or unauthorized paths and corrected the executable accounting gaps above. External processor acceptance remains an explicit blocker rather than being counted as captured revenue.

@@ -50,12 +50,12 @@ Publishing a price is not compensation approval. Every operational authorized-co
 | --- | ---: | --- |
 | Additional producer seat | $49/month | Executable |
 | Additional jurisdiction | $75/month | Executable, subject to provider licensing and qualification |
-| Workflow automation | $199/month | Price preserved; purchase unavailable |
-| Enterprise reporting | $299/month | Price preserved; purchase unavailable |
-| API integration | $499/month | Price preserved; purchase unavailable |
-| Multi-location administration | $199/month | Price preserved; purchase unavailable |
+| Workflow automation | $199/month | Executable; entitlement-gated workflow rules |
+| Enterprise reporting | $299/month | Executable; tenant-scoped reporting |
+| API integration | $499/month | Executable; scoped, revocable credentials |
+| Multi-location administration | $199/month | Executable; tenant-scoped offices and assignments |
 
-An unavailable service cannot create an entitlement, invoice line, or payment obligation until its delivery surface and entitlement enforcement are implemented and accepted.
+Every optional service requires an active corresponding entitlement. Commercial purchase never changes marketplace ordering, eligibility, offer presentation, or consumer selection.
 
 ## Enterprise implementation
 
