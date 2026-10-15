@@ -1202,6 +1202,14 @@ app.get('/api/admin/overview', async (_req, res) => {
     ]);
     res.json({
       generatedAt: new Date().toISOString(),
+      paymentProcessor: {
+        provider: 'STRIPE',
+        configured: Boolean(process.env.STRIPE_SECRET_KEY?.trim() && process.env.STRIPE_WEBHOOK_SECRET?.trim() && process.env.APP_URL?.trim()),
+        secretKeyConfigured: Boolean(process.env.STRIPE_SECRET_KEY?.trim()),
+        webhookConfigured: Boolean(process.env.STRIPE_WEBHOOK_SECRET?.trim()),
+        secureReturnUrl: (() => { try { return new URL(process.env.APP_URL || '').protocol === 'https:'; } catch { return false; } })(),
+        liveCollectionsEnabled: process.env.OPENPOLICY_LIVE_COLLECTIONS_ENABLED === 'true'
+      },
       organizations: organizations.map(org => ({
         id: org.id,
         displayName: org.displayName,
@@ -1229,6 +1237,24 @@ app.get('/api/admin/overview', async (_req, res) => {
         consumers: null
       }
     });
+  } catch (e: any) {
+    res.status(e.statusCode || 500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/admin/providers/:organizationId/status', async (req, res) => {
+  try {
+    const marketplaceStatus = String(req.body?.marketplaceStatus || '').toUpperCase();
+    if (!['ACTIVE', 'PENDING', 'SUSPENDED', 'INACTIVE'].includes(marketplaceStatus)) {
+      return res.status(400).json({ error: 'marketplaceStatus must be ACTIVE, PENDING, SUSPENDED, or INACTIVE.' });
+    }
+    const organization = await postgresStore.changeProviderOrganizationStatus({
+      organizationId: req.params.organizationId,
+      marketplaceStatus: marketplaceStatus as any,
+      actorId: req.openPolicyIdentity!.uid,
+      reason: String(req.body?.reason || '')
+    });
+    res.json({ success: true, organization });
   } catch (e: any) {
     res.status(e.statusCode || 500).json({ error: e.message });
   }

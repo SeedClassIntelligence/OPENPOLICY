@@ -85,6 +85,8 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
   const [refundReason, setRefundReason] = useState('Authorized billing correction');
   const [financialBusy, setFinancialBusy] = useState(false);
   const [financialMessage, setFinancialMessage] = useState<string | null>(null);
+  const [providerStatusReason, setProviderStatusReason] = useState('');
+  const [providerStatusBusy, setProviderStatusBusy] = useState<string | null>(null);
 
   const loadData = async () => {
     setLoading(true);
@@ -300,6 +302,25 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
     }
   };
 
+  const changeProviderStatus = async (organizationId: string, marketplaceStatus: 'ACTIVE' | 'SUSPENDED') => {
+    if (!providerStatusReason.trim()) return;
+    setProviderStatusBusy(organizationId);
+    try {
+      const response = await apiFetch(`/api/admin/providers/${encodeURIComponent(organizationId)}/status`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ marketplaceStatus, reason: providerStatusReason.trim() })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Provider status could not be changed.');
+      setProviderStatusReason('');
+      await loadData();
+    } catch (error: any) {
+      setFinancialMessage(error?.message || 'Provider status could not be changed.');
+    } finally {
+      setProviderStatusBusy(null);
+    }
+  };
+
   // Filtered Events
   const filteredEvents = auditEvents.filter(event => {
     const matchesFilter = 
@@ -414,6 +435,12 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
         <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-[11px] text-blue-900">
           Consumer account totals are not shown because Firebase Authentication is the identity authority and the current owner API does not maintain a separate, trustworthy consumer directory. Policy and lifecycle totals above are authoritative PostgreSQL counts.
         </div>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 rounded-xl border border-slate-200 p-4">
+          <div><span className="block text-[10px] uppercase text-slate-500">Payment processor</span><strong className="text-sm text-slate-900">Stripe</strong></div>
+          <div><span className="block text-[10px] uppercase text-slate-500">Credentials</span><strong className={ownerOverview?.paymentProcessor?.configured ? 'text-emerald-700' : 'text-amber-700'}>{ownerOverview?.paymentProcessor?.configured ? 'Configured' : 'Not configured'}</strong></div>
+          <div><span className="block text-[10px] uppercase text-slate-500">Secure return URL</span><strong className={ownerOverview?.paymentProcessor?.secureReturnUrl ? 'text-emerald-700' : 'text-amber-700'}>{ownerOverview?.paymentProcessor?.secureReturnUrl ? 'HTTPS ready' : 'Not ready'}</strong></div>
+          <div><span className="block text-[10px] uppercase text-slate-500">Live collections</span><strong className={ownerOverview?.paymentProcessor?.liveCollectionsEnabled ? 'text-rose-700' : 'text-slate-700'}>{ownerOverview?.paymentProcessor?.liveCollectionsEnabled ? 'Enabled' : 'Disabled'}</strong></div>
+        </div>
         <div id="owner-providers" className="scroll-mt-36 space-y-3 pt-2">
           <div>
             <h4 className="text-sm font-bold text-slate-950">Provider organization registry</h4>
@@ -422,7 +449,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
           <div className="overflow-x-auto rounded-xl border border-slate-200">
             <table className="min-w-full divide-y divide-slate-200 text-left text-xs">
               <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500"><tr>
-                <th className="px-3 py-2">Organization</th><th className="px-3 py-2">Verification</th><th className="px-3 py-2">Marketplace</th><th className="px-3 py-2">Users</th><th className="px-3 py-2">Jurisdictions</th><th className="px-3 py-2">Lines</th>
+                <th className="px-3 py-2">Organization</th><th className="px-3 py-2">Verification</th><th className="px-3 py-2">Marketplace</th><th className="px-3 py-2">Users</th><th className="px-3 py-2">Jurisdictions</th><th className="px-3 py-2">Lines</th><th className="px-3 py-2">Action</th>
               </tr></thead>
               <tbody className="divide-y divide-slate-100">
                 {(ownerOverview?.organizations || []).map((organization: any) => (
@@ -433,11 +460,22 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
                     <td className="px-3 py-2 text-slate-700">{organization.userCount}</td>
                     <td className="px-3 py-2 text-slate-700">{organization.states?.join(', ') || '—'}</td>
                     <td className="px-3 py-2 text-slate-700">{organization.linesOfBusiness?.join(', ') || '—'}</td>
+                    <td className="px-3 py-2">
+                      {organization.marketplaceStatus === 'ACTIVE' ? (
+                        <button disabled={!providerStatusReason.trim() || providerStatusBusy === organization.id} onClick={() => changeProviderStatus(organization.id, 'SUSPENDED')} className="rounded border border-amber-300 bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-800 disabled:opacity-40">Suspend</button>
+                      ) : (
+                        <button disabled={!providerStatusReason.trim() || providerStatusBusy === organization.id} onClick={() => changeProviderStatus(organization.id, 'ACTIVE')} className="rounded border border-emerald-300 bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-800 disabled:opacity-40">Activate</button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          <label className="block text-xs font-semibold text-slate-700">Required reason for provider status change
+            <input value={providerStatusReason} onChange={event => setProviderStatusReason(event.target.value)} placeholder="Document the operational or compliance reason" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-xs" />
+          </label>
+          <p className="text-[10px] text-slate-500">Suspension immediately removes marketplace eligibility. Every change is committed with immutable administrator audit evidence.</p>
         </div>
       </section>
 

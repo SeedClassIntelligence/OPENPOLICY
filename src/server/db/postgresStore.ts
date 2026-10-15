@@ -1436,6 +1436,35 @@ export class PostgresStore {
     );
   }
 
+  public async changeProviderOrganizationStatus(params: {
+    organizationId: string;
+    marketplaceStatus: ProviderOrganization['marketplaceStatus'];
+    actorId: string;
+    reason: string;
+  }): Promise<ProviderOrganization> {
+    await this.ensureReady();
+    if (!params.reason.trim()) throw Object.assign(new Error('A provider status change reason is required.'), { statusCode: 400 });
+    return this.sql!.transaction(async client => {
+      const result = await client.query<any>(
+        `UPDATE provider_organizations SET marketplace_status=$2 WHERE id=$1 RETURNING *;`,
+        [params.organizationId, params.marketplaceStatus]
+      );
+      if (!result.rows[0]) throw Object.assign(new Error('Provider organization not found.'), { statusCode: 404 });
+      await this.appendAuditInTransaction(client, {
+        eventType: 'PROVIDER_STATUS_CHANGED', actorRole: 'ADMIN', actorId: params.actorId,
+        details: `Provider organization ${params.organizationId} marketplace status changed to ${params.marketplaceStatus}. Reason: ${params.reason.trim()}`
+      });
+      const row = result.rows[0];
+      return {
+        id: row.id, legalName: row.legal_name, displayName: row.display_name,
+        organizationType: row.organization_type, verificationStatus: row.verification_status,
+        marketplaceStatus: row.marketplace_status, states: JSON.parse(row.states),
+        linesOfBusiness: JSON.parse(row.lines_of_business), createdAt: row.created_at,
+        verifiedAt: row.verified_at || undefined
+      } as ProviderOrganization;
+    });
+  }
+
   public async saveProviderUser(user: ProviderUser) {
     await this.ensureReady();
     await this.sql!.query(
