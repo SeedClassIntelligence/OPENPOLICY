@@ -751,6 +751,7 @@ export interface AuditEvent {
     | 'COMMERCIAL_AGREEMENT_ACTIVATED'
     | 'COMMERCIAL_EVENT_RECORDED'
     | 'BILLABLE_EVENT_RATED'
+    | 'NEGOTIATED_SERVICE_CHARGE_APPROVED'
     | 'PAYMENT_SESSION_CREATED'
     | 'PAYMENT_PROCESSOR_STATUS_CHANGED'
     | 'REFUND_PROCESSOR_CONFIRMED';
@@ -1645,7 +1646,25 @@ export type InvoiceLineType =
   | 'SUBSCRIPTION'
   | 'USAGE_CHARGE'
   | 'OUTCOME_CHARGE'
+  | 'ONE_TIME_SERVICE'
   | 'ADJUSTMENT_CREDIT';
+
+export interface NegotiatedServiceCharge {
+  id: string;
+  providerOrganizationId: string;
+  commercialAgreementId: string;
+  serviceCode: 'ENTERPRISE_IMPLEMENTATION';
+  amountCents: number;
+  currency: 'USD';
+  executedAgreementReference: string;
+  supportingReference: string;
+  effectiveAt: string;
+  status: 'APPROVED' | 'INVOICED' | 'CANCELLED';
+  authorizedBy: string;
+  authorizedAt: string;
+  idempotencyKey: string;
+  invoiceId?: string;
+}
 
 export interface InvoiceLineItem {
   id: string;
@@ -1657,6 +1676,7 @@ export interface InvoiceLineItem {
   amountCents: number;
   billableEventId?: string;
   ratingAdjustmentId?: string;
+  negotiatedServiceChargeId?: string;
   billingPeriodId?: string;
   createdAt: string;
 }

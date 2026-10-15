@@ -81,6 +81,8 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
   const [invoices, setInvoices] = useState<any[]>([]);
   const [billingPeriods, setBillingPeriods] = useState<any[]>([]);
   const [accountBalance, setAccountBalance] = useState<any | null>(null);
+  const [payments, setPayments] = useState<any[]>([]);
+  const [refunds, setRefunds] = useState<any[]>([]);
   const [commercialLoading, setCommercialLoading] = useState<boolean>(false);
   const [paymentSessionLoadingId, setPaymentSessionLoadingId] = useState<string | null>(null);
   const [paymentSessionError, setPaymentSessionError] = useState<string | null>(null);
@@ -280,7 +282,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
     const userIdToUse = targetUserId || authenticatedUserId;
     const authHeaders = { 'x-provider-user-id': userIdToUse };
     try {
-      const [accRes, agrRes, entRes, evtRes, valRes, bilRes, adjRes, sumRes, invRes, bpRes, balRes] = await Promise.all([
+      const [accRes, agrRes, entRes, evtRes, valRes, bilRes, adjRes, sumRes, invRes, bpRes, statementRes] = await Promise.all([
         apiFetch('/api/commercial/account', { headers: authHeaders }),
         apiFetch('/api/commercial/agreement', { headers: authHeaders }),
         apiFetch('/api/commercial/entitlements', { headers: authHeaders }),
@@ -291,7 +293,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
         apiFetch('/api/commercial/billable-events/summary', { headers: authHeaders }),
         apiFetch('/api/commercial/invoices', { headers: authHeaders }),
         apiFetch('/api/commercial/billing-periods', { headers: authHeaders }),
-        apiFetch('/api/commercial/statements/balance', { headers: authHeaders })
+        apiFetch('/api/commercial/statements/current', { headers: authHeaders })
       ]);
 
       if (accRes.ok) {
@@ -336,9 +338,11 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
         const d = await bpRes.json();
         setBillingPeriods(d.billingPeriods || []);
       }
-      if (balRes.ok) {
-        const d = await balRes.json();
-        setAccountBalance(d.balance || null);
+      if (statementRes.ok) {
+        const d = await statementRes.json();
+        setAccountBalance(d.statement?.balance || null);
+        setPayments(d.statement?.payments || []);
+        setRefunds(d.statement?.refunds || []);
       }
     } catch (err) {
       console.warn('Commercial data load error:', err);
@@ -2842,6 +2846,41 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                 <span className="text-[10px] text-slate-500">
                   {((accountBalance?.outstandingBalanceCents ?? 0) > 0) ? 'Payment Due' : 'Account Current'}
                 </span>
+              </div>
+            </div>
+
+            {/* Processor-confirmed payment and refund history */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="rounded-xl border border-slate-200 overflow-hidden">
+                <div className="bg-slate-50 px-4 py-2.5 text-xs font-bold text-slate-800">Payments ({payments.length})</div>
+                <div className="divide-y divide-slate-100 max-h-52 overflow-y-auto">
+                  {payments.length > 0 ? payments.map((payment: any) => (
+                    <div key={payment.id} className="flex items-center justify-between gap-3 px-4 py-2.5 text-xs">
+                      <div>
+                        <div className="font-mono font-semibold text-slate-800">{payment.externalReference || payment.id}</div>
+                        <div className="text-[10px] text-slate-500">{payment.paymentMethod} • {new Date(payment.createdAt).toLocaleDateString()}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-mono font-bold text-slate-900">${(payment.amountCents / 100).toFixed(2)}</div>
+                        <div className={`text-[10px] font-bold ${payment.status === 'SUCCEEDED' ? 'text-emerald-700' : payment.status === 'FAILED' ? 'text-rose-700' : 'text-amber-700'}`}>{payment.status}</div>
+                      </div>
+                    </div>
+                  )) : <div className="px-4 py-5 text-xs text-slate-400">No processor-confirmed payments yet.</div>}
+                </div>
+              </div>
+              <div className="rounded-xl border border-slate-200 overflow-hidden">
+                <div className="bg-slate-50 px-4 py-2.5 text-xs font-bold text-slate-800">Refunds & Credits ({refunds.length})</div>
+                <div className="divide-y divide-slate-100 max-h-52 overflow-y-auto">
+                  {refunds.length > 0 ? refunds.map((refund: any) => (
+                    <div key={refund.id} className="flex items-center justify-between gap-3 px-4 py-2.5 text-xs">
+                      <div>
+                        <div className="font-semibold text-slate-800">{refund.reason}</div>
+                        <div className="text-[10px] font-mono text-slate-500">{refund.id}</div>
+                      </div>
+                      <div className="font-mono font-bold text-rose-700">-${(refund.amountCents / 100).toFixed(2)}</div>
+                    </div>
+                  )) : <div className="px-4 py-5 text-xs text-slate-400">No refunds recorded.</div>}
+                </div>
               </div>
             </div>
 

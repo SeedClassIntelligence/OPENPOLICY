@@ -1,7 +1,7 @@
 import { PGlite } from '@electric-sql/pglite';
 import fs from 'fs';
 import pg from 'pg';
-import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8, SQL_MIGRATION_V9, SQL_MIGRATION_V10, SQL_MIGRATION_V11, SQL_MIGRATION_V12, SQL_MIGRATION_V13, SQL_MIGRATION_V14, SQL_MIGRATION_V15 } from './migrate';
+import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8, SQL_MIGRATION_V9, SQL_MIGRATION_V10, SQL_MIGRATION_V11, SQL_MIGRATION_V12, SQL_MIGRATION_V13, SQL_MIGRATION_V14, SQL_MIGRATION_V15, SQL_MIGRATION_V16 } from './migrate';
 import { buildVerifiedPolicyAndBaseline } from '../../domain/policyEvidenceVerification';
 import {
   ProviderOrganization,
@@ -242,6 +242,10 @@ export class PostgresStore {
         await this.sql.exec(SQL_MIGRATION_V15);
         await this.sql.query(
           `INSERT INTO _migrations (name) VALUES ('0015_consumer_controlled_offer_cohorts') ON CONFLICT (name) DO NOTHING;`
+        );
+        await this.sql.exec(SQL_MIGRATION_V16);
+        await this.sql.query(
+          `INSERT INTO _migrations (name) VALUES ('0016_negotiated_service_charges') ON CONFLICT (name) DO NOTHING;`
         );
         this.isReady = true;
         console.log(

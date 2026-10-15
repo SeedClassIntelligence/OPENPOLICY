@@ -38,6 +38,7 @@ import {
   InvoiceStatus,
   InvoiceLineItem,
   InvoiceLineType,
+  NegotiatedServiceCharge,
   PaymentRecord,
   PaymentMethod,
   PaymentStatus,
@@ -152,17 +153,41 @@ export function deriveEntitlementsFromPlanVersion(params: {
     });
   };
 
+  const selectedAddOns = snapshot.selectedRecurringAddOns || {};
+  const selectedQuantity = (code: string): number => {
+    const quantity = selectedAddOns[code];
+    if (quantity === undefined) return 0;
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      throw new Error(`Invalid contracted recurring add-on selection: ${code}`);
+    }
+    return quantity;
+  };
+
   if (snapshot.includedProducerSeats !== undefined) {
-    add('PROVIDER_SEATS', snapshot.includedProducerSeats);
+    add('PROVIDER_SEATS', snapshot.includedProducerSeats + selectedQuantity('ADDITIONAL_PRODUCER_SEAT'));
   }
   if (snapshot.includedJurisdictions !== undefined) {
-    add('JURISDICTION_CAPACITY', snapshot.includedJurisdictions);
+    add('JURISDICTION_CAPACITY', snapshot.includedJurisdictions + selectedQuantity('ADDITIONAL_JURISDICTION'));
   }
   if (snapshot.includedVpoCapacity !== undefined) {
     add('VPO_VIEW_CAPACITY', snapshot.includedVpoCapacity);
   }
   if (snapshot.includedEngagementCapacity !== undefined) {
     add('VPO_ENGAGEMENT_CAPACITY', snapshot.includedEngagementCapacity);
+  }
+
+  // Service add-ons create explicit contractual authority. Product surfaces
+  // must still check these entitlements before exposing the corresponding
+  // capability; an invoice line alone never grants access.
+  const serviceAddOns: Array<[string, EntitlementType]> = [
+    ['WORKFLOW_AUTOMATION', 'AUTOMATED_APPETITE_MATCHING'],
+    ['ENTERPRISE_REPORTING', 'ENTERPRISE_REPORTING'],
+    ['API_INTEGRATION', 'API_ACCESS'],
+    ['MULTI_LOCATION_ADMINISTRATION', 'MULTI_LOCATION_ADMIN']
+  ];
+  for (const [code, entitlementType] of serviceAddOns) {
+    const quantity = selectedQuantity(code);
+    if (quantity > 0) add(entitlementType, quantity, defaultPolicy, { recurringAddOnCode: code });
   }
 
   return entitlements;
@@ -993,6 +1018,7 @@ export function assembleDraftInvoice(params: {
   planVersion: CommercialPlanVersion;
   billableEvents: BillableEvent[];
   ratingAdjustments: RatingAdjustment[];
+  negotiatedServiceCharges?: NegotiatedServiceCharge[];
   invoiceId?: string;
   invoiceNumber?: string;
   idempotencyKey?: string;
@@ -1044,6 +1070,26 @@ export function assembleDraftInvoice(params: {
       unitPriceCents,
       amountCents: unitPriceCents * quantity,
       billingPeriodId: billingPeriod.id,
+      createdAt: now
+    });
+  }
+
+  // Exact one-time amount from an executed, administrator-approved agreement.
+  // The published $2,500-$10,000 range never creates a charge by itself.
+  for (const charge of params.negotiatedServiceCharges || []) {
+    if (charge.providerOrganizationId !== billingPeriod.providerOrganizationId ||
+        charge.commercialAgreementId !== billingPeriod.commercialAgreementId || charge.status !== 'APPROVED') {
+      throw new Error(`Negotiated service charge ${charge.id} is not eligible for this billing period`);
+    }
+    lineItems.push({
+      id: `lin_service_${charge.id}`,
+      invoiceId,
+      lineType: 'ONE_TIME_SERVICE',
+      description: `Enterprise implementation services — agreement ${charge.executedAgreementReference}`,
+      quantity: 1,
+      unitPriceCents: charge.amountCents,
+      amountCents: charge.amountCents,
+      negotiatedServiceChargeId: charge.id,
       createdAt: now
     });
   }

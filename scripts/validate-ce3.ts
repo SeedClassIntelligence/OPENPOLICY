@@ -159,15 +159,16 @@ export async function runCE3ValidationSuite() {
     const enrollRes = await request(
       server,
       'POST',
-      '/api/commercial/agreements/enroll',
+      '/api/admin/commercial/agreements/enroll',
       {
+        providerOrganizationId: testOrgId,
         planCode: 'PLAN_AGENCY',
         enforcementPolicy: 'ALLOW_OVERAGE',
         customTerms: {
           includedEngagementCapacity: 100
         }
       },
-      apexHeaders
+      { 'x-openpolicy-fixture-role': 'ADMIN' }
     );
     assert(enrollRes.status === 201, 'Enrolled active commercial agreement with capacity');
     const agreement = enrollRes.body.agreement;

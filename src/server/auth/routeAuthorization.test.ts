@@ -80,6 +80,15 @@ test('wrong actor type is forbidden while intended actor is admitted to domain c
   assert.equal(invoke('POST', '/marketplace/binding/h/cannot-honor', provider).next, true);
   assert.equal(invoke('POST', '/admin/commercial/agreements/enroll', provider).status, 403);
   assert.equal(invoke('POST', '/admin/commercial/agreements/enroll', admin).next, true);
+  assert.equal(invoke('POST', '/admin/commercial/agreements/agreement-1/transition', provider).status, 403);
+  assert.equal(invoke('POST', '/admin/commercial/agreements/agreement-1/transition', admin).next, true);
+  assert.equal(invoke('POST', '/commercial/billing-periods', provider).status, 403);
+  assert.equal(invoke('POST', '/commercial/billing-periods', admin).next, true);
+  assert.equal(invoke('POST', '/commercial/billing-periods/period-1/close', provider).status, 403);
+  assert.equal(invoke('POST', '/commercial/invoices/generate-draft', provider).status, 403);
+  assert.equal(invoke('POST', '/commercial/invoices/invoice-1/finalize', provider).status, 403);
+  assert.equal(invoke('POST', '/commercial/billable-events/event-1/adjustments', provider).status, 403);
+  assert.equal(invoke('POST', '/commercial/payments', provider).status, 403);
 });
 
 test('real policy-document ingestion is consumer-only and never public or provider-controlled', () => {

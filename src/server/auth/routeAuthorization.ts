@@ -29,6 +29,10 @@ const rules: RouteRule[] = [
   { methods: ['POST'], pattern: /^\/marketplace\/offers\/[^/]+\/verify-document$/, roles: ['PROVIDER'] },
   { methods: ['GET'], pattern: /^\/marketplace\/offers\/[^/]+\/qualification$/, roles: ['CONSUMER', 'PROVIDER', 'ADMIN'] },
   { pattern: /^\/commercial\/(?:rating\/(?:run|reconcile|runs(?:\/[^/]+)?)|events\/reconcile)$/, roles: ['ADMIN'] },
+  { methods: ['POST'], pattern: /^\/commercial\/billable-events\/[^/]+\/adjustments$/, roles: ['ADMIN'] },
+  { methods: ['POST'], pattern: /^\/commercial\/billing-periods(?:\/[^/]+\/close)?$/, roles: ['ADMIN'] },
+  { methods: ['POST'], pattern: /^\/commercial\/invoices\/(?:generate-draft|[^/]+\/finalize)$/, roles: ['ADMIN'] },
+  { methods: ['POST'], pattern: /^\/commercial\/payments$/, roles: ['ADMIN'] },
   { methods: ['POST'], pattern: /^\/commercial\/refunds$/, roles: ['ADMIN'] },
   { pattern: /^\/admin\//, roles: ['ADMIN'] },
 

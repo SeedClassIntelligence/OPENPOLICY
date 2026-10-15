@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { OPEN_POLICY_PREMIUM_PRICE_BOOK_V1 } from './commercialPriceBook';
+import { OPEN_POLICY_PREMIUM_PRICE_BOOK_V1, OPEN_POLICY_PREMIUM_V1_UNAVAILABLE_SERVICE_ADD_ONS } from './commercialPriceBook';
 import { assembleDraftInvoice, buildCommercialEvent, rateCommercialEvent } from './commercialEconomicsEngine';
 import type { CommercialAgreement, CommercialPlanVersion } from '../types/insurance';
 
@@ -41,6 +41,15 @@ test('premium price book publishes the founder-authorized subscription and servi
   });
   assert.equal(book.implementationServices.ENTERPRISE_IMPLEMENTATION_MIN_CENTS, 250_000);
   assert.equal(book.implementationServices.ENTERPRISE_IMPLEMENTATION_MAX_CENTS, 1_000_000);
+});
+
+test('priced premium services remain preserved but unavailable until delivery enforcement exists', () => {
+  assert.deepEqual(OPEN_POLICY_PREMIUM_V1_UNAVAILABLE_SERVICE_ADD_ONS, [
+    'WORKFLOW_AUTOMATION', 'ENTERPRISE_REPORTING', 'API_INTEGRATION', 'MULTI_LOCATION_ADMINISTRATION'
+  ]);
+  for (const code of OPEN_POLICY_PREMIUM_V1_UNAVAILABLE_SERVICE_ADD_ONS) {
+    assert.ok(OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.recurringAddOns[code] > 0, `${code} price remains preserved`);
+  }
 });
 
 test('qualified engagement is billed exactly once at $35 by its canonical commercial event', () => {
@@ -116,4 +125,29 @@ test('contracted recurring add-ons flow into an historically anchored invoice', 
   });
   assert.equal(lineItems.length, 3);
   assert.equal(invoice.subtotalCents, 49_900 + (2 * 4_900) + 19_900);
+});
+
+test('executed enterprise implementation agreement creates one exact one-time invoice line', () => {
+  const { invoice, lineItems } = assembleDraftInvoice({
+    billingPeriod: {
+      id: 'period-implementation', providerOrganizationId: agreement.providerOrganizationId,
+      commercialAgreementId: agreement.id, commercialPlanVersionId: planVersion.id,
+      periodStart: '2026-11-01T00:00:00.000Z', periodEnd: '2026-12-01T00:00:00.000Z',
+      status: 'OPEN', createdAt: '2026-11-01T00:00:00.000Z'
+    },
+    planVersion, billableEvents: [], ratingAdjustments: [],
+    negotiatedServiceCharges: [{
+      id: 'service-implementation-1', providerOrganizationId: agreement.providerOrganizationId,
+      commercialAgreementId: agreement.id, serviceCode: 'ENTERPRISE_IMPLEMENTATION',
+      amountCents: 725_000, currency: 'USD', executedAgreementReference: 'MSA-2026-1014',
+      supportingReference: 'gs://contracts/msa-2026-1014.pdf', effectiveAt: '2026-11-15T00:00:00.000Z',
+      status: 'APPROVED', authorizedBy: 'admin-1', authorizedAt: '2026-10-14T00:00:00.000Z',
+      idempotencyKey: 'implementation:agreement-pricebook-v1:MSA-2026-1014'
+    }],
+    invoiceId: 'invoice-implementation', invoiceNumber: 'INV-IMPLEMENTATION', now: '2026-12-01T00:00:00.000Z'
+  });
+  const serviceLine = lineItems.find(line => line.lineType === 'ONE_TIME_SERVICE');
+  assert.equal(serviceLine?.amountCents, 725_000);
+  assert.equal(serviceLine?.negotiatedServiceChargeId, 'service-implementation-1');
+  assert.equal(invoice.totalDueCents, 49_900 + 725_000);
 });

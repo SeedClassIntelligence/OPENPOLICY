@@ -217,33 +217,45 @@ async function runValidation() {
     // Part 4: Explicit Commercial Agreement Lifecycle & Enrollment
     // ------------------------------------------------------------------------
     console.log('\n--- Test Group 4: Explicit Commercial Agreement Lifecycle & Enrollment ---');
-    // 4.1 Explicit enrollment via POST
-    const enrollRes = await request(server, 'POST', '/api/commercial/agreements/enroll', {
+    const adminHeaders = { 'x-openpolicy-fixture-role': 'ADMIN' };
+    // 4.1 Provider self-activation is forbidden; the platform administrator
+    // controls priced enrollment and commercial authority.
+    const providerEnrollAttempt = await request(server, 'POST', '/api/commercial/agreements/enroll', {
       planCode: 'PLAN_AGENCY',
       enforcementPolicy: 'HARD_BLOCK',
       customTerms: {
         includedVpoCapacity: 5
       }
     }, buckeyeHeaders);
+    assert(providerEnrollAttempt.status === 403, 'Provider cannot self-activate a paid commercial agreement');
 
-    assert(enrollRes.status === 201, 'POST /api/commercial/agreements/enroll succeeds with 201 Created');
+    const enrollRes = await request(server, 'POST', '/api/admin/commercial/agreements/enroll', {
+      providerOrganizationId: 'org_buckeye', planCode: 'PLAN_AGENCY',
+      enforcementPolicy: 'HARD_BLOCK', customTerms: { includedVpoCapacity: 5 }
+    }, adminHeaders);
+
+    assert(enrollRes.status === 201, 'Platform administrator enrollment succeeds with 201 Created');
     assert(enrollRes.body.agreement.status === 'ACTIVE', 'Explicitly enrolled agreement status is ACTIVE');
     assert(enrollRes.body.agreement.providerOrganizationId === 'org_buckeye', 'Agreement bound to org_buckeye');
     const enrolledAgreementId = enrollRes.body.agreement.id;
 
     // 4.2 Lifecycle Transitions: ACTIVE -> SUSPENDED
-    const suspendRes = await request(server, 'POST', `/api/commercial/agreements/${enrolledAgreementId}/transition`, {
+    const providerSuspendAttempt = await request(server, 'POST', `/api/commercial/agreements/${enrolledAgreementId}/transition`, {
       targetStatus: 'SUSPENDED',
       reason: 'Administrative temporary suspension'
     }, buckeyeHeaders);
-    assert(suspendRes.status === 200, 'POST transition to SUSPENDED succeeds with 200 OK');
+    assert(providerSuspendAttempt.status === 403, 'Provider cannot suspend or reactivate commercial authority');
+    const suspendRes = await request(server, 'POST', `/api/admin/commercial/agreements/${enrolledAgreementId}/transition`, {
+      targetStatus: 'SUSPENDED', reason: 'Administrative temporary suspension'
+    }, adminHeaders);
+    assert(suspendRes.status === 200, 'Administrator transition to SUSPENDED succeeds with 200 OK');
     assert(suspendRes.body.agreement.status === 'SUSPENDED', 'Agreement status updated to SUSPENDED');
 
     // 4.3 Lifecycle Transitions: SUSPENDED -> ACTIVE
-    const resumeRes = await request(server, 'POST', `/api/commercial/agreements/${enrolledAgreementId}/transition`, {
+    const resumeRes = await request(server, 'POST', `/api/admin/commercial/agreements/${enrolledAgreementId}/transition`, {
       targetStatus: 'ACTIVE',
       reason: 'Reinstated by admin'
-    }, buckeyeHeaders);
+    }, adminHeaders);
     assert(resumeRes.status === 200, 'POST transition to ACTIVE succeeds with 200 OK');
     assert(resumeRes.body.agreement.status === 'ACTIVE', 'Agreement status reinstated to ACTIVE');
 
@@ -254,13 +266,13 @@ async function runValidation() {
     // Setup isolated organization: org_apex
     // Create an explicit agreement with VPO_ENGAGEMENT_CAPACITY limit = 1 and HARD_BLOCK
     const apexHeaders = { 'x-provider-user-id': 'user_apex_1' };
-    const apexEnrollRes = await request(server, 'POST', '/api/commercial/agreements/enroll', {
-      planCode: 'PLAN_SOLO',
+    const apexEnrollRes = await request(server, 'POST', '/api/admin/commercial/agreements/enroll', {
+      providerOrganizationId: 'org_apex', planCode: 'PLAN_SOLO',
       enforcementPolicy: 'HARD_BLOCK',
       customTerms: {
         includedEngagementCapacity: 1
       }
-    }, apexHeaders);
+    }, adminHeaders);
     assert(apexEnrollRes.status === 201, 'Enrolled org_apex with HARD_BLOCK and capacity limit = 1');
 
     // Seed challenge and invitations for org_apex
@@ -309,13 +321,13 @@ async function runValidation() {
     // 5.4 Test ALLOW_OVERAGE policy
     // Enroll org_sierra with ALLOW_OVERAGE and capacity = 0
     const sierraHeaders = { 'x-provider-user-id': 'user_sierra_1' };
-    const sierraEnrollRes = await request(server, 'POST', '/api/commercial/agreements/enroll', {
-      planCode: 'PLAN_SOLO',
+    const sierraEnrollRes = await request(server, 'POST', '/api/admin/commercial/agreements/enroll', {
+      providerOrganizationId: 'org_sierra', planCode: 'PLAN_SOLO',
       enforcementPolicy: 'ALLOW_OVERAGE',
       customTerms: {
         includedEngagementCapacity: 0
       }
-    }, sierraHeaders);
+    }, adminHeaders);
     assert(sierraEnrollRes.status === 201, 'Enrolled org_sierra with ALLOW_OVERAGE policy and limit = 0');
 
     const invSierraId = db.getInvitationsForChallenge(challengeId).find(invitation => invitation.providerOrganizationId === 'org_sierra')!.id;
@@ -405,7 +417,8 @@ async function runValidation() {
       providerOrgId: concurrentOrgId,
       planId: 'PLAN_SOLO',
       enforcementPolicy: 'HARD_BLOCK',
-      customTerms: { includedEngagementCapacity: 1 }
+      customTerms: { includedEngagementCapacity: 1 },
+      actorRole: 'ADMIN'
     });
 
     const concurrentChallenge1 = 'CHAL-CONCUR-1';
