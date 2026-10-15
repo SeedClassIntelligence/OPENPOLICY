@@ -1252,6 +1252,16 @@ app.get('/api/admin/overview', async (_req, res) => {
   }
 });
 
+app.get('/api/admin/marketplace-operations',async(_req,res)=>{
+  try{const [policies,challenges,competitions,offers,selections,handoffs]=await Promise.all([postgresStore.getPolicies(),postgresStore.getChallenges(),postgresStore.getAllCompetitions(),postgresStore.getOffers(),postgresStore.getSelections(),postgresStore.getBindingHandoffs()]);
+    res.json({generatedAt:new Date().toISOString(),policies:policies.map(item=>({id:item.id,policyNumber:item.policyNumber,carrier:item.carrier,jurisdiction:item.jurisdiction,insuranceLine:item.insuranceLine||'PERSONAL_AUTO',status:item.status,effectiveDate:item.effectiveDate,expirationDate:item.expirationDate})),
+      opportunities:challenges.map(challenge=>{const competition=competitions.find(item=>item.challengeId===challenge.id);return {id:challenge.id,referenceNumber:challenge.referenceNumber,consumerId:challenge.consumerId,jurisdiction:challenge.jurisdiction,insuranceLine:challenge.insuranceLine||'PERSONAL_AUTO',status:challenge.status,openingTimestamp:challenge.openingTimestamp,closingTimestamp:challenge.closingTimestamp,offersCount:offers.filter(item=>item.challengeId===challenge.id).length,competitionStatus:competition?.status||null,activeOfferCohort:competition?.activeOfferCohort||null,maximumActivatedProviders:competition?.maximumActivatedProviders||null};}),
+      offers:offers.map(item=>({id:item.id,challengeId:item.challengeId,providerOrganizationId:item.providerId,providerName:item.providerName,carrier:item.carrier,status:item.status,insuranceLine:item.insuranceLine||'PERSONAL_AUTO',annualPremium:item.annualPremium,submittedAt:item.submittedAt})),
+      selections:selections.map(item=>({id:item.id,challengeId:item.challengeId,providerOrganizationId:item.providerOrganizationId,carrier:item.carrier,status:item.status,selectedAt:item.selectedAt,annualPremium:item.annualPremium})),
+      handoffs:handoffs.map(item=>({id:item.id,bindingReference:item.bindingReference,challengeId:item.challengeId,providerOrganizationId:item.providerOrganizationId,carrier:item.carrier,status:item.status,createdAt:item.createdAt,updatedAt:item.updatedAt}))});
+  }catch(e:any){res.status(e.statusCode||500).json({error:e.message});}
+});
+
 app.get('/api/admin/administrators',async(req,res)=>{
   try{res.json({current:{uid:req.openPolicyIdentity!.uid,adminType:req.openPolicyIdentity!.adminType,permissions:req.openPolicyIdentity!.adminPermissions},administrators:await postgresStore.listPlatformAdminAssignments()});}
   catch(e:any){res.status(e.statusCode||500).json({error:e.message});}

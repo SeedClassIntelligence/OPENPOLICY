@@ -93,12 +93,13 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
   const [premiumServiceReason,setPremiumServiceReason]=useState('');
   const [platformFinancials,setPlatformFinancials]=useState<any|null>(null);
   const [administratorRegistry,setAdministratorRegistry]=useState<any|null>(null);
+  const [marketplaceOperations,setMarketplaceOperations]=useState<any|null>(null);
   const [adminForm,setAdminForm]=useState({firebaseUid:'',permissions:['PLATFORM_READ'] as string[],status:'ACTIVE',reason:''});
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [eventsRes, queueRes, verifyRes, linesRes, rolloutRes, overviewRes, governanceRes, platformFinancialsRes, administratorsRes] = await Promise.all([
+      const [eventsRes, queueRes, verifyRes, linesRes, rolloutRes, overviewRes, governanceRes, platformFinancialsRes, administratorsRes, operationsRes] = await Promise.all([
         apiFetch('/api/audit-events'),
         apiFetch('/api/admin/review-queue'),
         apiFetch('/api/admin/audit-chain/verify'),
@@ -107,7 +108,8 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
         apiFetch('/api/admin/overview'),
         apiFetch('/api/admin/commercial/governance'),
         apiFetch('/api/admin/commercial/platform-summary'),
-        apiFetch('/api/admin/administrators')
+        apiFetch('/api/admin/administrators'),
+        apiFetch('/api/admin/marketplace-operations')
       ]);
 
       const eventsData = await eventsRes.json();
@@ -119,6 +121,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
       const governanceData = await governanceRes.json();
       const platformFinancialsData = await platformFinancialsRes.json();
       const administratorsData = await administratorsRes.json();
+      const operationsData = await operationsRes.json();
 
       setAuditEvents(eventsData);
       setReviewQueue(queueData);
@@ -129,6 +132,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
       if (governanceRes.ok) setCommercialGovernance(governanceData);
       if (platformFinancialsRes.ok) setPlatformFinancials(platformFinancialsData);
       if (administratorsRes.ok) setAdministratorRegistry(administratorsData);
+      if (operationsRes.ok) setMarketplaceOperations(operationsData);
     } catch (e) {
       console.error('Failed to load admin audit console data:', e);
     } finally {
@@ -458,7 +462,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
 
       <nav aria-label="Owner console sections" className="sticky top-20 z-20 flex gap-2 overflow-x-auto rounded-xl border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur">
         {[
-          ['#owner-overview', 'Overview'], ['#owner-providers', 'Providers'],
+          ['#owner-overview', 'Overview'], ['#owner-marketplace', 'Marketplace'], ['#owner-providers', 'Providers'],
           ['#owner-commercial', 'Commercial'], ['#owner-security', 'Security'], ['#owner-rollout', 'Markets'],
           ['#owner-reviews', 'Reviews'], ['#owner-audit', 'Audit']
         ].map(([href, label]) => (
@@ -504,6 +508,16 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
           <div><span className="block text-[10px] uppercase text-slate-500">Credentials</span><strong className={ownerOverview?.paymentProcessor?.configured ? 'text-emerald-700' : 'text-amber-700'}>{ownerOverview?.paymentProcessor?.configured ? 'Configured' : 'Not configured'}</strong></div>
           <div><span className="block text-[10px] uppercase text-slate-500">Secure return URL</span><strong className={ownerOverview?.paymentProcessor?.secureReturnUrl ? 'text-emerald-700' : 'text-amber-700'}>{ownerOverview?.paymentProcessor?.secureReturnUrl ? 'HTTPS ready' : 'Not ready'}</strong></div>
           <div><span className="block text-[10px] uppercase text-slate-500">Live collections</span><strong className={ownerOverview?.paymentProcessor?.liveCollectionsEnabled ? 'text-rose-700' : 'text-slate-700'}>{ownerOverview?.paymentProcessor?.liveCollectionsEnabled ? 'Enabled' : 'Disabled'}</strong></div>
+        </div>
+        <div id="owner-marketplace" className="scroll-mt-36 space-y-3 border-t border-slate-200 pt-4">
+          <div><h4 className="text-sm font-bold text-slate-950">Marketplace lifecycle operations</h4><p className="text-[11px] text-slate-500">Policy evidence through opportunity, offer, selection and authorized handoff.</p></div>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs">{[
+            ['Policies',marketplaceOperations?.policies?.length],['Opportunities',marketplaceOperations?.opportunities?.length],['Offers',marketplaceOperations?.offers?.length],['Selections',marketplaceOperations?.selections?.length],['Handoffs',marketplaceOperations?.handoffs?.length]
+          ].map(([label,value])=><div key={String(label)} className="rounded-lg border bg-slate-50 p-3"><span className="block text-slate-500">{label}</span><strong>{value??'—'}</strong></div>)}</div>
+          <div className="overflow-x-auto rounded-lg border"><table className="min-w-full text-left text-[11px]"><thead className="bg-slate-50"><tr><th className="px-3 py-2">Opportunity</th><th className="px-3 py-2">Market</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Offers</th><th className="px-3 py-2">Cohort</th></tr></thead><tbody>
+            {(marketplaceOperations?.opportunities||[]).map((item:any)=><tr key={item.id} className="border-t"><td className="px-3 py-2"><strong>{item.referenceNumber}</strong><br/><span className="font-mono text-[10px] text-slate-400">{item.id}</span></td><td className="px-3 py-2">{item.jurisdiction} · {item.insuranceLine}</td><td className="px-3 py-2">{item.status}<br/><span className="text-slate-400">{item.competitionStatus||'No competition'}</span></td><td className="px-3 py-2">{item.offersCount}</td><td className="px-3 py-2">{item.activeOfferCohort||'—'} / {item.maximumActivatedProviders||'—'}</td></tr>)}
+            {!marketplaceOperations?.opportunities?.length&&<tr><td colSpan={5} className="px-3 py-4 text-center text-slate-500">No durable opportunities recorded.</td></tr>}
+          </tbody></table></div>
         </div>
         <div id="owner-providers" className="scroll-mt-36 space-y-3 pt-2">
           <div>
