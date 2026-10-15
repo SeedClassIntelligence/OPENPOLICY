@@ -1,7 +1,9 @@
 # Open Policy Commercial Economics Completion Record
 
-Date: 2026-10-14  
-Price book: `OPEN_POLICY_PREMIUM_V1`  
+Date: 2026-10-14
+
+Price book: `OPEN_POLICY_PREMIUM_V1`
+
 Scope: CE-1 through CE-5 completion audit and implementation
 
 ## Disposition
