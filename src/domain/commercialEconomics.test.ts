@@ -162,6 +162,32 @@ export function runCommercialEconomicsTestSuite(): {
     assert(check2.limit === 20, 'Limit is 20');
   });
 
+  test('Purchased recurring add-ons expand capacity and create explicit service entitlements', () => {
+    const agreement = createCommercialAgreement({
+      commercialAccountId: 'cac_org_addons', providerOrganizationId: 'org_addons',
+      planVersionId: 'cpv_addons', startsAt: '2026-10-14T00:00:00Z'
+    });
+    const planVersion = createCommercialPlanVersion({
+      planId: 'plan_open_policy_premium', version: 1,
+      effectiveFrom: '2026-10-14T00:00:00Z', billingInterval: 'MONTHLY',
+      recurringFeeCents: 49_900,
+      termsSnapshot: {
+        includedProducerSeats: 2, includedJurisdictions: 1,
+        selectedRecurringAddOns: {
+          ADDITIONAL_PRODUCER_SEAT: 3, ADDITIONAL_JURISDICTION: 2,
+          WORKFLOW_AUTOMATION: 1, ENTERPRISE_REPORTING: 1,
+          API_INTEGRATION: 1, MULTI_LOCATION_ADMINISTRATION: 1
+        }
+      }
+    });
+    const entitlements = deriveEntitlementsFromPlanVersion({ agreement, planVersion });
+    assert(entitlements.find(e => e.entitlementType === 'PROVIDER_SEATS')?.limit === 5, 'Purchased producer seats expand capacity');
+    assert(entitlements.find(e => e.entitlementType === 'JURISDICTION_CAPACITY')?.limit === 3, 'Purchased jurisdictions expand capacity');
+    for (const type of ['AUTOMATED_APPETITE_MATCHING', 'ENTERPRISE_REPORTING', 'API_ACCESS', 'MULTI_LOCATION_ADMIN'] as const) {
+      assert(entitlements.find(e => e.entitlementType === type)?.limit === 1, `${type} is granted explicitly`);
+    }
+  });
+
   // -------------------------------------------------------------------------
   // Test 4: CommercialEvent ledger with deterministic hash & idempotency
   // -------------------------------------------------------------------------

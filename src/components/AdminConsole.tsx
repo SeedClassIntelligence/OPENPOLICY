@@ -25,7 +25,8 @@ import {
   Copy,
   Layers,
   Globe2,
-  Building2
+  Building2,
+  DollarSign
 } from 'lucide-react';
 import { 
   AuditEvent, 
@@ -65,6 +66,24 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
   const [showProofModal, setShowProofModal] = useState(false);
   const [isGeneratingProof, setIsGeneratingProof] = useState(false);
   const [copiedProof, setCopiedProof] = useState(false);
+
+  // Platform financial administration (CE-1 through CE-5). These controls
+  // deliberately operate on the canonical commercial stores and never grant
+  // providers permission to set prices or finalize their own financial state.
+  const [financialOrgId, setFinancialOrgId] = useState('');
+  const [financialSummary, setFinancialSummary] = useState<any | null>(null);
+  const [additionalSeats, setAdditionalSeats] = useState(0);
+  const [additionalJurisdictions, setAdditionalJurisdictions] = useState(0);
+  const [implementationAmount, setImplementationAmount] = useState(2500);
+  const [executedAgreementReference, setExecutedAgreementReference] = useState('');
+  const [implementationSupportingReference, setImplementationSupportingReference] = useState('');
+  const [billingPeriodStart, setBillingPeriodStart] = useState(new Date().toISOString().slice(0, 10));
+  const [billingPeriodEnd, setBillingPeriodEnd] = useState(new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10));
+  const [refundPaymentId, setRefundPaymentId] = useState('');
+  const [refundAmount, setRefundAmount] = useState(0);
+  const [refundReason, setRefundReason] = useState('Authorized billing correction');
+  const [financialBusy, setFinancialBusy] = useState(false);
+  const [financialMessage, setFinancialMessage] = useState<string | null>(null);
 
   const loadData = async () => {
     setLoading(true);
@@ -189,6 +208,94 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
     setTimeout(() => setCopiedProof(false), 3000);
   };
 
+  const loadFinancialSummary = async () => {
+    if (!financialOrgId.trim()) return;
+    setFinancialBusy(true);
+    setFinancialMessage(null);
+    try {
+      const response = await apiFetch(`/api/admin/commercial/organizations/${encodeURIComponent(financialOrgId.trim())}/summary`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Commercial summary could not be loaded.');
+      setFinancialSummary(data);
+    } catch (error: any) {
+      setFinancialMessage(error?.message || 'Commercial summary could not be loaded.');
+    } finally {
+      setFinancialBusy(false);
+    }
+  };
+
+  const activatePremiumAgreement = async () => {
+    if (!financialOrgId.trim()) return;
+    setFinancialBusy(true);
+    setFinancialMessage(null);
+    try {
+      const selectedRecurringAddOns: Record<string, number> = {};
+      if (additionalSeats > 0) selectedRecurringAddOns.ADDITIONAL_PRODUCER_SEAT = additionalSeats;
+      if (additionalJurisdictions > 0) selectedRecurringAddOns.ADDITIONAL_JURISDICTION = additionalJurisdictions;
+      const response = await apiFetch('/api/admin/commercial/agreements/enroll', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          providerOrganizationId: financialOrgId.trim(), planCode: 'PLAN_OPEN_POLICY_PREMIUM',
+          customTerms: { selectedRecurringAddOns }
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Commercial agreement could not be activated.');
+      setFinancialMessage('Open Policy Premium agreement activated under platform financial authority.');
+      await loadFinancialSummary();
+    } catch (error: any) {
+      setFinancialMessage(error?.message || 'Commercial agreement could not be activated.');
+    } finally {
+      setFinancialBusy(false);
+    }
+  };
+
+  const approveImplementationCharge = async () => {
+    if (!financialSummary?.agreement?.id) {
+      setFinancialMessage('Inspect an organization with an active commercial agreement first.');
+      return;
+    }
+    setFinancialBusy(true);
+    setFinancialMessage(null);
+    try {
+      const response = await apiFetch('/api/admin/commercial/negotiated-service-charges', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          providerOrganizationId: financialOrgId.trim(), commercialAgreementId: financialSummary.agreement.id,
+          amountCents: Math.round(implementationAmount * 100), executedAgreementReference,
+          supportingReference: implementationSupportingReference, effectiveAt: new Date().toISOString(),
+          idempotencyKey: `implementation:${financialSummary.agreement.id}:${executedAgreementReference}`
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Implementation charge could not be approved.');
+      setFinancialMessage('Negotiated implementation charge approved for the next eligible invoice.');
+      await loadFinancialSummary();
+    } catch (error: any) {
+      setFinancialMessage(error?.message || 'Implementation charge could not be approved.');
+    } finally {
+      setFinancialBusy(false);
+    }
+  };
+
+  const runFinancialAction = async (path: string, body: Record<string, unknown>, successMessage: string) => {
+    setFinancialBusy(true);
+    setFinancialMessage(null);
+    try {
+      const response = await apiFetch(path, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Financial action failed.');
+      setFinancialMessage(successMessage);
+      await loadFinancialSummary();
+    } catch (error: any) {
+      setFinancialMessage(error?.message || 'Financial action failed.');
+    } finally {
+      setFinancialBusy(false);
+    }
+  };
+
   // Filtered Events
   const filteredEvents = auditEvents.filter(event => {
     const matchesFilter = 
@@ -259,6 +366,166 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
           </button>
         </div>
       </div>
+
+      {/* Owner financial control plane */}
+      <section className="rounded-xl border border-emerald-200 bg-white p-5 shadow-xs space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-emerald-700">
+              <DollarSign className="h-4 w-4" /> Platform Financial Administration
+            </div>
+            <h3 className="mt-1 text-base font-bold text-slate-950">Commercial agreement and revenue oversight</h3>
+            <p className="text-xs text-slate-500">Authorized administrators control paid activation. Providers can view terms, invoices and balances, and initiate secure payment only.</p>
+          </div>
+          <div className="flex gap-2 w-full md:w-auto">
+            <input value={financialOrgId} onChange={event => setFinancialOrgId(event.target.value)}
+              placeholder="Provider organization ID" className="min-w-0 flex-1 md:w-64 rounded-lg border border-slate-300 px-3 py-2 text-xs" />
+            <button type="button" onClick={loadFinancialSummary} disabled={financialBusy || !financialOrgId.trim()}
+              className="rounded-lg bg-slate-950 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">Inspect</button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 rounded-xl bg-slate-50 p-4 border border-slate-200">
+          <label className="text-xs font-semibold text-slate-700">Additional producer seats
+            <input type="number" min={0} value={additionalSeats} onChange={event => setAdditionalSeats(Math.max(0, Number(event.target.value) || 0))}
+              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" />
+          </label>
+          <label className="text-xs font-semibold text-slate-700">Additional jurisdictions
+            <input type="number" min={0} value={additionalJurisdictions} onChange={event => setAdditionalJurisdictions(Math.max(0, Number(event.target.value) || 0))}
+              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" />
+          </label>
+          <div className="md:col-span-2 flex items-end">
+            <button type="button" onClick={activatePremiumAgreement} disabled={financialBusy || !financialOrgId.trim()}
+              className="w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white disabled:opacity-50">
+              Activate Open Policy Premium under admin authority
+            </button>
+          </div>
+        </div>
+
+        {financialMessage && <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">{financialMessage}</div>}
+        {financialSummary && (
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-3 text-xs">
+            <div className="rounded-lg border p-3"><span className="block text-slate-500">Agreement</span><strong>{financialSummary.agreement?.status || 'NONE'}</strong></div>
+            <div className="rounded-lg border p-3"><span className="block text-slate-500">Entitlements</span><strong>{financialSummary.entitlements?.length || 0}</strong></div>
+            <div className="rounded-lg border p-3"><span className="block text-slate-500">Rated events</span><strong>{financialSummary.billableEvents?.length || 0}</strong></div>
+            <div className="rounded-lg border p-3"><span className="block text-slate-500">Invoices</span><strong>{financialSummary.invoices?.length || 0}</strong></div>
+            <div className="rounded-lg border p-3"><span className="block text-slate-500">Paid</span><strong>${((financialSummary.balance?.totalPaidCents || 0) / 100).toFixed(2)}</strong></div>
+            <div className="rounded-lg border p-3"><span className="block text-slate-500">Outstanding</span><strong>${((financialSummary.balance?.outstandingBalanceCents || 0) / 100).toFixed(2)}</strong></div>
+          </div>
+        )}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 rounded-xl border border-slate-200 p-4">
+          <label className="text-xs font-semibold text-slate-700">Implementation amount (USD)
+            <input type="number" min={2500} max={10000} value={implementationAmount}
+              onChange={event => setImplementationAmount(Number(event.target.value) || 2500)}
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" />
+          </label>
+          <label className="text-xs font-semibold text-slate-700">Executed agreement reference
+            <input value={executedAgreementReference} onChange={event => setExecutedAgreementReference(event.target.value)}
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" />
+          </label>
+          <label className="text-xs font-semibold text-slate-700">Supporting document/reference
+            <input value={implementationSupportingReference} onChange={event => setImplementationSupportingReference(event.target.value)}
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" />
+          </label>
+          <div className="flex items-end">
+            <button type="button" onClick={approveImplementationCharge}
+              disabled={financialBusy || !financialSummary?.agreement?.id || !executedAgreementReference.trim() || !implementationSupportingReference.trim()}
+              className="w-full rounded-lg bg-indigo-600 px-3 py-2.5 text-xs font-bold text-white disabled:opacity-50">
+              Approve one-time implementation charge
+            </button>
+          </div>
+        </div>
+        {financialSummary?.agreement && (
+          <div className="space-y-3 rounded-xl border border-slate-200 p-4">
+            <div className="text-xs font-bold uppercase tracking-wide text-slate-700">Agreement, rating and invoice lifecycle</div>
+            <div className="flex flex-wrap gap-2">
+              {financialSummary.agreement.status === 'ACTIVE' && (
+                <button type="button" disabled={financialBusy} onClick={() => runFinancialAction(
+                  `/api/admin/commercial/agreements/${financialSummary.agreement.id}/transition`,
+                  { targetStatus: 'SUSPENDED', reason: 'Platform financial administration suspension' }, 'Agreement suspended.'
+                )} className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800">Suspend</button>
+              )}
+              {financialSummary.agreement.status === 'SUSPENDED' && (
+                <button type="button" disabled={financialBusy} onClick={() => runFinancialAction(
+                  `/api/admin/commercial/agreements/${financialSummary.agreement.id}/transition`,
+                  { targetStatus: 'ACTIVE', reason: 'Platform financial administration reactivation' }, 'Agreement reactivated.'
+                )} className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-800">Reactivate</button>
+              )}
+              {!['TERMINATED', 'EXPIRED'].includes(financialSummary.agreement.status) && (
+                <button type="button" disabled={financialBusy} onClick={() => runFinancialAction(
+                  `/api/admin/commercial/agreements/${financialSummary.agreement.id}/transition`,
+                  { targetStatus: 'TERMINATED', reason: 'Platform financial administration termination' }, 'Agreement terminated.'
+                )} className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-800">Terminate</button>
+              )}
+              <button type="button" disabled={financialBusy} onClick={() => runFinancialAction(
+                '/api/commercial/rating/run', {}, 'Commercial event rating completed.'
+              )} className="rounded-lg bg-slate-800 px-3 py-2 text-xs font-bold text-white">Run rating</button>
+              <button type="button" disabled={financialBusy} onClick={() => runFinancialAction(
+                '/api/commercial/events/reconcile', {}, 'Commercial event reconciliation completed.'
+              )} className="rounded-lg bg-slate-800 px-3 py-2 text-xs font-bold text-white">Reconcile events</button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+              <label className="text-xs font-semibold text-slate-700">Period start
+                <input type="date" value={billingPeriodStart} onChange={event => setBillingPeriodStart(event.target.value)} className="mt-1 w-full rounded-lg border px-3 py-2" />
+              </label>
+              <label className="text-xs font-semibold text-slate-700">Period end
+                <input type="date" value={billingPeriodEnd} onChange={event => setBillingPeriodEnd(event.target.value)} className="mt-1 w-full rounded-lg border px-3 py-2" />
+              </label>
+              <div className="flex items-end">
+                <button type="button" disabled={financialBusy || !financialSummary.planVersion?.id} onClick={() => runFinancialAction(
+                  '/api/commercial/billing-periods', {
+                    providerOrganizationId: financialOrgId.trim(), commercialAgreementId: financialSummary.agreement.id,
+                    commercialPlanVersionId: financialSummary.planVersion.id,
+                    periodStart: `${billingPeriodStart}T00:00:00.000Z`, periodEnd: `${billingPeriodEnd}T00:00:00.000Z`
+                  }, 'Billing period created.'
+                )} className="w-full rounded-lg bg-indigo-600 px-3 py-2.5 text-xs font-bold text-white disabled:opacity-50">Create billing period</button>
+              </div>
+              <div className="flex items-end gap-2">
+                {financialSummary.billingPeriods?.find((period: any) => period.status === 'OPEN') && (
+                  <button type="button" disabled={financialBusy} onClick={() => {
+                    const period = financialSummary.billingPeriods.find((candidate: any) => candidate.status === 'OPEN');
+                    return runFinancialAction(`/api/commercial/billing-periods/${period.id}/close`, {}, 'Billing period closed.');
+                  }} className="w-full rounded-lg border border-indigo-300 px-3 py-2.5 text-xs font-bold text-indigo-800">Close open period</button>
+                )}
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {financialSummary.billingPeriods?.find((period: any) => period.status === 'CLOSED' && !financialSummary.invoices?.some((invoice: any) => invoice.billingPeriodId === period.id)) && (
+                <button type="button" disabled={financialBusy} onClick={() => {
+                  const period = financialSummary.billingPeriods.find((candidate: any) => candidate.status === 'CLOSED' && !financialSummary.invoices?.some((invoice: any) => invoice.billingPeriodId === candidate.id));
+                  return runFinancialAction('/api/commercial/invoices/generate-draft', { billingPeriodId: period.id, idempotencyKey: `invoice:${period.id}` }, 'Draft invoice generated.');
+                }} className="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-bold text-white">Generate draft invoice</button>
+              )}
+              {financialSummary.invoices?.find((invoice: any) => invoice.status === 'DRAFT') && (
+                <button type="button" disabled={financialBusy} onClick={() => {
+                  const invoice = financialSummary.invoices.find((candidate: any) => candidate.status === 'DRAFT');
+                  return runFinancialAction(`/api/commercial/invoices/${invoice.id}/finalize`, {}, 'Invoice finalized and ready for provider payment.');
+                }} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white">Finalize draft invoice</button>
+              )}
+            </div>
+          </div>
+        )}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 rounded-xl border border-rose-200 bg-rose-50/30 p-4">
+          <label className="text-xs font-semibold text-slate-700">Processor payment record ID
+            <input value={refundPaymentId} onChange={event => setRefundPaymentId(event.target.value)} className="mt-1 w-full rounded-lg border px-3 py-2" />
+          </label>
+          <label className="text-xs font-semibold text-slate-700">Refund amount (USD)
+            <input type="number" min={0.01} step={0.01} value={refundAmount} onChange={event => setRefundAmount(Number(event.target.value) || 0)} className="mt-1 w-full rounded-lg border px-3 py-2" />
+          </label>
+          <label className="text-xs font-semibold text-slate-700">Refund reason
+            <input value={refundReason} onChange={event => setRefundReason(event.target.value)} className="mt-1 w-full rounded-lg border px-3 py-2" />
+          </label>
+          <div className="flex items-end">
+            <button type="button" disabled={financialBusy || !refundPaymentId.trim() || refundAmount <= 0 || !refundReason.trim()}
+              onClick={() => runFinancialAction('/api/commercial/refunds', {
+                paymentId: refundPaymentId.trim(), amountCents: Math.round(refundAmount * 100), reason: refundReason,
+                idempotencyKey: `admin-refund:${refundPaymentId.trim()}:${Math.round(refundAmount * 100)}`
+              }, 'Processor-confirmed refund recorded and reconciled.')}
+              className="w-full rounded-lg bg-rose-600 px-3 py-2.5 text-xs font-bold text-white disabled:opacity-50">Execute processor-first refund</button>
+          </div>
+        </div>
+        <p className="text-[10px] text-amber-700">Workflow automation, enterprise reporting, API integration and multi-location administration retain their approved prices but remain unavailable for purchase until their delivery surfaces enforce the corresponding entitlement.</p>
+      </section>
 
       {/* Owner operations: insurance-line and regional rollout oversight. */}
       <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-6 space-y-4">

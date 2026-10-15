@@ -47,6 +47,8 @@ import { verifyCryptographicAuditChain, processReviewQueueResolution,
   generateRegulatoryAuditProof } from './src/domain/governanceAuditEngine';
 import { assertProductionAuthConfiguration, attachRequestIdentity, configuredAuthMode, getFirebaseUserProfile } from './src/server/auth/requestIdentity';
 import { assertBindingRelationship, assertChallengeRelationship, enforceApiAuthorization } from './src/server/auth/routeAuthorization';
+import { assertDirectSettlementMutationAllowed } from './src/server/paymentCollectionBoundary';
+import { StripePaymentProcessor, mapStripeIntentStatus, stripePaymentMethod, stripeProcessorConfig } from './src/server/stripePaymentProcessor';
 
 import { runComparisonEngineTestSuite } from './src/domain/comparisonEngine.test';
 import { runEligibilityEngineTestSuite } from './src/domain/eligibilityEngine.test';
@@ -106,6 +108,7 @@ const fixturePersistenceReady = process.env.OPENPOLICY_AUTH_MODE === 'fixture'
   : Promise.resolve();
 
 app.use('/api/policy-documents/ingest', express.raw({ type: () => true, limit: '10mb' }));
+app.use('/api/commercial/stripe/webhook', express.raw({ type: 'application/json', limit: '1mb' }));
 app.use(express.json({ limit: '10mb' }));
 app.use('/api', async (_req, res, next) => {
   try {
@@ -134,6 +137,12 @@ let documentAiOcrProvider: DocumentAiOcrProvider | undefined;
 function getDocumentAiOcrProvider(): DocumentAiOcrProvider {
   documentAiOcrProvider ||= new DocumentAiOcrProvider();
   return documentAiOcrProvider;
+}
+
+let stripePaymentProcessor: StripePaymentProcessor | undefined;
+function getStripePaymentProcessor(): StripePaymentProcessor {
+  stripePaymentProcessor ||= new StripePaymentProcessor(stripeProcessorConfig());
+  return stripePaymentProcessor;
 }
 
 // Provider and consumer identity is attached by verified Firebase ID token.
@@ -2562,46 +2571,15 @@ app.get('/api/commercial/entitlements', async (req, res) => {
 
 // 5. Explicit Commercial Enrollment Command (CE-2)
 app.post('/api/commercial/agreements/enroll', async (req, res) => {
-  try {
-    const orgId = await getAuthenticatedProviderOrgId(req);
-    const { planId, planCode, planVersionId, customTerms, enforcementPolicy } = req.body;
-    const suppliedRates = customTerms?.rates && Object.keys(customTerms.rates).length > 0;
-    const suppliedUnitPrice = customTerms && Object.keys(customTerms).some(key => /(?:rate|price).*cents|unitpricecents/i.test(key));
-    if (suppliedRates || suppliedUnitPrice) {
-      return res.status(403).json({ error: 'Provider-supplied commercial pricing terms are not permitted.' });
-    }
-
-    let targetPlanId = planId;
-    if (!targetPlanId && planCode) {
-      const plan = await commercialStore.getCommercialPlanByCode(planCode);
-      if (!plan) {
-        return res.status(404).json({ error: `Commercial plan with code '${planCode}' not found` });
-      }
-      targetPlanId = plan.id;
-    }
-
-    if (!targetPlanId) {
-      return res.status(400).json({ error: 'planId or planCode is required to enroll in a commercial agreement' });
-    }
-
-    const enrolled = await commercialStore.enrollCommercialAgreement({
-      providerOrgId: orgId,
-      planId: targetPlanId,
-      planVersionId,
-      customTerms,
-      enforcementPolicy
-    });
-
-    res.status(201).json({
-      success: true,
-      agreement: enrolled.agreement,
-      entitlements: enrolled.entitlements,
-      planVersion: enrolled.planVersion
-    });
-  } catch (e: any) {
-    const status = e.statusCode || 400;
-    res.status(status).json({ error: e.message });
-  }
+  // A provider may review plans and its own commercial state, but cannot turn a
+  // priced catalog entry into ACTIVE contractual authority. Activation is a
+  // platform-financial action performed through the protected admin command.
+  // Keeping this route as an explicit denial also prevents older clients from
+  // silently regaining the former self-enrollment behavior.
+  res.status(403).json({
+    error: 'COMMERCIAL_ACTIVATION_REQUIRES_PLATFORM_ADMIN',
+    message: 'A platform financial administrator must activate or change a paid commercial agreement.'
+  });
 });
 
 // Platform financial administration. This is deliberately separate from
@@ -2640,6 +2618,12 @@ app.post('/api/commercial/agreements/:id/transition', async (req, res) => {
     }
 
     const { targetStatus, reason } = req.body;
+    if (targetStatus !== 'TERMINATED') {
+      return res.status(403).json({
+        error: 'COMMERCIAL_LIFECYCLE_REQUIRES_PLATFORM_ADMIN',
+        message: 'Providers may cancel their own agreement, but activation, reactivation, suspension and expiry are platform financial actions.'
+      });
+    }
     const transitionResult = transitionAgreementLifecycle({
       currentAgreement: agreement,
       targetStatus,
@@ -2655,6 +2639,76 @@ app.post('/api/commercial/agreements/:id/transition', async (req, res) => {
   } catch (e: any) {
     const status = e.statusCode || 400;
     res.status(status).json({ error: e.message });
+  }
+});
+
+// Platform-controlled agreement lifecycle. This route is covered by the
+// centralized /admin authorization rule and is the only path that may grant or
+// restore paid commercial authority after enrollment.
+app.post('/api/admin/commercial/agreements/:id/transition', async (req, res) => {
+  try {
+    const agreement = await commercialStore.getCommercialAgreementById(req.params.id);
+    if (!agreement) return res.status(404).json({ error: 'Commercial agreement not found' });
+    const { targetStatus, reason } = req.body || {};
+    const transitionResult = transitionAgreementLifecycle({ currentAgreement: agreement, targetStatus, reason });
+    if (!transitionResult.success) return res.status(400).json({ error: transitionResult.error });
+    await commercialStore.saveCommercialAgreement(transitionResult.agreement);
+    res.json({ success: true, agreement: transitionResult.agreement });
+  } catch (e: any) {
+    res.status(e.statusCode || 400).json({ error: e.message });
+  }
+});
+
+// Read model for the owner/platform financial console. All values are rebuilt
+// from the same CE stores used by provider statements; no separate admin
+// ledger or mutable financial projection is introduced.
+app.get('/api/admin/commercial/organizations/:organizationId/summary', async (req, res) => {
+  try {
+    const organizationId = req.params.organizationId;
+    const account = await commercialStore.getCommercialAccountByOrgId(organizationId);
+    const agreement = await commercialStore.getActiveAgreementForOrg(organizationId);
+    const planVersion = agreement ? await commercialStore.getCommercialPlanVersion(agreement.planVersionId) : undefined;
+    const plan = planVersion ? await commercialStore.getCommercialPlanById(planVersion.planId) : undefined;
+    const [entitlements, events, billableEvents, adjustments, serviceCharges, billingPeriods, invoices, payments, refunds, balance] = await Promise.all([
+      commercialStore.getEntitlementsForOrg(organizationId),
+      commercialStore.getCommercialEventsForOrg(organizationId, 100),
+      commercialStore.getBillableEvents({ providerOrganizationId: organizationId, limit: 100 }),
+      commercialStore.getRatingAdjustmentsForOrg(organizationId),
+      commercialStore.getNegotiatedServiceChargesForOrg(organizationId),
+      commercialStore.getBillingPeriodsForOrg(organizationId),
+      commercialStore.getInvoicesForOrg(organizationId),
+      commercialStore.getPaymentsForOrg(organizationId),
+      commercialStore.getRefundsForOrg(organizationId),
+      commercialStore.getAuthoritativeAccountBalance(organizationId)
+    ]);
+    res.json({ success: true, organizationId, account, agreement: agreement || null, planVersion: planVersion || null,
+      plan: plan || null, entitlements, events, billableEvents, adjustments, serviceCharges, billingPeriods, invoices, payments, refunds, balance });
+  } catch (e: any) {
+    res.status(e.statusCode || 500).json({ error: e.message });
+  }
+});
+
+app.post('/api/admin/commercial/negotiated-service-charges', async (req, res) => {
+  try {
+    const { providerOrganizationId, commercialAgreementId, amountCents, executedAgreementReference,
+      supportingReference, effectiveAt, idempotencyKey } = req.body || {};
+    if (!providerOrganizationId || !commercialAgreementId || !amountCents || !executedAgreementReference ||
+        !supportingReference || !effectiveAt || !idempotencyKey) {
+      return res.status(400).json({ error: 'Provider, agreement, exact amount, executed agreement reference, supporting reference, effective date and idempotency key are required.' });
+    }
+    const charge = await commercialStore.createNegotiatedServiceCharge({
+      providerOrganizationId, commercialAgreementId, amountCents: Number(amountCents),
+      executedAgreementReference, supportingReference, effectiveAt,
+      authorizedBy: req.openPolicyIdentity?.uid || 'platform_admin', idempotencyKey
+    });
+    await postgresStore.appendAuditEvent({
+      eventType: 'NEGOTIATED_SERVICE_CHARGE_APPROVED', actorRole: 'ADMIN',
+      actorId: req.openPolicyIdentity?.uid || 'platform_admin',
+      details: `Enterprise implementation charge ${charge.id} approved for ${providerOrganizationId}; agreement ${executedAgreementReference}; ${charge.amountCents} USD cents.`
+    });
+    res.status(201).json({ success: true, charge });
+  } catch (e: any) {
+    res.status(e.statusCode || 500).json({ error: e.message });
   }
 });
 
@@ -2754,14 +2808,11 @@ app.get('/api/commercial/adjustments', async (req, res) => {
 // 5. Create Rating Adjustment (Credit Memo / Reversal / Overage Forgiveness)
 app.post('/api/commercial/billable-events/:id/adjustments', async (req, res) => {
   try {
-    const orgId = await getAuthenticatedProviderOrgId(req);
     const billableEvent = await commercialStore.getBillableEventById(req.params.id);
     if (!billableEvent) {
       return res.status(404).json({ error: 'Billable event not found' });
     }
-    if (billableEvent.providerOrganizationId !== orgId) {
-      return res.status(403).json({ error: 'Forbidden: Billable event belongs to another provider organization' });
-    }
+    const orgId = billableEvent.providerOrganizationId;
 
     const { adjustmentType, amountCents, reason, idempotencyKey } = req.body;
     if (!adjustmentType || !reason) {
@@ -2915,20 +2966,19 @@ app.get('/api/commercial/billing-periods', async (req, res) => {
 // 2. Create Billing Period
 app.post('/api/commercial/billing-periods', async (req, res) => {
   try {
-    const orgId = await getAuthenticatedProviderOrgId(req);
-    const { commercialAgreementId, commercialPlanVersionId, periodStart, periodEnd } = req.body;
-    if (!commercialAgreementId || !commercialPlanVersionId || !periodStart || !periodEnd) {
-      return res.status(400).json({ error: 'commercialAgreementId, commercialPlanVersionId, periodStart, and periodEnd are required' });
+    const { providerOrganizationId, commercialAgreementId, commercialPlanVersionId, periodStart, periodEnd } = req.body;
+    if (!providerOrganizationId || !commercialAgreementId || !commercialPlanVersionId || !periodStart || !periodEnd) {
+      return res.status(400).json({ error: 'providerOrganizationId, commercialAgreementId, commercialPlanVersionId, periodStart, and periodEnd are required' });
     }
 
     const agreement = await commercialStore.getCommercialAgreementById(commercialAgreementId);
-    if (!agreement || agreement.providerOrganizationId !== orgId) {
-      return res.status(403).json({ error: 'Agreement not found or does not belong to provider' });
+    if (!agreement || agreement.providerOrganizationId !== providerOrganizationId || agreement.planVersionId !== commercialPlanVersionId) {
+      return res.status(409).json({ error: 'Agreement, provider organization and immutable plan version do not match.' });
     }
 
     const { buildBillingPeriod } = await import('./src/domain/commercialEconomicsEngine');
     const period = buildBillingPeriod({
-      providerOrganizationId: orgId,
+      providerOrganizationId,
       commercialAgreementId,
       commercialPlanVersionId,
       periodStart,
@@ -2945,12 +2995,8 @@ app.post('/api/commercial/billing-periods', async (req, res) => {
 // 3. Close Billing Period
 app.post('/api/commercial/billing-periods/:id/close', async (req, res) => {
   try {
-    const orgId = await getAuthenticatedProviderOrgId(req);
     const period = await commercialStore.getBillingPeriodById(req.params.id);
     if (!period) return res.status(404).json({ error: 'BillingPeriod not found' });
-    if (period.providerOrganizationId !== orgId) {
-      return res.status(403).json({ error: 'Access forbidden: cross-tenant billing period access denied' });
-    }
     const closed = await commercialStore.closeBillingPeriod(period.id);
     res.json({ success: true, billingPeriod: closed });
   } catch (e: any) {
@@ -2987,19 +3033,15 @@ app.get('/api/commercial/invoices/:id', async (req, res) => {
 // 6. Generate Draft Invoice
 app.post('/api/commercial/invoices/generate-draft', async (req, res) => {
   try {
-    const orgId = await getAuthenticatedProviderOrgId(req);
     const { billingPeriodId, idempotencyKey } = req.body;
     if (!billingPeriodId) {
       return res.status(400).json({ error: 'billingPeriodId is required' });
     }
     const period = await commercialStore.getBillingPeriodById(billingPeriodId);
     if (!period) return res.status(404).json({ error: 'BillingPeriod not found' });
-    if (period.providerOrganizationId !== orgId) {
-      return res.status(403).json({ error: 'Access forbidden: cross-tenant billing period access denied' });
-    }
 
     const draft = await commercialStore.generateDraftInvoice({
-      providerOrganizationId: orgId,
+      providerOrganizationId: period.providerOrganizationId,
       billingPeriodId,
       idempotencyKey
     });
@@ -3013,12 +3055,8 @@ app.post('/api/commercial/invoices/generate-draft', async (req, res) => {
 // 7. Finalize Invoice
 app.post('/api/commercial/invoices/:id/finalize', async (req, res) => {
   try {
-    const orgId = await getAuthenticatedProviderOrgId(req);
     const invoice = await commercialStore.getInvoiceById(req.params.id);
     if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
-    if (invoice.providerOrganizationId !== orgId) {
-      return res.status(403).json({ error: 'Access forbidden: cross-tenant invoice access denied' });
-    }
 
     const finalized = await commercialStore.finalizeInvoiceById(invoice.id);
     res.json({ success: true, invoice: finalized });
@@ -3030,21 +3068,21 @@ app.post('/api/commercial/invoices/:id/finalize', async (req, res) => {
 // 8. Record Payment
 app.post('/api/commercial/payments', async (req, res) => {
   try {
-    const orgId = await getAuthenticatedProviderOrgId(req);
-    const { amountCents, paymentMethod, invoiceId, externalReference, idempotencyKey } = req.body;
-    if (!amountCents || !paymentMethod) {
-      return res.status(400).json({ error: 'amountCents and paymentMethod are required' });
+    assertDirectSettlementMutationAllowed();
+    const { providerOrganizationId, amountCents, paymentMethod, invoiceId, externalReference, idempotencyKey } = req.body;
+    if (!providerOrganizationId || !amountCents || !paymentMethod) {
+      return res.status(400).json({ error: 'providerOrganizationId, amountCents and paymentMethod are required' });
     }
 
     if (invoiceId) {
       const inv = await commercialStore.getInvoiceById(invoiceId);
-      if (!inv || inv.providerOrganizationId !== orgId) {
-        return res.status(403).json({ error: 'Invoice not found or does not belong to provider' });
+      if (!inv || inv.providerOrganizationId !== providerOrganizationId) {
+        return res.status(409).json({ error: 'Invoice and provider organization do not match.' });
       }
     }
 
     const result = await commercialStore.recordPayment({
-      providerOrganizationId: orgId,
+      providerOrganizationId,
       amountCents: Number(amountCents),
       paymentMethod,
       invoiceId,
@@ -3063,26 +3101,138 @@ app.post('/api/commercial/payments', async (req, res) => {
   }
 });
 
+// Production processor flow: creates a Stripe-hosted payment session for the
+// exact outstanding balance of a finalized Open Policy invoice. Settlement is
+// recorded only after a signed processor webhook confirms success.
+app.post('/api/commercial/invoices/:id/payment-session', async (req, res) => {
+  try {
+    const orgId = await getAuthenticatedProviderOrgId(req);
+    const invoice = await commercialStore.getInvoiceById(req.params.id);
+    if (!invoice || invoice.providerOrganizationId !== orgId) {
+      return res.status(404).json({ error: 'Invoice not found' });
+    }
+    if (!['FINALIZED', 'ISSUED', 'PARTIALLY_PAID', 'PAST_DUE'].includes(invoice.status)) {
+      return res.status(409).json({ error: 'Only a finalized invoice with an outstanding balance can be paid.' });
+    }
+    if (invoice.balanceDueCents <= 0) return res.status(409).json({ error: 'Invoice has no outstanding balance.' });
+
+    const account = await commercialStore.getCommercialAccountByOrgId(orgId);
+    if (!account) return res.status(409).json({ error: 'Commercial account is not configured.' });
+    const organization = await postgresStore.getProviderOrganization(orgId);
+    if (!organization) return res.status(409).json({ error: 'Provider organization is not configured.' });
+    const processor = getStripePaymentProcessor();
+    let customerId = account.externalBillingCustomerRef;
+    if (!customerId) {
+      const customer = await processor.createCustomer({ providerOrganizationId: orgId, name: organization.displayName });
+      customerId = customer.id;
+      await commercialStore.saveCommercialAccount({ ...account, externalBillingCustomerRef: customerId, updatedAt: new Date().toISOString() });
+    }
+    const session = await processor.createInvoicePaymentSession({
+      customerId, invoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber,
+      providerOrganizationId: orgId, amountCents: invoice.balanceDueCents
+    });
+    await postgresStore.appendAuditEvent({
+      eventType: 'PAYMENT_SESSION_CREATED', actorRole: 'PROVIDER', actorId: orgId,
+      details: `Stripe checkout session ${session.id} created for invoice ${invoice.id} and ${invoice.balanceDueCents} USD cents.`
+    });
+    res.status(201).json({ success: true, checkoutSessionId: session.id, checkoutUrl: session.url });
+  } catch (e: any) {
+    res.status(e.statusCode || 502).json({ error: e.message, code: e.code });
+  }
+});
+
+app.post('/api/commercial/stripe/webhook', async (req, res) => {
+  try {
+    const signature = req.headers['stripe-signature'];
+    if (typeof signature !== 'string' || !Buffer.isBuffer(req.body)) {
+      return res.status(400).json({ error: 'Valid Stripe signature and raw request body are required.' });
+    }
+    const processor = getStripePaymentProcessor();
+    const event = processor.constructWebhookEvent(req.body, signature);
+
+    if (event.type.startsWith('payment_intent.')) {
+      const intent = event.data.object as any;
+      const invoiceId = intent.metadata?.openPolicyInvoiceId;
+      const providerOrganizationId = intent.metadata?.openPolicyProviderOrganizationId;
+      if (!invoiceId || !providerOrganizationId) return res.status(400).json({ error: 'Stripe payment metadata is incomplete.' });
+      const invoice = await commercialStore.getInvoiceById(invoiceId);
+      if (!invoice || invoice.providerOrganizationId !== providerOrganizationId || intent.currency !== 'usd') {
+        return res.status(409).json({ error: 'Stripe payment does not match an Open Policy invoice.' });
+      }
+      const mappedStatus = mapStripeIntentStatus(intent.status);
+      const paymentIdempotencyKey = `stripe-payment:${intent.id}`;
+      const previousPayment = await commercialStore.getPaymentRecordByIdempotencyKey(paymentIdempotencyKey);
+      if (mappedStatus === 'SUCCEEDED') {
+        const amount = Number(intent.amount_received || intent.amount);
+        await commercialStore.recordPayment({
+          providerOrganizationId, invoiceId, amountCents: amount,
+          paymentMethod: stripePaymentMethod(intent), externalReference: intent.id,
+          idempotencyKey: paymentIdempotencyKey
+        });
+      } else {
+        await commercialStore.savePaymentRecord({
+          id: `pay_stripe_${intent.id}`, providerOrganizationId, invoiceId,
+          amountCents: Number(intent.amount), currency: 'USD', paymentMethod: stripePaymentMethod(intent),
+          status: mappedStatus, externalReference: intent.id,
+          failureReason: mappedStatus === 'FAILED'
+            ? (intent.last_payment_error?.code || intent.cancellation_reason || intent.status) : undefined,
+          idempotencyKey: paymentIdempotencyKey, createdAt: new Date(event.created * 1000).toISOString()
+        });
+      }
+      if (previousPayment?.status !== mappedStatus) {
+        await postgresStore.appendAuditEvent({
+          eventType: 'PAYMENT_PROCESSOR_STATUS_CHANGED', actorRole: 'SYSTEM', actorId: 'stripe_webhook',
+          details: `Stripe event ${event.id} mapped PaymentIntent ${intent.id} to ${mappedStatus} for invoice ${invoiceId}.`
+        });
+      }
+    }
+
+    if ((event.type === 'refund.created' || event.type === 'refund.updated')) {
+      const refund = event.data.object as any;
+      if (refund.status === 'succeeded') {
+        const paymentRecordId = refund.metadata?.openPolicyPaymentRecordId;
+        if (!paymentRecordId) return res.status(400).json({ error: 'Stripe refund metadata is incomplete.' });
+        await commercialStore.recordRefund({
+          paymentId: paymentRecordId, amountCents: Number(refund.amount),
+          reason: refund.metadata?.openPolicyReason || 'Stripe processor refund',
+          idempotencyKey: `stripe-refund:${refund.id}`
+        });
+      }
+    }
+    res.json({ received: true, eventId: event.id });
+  } catch (e: any) {
+    res.status(e.type === 'StripeSignatureVerificationError' ? 400 : (e.statusCode || 500)).json({ error: e.message });
+  }
+});
+
 // 9. Record Refund
 app.post('/api/commercial/refunds', async (req, res) => {
   try {
-    const orgId = await getAuthenticatedProviderOrgId(req);
     const { paymentId, amountCents, reason, idempotencyKey } = req.body;
     if (!paymentId || !amountCents || !reason) {
       return res.status(400).json({ error: 'paymentId, amountCents, and reason are required' });
     }
 
     const payment = await commercialStore.getPaymentRecordById(paymentId);
-    if (!payment || payment.providerOrganizationId !== orgId) {
-      return res.status(403).json({ error: 'Payment not found or does not belong to provider' });
-    }
-
-    const result = await commercialStore.recordRefund({
-      paymentId,
-      amountCents: Number(amountCents),
-      reason,
-      idempotencyKey
+    if (!payment) return res.status(404).json({ error: 'Payment not found' });
+    if (!payment.externalReference) return res.status(409).json({ error: 'Payment is not associated with an external processor transaction.' });
+    const processorRefund = await getStripePaymentProcessor().refund({
+      paymentIntentId: payment.externalReference, amountCents: Number(amountCents),
+      paymentRecordId: payment.id, reason
     });
+    if (processorRefund.status !== 'succeeded') {
+      return res.status(202).json({ success: true, pending: true, processorRefundId: processorRefund.id });
+    }
+    const refundIdempotencyKey = idempotencyKey || `stripe-refund:${processorRefund.id}`;
+    const previousRefund = await commercialStore.getRefundByIdempotencyKey(refundIdempotencyKey);
+    const result = await commercialStore.recordRefund({ paymentId, amountCents: Number(amountCents), reason,
+      idempotencyKey: refundIdempotencyKey });
+    if (!previousRefund) {
+      await postgresStore.appendAuditEvent({
+        eventType: 'REFUND_PROCESSOR_CONFIRMED', actorRole: 'ADMIN', actorId: req.openPolicyIdentity?.uid || 'platform_admin',
+        details: `Stripe refund ${processorRefund.id} confirmed for payment ${paymentId} and ${Number(amountCents)} USD cents.`
+      });
+    }
 
     res.status(201).json({
       success: true,
@@ -3114,6 +3264,7 @@ app.get('/api/commercial/statements/current', async (req, res) => {
     const invoices = await commercialStore.getInvoicesForOrg(orgId);
     const periods = await commercialStore.getBillingPeriodsForOrg(orgId);
     const payments = await commercialStore.getPaymentsForOrg(orgId);
+    const refunds = await commercialStore.getRefundsForOrg(orgId);
 
     res.json({
       success: true,
@@ -3123,7 +3274,10 @@ app.get('/api/commercial/statements/current', async (req, res) => {
         activeBillingPeriod: periods.find(p => p.status === 'OPEN') || null,
         latestInvoice: invoices[0] || null,
         totalInvoicesCount: invoices.length,
-        totalPaymentsCount: payments.length
+        totalPaymentsCount: payments.length,
+        totalRefundsCount: refunds.length,
+        payments,
+        refunds
       }
     });
   } catch (e: any) {

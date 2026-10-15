@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 const publicCopyFiles = [
   new URL('../../index.html', import.meta.url),
   new URL('../components/LandingPage.tsx', import.meta.url),
+  new URL('../components/ProviderLandingPage.tsx', import.meta.url),
   new URL('./landing.ts', import.meta.url),
 ];
 
@@ -164,6 +165,7 @@ test('sign-in provides privacy-preserving Firebase password recovery', () => {
 
 test('public copy preserves the founder-approved operating boundaries', () => {
   const landing = readFileSync(new URL('../components/LandingPage.tsx', import.meta.url), 'utf8')
+    + readFileSync(new URL('../components/ProviderLandingPage.tsx', import.meta.url), 'utf8')
     + readFileSync(new URL('./landing.ts', import.meta.url), 'utf8');
   assert.match(landing, /current policy/i);
   assert.match(landing, /licensed providers?/i);
@@ -172,4 +174,28 @@ test('public copy preserves the founder-approved operating boundaries', () => {
   assert.match(landing, /keep your current policy/i);
   assert.match(landing, /licensed provider conducts the subsequent insurance transaction/i);
   assert.doesNotMatch(landing, /requirements you set|minimum price difference, maximum deductibles/i);
+});
+
+test('provider landing page preserves access, neutrality, and transaction boundaries', () => {
+  const providerLanding = readFileSync(new URL('../components/ProviderLandingPage.tsx', import.meta.url), 'utf8');
+  assert.match(providerLanding, /Eligibility comes before access/);
+  assert.match(providerLanding, /Consumer-authorized connections/);
+  assert.match(providerLanding, /payment never changes provider order or consumer presentation/);
+  assert.match(providerLanding, /licensed provider conducts application, underwriting/);
+  assert.match(providerLanding, /From shared contact inquiry to verified policy opportunity/);
+  assert.match(providerLanding, /consumer selects an offer and authorizes the handoff/);
+  assert.match(providerLanding, /A governed path to earn a consumer-authorized connection/);
+  assert.doesNotMatch(providerLanding, /\$499|\$35|Monthly provider membership|Qualified engagement/);
+  assert.doesNotMatch(providerLanding, /\bbid(?:ding|s)?\b|\bauction(?:ed|ing|s)?\b|\brank(?:ed|ing|s)?\b/i);
+});
+
+test('public consumer and provider tabs route to their landing experiences before authentication', () => {
+  const app = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');
+  const header = readFileSync(new URL('../components/Header.tsx', import.meta.url), 'utf8');
+  assert.match(app, /perspective === 'PROVIDER' \? '\/providers' : '\/'/);
+  assert.match(app, /window\.setTimeout\(\(\) => window\.scrollTo\(\{ top: 0/);
+  assert.doesNotMatch(app, /document\.getElementById\('create-account'\)\?\.scrollIntoView/);
+  assert.match(app, /window\.dispatchEvent\(new PopStateEvent\('popstate'\)\)/);
+  assert.match(header, /if \(!isAuthenticated && p\.id === 'LANDING'\) return null/);
+  assert.match(header, /p\.id === 'PROVIDER' \? publicLandingPath === '\/providers'/);
 });

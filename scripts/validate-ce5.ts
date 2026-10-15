@@ -752,8 +752,14 @@ async function runValidation() {
   const crossInvRes = await request(server, 'GET', `/api/commercial/invoices/${finalized.id}`, undefined, authHeadersSierra);
   assert(crossInvRes.status === 403, 'Cross-tenant invoice access strictly forbidden with 403');
 
+  // This suite normally bypasses route authorization to isolate CE-5 domain
+  // behavior. Re-enable the real boundary for financial mutations: providers
+  // cannot close a billing period at all; only platform administrators can.
+  const previousAuthorizationBypass = process.env.OPENPOLICY_FIXTURE_AUTHORIZATION_BYPASS;
+  process.env.OPENPOLICY_FIXTURE_AUTHORIZATION_BYPASS = '0';
   const crossBpRes = await request(server, 'POST', `/api/commercial/billing-periods/${bpId}/close`, undefined, authHeadersSierra);
-  assert(crossBpRes.status === 403, 'Cross-tenant billing period close strictly forbidden with 403');
+  process.env.OPENPOLICY_FIXTURE_AUTHORIZATION_BYPASS = previousAuthorizationBypass;
+  assert(crossBpRes.status === 403, 'Provider billing-period close is strictly forbidden with 403');
 
   // Test 38: Unauthenticated / Invalid Provider Blocked with 401/403
   console.log('Test 38: Unauthenticated Provider Blocked');

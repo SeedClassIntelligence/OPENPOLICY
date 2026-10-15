@@ -43,6 +43,14 @@ test('public routes do not require identity', () => {
   assert.equal(invoke('GET', '/commercial/plans').next, true);
   assert.equal(invoke('GET', '/insurance-lines').next, true);
   assert.equal(invoke('GET', '/rollout/jurisdiction-lines').next, true);
+  assert.equal(invoke('POST', '/commercial/stripe/webhook').next, true);
+});
+
+test('financial mutations preserve processor and platform authority boundaries', () => {
+  assert.equal(invoke('POST', '/commercial/refunds', provider).status, 403);
+  assert.equal(invoke('POST', '/commercial/refunds', admin).next, true);
+  assert.equal(invoke('POST', '/commercial/invoices/invoice-a/payment-session', consumer).status, 403);
+  assert.equal(invoke('POST', '/commercial/invoices/invoice-a/payment-session', provider).next, true);
 });
 
 test('sensitive routes reject anonymous callers', () => {
@@ -72,6 +80,15 @@ test('wrong actor type is forbidden while intended actor is admitted to domain c
   assert.equal(invoke('POST', '/marketplace/binding/h/cannot-honor', provider).next, true);
   assert.equal(invoke('POST', '/admin/commercial/agreements/enroll', provider).status, 403);
   assert.equal(invoke('POST', '/admin/commercial/agreements/enroll', admin).next, true);
+  assert.equal(invoke('POST', '/admin/commercial/agreements/agreement-1/transition', provider).status, 403);
+  assert.equal(invoke('POST', '/admin/commercial/agreements/agreement-1/transition', admin).next, true);
+  assert.equal(invoke('POST', '/commercial/billing-periods', provider).status, 403);
+  assert.equal(invoke('POST', '/commercial/billing-periods', admin).next, true);
+  assert.equal(invoke('POST', '/commercial/billing-periods/period-1/close', provider).status, 403);
+  assert.equal(invoke('POST', '/commercial/invoices/generate-draft', provider).status, 403);
+  assert.equal(invoke('POST', '/commercial/invoices/invoice-1/finalize', provider).status, 403);
+  assert.equal(invoke('POST', '/commercial/billable-events/event-1/adjustments', provider).status, 403);
+  assert.equal(invoke('POST', '/commercial/payments', provider).status, 403);
 });
 
 test('real policy-document ingestion is consumer-only and never public or provider-controlled', () => {

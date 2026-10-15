@@ -23,6 +23,7 @@ import {
   InvoiceStatus,
   InvoiceLineItem,
   InvoiceLineType,
+  NegotiatedServiceCharge,
   PaymentRecord,
   PaymentMethod,
   PaymentStatus,
@@ -44,6 +45,7 @@ import {
   calculateAuthoritativeAccountBalance,
   buildRefundRecord
 } from '../../domain/commercialEconomicsEngine';
+import { OPEN_POLICY_PREMIUM_V1_UNAVAILABLE_SERVICE_ADD_ONS } from '../../domain/commercialPriceBook';
 import { OPEN_POLICY_PREMIUM_PRICE_BOOK_V1 } from '../../domain/commercialPriceBook';
 
 /**
@@ -2214,6 +2216,9 @@ export class CommercialStore {
     actorRole?: 'ADMIN' | 'PROVIDER';
   }): Promise<{ agreement: CommercialAgreement; entitlements: ProviderEntitlement[]; planVersion: CommercialPlanVersion }> {
     const { providerOrgId, customTerms, enforcementPolicy, now = new Date().toISOString(), actorRole = 'PROVIDER' } = params;
+    if (actorRole !== 'ADMIN') {
+      throw Object.assign(new Error('COMMERCIAL_ACTIVATION_REQUIRES_PLATFORM_ADMIN'), { statusCode: 403 });
+    }
     const rates = (customTerms?.rates || {}) as Record<string, unknown>;
     const lineConnectionPrices = (customTerms?.authorizedConnectionCentsByInsuranceLine || {}) as Record<string, unknown>;
     const pricedOutcomeTerms = [rates.BOUND_ACQUISITION_CENTS, rates.VERIFIED_BOUND_OUTCOME_CENTS,
@@ -2272,6 +2277,9 @@ export class CommercialStore {
       for (const [code, quantity] of Object.entries(selectedAddOns)) {
         if (!(code in addOnCatalog) || !Number.isInteger(quantity) || Number(quantity) <= 0) {
           throw new Error(`Invalid contracted recurring add-on selection: ${code}`);
+        }
+        if ((OPEN_POLICY_PREMIUM_V1_UNAVAILABLE_SERVICE_ADD_ONS as readonly string[]).includes(code)) {
+          throw Object.assign(new Error(`PREMIUM_SERVICE_NOT_OPERATIONAL: ${code}`), { statusCode: 409 });
         }
       }
       planVersion = {
@@ -2641,8 +2649,8 @@ export class CommercialStore {
     await client.query(
       `INSERT INTO invoice_line_items (
         id, invoice_id, line_type, description, quantity, unit_price_cents,
-        amount_cents, billable_event_id, rating_adjustment_id, billing_period_id, created_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        amount_cents, billable_event_id, rating_adjustment_id, negotiated_service_charge_id, billing_period_id, created_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       ON CONFLICT (id) DO NOTHING;`,
       [
         line.id,
@@ -2654,6 +2662,7 @@ export class CommercialStore {
         line.amountCents,
         line.billableEventId || null,
         line.ratingAdjustmentId || null,
+        line.negotiatedServiceChargeId || null,
         line.billingPeriodId || null,
         line.createdAt
       ]
@@ -2760,6 +2769,7 @@ export class CommercialStore {
       amountCents: r.amount_cents,
       billableEventId: r.billable_event_id || undefined,
       ratingAdjustmentId: r.rating_adjustment_id || undefined,
+      negotiatedServiceChargeId: r.negotiated_service_charge_id || undefined,
       billingPeriodId: r.billing_period_id || undefined,
       createdAt: r.created_at
     }));
@@ -2840,11 +2850,16 @@ export class CommercialStore {
       idempotencyKey: r.idempotency_key
     }));
 
+    const negotiatedServiceCharges = await this.getApprovedNegotiatedServiceCharges(
+      providerOrganizationId, period.commercialAgreementId, period.periodEnd
+    );
+
     const draft = assembleDraftInvoice({
       billingPeriod: period,
       planVersion,
       billableEvents,
       ratingAdjustments,
+      negotiatedServiceCharges,
       idempotencyKey: params.idempotencyKey
     });
 
@@ -2852,9 +2867,94 @@ export class CommercialStore {
     await this.saveInvoice(draft.invoice);
     for (const item of draft.lineItems) {
       await this.saveInvoiceLineItem(item);
+      if (item.negotiatedServiceChargeId) {
+        await client.query(
+          `UPDATE negotiated_service_charges SET status = 'INVOICED', invoice_id = $1
+           WHERE id = $2 AND status = 'APPROVED';`,
+          [draft.invoice.id, item.negotiatedServiceChargeId]
+        );
+      }
     }
 
     return draft;
+  }
+
+  public async createNegotiatedServiceCharge(params: {
+    providerOrganizationId: string;
+    commercialAgreementId: string;
+    amountCents: number;
+    executedAgreementReference: string;
+    supportingReference: string;
+    effectiveAt: string;
+    authorizedBy: string;
+    idempotencyKey: string;
+  }): Promise<NegotiatedServiceCharge> {
+    if (!Number.isInteger(params.amountCents) || params.amountCents < 250_000 || params.amountCents > 1_000_000) {
+      throw Object.assign(new Error('Enterprise implementation amount must be an exact agreed value between $2,500 and $10,000.'), { statusCode: 400 });
+    }
+    if (!params.executedAgreementReference.trim() || !params.supportingReference.trim() || !params.idempotencyKey.trim()) {
+      throw Object.assign(new Error('Executed agreement reference, supporting reference and idempotency key are required.'), { statusCode: 400 });
+    }
+    const agreement = await this.getCommercialAgreementById(params.commercialAgreementId);
+    if (!agreement || agreement.providerOrganizationId !== params.providerOrganizationId) {
+      throw Object.assign(new Error('Commercial agreement and provider organization do not match.'), { statusCode: 409 });
+    }
+    const now = new Date().toISOString();
+    const charge: NegotiatedServiceCharge = {
+      id: `nsc_${crypto.randomUUID()}`, providerOrganizationId: params.providerOrganizationId,
+      commercialAgreementId: params.commercialAgreementId, serviceCode: 'ENTERPRISE_IMPLEMENTATION',
+      amountCents: params.amountCents, currency: 'USD',
+      executedAgreementReference: params.executedAgreementReference.trim(),
+      supportingReference: params.supportingReference.trim(), effectiveAt: params.effectiveAt,
+      status: 'APPROVED', authorizedBy: params.authorizedBy, authorizedAt: now,
+      idempotencyKey: params.idempotencyKey
+    };
+    const client = await this.getClient();
+    await client.query(
+      `INSERT INTO negotiated_service_charges (
+        id, provider_organization_id, commercial_agreement_id, service_code, amount_cents, currency,
+        executed_agreement_reference, supporting_reference, effective_at, status, authorized_by,
+        authorized_at, idempotency_key
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+      ON CONFLICT (idempotency_key) DO NOTHING;`,
+      [charge.id, charge.providerOrganizationId, charge.commercialAgreementId, charge.serviceCode,
+        charge.amountCents, charge.currency, charge.executedAgreementReference, charge.supportingReference,
+        charge.effectiveAt, charge.status, charge.authorizedBy, charge.authorizedAt, charge.idempotencyKey]
+    );
+    const saved = await client.query<any>(`SELECT * FROM negotiated_service_charges WHERE idempotency_key = $1;`, [params.idempotencyKey]);
+    return this.mapNegotiatedServiceCharge(saved.rows[0]);
+  }
+
+  public async getApprovedNegotiatedServiceCharges(providerOrganizationId: string, agreementId: string, through: string): Promise<NegotiatedServiceCharge[]> {
+    const client = await this.getClient();
+    const result = await client.query<any>(
+      `SELECT * FROM negotiated_service_charges
+       WHERE provider_organization_id = $1 AND commercial_agreement_id = $2
+         AND status = 'APPROVED' AND effective_at <= $3 ORDER BY effective_at ASC;`,
+      [providerOrganizationId, agreementId, through]
+    );
+    return result.rows.map(row => this.mapNegotiatedServiceCharge(row));
+  }
+
+  public async getNegotiatedServiceChargesForOrg(providerOrganizationId: string): Promise<NegotiatedServiceCharge[]> {
+    const client = await this.getClient();
+    const result = await client.query<any>(
+      `SELECT * FROM negotiated_service_charges WHERE provider_organization_id = $1 ORDER BY authorized_at DESC;`,
+      [providerOrganizationId]
+    );
+    return result.rows.map(row => this.mapNegotiatedServiceCharge(row));
+  }
+
+  private mapNegotiatedServiceCharge(row: any): NegotiatedServiceCharge {
+    return {
+      id: row.id, providerOrganizationId: row.provider_organization_id,
+      commercialAgreementId: row.commercial_agreement_id, serviceCode: row.service_code,
+      amountCents: row.amount_cents, currency: row.currency,
+      executedAgreementReference: row.executed_agreement_reference,
+      supportingReference: row.supporting_reference, effectiveAt: row.effective_at,
+      status: row.status, authorizedBy: row.authorized_by, authorizedAt: row.authorized_at,
+      idempotencyKey: row.idempotency_key, invoiceId: row.invoice_id || undefined
+    };
   }
 
   public async finalizeInvoiceById(invoiceId: string): Promise<Invoice> {
@@ -2966,6 +3066,14 @@ export class CommercialStore {
     };
   }
 
+  public async getPaymentRecordByIdempotencyKey(idempotencyKey: string): Promise<PaymentRecord | undefined> {
+    const client = await this.getClient();
+    const res = await client.query<{ id: string }>(
+      `SELECT id FROM payment_records WHERE idempotency_key = $1;`, [idempotencyKey]
+    );
+    return res.rows[0] ? this.getPaymentRecordById(res.rows[0].id) : undefined;
+  }
+
   public async getPaymentsForOrg(providerOrganizationId: string): Promise<PaymentRecord[]> {
     const client = await this.getClient();
     const res = await client.query<any>(
@@ -3025,6 +3133,19 @@ export class CommercialStore {
       refundedAt: r.refunded_at,
       idempotencyKey: r.idempotency_key
     }));
+  }
+
+  public async getRefundByIdempotencyKey(idempotencyKey: string): Promise<RefundRecord | undefined> {
+    const client = await this.getClient();
+    const res = await client.query<any>(`SELECT * FROM refund_records WHERE idempotency_key = $1;`, [idempotencyKey]);
+    if (!res.rows[0]) return undefined;
+    const r = res.rows[0];
+    return {
+      id: r.id, originalPaymentRecordId: r.original_payment_record_id,
+      providerOrganizationId: r.provider_organization_id, amountCents: r.amount_cents,
+      currency: r.currency as 'USD', reason: r.reason, refundedAt: r.refunded_at,
+      idempotencyKey: r.idempotency_key
+    };
   }
 
   public async getRefundsForOrg(providerOrganizationId: string): Promise<RefundRecord[]> {
@@ -3088,8 +3209,25 @@ export class CommercialStore {
   }): Promise<{ payment: PaymentRecord; allocation?: SettlementAllocation; updatedInvoice?: Invoice }> {
     const client = await this.getClient();
     const now = new Date().toISOString();
-    const paymentId = `pay_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
+    let paymentId = `pay_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
     const idempotencyKey = params.idempotencyKey || `pay:${params.providerOrganizationId}:${Date.now()}`;
+
+    const existing = await this.getPaymentRecordByIdempotencyKey(idempotencyKey);
+    if (existing) {
+      if (existing.providerOrganizationId !== params.providerOrganizationId ||
+          existing.amountCents !== params.amountCents || existing.invoiceId !== params.invoiceId) {
+        throw Object.assign(new Error('Payment idempotency key was already used with different settlement facts.'), { statusCode: 409 });
+      }
+      if (existing.status === 'SUCCEEDED') {
+        const allocations = params.invoiceId ? await this.getAllocationsForInvoice(params.invoiceId) : [];
+        return {
+          payment: existing,
+          allocation: allocations.find(item => item.paymentRecordId === existing.id),
+          updatedInvoice: params.invoiceId ? await this.getInvoiceById(params.invoiceId) : undefined
+        };
+      }
+      paymentId = existing.id;
+    }
 
     const payment: PaymentRecord = {
       id: paymentId,
@@ -3162,6 +3300,21 @@ export class CommercialStore {
     idempotencyKey?: string;
   }): Promise<{ refund: RefundRecord; allocation?: SettlementAllocation; updatedInvoice?: Invoice }> {
     const client = await this.getClient();
+    if (params.idempotencyKey) {
+      const existing = await this.getRefundByIdempotencyKey(params.idempotencyKey);
+      if (existing) {
+        if (existing.originalPaymentRecordId !== params.paymentId || existing.amountCents !== params.amountCents) {
+          throw Object.assign(new Error('Refund idempotency key was already used with different refund facts.'), { statusCode: 409 });
+        }
+        const original = await this.getPaymentRecordById(params.paymentId);
+        const allocations = original?.invoiceId ? await this.getAllocationsForInvoice(original.invoiceId) : [];
+        return {
+          refund: existing,
+          allocation: allocations.find(item => item.refundRecordId === existing.id),
+          updatedInvoice: original?.invoiceId ? await this.getInvoiceById(original.invoiceId) : undefined
+        };
+      }
+    }
     const payment = await this.getPaymentRecordById(params.paymentId);
     if (!payment) throw new Error(`PaymentRecord not found: ${params.paymentId}`);
 

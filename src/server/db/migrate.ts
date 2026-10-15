@@ -1222,6 +1222,41 @@ CREATE INDEX IF NOT EXISTS idx_offer_cohort_requests_challenge
   ON offer_cohort_activation_requests (challenge_id, requested_at);
 `;
 
+export const SQL_MIGRATION_V16 = `
+-- Negotiated enterprise implementation services. The published range is not
+-- itself billable; an authorized, executed agreement with an exact amount is.
+CREATE TABLE IF NOT EXISTS negotiated_service_charges (
+  id TEXT PRIMARY KEY,
+  provider_organization_id TEXT NOT NULL REFERENCES provider_organizations(id) ON DELETE CASCADE,
+  commercial_agreement_id TEXT NOT NULL REFERENCES commercial_agreements(id) ON DELETE RESTRICT,
+  service_code TEXT NOT NULL CHECK (service_code = 'ENTERPRISE_IMPLEMENTATION'),
+  amount_cents INTEGER NOT NULL CHECK (amount_cents BETWEEN 250000 AND 1000000),
+  currency TEXT NOT NULL DEFAULT 'USD' CHECK (currency = 'USD'),
+  executed_agreement_reference TEXT NOT NULL,
+  supporting_reference TEXT NOT NULL,
+  effective_at TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('APPROVED', 'INVOICED', 'CANCELLED')),
+  authorized_by TEXT NOT NULL,
+  authorized_at TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL UNIQUE,
+  invoice_id TEXT REFERENCES invoices(id) ON DELETE RESTRICT
+);
+CREATE INDEX IF NOT EXISTS idx_negotiated_service_charges_org
+  ON negotiated_service_charges(provider_organization_id, effective_at);
+
+ALTER TABLE invoice_line_items ADD COLUMN IF NOT EXISTS negotiated_service_charge_id TEXT
+  REFERENCES negotiated_service_charges(id) ON DELETE RESTRICT;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_invoice_line_negotiated_service
+  ON invoice_line_items(negotiated_service_charge_id) WHERE negotiated_service_charge_id IS NOT NULL;
+ALTER TABLE invoice_line_items DROP CONSTRAINT IF EXISTS chk_invoice_line_source_exclusivity;
+ALTER TABLE invoice_line_items ADD CONSTRAINT chk_invoice_line_source_exclusivity CHECK (
+  (line_type = 'SUBSCRIPTION' AND billing_period_id IS NOT NULL AND billable_event_id IS NULL AND rating_adjustment_id IS NULL AND negotiated_service_charge_id IS NULL) OR
+  ((line_type = 'USAGE_CHARGE' OR line_type = 'OUTCOME_CHARGE') AND billable_event_id IS NOT NULL AND billing_period_id IS NULL AND rating_adjustment_id IS NULL AND negotiated_service_charge_id IS NULL) OR
+  (line_type = 'ONE_TIME_SERVICE' AND negotiated_service_charge_id IS NOT NULL AND billable_event_id IS NULL AND rating_adjustment_id IS NULL AND billing_period_id IS NULL) OR
+  (line_type = 'ADJUSTMENT_CREDIT' AND rating_adjustment_id IS NOT NULL AND billable_event_id IS NULL AND billing_period_id IS NULL AND negotiated_service_charge_id IS NULL)
+);
+`;
+
 export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR || './data/openpolicy_pg') {
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
@@ -1290,7 +1325,11 @@ export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR ||
     await pglite.query(
       `INSERT INTO _migrations (name) VALUES ('0015_consumer_controlled_offer_cohorts') ON CONFLICT (name) DO NOTHING;`
     );
-    console.log(`[Open Policy DB] Migrations 0001 through 0015 applied successfully.`);
+    await pglite.exec(SQL_MIGRATION_V16);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0016_negotiated_service_charges') ON CONFLICT (name) DO NOTHING;`
+    );
+    console.log(`[Open Policy DB] Migrations 0001 through 0016 applied successfully.`);
     return pglite;
   } catch (error) {
     console.error(`[Open Policy DB] Migration error:`, error);

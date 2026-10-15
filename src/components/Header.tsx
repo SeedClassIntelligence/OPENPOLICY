@@ -117,7 +117,14 @@ export const Header: React.FC<HeaderProps> = ({
   const [showNotifications, setShowNotifications] = useState(false);
   const [showDoctrineModal, setShowDoctrineModal] = useState(false);
   const [showPerspectiveMenu, setShowPerspectiveMenu] = useState(false);
+  const [publicLandingPath, setPublicLandingPath] = useState(() => window.location.pathname);
   const perspectiveMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const syncPublicLandingPath = () => setPublicLandingPath(window.location.pathname);
+    window.addEventListener('popstate', syncPublicLandingPath);
+    return () => window.removeEventListener('popstate', syncPublicLandingPath);
+  }, []);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -209,7 +216,11 @@ export const Header: React.FC<HeaderProps> = ({
               {/* Direct Fast-Access Segmented Tabs */}
               <nav aria-label="Perspective Switcher" className="flex items-center gap-0.5 sm:gap-1 overflow-x-auto scrollbar-none">
                 {PERSPECTIVES.map((p) => {
-                  const isActive = activePerspective === p.id;
+                  if (!isAuthenticated && p.id === 'LANDING') return null;
+                  const isPublicLandingSelection = !isAuthenticated && activePerspective === 'LANDING';
+                  const isActive = isPublicLandingSelection
+                    ? (p.id === 'PROVIDER' ? publicLandingPath === '/providers' : p.id === 'CONSUMER' && publicLandingPath !== '/providers')
+                    : activePerspective === p.id;
                   const Icon = p.icon;
                   const buttonId = p.id === 'ARCHITECTURE_TESTS' 
                     ? 'nav-arch-btn' 

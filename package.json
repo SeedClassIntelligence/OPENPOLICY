@@ -14,13 +14,13 @@
     "pr0b:capture": "NODE_USE_ENV_PROXY=1 tsx scripts/pr0b/capture-source.ts",
     "pr0b:capture:inventory": "NODE_USE_ENV_PROXY=1 tsx scripts/pr0b/capture-inventory.ts",
     "test:onboarding": "node --import tsx --test src/auth/roleAccess.test.ts src/server/auth/requestIdentity.test.ts src/server/auth/routeAuthorization.test.ts src/server/db/postgresStore.test.ts",
-    "test:authorization": "node --import tsx --test src/server/auth/requestIdentity.test.ts src/server/auth/routeAuthorization.test.ts src/server/auth/notificationAuthorization.test.ts src/server/db/postgresStore.test.ts src/services/apiClient.test.ts src/services/firestoreSecurity.test.ts",
+    "test:authorization": "node --import tsx --test src/server/auth/requestIdentity.test.ts src/server/auth/routeAuthorization.test.ts src/server/auth/notificationAuthorization.test.ts src/server/paymentCollectionBoundary.test.ts src/server/stripePaymentProcessor.test.ts src/server/db/postgresStore.test.ts src/services/apiClient.test.ts src/services/firestoreSecurity.test.ts",
     "test:security-http": "tsx scripts/security-http-probes.ts",
     "test:copy": "node --import tsx --test src/copy/copyLint.test.ts",
     "test:standard": "node --import tsx --test src/domain/qualificationStandard.test.ts",
     "lint:copy:report": "tsx scripts/copy-lint.ts --report-only",
-    "test:document-intelligence": "node --import tsx --test src/domain/documentIntelligence.test.ts src/domain/documentClassification.test.ts src/domain/policyFieldNormalization.test.ts src/domain/policyFieldCorrection.test.ts src/domain/policyEvidenceVerification.test.ts src/server/policyDocumentIngestion.test.ts src/server/malwareDisposition.test.ts src/server/cloudMalwareScanProvider.test.ts src/server/documentAiOcrProvider.test.ts src/server/policyDocumentExtraction.test.ts"
-    ,"acceptance:seed-offer-cohorts": "tsx scripts/seed-offer-cohort-acceptance.ts"
+    "test:document-intelligence": "node --import tsx --test src/domain/documentIntelligence.test.ts src/domain/documentClassification.test.ts src/domain/policyFieldNormalization.test.ts src/domain/policyFieldCorrection.test.ts src/domain/policyEvidenceVerification.test.ts src/server/policyDocumentIngestion.test.ts src/server/malwareDisposition.test.ts src/server/cloudMalwareScanProvider.test.ts src/server/documentAiOcrProvider.test.ts src/server/policyDocumentExtraction.test.ts",
+    "acceptance:seed-offer-cohorts": "tsx scripts/seed-offer-cohort-acceptance.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.8",
@@ -41,6 +41,7 @@
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "source-map-js": "1.2.2",
+    "stripe": "^19.3.0",
     "vite": "^8.3.0"
   },
   "devDependencies": {
