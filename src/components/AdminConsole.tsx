@@ -90,6 +90,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
   const [commercialGovernance, setCommercialGovernance] = useState<any | null>(null);
   const [determinationForm, setDeterminationForm] = useState({ jurisdictionCode: 'NV', insuranceLine: 'PERSONAL_AUTO', authorityReference: '', supportingReference: '', determinationSummary: '', effectiveFrom: new Date().toISOString().slice(0, 10) });
   const [priceForm, setPriceForm] = useState({ priceBookId: '', effectiveFrom: '', recurringFeeDollars: 499, engagementDollars: 35 });
+  const [premiumServiceReason,setPremiumServiceReason]=useState('');
 
   const loadData = async () => {
     setLoading(true);
@@ -360,6 +361,16 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
     } catch(error:any){setFinancialMessage(error?.message||'Price version could not be published.');} finally{setFinancialBusy(false);}
   };
 
+  const changePremiumService=async(serviceCode:string,status:'ENABLED'|'DISABLED')=>{
+    if(!premiumServiceReason.trim()) return;
+    setFinancialBusy(true);setFinancialMessage(null);
+    try{const response=await apiFetch(`/api/admin/commercial/premium-services/${encodeURIComponent(serviceCode)}`,{
+      method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status,reason:premiumServiceReason.trim()})});
+      const data=await response.json();if(!response.ok)throw new Error(data.error||'Premium service status could not be changed.');
+      setPremiumServiceReason('');setFinancialMessage(`${serviceCode} is now ${status.toLowerCase()}.`);await loadData();
+    }catch(error:any){setFinancialMessage(error?.message||'Premium service status could not be changed.');}finally{setFinancialBusy(false);}
+  };
+
   // Filtered Events
   const filteredEvents = auditEvents.filter(event => {
     const matchesFilter = 
@@ -570,6 +581,19 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
               {(commercialGovernance?.compensationDeterminations||[]).map((item:any)=><div key={item.id} className="rounded border bg-white px-2 py-1.5 text-[10px] text-slate-600"><strong className={item.status==='APPROVED'?'text-emerald-700':'text-rose-700'}>{item.status}</strong> · {item.jurisdictionCode} · {item.insuranceLine}<br/><span className="font-mono">{item.authorityReference}</span></div>)}
               {!commercialGovernance?.compensationDeterminations?.length&&<p className="text-[10px] text-slate-500">No compensation determinations recorded.</p>}
             </div>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-indigo-200 bg-indigo-50/30 p-4 space-y-3">
+          <div><h4 className="text-sm font-bold text-slate-950">Premium service availability</h4><p className="text-[11px] text-slate-500">A global disable blocks new purchase and current use; provider entitlements remain separate and tenant-scoped.</p></div>
+          <input value={premiumServiceReason} onChange={e=>setPremiumServiceReason(e.target.value)} placeholder="Required operational or acceptance reason" className="w-full rounded-lg border bg-white px-3 py-2 text-xs" />
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2">
+            {(commercialGovernance?.premiumServices||[]).map((service:any)=><div key={service.serviceCode} className="rounded-lg border bg-white p-3 text-xs">
+              <div className="font-bold text-slate-900">{service.serviceCode.replace(/_/g,' ')}</div>
+              <div className="mt-1 text-[10px] text-slate-500">Acceptance: {service.acceptanceReference}</div>
+              <div className={`mt-2 font-bold ${service.status==='ENABLED'?'text-emerald-700':'text-rose-700'}`}>{service.status}</div>
+              <button disabled={financialBusy||!premiumServiceReason.trim()} onClick={()=>changePremiumService(service.serviceCode,service.status==='ENABLED'?'DISABLED':'ENABLED')} className="mt-2 w-full rounded border px-2 py-1.5 text-[10px] font-bold disabled:opacity-50">{service.status==='ENABLED'?'Disable service':'Enable accepted service'}</button>
+            </div>)}
           </div>
         </div>
 

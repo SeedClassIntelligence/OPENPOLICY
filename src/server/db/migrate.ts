@@ -1357,6 +1357,29 @@ CREATE INDEX IF NOT EXISTS idx_compensation_determinations_scope
   ON compensation_determinations(jurisdiction_code, insurance_line, charge_type, status);
 `;
 
+export const SQL_MIGRATION_V20 = `
+-- Platform-wide premium service governance. Delivery remains entitlement
+-- scoped; this registry is the independent owner-controlled availability gate.
+CREATE TABLE IF NOT EXISTS premium_service_controls (
+  service_code TEXT PRIMARY KEY,
+  entitlement_type TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL CHECK (status IN ('ENABLED','DISABLED')),
+  acceptance_reference TEXT NOT NULL,
+  accepted_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  updated_by TEXT NOT NULL,
+  change_reason TEXT NOT NULL
+);
+INSERT INTO premium_service_controls
+  (service_code,entitlement_type,status,acceptance_reference,accepted_at,updated_at,updated_by,change_reason)
+VALUES
+  ('WORKFLOW_AUTOMATION','AUTOMATED_APPETITE_MATCHING','ENABLED','af34e0e','2026-10-14T00:00:00.000Z','2026-10-14T00:00:00.000Z','system_migration','Accepted entitlement-enforced delivery surface'),
+  ('ENTERPRISE_REPORTING','ENTERPRISE_REPORTING','ENABLED','af34e0e','2026-10-14T00:00:00.000Z','2026-10-14T00:00:00.000Z','system_migration','Accepted tenant-scoped reporting delivery surface'),
+  ('API_INTEGRATION','API_ACCESS','ENABLED','af34e0e','2026-10-14T00:00:00.000Z','2026-10-14T00:00:00.000Z','system_migration','Accepted scoped credential delivery surface'),
+  ('MULTI_LOCATION_ADMINISTRATION','MULTI_LOCATION_ADMIN','ENABLED','af34e0e','2026-10-14T00:00:00.000Z','2026-10-14T00:00:00.000Z','system_migration','Accepted tenant-isolated location delivery surface')
+ON CONFLICT (service_code) DO NOTHING;
+`;
+
 export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR || './data/openpolicy_pg') {
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
@@ -1441,7 +1464,11 @@ export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR ||
     await pglite.query(
       `INSERT INTO _migrations (name) VALUES ('0019_owner_commercial_governance') ON CONFLICT (name) DO NOTHING;`
     );
-    console.log(`[Open Policy DB] Migrations 0001 through 0019 applied successfully.`);
+    await pglite.exec(SQL_MIGRATION_V20);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0020_premium_service_governance') ON CONFLICT (name) DO NOTHING;`
+    );
+    console.log(`[Open Policy DB] Migrations 0001 through 0020 applied successfully.`);
     return pglite;
   } catch (error) {
     console.error(`[Open Policy DB] Migration error:`, error);

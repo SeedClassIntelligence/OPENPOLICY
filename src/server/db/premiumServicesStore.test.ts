@@ -67,3 +67,10 @@ test('multi-location administration prevents cross-organization assignments', as
   const locations = await services.listLocations('org_apex');
   assert.equal(locations[0].assignedUsers, 1);
 });
+
+test('global owner service disable blocks use even when a provider still holds an entitlement', async()=>{
+  await postgres.changePremiumServiceControl({serviceCode:'ENTERPRISE_REPORTING',status:'DISABLED',actorId:'owner',reason:'Controlled acceptance suspension'});
+  await assert.rejects(()=>services.requireEntitlement('org_apex','ENTERPRISE_REPORTING'),/PREMIUM_SERVICE_DISABLED/);
+  await postgres.changePremiumServiceControl({serviceCode:'ENTERPRISE_REPORTING',status:'ENABLED',actorId:'owner',reason:'Acceptance restored'});
+  assert.equal((await services.requireEntitlement('org_apex','ENTERPRISE_REPORTING')).entitlementType,'ENTERPRISE_REPORTING');
+});

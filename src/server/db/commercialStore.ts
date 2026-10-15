@@ -2282,6 +2282,17 @@ export class CommercialStore {
           throw Object.assign(new Error(`PREMIUM_SERVICE_NOT_OPERATIONAL: ${code}`), { statusCode: 409 });
         }
       }
+      const governedServices = Object.keys(selectedAddOns).filter(code =>
+        ['WORKFLOW_AUTOMATION','ENTERPRISE_REPORTING','API_INTEGRATION','MULTI_LOCATION_ADMINISTRATION'].includes(code));
+      if (governedServices.length) {
+        const client = await this.getClient();
+        const controls = await client.query<{service_code:string;status:string}>(
+          `SELECT service_code,status FROM premium_service_controls WHERE service_code = ANY($1);`, [governedServices]
+        );
+        const enabled = new Set(controls.rows.filter(row => row.status === 'ENABLED').map(row => row.service_code));
+        const blocked = governedServices.find(code => !enabled.has(code));
+        if (blocked) throw Object.assign(new Error(`PREMIUM_SERVICE_DISABLED: ${blocked}`), { statusCode: 409 });
+      }
       planVersion = {
         id: versionId,
         planId,

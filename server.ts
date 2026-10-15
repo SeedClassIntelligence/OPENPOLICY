@@ -1264,14 +1264,27 @@ app.get('/api/admin/commercial/governance', async (_req, res) => {
   try {
     const plans = await commercialStore.listActivePlans();
     const planVersions = await Promise.all(plans.map(plan => commercialStore.getLatestPlanVersion(plan.id)));
-    const determinations = await postgresStore.listCompensationDeterminations();
+    const [determinations, premiumServices] = await Promise.all([
+      postgresStore.listCompensationDeterminations(), postgresStore.listPremiumServiceControls()
+    ]);
     res.json({
       plans: plans.map((plan, index) => ({ ...plan, latestVersion: planVersions[index] || null })),
-      compensationDeterminations: determinations
+      compensationDeterminations: determinations,
+      premiumServices
     });
   } catch (e: any) {
     res.status(e.statusCode || 500).json({ error: e.message });
   }
+});
+
+app.patch('/api/admin/commercial/premium-services/:serviceCode', async (req, res) => {
+  try {
+    const service = await postgresStore.changePremiumServiceControl({
+      serviceCode:req.params.serviceCode,status:String(req.body?.status||'').toUpperCase() as any,
+      actorId:req.openPolicyIdentity!.uid,reason:String(req.body?.reason||'')
+    });
+    res.json({success:true,service});
+  } catch(e:any){res.status(e.statusCode||500).json({error:e.message});}
 });
 
 app.post('/api/admin/commercial/compensation-determinations', async (req, res) => {

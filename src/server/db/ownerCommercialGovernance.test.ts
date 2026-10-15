@@ -59,3 +59,18 @@ test('owner price changes create immutable future versions and preserve prior hi
     fs.rmSync(dataDir, { recursive: true, force: true });
   }
 });
+
+test('owner premium-service control is durable, audited, and blocks service use independently of entitlement', async()=>{
+  const dataDir=fs.mkdtempSync(path.join(os.tmpdir(),'openpolicy-owner-services-'));
+  const store=new PostgresStore(dataDir);
+  try{
+    await store.init();
+    const before=await store.listPremiumServiceControls();
+    assert.equal(before.length,4);assert.ok(before.every(item=>item.status==='ENABLED'));
+    const disabled=await store.changePremiumServiceControl({serviceCode:'API_INTEGRATION',status:'DISABLED',actorId:'firebase-owner-uid',reason:'Acceptance incident review'});
+    assert.equal(disabled.status,'DISABLED');
+    assert.equal((await store.listPremiumServiceControls()).find(item=>item.serviceCode==='API_INTEGRATION')?.status,'DISABLED');
+    assert.equal((await store.getAuditEvents()).filter(event=>event.eventType==='PREMIUM_SERVICE_STATUS_CHANGED').length,1);
+    await assert.rejects(()=>store.changePremiumServiceControl({serviceCode:'API_INTEGRATION',status:'ENABLED',actorId:'firebase-owner-uid',reason:''}),/reason is required/);
+  }finally{await store.close();fs.rmSync(dataDir,{recursive:true,force:true});}
+});

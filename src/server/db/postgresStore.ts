@@ -1,7 +1,7 @@
 import { PGlite } from '@electric-sql/pglite';
 import fs from 'fs';
 import pg from 'pg';
-import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8, SQL_MIGRATION_V9, SQL_MIGRATION_V10, SQL_MIGRATION_V11, SQL_MIGRATION_V12, SQL_MIGRATION_V13, SQL_MIGRATION_V14, SQL_MIGRATION_V15, SQL_MIGRATION_V16, SQL_MIGRATION_V17, SQL_MIGRATION_V18, SQL_MIGRATION_V19 } from './migrate';
+import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8, SQL_MIGRATION_V9, SQL_MIGRATION_V10, SQL_MIGRATION_V11, SQL_MIGRATION_V12, SQL_MIGRATION_V13, SQL_MIGRATION_V14, SQL_MIGRATION_V15, SQL_MIGRATION_V16, SQL_MIGRATION_V17, SQL_MIGRATION_V18, SQL_MIGRATION_V19, SQL_MIGRATION_V20 } from './migrate';
 import { buildVerifiedPolicyAndBaseline } from '../../domain/policyEvidenceVerification';
 import {
   ProviderOrganization,
@@ -61,6 +61,11 @@ export interface CompensationDetermination {
   revokedAt?: string;
   revokeReason?: string;
   idempotencyKey: string;
+}
+
+export interface PremiumServiceControl {
+  serviceCode: string; entitlementType: string; status: 'ENABLED'|'DISABLED'; acceptanceReference: string;
+  acceptedAt: string; updatedAt: string; updatedBy: string; changeReason: string;
 }
 
 export interface SqlClient {
@@ -278,6 +283,10 @@ export class PostgresStore {
         await this.sql.query(
           `INSERT INTO _migrations (name) VALUES ('0019_owner_commercial_governance') ON CONFLICT (name) DO NOTHING;`
         );
+        await this.sql.exec(SQL_MIGRATION_V20);
+        await this.sql.query(
+          `INSERT INTO _migrations (name) VALUES ('0020_premium_service_governance') ON CONFLICT (name) DO NOTHING;`
+        );
         this.isReady = true;
         console.log(
           this.useCloudSql
@@ -375,6 +384,31 @@ export class PostgresStore {
         effectiveFrom:row.effective_from,effectiveUntil:row.effective_until||undefined,authorityReference:row.authority_reference,
         supportingReference:row.supporting_reference,determinationSummary:row.determination_summary,approvedBy:row.approved_by,
         createdAt:row.created_at,revokedAt:row.revoked_at,revokeReason:row.revoke_reason,idempotencyKey:row.idempotency_key };
+    });
+  }
+
+  public async listPremiumServiceControls(): Promise<PremiumServiceControl[]> {
+    await this.ensureReady();
+    const result=await this.sql!.query<any>(`SELECT * FROM premium_service_controls ORDER BY service_code;`);
+    return result.rows.map(row=>({serviceCode:row.service_code,entitlementType:row.entitlement_type,status:row.status,
+      acceptanceReference:row.acceptance_reference,acceptedAt:row.accepted_at,updatedAt:row.updated_at,
+      updatedBy:row.updated_by,changeReason:row.change_reason}));
+  }
+
+  public async changePremiumServiceControl(input:{serviceCode:string;status:'ENABLED'|'DISABLED';actorId:string;reason:string}):Promise<PremiumServiceControl>{
+    await this.ensureReady();
+    if(!['ENABLED','DISABLED'].includes(input.status)) throw Object.assign(new Error('status must be ENABLED or DISABLED.'),{statusCode:400});
+    if(!input.reason.trim()) throw Object.assign(new Error('A change reason is required.'),{statusCode:400});
+    return this.sql!.transaction(async client=>{
+      const current=await client.query<any>(`SELECT * FROM premium_service_controls WHERE service_code=$1 FOR UPDATE;`,[input.serviceCode]);
+      if(!current.rows[0]) throw Object.assign(new Error('Premium service control not found.'),{statusCode:404});
+      const now=new Date().toISOString();
+      await client.query(`UPDATE premium_service_controls SET status=$2,updated_at=$3,updated_by=$4,change_reason=$5 WHERE service_code=$1;`,[input.serviceCode,input.status,now,input.actorId,input.reason.trim()]);
+      await this.appendAuditInTransaction(client,{eventType:'PREMIUM_SERVICE_STATUS_CHANGED',actorRole:'ADMIN',actorId:input.actorId,
+        details:`Changed premium service ${input.serviceCode} from ${current.rows[0].status} to ${input.status}: ${input.reason.trim()}`});
+      const row={...current.rows[0],status:input.status,updated_at:now,updated_by:input.actorId,change_reason:input.reason.trim()};
+      return {serviceCode:row.service_code,entitlementType:row.entitlement_type,status:row.status,acceptanceReference:row.acceptance_reference,
+        acceptedAt:row.accepted_at,updatedAt:row.updated_at,updatedBy:row.updated_by,changeReason:row.change_reason};
     });
   }
 

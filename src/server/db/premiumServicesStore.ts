@@ -9,6 +9,13 @@ export class PremiumServicesStore {
   constructor(private readonly commercial: CommercialStore = commercialStore) {}
 
   async requireEntitlement(providerOrganizationId: string, entitlementType: EntitlementType) {
+    const client = await this.commercial.getClient();
+    const serviceControl = await client.query<{status:string}>(
+      `SELECT status FROM premium_service_controls WHERE entitlement_type=$1;`, [entitlementType]
+    );
+    if (serviceControl.rows[0] && serviceControl.rows[0].status !== 'ENABLED') {
+      throw Object.assign(new Error(`PREMIUM_SERVICE_DISABLED: ${entitlementType}`), { statusCode: 503 });
+    }
     const now = new Date().toISOString();
     const entitlements = await this.commercial.getEntitlementsForOrg(providerOrganizationId);
     const entitlement = entitlements.find(item => item.entitlementType === entitlementType &&
