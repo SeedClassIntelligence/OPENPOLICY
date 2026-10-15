@@ -84,3 +84,13 @@ test('platform financial overview is rebuilt from canonical ledgers without dash
     assert.deepEqual(overview.revenueEvents,[]);assert.deepEqual(overview.recentInvoices,[]);assert.deepEqual(overview.recentPayments,[]);assert.deepEqual(overview.recentRefunds,[]);
   }finally{await store.close();fs.rmSync(dataDir,{recursive:true,force:true});}
 });
+
+test('platform administrator authority is durable, bounded, audited, and preserves a last owner',async()=>{
+  const dataDir=fs.mkdtempSync(path.join(os.tmpdir(),'openpolicy-owner-authority-'));const store=new PostgresStore(dataDir);
+  try{await store.init();const owner=await store.bootstrapPlatformOwner('firebase-owner');assert.equal(owner.adminType,'OWNER');
+    const staff=await store.upsertPlatformAdminAssignment({firebaseUid:'firebase-finance',adminType:'STAFF',permissions:['PLATFORM_READ','COMMERCIAL_ADMIN'],status:'ACTIVE',actorId:'firebase-owner',reason:'Finance operations assignment'});
+    assert.deepEqual(staff.permissions,['PLATFORM_READ','COMMERCIAL_ADMIN']);assert.equal((await store.listPlatformAdminAssignments()).length,2);
+    await assert.rejects(()=>store.upsertPlatformAdminAssignment({firebaseUid:'firebase-owner',adminType:'STAFF',permissions:['PLATFORM_READ'],status:'ACTIVE',actorId:'firebase-owner',reason:'invalid last owner demotion'}),/last active platform owner/);
+    assert.equal((await store.getAuditEvents()).filter(event=>event.eventType==='PLATFORM_ADMIN_AUTHORITY_CHANGED').length,1);
+  }finally{await store.close();fs.rmSync(dataDir,{recursive:true,force:true});}
+});

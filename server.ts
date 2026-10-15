@@ -137,6 +137,16 @@ app.use('/api', async (_req, res, next) => {
   }
 });
 app.use('/api', attachRequestIdentity);
+app.use('/api', async (req,res,next)=>{
+  try{
+    if(req.openPolicyIdentity?.role!=='ADMIN')return next();
+    if(req.openPolicyIdentity.source==='FIXTURE')return next();
+    let assignment=await postgresStore.getPlatformAdminAssignment(req.openPolicyIdentity.uid);
+    if(!assignment&&process.env.OPENPOLICY_OWNER_FIREBASE_UID?.trim()===req.openPolicyIdentity.uid){assignment=await postgresStore.bootstrapPlatformOwner(req.openPolicyIdentity.uid);}
+    if(!assignment||assignment.status!=='ACTIVE')return res.status(403).json({error:'Forbidden',message:'Current platform administrator authority is required.'});
+    req.openPolicyIdentity.adminType=assignment.adminType;req.openPolicyIdentity.adminPermissions=assignment.permissions;next();
+  }catch(error:any){res.status(error.statusCode||503).json({error:'Administrative authority unavailable'});}
+});
 app.use('/api', enforceApiAuthorization);
 
 let policyDocumentObjectStore: CloudPolicyDocumentStore | undefined;
@@ -1240,6 +1250,17 @@ app.get('/api/admin/overview', async (_req, res) => {
   } catch (e: any) {
     res.status(e.statusCode || 500).json({ error: e.message });
   }
+});
+
+app.get('/api/admin/administrators',async(req,res)=>{
+  try{res.json({current:{uid:req.openPolicyIdentity!.uid,adminType:req.openPolicyIdentity!.adminType,permissions:req.openPolicyIdentity!.adminPermissions},administrators:await postgresStore.listPlatformAdminAssignments()});}
+  catch(e:any){res.status(e.statusCode||500).json({error:e.message});}
+});
+app.put('/api/admin/administrators/:uid',async(req,res)=>{
+  try{const assignment=await postgresStore.upsertPlatformAdminAssignment({firebaseUid:req.params.uid,adminType:String(req.body?.adminType||'STAFF').toUpperCase() as any,
+    permissions:Array.isArray(req.body?.permissions)?req.body.permissions:[],status:String(req.body?.status||'ACTIVE').toUpperCase() as any,
+    actorId:req.openPolicyIdentity!.uid,reason:String(req.body?.reason||'')});res.json({success:true,assignment});}
+  catch(e:any){res.status(e.statusCode||500).json({error:e.message});}
 });
 
 app.patch('/api/admin/providers/:organizationId/status', async (req, res) => {

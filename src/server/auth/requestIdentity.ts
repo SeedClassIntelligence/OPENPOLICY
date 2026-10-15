@@ -5,6 +5,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 
 export type AuthMode = 'firebase' | 'fixture';
 export type IdentityRole = 'CONSUMER' | 'PROVIDER' | 'ADMIN';
+export type AdminPermission = 'PLATFORM_READ'|'PROVIDER_ADMIN'|'COMMERCIAL_ADMIN'|'COMPLIANCE_ADMIN'|'SECURITY_ADMIN';
 
 export interface RequestIdentity {
   uid: string;
@@ -13,6 +14,8 @@ export interface RequestIdentity {
   providerUserId?: string;
   providerOrganizationId?: string;
   providerStatus?: 'PENDING_VERIFICATION' | 'ACTIVE' | 'REJECTED';
+  adminType?: 'OWNER'|'STAFF';
+  adminPermissions?: AdminPermission[];
   source: 'FIREBASE' | 'FIXTURE' | 'API_CREDENTIAL';
 }
 
@@ -42,6 +45,9 @@ export function assertProductionAuthConfiguration(env: NodeJS.ProcessEnv = proce
   }
   if (!env.FIREBASE_PROJECT_ID?.trim()) {
     throw new Error('FIREBASE_PROJECT_ID is required in production.');
+  }
+  if (!env.OPENPOLICY_OWNER_FIREBASE_UID?.trim()) {
+    throw new Error('OPENPOLICY_OWNER_FIREBASE_UID is required in production.');
   }
 
   const hasServiceAccount = Boolean(env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim());
@@ -123,7 +129,7 @@ export async function resolveFirebaseIdentity(token: string): Promise<RequestIde
 function resolveFixtureIdentity(req: Request): RequestIdentity {
   const fixtureRole = String(req.headers['x-openpolicy-fixture-role'] || '').toUpperCase();
   if (fixtureRole === 'ADMIN') {
-    return { uid: 'fixture_admin', role: 'ADMIN', source: 'FIXTURE' };
+    return { uid: 'fixture_admin', role: 'ADMIN', adminType:'OWNER', adminPermissions:['PLATFORM_READ','PROVIDER_ADMIN','COMMERCIAL_ADMIN','COMPLIANCE_ADMIN','SECURITY_ADMIN'], source: 'FIXTURE' };
   }
   const providerUserId = String(req.headers['x-provider-user-id'] || req.body?.providerUserId || '').trim();
   if (providerUserId) {

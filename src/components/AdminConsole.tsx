@@ -92,11 +92,13 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
   const [priceForm, setPriceForm] = useState({ priceBookId: '', effectiveFrom: '', recurringFeeDollars: 499, engagementDollars: 35 });
   const [premiumServiceReason,setPremiumServiceReason]=useState('');
   const [platformFinancials,setPlatformFinancials]=useState<any|null>(null);
+  const [administratorRegistry,setAdministratorRegistry]=useState<any|null>(null);
+  const [adminForm,setAdminForm]=useState({firebaseUid:'',permissions:['PLATFORM_READ'] as string[],status:'ACTIVE',reason:''});
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [eventsRes, queueRes, verifyRes, linesRes, rolloutRes, overviewRes, governanceRes, platformFinancialsRes] = await Promise.all([
+      const [eventsRes, queueRes, verifyRes, linesRes, rolloutRes, overviewRes, governanceRes, platformFinancialsRes, administratorsRes] = await Promise.all([
         apiFetch('/api/audit-events'),
         apiFetch('/api/admin/review-queue'),
         apiFetch('/api/admin/audit-chain/verify'),
@@ -104,7 +106,8 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
         apiFetch('/api/rollout/jurisdiction-lines'),
         apiFetch('/api/admin/overview'),
         apiFetch('/api/admin/commercial/governance'),
-        apiFetch('/api/admin/commercial/platform-summary')
+        apiFetch('/api/admin/commercial/platform-summary'),
+        apiFetch('/api/admin/administrators')
       ]);
 
       const eventsData = await eventsRes.json();
@@ -115,6 +118,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
       const overviewData = await overviewRes.json();
       const governanceData = await governanceRes.json();
       const platformFinancialsData = await platformFinancialsRes.json();
+      const administratorsData = await administratorsRes.json();
 
       setAuditEvents(eventsData);
       setReviewQueue(queueData);
@@ -124,6 +128,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
       if (overviewRes.ok) setOwnerOverview(overviewData);
       if (governanceRes.ok) setCommercialGovernance(governanceData);
       if (platformFinancialsRes.ok) setPlatformFinancials(platformFinancialsData);
+      if (administratorsRes.ok) setAdministratorRegistry(administratorsData);
     } catch (e) {
       console.error('Failed to load admin audit console data:', e);
     } finally {
@@ -375,6 +380,11 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
     }catch(error:any){setFinancialMessage(error?.message||'Premium service status could not be changed.');}finally{setFinancialBusy(false);}
   };
 
+  const saveStaffAdministrator=async()=>{setFinancialBusy(true);setFinancialMessage(null);try{const response=await apiFetch(`/api/admin/administrators/${encodeURIComponent(adminForm.firebaseUid.trim())}`,{
+    method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({adminType:'STAFF',permissions:adminForm.permissions,status:adminForm.status,reason:adminForm.reason.trim()})});
+    const data=await response.json();if(!response.ok)throw new Error(data.error||'Administrator authority could not be saved.');setFinancialMessage('Administrator authority saved with immutable audit evidence.');setAdminForm({firebaseUid:'',permissions:['PLATFORM_READ'],status:'ACTIVE',reason:''});await loadData();
+  }catch(error:any){setFinancialMessage(error?.message||'Administrator authority could not be saved.');}finally{setFinancialBusy(false);}};
+
   // Filtered Events
   const filteredEvents = auditEvents.filter(event => {
     const matchesFilter = 
@@ -449,7 +459,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
       <nav aria-label="Owner console sections" className="sticky top-20 z-20 flex gap-2 overflow-x-auto rounded-xl border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur">
         {[
           ['#owner-overview', 'Overview'], ['#owner-providers', 'Providers'],
-          ['#owner-commercial', 'Commercial'], ['#owner-rollout', 'Markets'],
+          ['#owner-commercial', 'Commercial'], ['#owner-security', 'Security'], ['#owner-rollout', 'Markets'],
           ['#owner-reviews', 'Reviews'], ['#owner-audit', 'Audit']
         ].map(([href, label]) => (
           <a key={href} href={href} className="whitespace-nowrap rounded-lg px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-900 hover:text-white">{label}</a>
@@ -758,6 +768,20 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
           </div>
         </div>
         <p className="text-[10px] text-emerald-700">Workflow automation, enterprise reporting, API integration and multi-location administration are delivered through tenant-scoped, entitlement-enforced provider services.</p>
+      </section>
+
+      <section id="owner-security" className="scroll-mt-36 rounded-xl border border-slate-300 bg-white p-5 shadow-xs space-y-4">
+        <div><p className="text-[10px] font-mono font-bold uppercase tracking-wider text-rose-700">Security governance</p><h3 className="text-base font-bold text-slate-950">Platform administrator authority</h3><p className="text-xs text-slate-500">Firebase authenticates the person. PostgreSQL determines their current administrative permissions on every request.</p></div>
+        {administratorRegistry?<>
+          <div className="overflow-x-auto rounded-lg border"><table className="min-w-full text-left text-[11px]"><thead className="bg-slate-50"><tr><th className="px-3 py-2">Firebase UID</th><th className="px-3 py-2">Type</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Permissions</th></tr></thead><tbody>{administratorRegistry.administrators.map((item:any)=><tr key={item.firebaseUid} className="border-t"><td className="px-3 py-2 font-mono">{item.firebaseUid}</td><td className="px-3 py-2">{item.adminType}</td><td className="px-3 py-2">{item.status}</td><td className="px-3 py-2">{item.permissions.join(', ')}</td></tr>)}</tbody></table></div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 rounded-xl bg-slate-50 p-4">
+            <input value={adminForm.firebaseUid} onChange={e=>setAdminForm({...adminForm,firebaseUid:e.target.value})} placeholder="Existing Firebase UID" className="rounded-lg border px-3 py-2 text-xs" />
+            <select value={adminForm.status} onChange={e=>setAdminForm({...adminForm,status:e.target.value})} className="rounded-lg border px-3 py-2 text-xs"><option>ACTIVE</option><option>DISABLED</option></select>
+            <input value={adminForm.reason} onChange={e=>setAdminForm({...adminForm,reason:e.target.value})} placeholder="Required authority-change reason" className="rounded-lg border px-3 py-2 text-xs" />
+            <div className="md:col-span-3 flex flex-wrap gap-3">{['PLATFORM_READ','PROVIDER_ADMIN','COMMERCIAL_ADMIN','COMPLIANCE_ADMIN','SECURITY_ADMIN'].map(permission=><label key={permission} className="text-[10px] font-bold text-slate-600"><input type="checkbox" checked={adminForm.permissions.includes(permission)} onChange={e=>setAdminForm({...adminForm,permissions:e.target.checked?[...adminForm.permissions,permission]:adminForm.permissions.filter(item=>item!==permission)})} className="mr-1"/>{permission}</label>)}</div>
+            <button onClick={saveStaffAdministrator} disabled={financialBusy||!adminForm.firebaseUid.trim()||!adminForm.reason.trim()} className="md:col-span-3 rounded-lg bg-slate-950 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">Save bounded staff authority</button>
+          </div>
+        </>:<p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">Your current administrator session does not include security-administration authority.</p>}
       </section>
 
       {/* Owner operations: insurance-line and regional rollout oversight. */}

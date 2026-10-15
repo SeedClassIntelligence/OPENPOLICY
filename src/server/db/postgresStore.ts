@@ -1,7 +1,7 @@
 import { PGlite } from '@electric-sql/pglite';
 import fs from 'fs';
 import pg from 'pg';
-import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8, SQL_MIGRATION_V9, SQL_MIGRATION_V10, SQL_MIGRATION_V11, SQL_MIGRATION_V12, SQL_MIGRATION_V13, SQL_MIGRATION_V14, SQL_MIGRATION_V15, SQL_MIGRATION_V16, SQL_MIGRATION_V17, SQL_MIGRATION_V18, SQL_MIGRATION_V19, SQL_MIGRATION_V20 } from './migrate';
+import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8, SQL_MIGRATION_V9, SQL_MIGRATION_V10, SQL_MIGRATION_V11, SQL_MIGRATION_V12, SQL_MIGRATION_V13, SQL_MIGRATION_V14, SQL_MIGRATION_V15, SQL_MIGRATION_V16, SQL_MIGRATION_V17, SQL_MIGRATION_V18, SQL_MIGRATION_V19, SQL_MIGRATION_V20, SQL_MIGRATION_V21 } from './migrate';
 import { buildVerifiedPolicyAndBaseline } from '../../domain/policyEvidenceVerification';
 import {
   ProviderOrganization,
@@ -67,6 +67,9 @@ export interface PremiumServiceControl {
   serviceCode: string; entitlementType: string; status: 'ENABLED'|'DISABLED'; acceptanceReference: string;
   acceptedAt: string; updatedAt: string; updatedBy: string; changeReason: string;
 }
+
+export type PlatformAdminPermission='PLATFORM_READ'|'PROVIDER_ADMIN'|'COMMERCIAL_ADMIN'|'COMPLIANCE_ADMIN'|'SECURITY_ADMIN';
+export interface PlatformAdminAssignment {firebaseUid:string;adminType:'OWNER'|'STAFF';permissions:PlatformAdminPermission[];status:'ACTIVE'|'DISABLED';createdBy:string;createdAt:string;updatedBy:string;updatedAt:string;changeReason:string;}
 
 export interface SqlClient {
   query<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<{ rows: T[]; rowCount?: number }>;
@@ -287,6 +290,10 @@ export class PostgresStore {
         await this.sql.query(
           `INSERT INTO _migrations (name) VALUES ('0020_premium_service_governance') ON CONFLICT (name) DO NOTHING;`
         );
+        await this.sql.exec(SQL_MIGRATION_V21);
+        await this.sql.query(
+          `INSERT INTO _migrations (name) VALUES ('0021_platform_admin_authority') ON CONFLICT (name) DO NOTHING;`
+        );
         this.isReady = true;
         console.log(
           this.useCloudSql
@@ -410,6 +417,27 @@ export class PostgresStore {
       return {serviceCode:row.service_code,entitlementType:row.entitlement_type,status:row.status,acceptanceReference:row.acceptance_reference,
         acceptedAt:row.accepted_at,updatedAt:row.updated_at,updatedBy:row.updated_by,changeReason:row.change_reason};
     });
+  }
+
+  private mapPlatformAdmin(row:any):PlatformAdminAssignment{return {firebaseUid:row.firebase_uid,adminType:row.admin_type,permissions:JSON.parse(row.permissions),status:row.status,createdBy:row.created_by,createdAt:row.created_at,updatedBy:row.updated_by,updatedAt:row.updated_at,changeReason:row.change_reason};}
+  public async getPlatformAdminAssignment(firebaseUid:string):Promise<PlatformAdminAssignment|undefined>{await this.ensureReady();const result=await this.sql!.query<any>(`SELECT * FROM platform_admin_assignments WHERE firebase_uid=$1;`,[firebaseUid]);return result.rows[0]?this.mapPlatformAdmin(result.rows[0]):undefined;}
+  public async listPlatformAdminAssignments():Promise<PlatformAdminAssignment[]>{await this.ensureReady();const result=await this.sql!.query<any>(`SELECT * FROM platform_admin_assignments ORDER BY admin_type,created_at;`);return result.rows.map(row=>this.mapPlatformAdmin(row));}
+  public async bootstrapPlatformOwner(firebaseUid:string):Promise<PlatformAdminAssignment>{
+    await this.ensureReady();if(!firebaseUid.trim())throw new Error('OPENPOLICY_OWNER_FIREBASE_UID is required.');const now=new Date().toISOString();
+    await this.sql!.query(`INSERT INTO platform_admin_assignments (firebase_uid,admin_type,permissions,status,created_by,created_at,updated_by,updated_at,change_reason) VALUES ($1,'OWNER',$2,'ACTIVE','system_bootstrap',$3,'system_bootstrap',$3,'Configured owner bootstrap') ON CONFLICT(firebase_uid) DO NOTHING;`,[firebaseUid,JSON.stringify(['PLATFORM_READ','PROVIDER_ADMIN','COMMERCIAL_ADMIN','COMPLIANCE_ADMIN','SECURITY_ADMIN']),now]);
+    return (await this.getPlatformAdminAssignment(firebaseUid))!;
+  }
+  public async upsertPlatformAdminAssignment(input:{firebaseUid:string;adminType:'OWNER'|'STAFF';permissions:PlatformAdminPermission[];status:'ACTIVE'|'DISABLED';actorId:string;reason:string}):Promise<PlatformAdminAssignment>{
+    await this.ensureReady();const allowed:PlatformAdminPermission[]=['PLATFORM_READ','PROVIDER_ADMIN','COMMERCIAL_ADMIN','COMPLIANCE_ADMIN','SECURITY_ADMIN'];
+    if(!input.firebaseUid.trim()||!input.reason.trim())throw Object.assign(new Error('firebaseUid and reason are required.'),{statusCode:400});
+    if(!['OWNER','STAFF'].includes(input.adminType)||!['ACTIVE','DISABLED'].includes(input.status))throw Object.assign(new Error('Invalid administrator type or status.'),{statusCode:400});
+    if(input.permissions.some(permission=>!allowed.includes(permission)))throw Object.assign(new Error('Invalid administrator permission.'),{statusCode:400});
+    return this.sql!.transaction(async client=>{const current=await client.query<any>(`SELECT * FROM platform_admin_assignments WHERE firebase_uid=$1 FOR UPDATE;`,[input.firebaseUid]);
+      if(current.rows[0]?.admin_type==='OWNER'&&(input.adminType!=='OWNER'||input.status!=='ACTIVE')){const owners=await client.query<any>(`SELECT COUNT(*)::int AS count FROM platform_admin_assignments WHERE admin_type='OWNER' AND status='ACTIVE';`);if(Number(owners.rows[0]?.count||0)<=1)throw Object.assign(new Error('The last active platform owner cannot be disabled or demoted.'),{statusCode:409});}
+      const now=new Date().toISOString();const createdBy=current.rows[0]?.created_by||input.actorId;const createdAt=current.rows[0]?.created_at||now;
+      await client.query(`INSERT INTO platform_admin_assignments (firebase_uid,admin_type,permissions,status,created_by,created_at,updated_by,updated_at,change_reason) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(firebase_uid) DO UPDATE SET admin_type=EXCLUDED.admin_type,permissions=EXCLUDED.permissions,status=EXCLUDED.status,updated_by=EXCLUDED.updated_by,updated_at=EXCLUDED.updated_at,change_reason=EXCLUDED.change_reason;`,[input.firebaseUid,input.adminType,JSON.stringify([...new Set(input.permissions)]),input.status,createdBy,createdAt,input.actorId,now,input.reason.trim()]);
+      await this.appendAuditInTransaction(client,{eventType:'PLATFORM_ADMIN_AUTHORITY_CHANGED',actorRole:'ADMIN',actorId:input.actorId,details:`Set administrator ${input.firebaseUid} to ${input.adminType}/${input.status} with permissions ${input.permissions.join(',')}: ${input.reason.trim()}`});
+      return {firebaseUid:input.firebaseUid,adminType:input.adminType,permissions:[...new Set(input.permissions)],status:input.status,createdBy,createdAt,updatedBy:input.actorId,updatedAt:now,changeReason:input.reason.trim()};});
   }
 
 

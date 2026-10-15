@@ -36,7 +36,7 @@ const provider: RequestIdentity = {
   uid: 'provider-a', role: 'PROVIDER', source: 'FIREBASE', providerStatus: 'ACTIVE',
   providerUserId: 'provider-user-a', providerOrganizationId: 'provider-org-a'
 };
-const admin: RequestIdentity = { uid: 'admin-a', role: 'ADMIN', source: 'FIREBASE' };
+const admin: RequestIdentity = { uid: 'admin-a', role: 'ADMIN', adminType:'OWNER', adminPermissions:['PLATFORM_READ','PROVIDER_ADMIN','COMMERCIAL_ADMIN','COMPLIANCE_ADMIN','SECURITY_ADMIN'], source: 'FIREBASE' };
 
 test('public routes do not require identity', () => {
   assert.equal(invoke('GET', '/health').next, true);
@@ -51,6 +51,15 @@ test('financial mutations preserve processor and platform authority boundaries',
   assert.equal(invoke('POST', '/commercial/refunds', admin).next, true);
   assert.equal(invoke('POST', '/commercial/invoices/invoice-a/payment-session', consumer).status, 403);
   assert.equal(invoke('POST', '/commercial/invoices/invoice-a/payment-session', provider).next, true);
+});
+
+test('staff administrator permissions are enforced independently of the ADMIN identity role',()=>{
+  const financialStaff:RequestIdentity={uid:'staff-finance',role:'ADMIN',adminType:'STAFF',adminPermissions:['PLATFORM_READ','COMMERCIAL_ADMIN'],source:'FIREBASE'};
+  assert.equal(invoke('GET','/admin/overview',financialStaff).next,true);
+  assert.equal(invoke('POST','/admin/commercial/agreements/enroll',financialStaff).next,true);
+  assert.equal(invoke('PATCH','/admin/providers/org-a/status',financialStaff).status,403);
+  assert.equal(invoke('PUT','/admin/administrators/staff-b',financialStaff).status,403);
+  assert.equal(invoke('GET','/admin/review-queue',financialStaff).status,403);
 });
 
 test('provider integration APIs require provider identity', () => {

@@ -19,14 +19,17 @@ test('production Firebase configuration fails closed without project and credent
   assert.throws(() => assertProductionAuthConfiguration({ NODE_ENV: 'production' } as NodeJS.ProcessEnv), /FIREBASE_PROJECT_ID/);
   assert.throws(() => assertProductionAuthConfiguration({
     NODE_ENV: 'production', OPENPOLICY_AUTH_MODE: 'firebase', FIREBASE_PROJECT_ID: 'open-policy'
-  } as NodeJS.ProcessEnv), /credentials are required/);
+  } as NodeJS.ProcessEnv), /OPENPOLICY_OWNER_FIREBASE_UID/);
+  assert.throws(() => assertProductionAuthConfiguration({
+    NODE_ENV:'production',OPENPOLICY_AUTH_MODE:'firebase',FIREBASE_PROJECT_ID:'open-policy',OPENPOLICY_OWNER_FIREBASE_UID:'owner-uid'
+  } as NodeJS.ProcessEnv),/credentials are required/);
   assert.doesNotThrow(() => assertProductionAuthConfiguration({
     NODE_ENV: 'production', OPENPOLICY_AUTH_MODE: 'firebase', FIREBASE_PROJECT_ID: 'open-policy',
-    OPENPOLICY_USE_APPLICATION_DEFAULT_CREDENTIALS: 'true'
+    OPENPOLICY_OWNER_FIREBASE_UID:'owner-uid', OPENPOLICY_USE_APPLICATION_DEFAULT_CREDENTIALS: 'true'
   } as NodeJS.ProcessEnv));
   assert.throws(() => assertProductionAuthConfiguration({
     NODE_ENV: 'production', OPENPOLICY_AUTH_MODE: 'firebase', FIREBASE_PROJECT_ID: 'open-policy',
-    FIREBASE_SERVICE_ACCOUNT_JSON: '{not-json}'
+    OPENPOLICY_OWNER_FIREBASE_UID:'owner-uid', FIREBASE_SERVICE_ACCOUNT_JSON: '{not-json}'
   } as NodeJS.ProcessEnv), /not valid JSON/);
 });
 

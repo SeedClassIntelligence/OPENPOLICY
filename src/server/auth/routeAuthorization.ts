@@ -1,8 +1,8 @@
 import type { NextFunction, Request, Response } from 'express';
 import { configuredAuthMode, type IdentityRole } from './requestIdentity';
-import type { RequestIdentity } from './requestIdentity';
+import type { RequestIdentity, AdminPermission } from './requestIdentity';
 
-type RouteRule = { methods?: string[]; pattern: RegExp; roles: IdentityRole[] | 'PUBLIC' | 'DECISION_REQUIRED' };
+type RouteRule = { methods?: string[]; pattern: RegExp; roles: IdentityRole[] | 'PUBLIC' | 'DECISION_REQUIRED'; adminPermission?:AdminPermission };
 
 const rules: RouteRule[] = [
   { pattern: /^\/health$/, roles: 'PUBLIC' },
@@ -29,13 +29,18 @@ const rules: RouteRule[] = [
   { methods: ['POST'], pattern: /^\/challenges\/[^/]+\/(?:compete|final-round|incumbent-defense)$/, roles: ['ADMIN'] },
   { methods: ['POST'], pattern: /^\/marketplace\/offers\/[^/]+\/verify-document$/, roles: ['PROVIDER'] },
   { methods: ['GET'], pattern: /^\/marketplace\/offers\/[^/]+\/qualification$/, roles: ['CONSUMER', 'PROVIDER', 'ADMIN'] },
-  { pattern: /^\/commercial\/(?:rating\/(?:run|reconcile|runs(?:\/[^/]+)?)|events\/reconcile)$/, roles: ['ADMIN'] },
-  { methods: ['POST'], pattern: /^\/commercial\/billable-events\/[^/]+\/adjustments$/, roles: ['ADMIN'] },
-  { methods: ['POST'], pattern: /^\/commercial\/billing-periods(?:\/[^/]+\/close)?$/, roles: ['ADMIN'] },
-  { methods: ['POST'], pattern: /^\/commercial\/invoices\/(?:generate-draft|[^/]+\/finalize)$/, roles: ['ADMIN'] },
-  { methods: ['POST'], pattern: /^\/commercial\/payments$/, roles: ['ADMIN'] },
-  { methods: ['POST'], pattern: /^\/commercial\/refunds$/, roles: ['ADMIN'] },
-  { pattern: /^\/admin\//, roles: ['ADMIN'] },
+  { pattern: /^\/commercial\/(?:rating\/(?:run|reconcile|runs(?:\/[^/]+)?)|events\/reconcile)$/, roles: ['ADMIN'], adminPermission:'COMMERCIAL_ADMIN' },
+  { methods: ['POST'], pattern: /^\/commercial\/billable-events\/[^/]+\/adjustments$/, roles: ['ADMIN'], adminPermission:'COMMERCIAL_ADMIN' },
+  { methods: ['POST'], pattern: /^\/commercial\/billing-periods(?:\/[^/]+\/close)?$/, roles: ['ADMIN'], adminPermission:'COMMERCIAL_ADMIN' },
+  { methods: ['POST'], pattern: /^\/commercial\/invoices\/(?:generate-draft|[^/]+\/finalize)$/, roles: ['ADMIN'], adminPermission:'COMMERCIAL_ADMIN' },
+  { methods: ['POST'], pattern: /^\/commercial\/payments$/, roles: ['ADMIN'], adminPermission:'COMMERCIAL_ADMIN' },
+  { methods: ['POST'], pattern: /^\/commercial\/refunds$/, roles: ['ADMIN'], adminPermission:'COMMERCIAL_ADMIN' },
+  { pattern: /^\/admin\/administrators(?:\/[^/]+)?$/, roles: ['ADMIN'], adminPermission:'SECURITY_ADMIN' },
+  { pattern: /^\/admin\/providers(?:\/[^/]+\/status)?$/, roles: ['ADMIN'], adminPermission:'PROVIDER_ADMIN' },
+  { pattern: /^\/admin\/commercial\/compensation-determinations/, roles: ['ADMIN'], adminPermission:'COMPLIANCE_ADMIN' },
+  { pattern: /^\/admin\/commercial\//, roles: ['ADMIN'], adminPermission:'COMMERCIAL_ADMIN' },
+  { pattern: /^\/admin\/(?:review-queue|audit-chain)/, roles: ['ADMIN'], adminPermission:'COMPLIANCE_ADMIN' },
+  { pattern: /^\/admin\//, roles: ['ADMIN'], adminPermission:'PLATFORM_READ' },
 
   { pattern: /^\/(?:challenges(?:\/create|\/[^/]+)?|selection\/|reconciliation\/|vault\/)/, roles: ['CONSUMER'] },
   { methods: ['POST'], pattern: /^\/policy-documents\/ingest$/, roles: ['CONSUMER'] },
@@ -126,6 +131,9 @@ export function enforceApiAuthorization(req: Request, res: Response, next: NextF
   if (rule && Array.isArray(rule.roles) && !rule.roles.includes(identity.role)) {
     res.status(403).json({ error: 'Forbidden', message: 'Authenticated actor is not permitted to use this route.' });
     return;
+  }
+  if(rule?.adminPermission&&identity.role==='ADMIN'&&identity.adminType!=='OWNER'&&!identity.adminPermissions?.includes(rule.adminPermission)){
+    res.status(403).json({error:'Forbidden',message:`Administrator permission required: ${rule.adminPermission}`});return;
   }
   next();
 }

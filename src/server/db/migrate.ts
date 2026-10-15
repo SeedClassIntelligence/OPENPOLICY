@@ -1380,6 +1380,22 @@ VALUES
 ON CONFLICT (service_code) DO NOTHING;
 `;
 
+export const SQL_MIGRATION_V21 = `
+-- Database-authoritative platform administrator permissions. Firebase proves
+-- identity; this registry defines current administrative authority.
+CREATE TABLE IF NOT EXISTS platform_admin_assignments (
+  firebase_uid TEXT PRIMARY KEY,
+  admin_type TEXT NOT NULL CHECK (admin_type IN ('OWNER','STAFF')),
+  permissions TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('ACTIVE','DISABLED')),
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_by TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  change_reason TEXT NOT NULL
+);
+`;
+
 export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR || './data/openpolicy_pg') {
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
@@ -1468,7 +1484,11 @@ export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR ||
     await pglite.query(
       `INSERT INTO _migrations (name) VALUES ('0020_premium_service_governance') ON CONFLICT (name) DO NOTHING;`
     );
-    console.log(`[Open Policy DB] Migrations 0001 through 0020 applied successfully.`);
+    await pglite.exec(SQL_MIGRATION_V21);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0021_platform_admin_authority') ON CONFLICT (name) DO NOTHING;`
+    );
+    console.log(`[Open Policy DB] Migrations 0001 through 0021 applied successfully.`);
     return pglite;
   } catch (error) {
     console.error(`[Open Policy DB] Migration error:`, error);
