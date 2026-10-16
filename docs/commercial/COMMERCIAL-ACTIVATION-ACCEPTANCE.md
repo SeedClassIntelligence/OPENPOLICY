@@ -1,6 +1,6 @@
 # Open Policy Commercial Activation Acceptance
 
-Date: 2026-10-14  
+Date: 2026-10-15
 Pricing baseline: `OPEN_POLICY_PREMIUM_V1`
 
 ## Verified event boundary
@@ -82,12 +82,46 @@ webhooks, replay-safe processor identities, conservative status mapping,
 processor-first refunds, invoice allocation/reconciliation, fail-closed secret
 configuration, audit evidence, and platform-admin-only refund authority.
 
-Before live activation, the remaining external gate is end-to-end Stripe test
-mode acceptance using Secret Manager configuration: card success/failure,
-eligible ACH pending-to-success, signed-webhook replay, processor-first refund,
-settlement reconciliation, and key-rotation procedure. A controlled production
-smoke test follows sandbox acceptance; live collection remains disabled until
-both are documented.
+## Stripe sandbox acceptance evidence
+
+The zero-traffic Cloud Run revision
+`openpolicy-acceptance-stripe-rk-68f574a` was exercised against Stripe test
+mode using a dedicated restricted key from Secret Manager. Production traffic
+was not changed and live collection remains disabled.
+
+Verified evidence:
+
+- hosted card checkout settled invoice `INV-202611-2251` for $499.00;
+- the signed Stripe success webhook created exactly one `CREDIT_CARD` payment,
+  one settlement allocation, a zero invoice balance, and immutable audit
+  evidence;
+- replaying the exact signed card-success event returned HTTP 200 without
+  creating another payment or allocation;
+- a platform-authorized full refund executed in Stripe before Open Policy
+  recorded it, created exactly one refund allocation, and reopened the invoice
+  to its original $499.00 balance;
+- replaying the signed refund event created no duplicate refund or allocation;
+- hosted US-bank-account checkout settled invoice `INV-202701-6298` for
+  $499.00 and preserved the processor's `PENDING` to `SUCCEEDED` transition;
+- the successful bank payment was recorded as `ACH_TRANSFER`, with exactly one
+  payment, one allocation, a zero invoice balance, and immutable audit evidence;
+- replaying the exact signed ACH-success event returned HTTP 200 without
+  changing those counts;
+- the authorization/payment regression suite passed 50/50;
+- the candidate revision produced no Cloud Run error-level log entries during
+  the acceptance interval.
+
+The restricted key permits only the Stripe resources required by this
+integration. The candidate uses the restricted-key secret rather than the
+earlier broad test key. The earlier key remains available only for rollback
+until explicit key-retirement authorization is executed.
+
+The remaining external payment gates before live activation are: a hosted
+card-decline acceptance case, retirement of the superseded broad test key, and
+a controlled production smoke test. A failure-path mapping is covered by the
+deterministic processor suite, but it has not yet been demonstrated through a
+real hosted declined-card attempt. Live collection remains disabled until
+these remaining gates are documented.
 
 No connection fee may be activated until the separate Nevada compensation
 determination is approved and its durable determination reference is attached
