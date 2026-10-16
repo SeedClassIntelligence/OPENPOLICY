@@ -107,6 +107,13 @@ Verified evidence:
   payment, one allocation, a zero invoice balance, and immutable audit evidence;
 - replaying the exact signed ACH-success event returned HTTP 200 without
   changing those counts;
+- hosted card checkout for invoice `INV-202702-5136` used Stripe's declined-card
+  test path and was rejected with `card_declined`;
+- the signed failure webhook created exactly one `CREDIT_CARD` payment record in
+  `FAILED` status, preserved the invoice's full $499.00 balance, created no
+  settlement allocation, and appended immutable processor-status audit evidence;
+- replaying that exact failure event with a fresh valid Stripe signature returned
+  HTTP 200 without duplicating the payment, allocation, or audit evidence;
 - the authorization/payment regression suite passed 50/50;
 - the candidate revision produced no Cloud Run error-level log entries during
   the acceptance interval.
@@ -116,12 +123,9 @@ integration. The candidate uses the restricted-key secret rather than the
 earlier broad test key. The earlier key remains available only for rollback
 until explicit key-retirement authorization is executed.
 
-The remaining external payment gates before live activation are: a hosted
-card-decline acceptance case, retirement of the superseded broad test key, and
-a controlled production smoke test. A failure-path mapping is covered by the
-deterministic processor suite, but it has not yet been demonstrated through a
-real hosted declined-card attempt. Live collection remains disabled until
-these remaining gates are documented.
+The remaining external payment gates before live activation are retirement of
+the superseded broad test key and a controlled production smoke test. Live
+collection remains disabled until these remaining gates are documented.
 
 No connection fee may be activated until the separate Nevada compensation
 determination is approved and its durable determination reference is attached
