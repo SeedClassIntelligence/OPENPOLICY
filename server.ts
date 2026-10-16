@@ -3412,6 +3412,20 @@ app.post('/api/commercial/invoices/generate-draft', async (req, res) => {
   }
 });
 
+// Supplemental usage invoice: rated events only; never duplicates the monthly subscription.
+app.post('/api/commercial/invoices/generate-usage', async (req, res) => {
+  try {
+    const { providerOrganizationId, billingPeriodId, billableEventIds, idempotencyKey } = req.body;
+    if (!providerOrganizationId || !billingPeriodId || !Array.isArray(billableEventIds) || !idempotencyKey) {
+      return res.status(400).json({ error: 'providerOrganizationId, billingPeriodId, billableEventIds and idempotencyKey are required' });
+    }
+    const draft = await commercialStore.generateUsageInvoice({ providerOrganizationId, billingPeriodId, billableEventIds, idempotencyKey });
+    res.status(201).json({ success: true, invoice: draft.invoice, lineItems: draft.lineItems });
+  } catch (e: any) {
+    res.status(e.statusCode || 500).json({ error: e.message });
+  }
+});
+
 // 7. Finalize Invoice
 app.post('/api/commercial/invoices/:id/finalize', async (req, res) => {
   try {

@@ -41,6 +41,7 @@ import {
   verifyCommercialEventHash,
   buildBillingPeriod,
   assembleDraftInvoice,
+  assembleUsageInvoice,
   finalizeInvoice,
   calculateAuthoritativeAccountBalance,
   buildRefundRecord
@@ -2618,8 +2619,8 @@ export class CommercialStore {
     return closed;
   }
 
-  public async saveInvoice(invoice: Invoice): Promise<void> {
-    const client = await this.getClient();
+  public async saveInvoice(invoice: Invoice, transactionClient?: SqlClient): Promise<void> {
+    const client = transactionClient || await this.getClient();
     await client.query(
       `INSERT INTO invoices (
         id, invoice_number, provider_organization_id, commercial_agreement_id,
@@ -2659,8 +2660,8 @@ export class CommercialStore {
     );
   }
 
-  public async saveInvoiceLineItem(line: InvoiceLineItem): Promise<void> {
-    const client = await this.getClient();
+  public async saveInvoiceLineItem(line: InvoiceLineItem, transactionClient?: SqlClient): Promise<void> {
+    const client = transactionClient || await this.getClient();
     await client.query(
       `INSERT INTO invoice_line_items (
         id, invoice_id, line_type, description, quantity, unit_price_cents,
@@ -2725,14 +2726,14 @@ export class CommercialStore {
     return this.getInvoiceById(res.rows[0].id);
   }
 
-  public async getInvoiceByIdempotencyKey(key: string): Promise<Invoice | undefined> {
-    const client = await this.getClient();
+  public async getInvoiceByIdempotencyKey(key: string, transactionClient?: SqlClient): Promise<Invoice | undefined> {
+    const client = transactionClient || await this.getClient();
     const res = await client.query<any>(
       `SELECT * FROM invoices WHERE idempotency_key = $1;`,
       [key]
     );
     if (res.rows.length === 0) return undefined;
-    return this.getInvoiceById(res.rows[0].id);
+    return this.getInvoiceById(res.rows[0].id, client);
   }
 
   public async getInvoicesForOrg(providerOrganizationId: string): Promise<Invoice[]> {
@@ -2914,6 +2915,45 @@ export class CommercialStore {
     }
 
     return draft;
+  }
+
+  public async generateUsageInvoice(params: {
+    providerOrganizationId: string;
+    billingPeriodId: string;
+    billableEventIds: string[];
+    idempotencyKey: string;
+  }): Promise<{ invoice: Invoice; lineItems: InvoiceLineItem[] }> {
+    const existing = await this.getInvoiceByIdempotencyKey(params.idempotencyKey);
+    if (existing) return { invoice: existing, lineItems: existing.lineItems || [] };
+    const period = await this.getBillingPeriodById(params.billingPeriodId);
+    if (!period || period.providerOrganizationId !== params.providerOrganizationId) {
+      throw Object.assign(new Error('Billing period does not belong to provider organization.'), { statusCode: 409 });
+    }
+    const ids = [...new Set(params.billableEventIds.filter(Boolean))];
+    if (!ids.length) throw Object.assign(new Error('billableEventIds is required.'), { statusCode: 400 });
+    const billableEvents: BillableEvent[] = [];
+    for (const id of ids) {
+      const event = await this.getBillableEventById(id);
+      if (!event) throw Object.assign(new Error(`Billable event not found: ${id}`), { statusCode: 404 });
+      billableEvents.push(event);
+    }
+    const client = await this.getClient();
+    const alreadyInvoiced = await client.query<{ billable_event_id:string }>(
+      `SELECT billable_event_id FROM invoice_line_items WHERE billable_event_id = ANY($1::text[])`, [ids]
+    );
+    if (alreadyInvoiced.rows.length) {
+      throw Object.assign(new Error('One or more billable events have already been invoiced.'), { statusCode: 409 });
+    }
+    const draft = assembleUsageInvoice({ billingPeriod: period, billableEvents, idempotencyKey: params.idempotencyKey });
+    await client.transaction(async transactionClient => {
+      const raced = await this.getInvoiceByIdempotencyKey(params.idempotencyKey, transactionClient);
+      if (raced) return;
+      await this.saveInvoice(draft.invoice, transactionClient);
+      for (const item of draft.lineItems) await this.saveInvoiceLineItem(item, transactionClient);
+    });
+    const persisted = await this.getInvoiceByIdempotencyKey(params.idempotencyKey);
+    if (!persisted) throw new Error('Usage invoice transaction did not persist an invoice.');
+    return { invoice: persisted, lineItems: persisted.lineItems || [] };
   }
 
   public async createNegotiatedServiceCharge(params: {

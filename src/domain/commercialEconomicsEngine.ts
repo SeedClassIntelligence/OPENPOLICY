@@ -1174,6 +1174,53 @@ export function assembleDraftInvoice(params: {
 }
 
 /**
+ * Builds a supplemental invoice for already-rated, unbilled usage events.
+ * This deliberately excludes the recurring subscription so usage created after
+ * the monthly invoice was finalized is not stranded or charged a second $499 fee.
+ */
+export function assembleUsageInvoice(params: {
+  billingPeriod: BillingPeriod;
+  billableEvents: BillableEvent[];
+  invoiceId?: string;
+  invoiceNumber?: string;
+  idempotencyKey: string;
+  now?: string;
+}): { invoice: Invoice; lineItems: InvoiceLineItem[] } {
+  const { billingPeriod, billableEvents } = params;
+  if (!params.idempotencyKey?.trim()) throw new Error('Usage invoice requires an idempotency key');
+  if (billableEvents.length === 0) throw new Error('Usage invoice requires at least one rated event');
+  const invalid = billableEvents.find(event => event.providerOrganizationId !== billingPeriod.providerOrganizationId
+    || event.commercialAgreementId !== billingPeriod.commercialAgreementId || event.status !== 'RATED'
+    || event.currency !== 'USD' || event.amountCents <= 0);
+  if (invalid) throw new Error(`BillableEvent ${invalid.id} is not eligible for this usage invoice`);
+  const now = params.now || new Date().toISOString();
+  const invoiceId = params.invoiceId || `inv_usage_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
+  const invoiceNumber = params.invoiceNumber || `INV-USAGE-${new Date(now).toISOString().slice(0, 10).replaceAll('-', '')}-${Math.floor(1000 + Math.random() * 9000)}`;
+  const lineItems: InvoiceLineItem[] = billableEvents.map(event => ({
+    id: `lin_be_${event.id}_${Math.floor(1000 + Math.random() * 9000)}`,
+    invoiceId,
+    lineType: event.chargeCode.includes('BOUND') || event.chargeCode.includes('OUTCOME') ? 'OUTCOME_CHARGE' : 'USAGE_CHARGE',
+    description: `${event.chargeCode} [Event: ${event.commercialEventId}]`,
+    quantity: event.quantity,
+    unitPriceCents: event.unitPriceCents,
+    amountCents: event.amountCents,
+    billableEventId: event.id,
+    createdAt: now
+  }));
+  const totalDueCents = lineItems.reduce((sum, item) => sum + item.amountCents, 0);
+  const invoice: Invoice = {
+    id: invoiceId, invoiceNumber,
+    providerOrganizationId: billingPeriod.providerOrganizationId,
+    commercialAgreementId: billingPeriod.commercialAgreementId,
+    billingPeriodId: billingPeriod.id,
+    status: 'DRAFT', currency: 'USD', subtotalCents: totalDueCents, taxCents: 0,
+    totalDueCents, balanceDueCents: totalDueCents,
+    idempotencyKey: params.idempotencyKey.trim(), createdAt: now, lineItems
+  };
+  return { invoice, lineItems };
+}
+
+/**
  * Finalizes an invoice, freezing its line items, mathematics, and issuance timestamp.
  * A finalized invoice's economic figures are permanently immutable.
  */

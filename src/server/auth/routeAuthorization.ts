@@ -32,7 +32,7 @@ const rules: RouteRule[] = [
   { pattern: /^\/commercial\/(?:rating\/(?:run|reconcile|runs(?:\/[^/]+)?)|events\/reconcile)$/, roles: ['ADMIN'], adminPermission:'COMMERCIAL_ADMIN' },
   { methods: ['POST'], pattern: /^\/commercial\/billable-events\/[^/]+\/adjustments$/, roles: ['ADMIN'], adminPermission:'COMMERCIAL_ADMIN' },
   { methods: ['POST'], pattern: /^\/commercial\/billing-periods(?:\/[^/]+\/close)?$/, roles: ['ADMIN'], adminPermission:'COMMERCIAL_ADMIN' },
-  { methods: ['POST'], pattern: /^\/commercial\/invoices\/(?:generate-draft|[^/]+\/finalize)$/, roles: ['ADMIN'], adminPermission:'COMMERCIAL_ADMIN' },
+  { methods: ['POST'], pattern: /^\/commercial\/invoices\/(?:generate-draft|generate-usage|[^/]+\/finalize)$/, roles: ['ADMIN'], adminPermission:'COMMERCIAL_ADMIN' },
   { methods: ['POST'], pattern: /^\/commercial\/payments$/, roles: ['ADMIN'], adminPermission:'COMMERCIAL_ADMIN' },
   { methods: ['POST'], pattern: /^\/commercial\/refunds$/, roles: ['ADMIN'], adminPermission:'COMMERCIAL_ADMIN' },
   { pattern: /^\/admin\/administrators(?:\/[^/]+)?$/, roles: ['ADMIN'], adminPermission:'SECURITY_ADMIN' },
