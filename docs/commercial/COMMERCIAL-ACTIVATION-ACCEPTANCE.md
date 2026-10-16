@@ -120,12 +120,14 @@ Verified evidence:
 
 The restricted key permits only the Stripe resources required by this
 integration. The candidate uses the restricted-key secret rather than the
-earlier broad test key. The earlier key remains available only for rollback
-until explicit key-retirement authorization is executed.
+earlier broad test key. On October 15, 2026, the superseded broad Stripe test
+key was rotated with immediate expiration and its obsolete Secret Manager
+version was disabled. The restricted-key candidate remained Ready and its
+health endpoint continued to return HTTP 200 after retirement.
 
-The remaining external payment gates before live activation are retirement of
-the superseded broad test key and a controlled production smoke test. Live
-collection remains disabled until these remaining gates are documented.
+The remaining external payment gate before live activation is a controlled
+production smoke test. Live collection remains disabled until that gate is
+documented.
 
 No connection fee may be activated until the separate Nevada compensation
 determination is approved and its durable determination reference is attached
