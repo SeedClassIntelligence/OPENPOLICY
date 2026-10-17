@@ -17,6 +17,14 @@ const STEPS = [
   ['4', 'Connect only by consumer choice', 'If the consumer selects your documented offer and authorizes disclosure, Open Policy creates a controlled connection. Your licensed channel handles subsequent insurance activity.']
 ] as const;
 
+const COMMERCIAL_TIERS = [
+  ['Solo', '$99', '1 seat · 1 jurisdiction', '5 concurrent opportunities · 25 offers/month'],
+  ['Agency', '$249', '3 seats · 2 jurisdictions', '20 concurrent opportunities · 100 offers/month'],
+  ['Premium', '$499', '5 seats · 3 jurisdictions', '60 concurrent opportunities · 300 offers/month'],
+  ['Network', '$999', '15 seats · 5 jurisdictions', '200 concurrent opportunities · 1,000 offers/month'],
+  ['Enterprise / Direct Carrier', 'From $1,999', '30 seats · 10 jurisdictions', '500 concurrent opportunities · 2,500 offers/month']
+] as const;
+
 export const ProviderLandingPage: React.FC<ProviderLandingPageProps> = ({
   onBackToPolicyholders, onEnterProviderDesk
 }) => {
@@ -48,7 +56,7 @@ export const ProviderLandingPage: React.FC<ProviderLandingPageProps> = ({
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <button onClick={startProvider} className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-500 px-6 py-3.5 text-sm font-bold text-slate-950 hover:bg-emerald-400">
-                {isAuthenticated && userRole === 'PROVIDER' ? 'Open Provider Desk' : 'Create Provider Account'}
+                {isAuthenticated && userRole === 'PROVIDER' ? 'Open Provider Desk' : 'Apply for Provider Access'}
                 <ArrowRight className="h-4 w-4" />
               </button>
               <button onClick={() => openAuthModal({ initialRole: 'PROVIDER', initialMode: 'SIGN_IN' })} className="rounded-xl border border-slate-700 bg-slate-900 px-6 py-3.5 text-sm font-semibold text-white hover:bg-slate-800">
@@ -89,6 +97,28 @@ export const ProviderLandingPage: React.FC<ProviderLandingPageProps> = ({
                 </div>
               </article>
             ))}
+          </div>
+        </section>
+
+        <section id="provider-pricing" className="space-y-8">
+          <div className="mx-auto max-w-3xl text-center">
+            <p className="font-mono text-xs font-bold uppercase tracking-wider text-emerald-700">Provider membership</p>
+            <h2 className="mt-3 text-3xl font-extrabold tracking-tight">Choose capacity that matches your organization</h2>
+            <p className="mt-4 text-sm leading-6 text-slate-600">Provider access is paid and activated only after organization, licensing, jurisdiction, and insurance-line verification. Membership never purchases preferential placement or cohort position.</p>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+            {COMMERCIAL_TIERS.map(([name, price, scope, capacity]) => (
+              <article key={name} className="flex flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <h3 className="text-base font-bold text-slate-950">{name}</h3>
+                <div className="mt-3 text-3xl font-extrabold text-emerald-700">{price}</div>
+                <div className="text-xs text-slate-500">per month</div>
+                <p className="mt-5 text-xs font-semibold text-slate-700">{scope}</p>
+                <p className="mt-2 text-xs leading-5 text-slate-500">{capacity}</p>
+              </article>
+            ))}
+          </div>
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-sm leading-6 text-slate-700">
+            Marketplace availability, viewing, engagement, offer submission, and consumer selection carry no separate event charge. A line-specific fee applies only after the consumer selects an offer, authorizes disclosure, and the controlled connection succeeds. Personal auto is $75; other insurance lines remain subject to their production and compensation gates. Optional capacity and operational services are priced separately.
           </div>
         </section>
 
@@ -155,9 +185,9 @@ export const ProviderLandingPage: React.FC<ProviderLandingPageProps> = ({
         </section>
 
         <section className="rounded-3xl border border-emerald-200 bg-emerald-50 p-8 text-center sm:p-12">
-          <h2 className="text-3xl font-extrabold">Ready to establish your provider account?</h2>
-          <p className="mx-auto mt-3 max-w-2xl text-sm leading-6 text-slate-600">Create the organization account, submit provider information, and enter verification. Opportunity access stays closed until the applicable authority checks pass.</p>
-          <button onClick={startProvider} className="mt-7 inline-flex items-center gap-2 rounded-xl bg-slate-950 px-6 py-3.5 text-sm font-bold text-white hover:bg-slate-800">Start provider onboarding <ArrowRight className="h-4 w-4"/></button>
+          <h2 className="text-3xl font-extrabold">Ready to apply for provider access?</h2>
+          <p className="mx-auto mt-3 max-w-2xl text-sm leading-6 text-slate-600">Submit the organization application and provider information for verification. A provider account is not activated for marketplace access until authority checks and commercial enrollment are complete.</p>
+          <button onClick={startProvider} className="mt-7 inline-flex items-center gap-2 rounded-xl bg-slate-950 px-6 py-3.5 text-sm font-bold text-white hover:bg-slate-800">Apply for provider access <ArrowRight className="h-4 w-4"/></button>
         </section>
       </main>
     </div>

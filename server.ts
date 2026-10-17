@@ -1039,11 +1039,30 @@ app.post('/api/offers/submit', async (req, res) => {
     eventType: 'QUOTE_DISCREPANCY_DETECTED', actorRole: 'SYSTEM', actorId: 'quote_validator',
     details: `Discrepancy detected in offer ${offerData.id}: ${offerData.discrepancyDetails?.join('; ')}`
   });
+  const activeOfferAgreement = await commercialStore.getActiveAgreementForOrg(offerData.providerId);
+  const submissionCapacity = req.openPolicyIdentity?.source === 'FIXTURE' && !activeOfferAgreement
+    ? { allowed: true, isOverage: false, currentUsage: 0, enforcementPolicy: 'HARD_BLOCK' as const,
+        code: 'WITHIN_CAPACITY' as const }
+    : await commercialStore.consumeOfferSubmissionCapacity({
+        providerOrgId: offerData.providerId, challengeId: offerData.challengeId,
+        offerVersionId: initialVersion.id
+      });
+  if (!submissionCapacity.allowed) {
+    return res.status(403).json({
+      error: 'COMMERCIAL_CAPACITY_REACHED',
+      message: submissionCapacity.reason || 'Monthly offer-submission capacity reached.',
+      details: { entitlementType: 'MONTHLY_OFFER_SUBMISSION_CAPACITY',
+        currentUsage: submissionCapacity.currentUsage, limit: submissionCapacity.limit }
+    });
+  }
   try {
     await postgresStore.commitOfferSubmission({
       offer: offerData, version: initialVersion, activity: offerActivity, audits: offerAudits
     });
   } catch (error: any) {
+    if (submissionCapacity.usageRecord && !submissionCapacity.alreadyConsumed) {
+      await commercialStore.releaseUsageRecord(submissionCapacity.usageRecord.id);
+    }
     return res.status(error.statusCode || 400).json({ error: error.message });
   }
   const savedOffer = (await postgresStore.getOffer(offerData.id))!;
@@ -1358,8 +1377,8 @@ app.post('/api/admin/commercial/plans/:planId/versions', async (req, res) => {
     if (!latest) return res.status(404).json({ error: 'Commercial plan version not found.' });
     const recurringFeeCents = Number(req.body?.recurringFeeCents);
     const qualifiedEngagementUnitPriceCents = Number(req.body?.qualifiedEngagementUnitPriceCents);
-    if (!Number.isInteger(qualifiedEngagementUnitPriceCents) || qualifiedEngagementUnitPriceCents < 0) {
-      return res.status(400).json({ error: 'qualifiedEngagementUnitPriceCents must be a non-negative integer.' });
+    if (qualifiedEngagementUnitPriceCents !== 0) {
+      return res.status(400).json({ error: 'V2 requires qualifiedEngagementUnitPriceCents to remain zero.' });
     }
     const connectionPrices = req.body?.authorizedConnectionCentsByInsuranceLine;
     const priceBookId = String(req.body?.priceBookId || '').trim();
@@ -1555,7 +1574,7 @@ app.post('/api/marketplace/invitations/:id/accept', async (req, res) => {
     }
 
     // 2. Commercial Capacity Check & Atomic Consumption
-    const idempotencyKey = `usage:vpo_engagement:${orgId}:${invitationId}`;
+    const idempotencyKey = `usage:active_competition:${orgId}:${invitationId}`;
     const capacityResult = await commercialStore.consumeEngagementCapacity({
       providerOrgId: orgId,
       invitationId,
@@ -1568,9 +1587,9 @@ app.post('/api/marketplace/invitations/:id/accept', async (req, res) => {
         success: false,
         error: 'COMMERCIAL_CAPACITY_REACHED',
         code: 'COMMERCIAL_CAPACITY_REACHED',
-        message: 'Commercial capacity reached: provider organization has exhausted available VPO engagement capacity under its current agreement.',
+        message: 'Commercial capacity reached: provider organization has exhausted its concurrent competition capacity.',
         details: {
-          entitlementType: 'VPO_ENGAGEMENT_CAPACITY',
+          entitlementType: 'ACTIVE_COMPETITION_CAPACITY',
           currentUsage: capacityResult.currentUsage,
           limit: capacityResult.limit,
           enforcementPolicy: capacityResult.enforcementPolicy,
@@ -1877,13 +1896,24 @@ app.post('/api/marketplace/competition/:challengeId/revise-offer/:offerId', asyn
     const qualification=evaluateOfferQualification(revisedOffer,challenge.baseline,provider,relationships);
     revisedOffer.isQualified=qualification.isQualified;revisedOffer.qualifiedAt=qualification.evaluatedAt;revisedOffer.qualificationReasons=qualification.qualificationReasons;revisedOffer.disqualificationReasons=qualification.disqualificationReasons;
     const versionSnapshot=createOfferVersionSnapshot(revisedOffer,req.body.revisedData.revisionReason||`Revised during ${competition.currentRound}`);versionSnapshot.offerId=originalOffer.id;versionSnapshot.versionNumber=version;
-    const revisedOfferCommitted=await postgresStore.commitOfferRevision({original:originalOffer,revised:revisedOffer,version:versionSnapshot,actorId:orgId,activity:{id:`ACT-REV-${originalOffer.id}-v${version}`,competitionId:competition.id,challengeId:challenge.id,timestamp:submittedAt,type:'OFFER_REVISED',actorRole:'PROVIDER',providerOrganizationId:orgId,summary:`Provider updated its ${revisedOffer.carrier} offer`,round:competition.currentRound,metadata:{offerId:revisedOffer.id,version}}});
+    const activeOfferAgreement=await commercialStore.getActiveAgreementForOrg(orgId);
+    const submissionCapacity=req.openPolicyIdentity?.source==='FIXTURE'&&!activeOfferAgreement
+      ? {allowed:true,isOverage:false,currentUsage:0,enforcementPolicy:'HARD_BLOCK' as const,code:'WITHIN_CAPACITY' as const}
+      : await commercialStore.consumeOfferSubmissionCapacity({providerOrgId:orgId,challengeId:challenge.id,offerVersionId:versionSnapshot.id});
+    if(!submissionCapacity.allowed)return res.status(403).json({error:'COMMERCIAL_CAPACITY_REACHED',message:submissionCapacity.reason||'Monthly offer-submission capacity reached.',details:{entitlementType:'MONTHLY_OFFER_SUBMISSION_CAPACITY',currentUsage:submissionCapacity.currentUsage,limit:submissionCapacity.limit}});
+    let revisedOfferCommitted:Offer;
+    try {
+      revisedOfferCommitted=await postgresStore.commitOfferRevision({original:originalOffer,revised:revisedOffer,version:versionSnapshot,actorId:orgId,activity:{id:`ACT-REV-${originalOffer.id}-v${version}`,competitionId:competition.id,challengeId:challenge.id,timestamp:submittedAt,type:'OFFER_REVISED',actorRole:'PROVIDER',providerOrganizationId:orgId,summary:`Provider updated its ${revisedOffer.carrier} offer`,round:competition.currentRound,metadata:{offerId:revisedOffer.id,version}}});
+    } catch(error) {
+      if(submissionCapacity.usageRecord&&!submissionCapacity.alreadyConsumed)await commercialStore.releaseUsageRecord(submissionCapacity.usageRecord.id);
+      throw error;
+    }
 
     // PR-0A shadow: re-evaluate jurisdiction coverage requirements for the revision (D4).
     await inShadow('offer-qualification', () => shadowOfferQualification(revisedOfferCommitted, challenge));
 
     // CE-3: Instrument PROPOSITION_SUBMITTED for revised OfferVersion
-    const versionId = `VER-${revisedOffer.id}-v${revisedOffer.version || 2}`;
+    const versionId = versionSnapshot.id;
     await commercialStore.projectMarketplaceEvent({
       eventType: 'PROPOSITION_SUBMITTED',
       sourceEntityType: 'OFFER_VERSION',

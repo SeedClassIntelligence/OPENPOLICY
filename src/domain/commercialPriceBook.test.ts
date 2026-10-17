@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { OPEN_POLICY_PREMIUM_PRICE_BOOK_V1, OPEN_POLICY_PREMIUM_V1_UNAVAILABLE_SERVICE_ADD_ONS } from './commercialPriceBook';
+import { OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2, OPEN_POLICY_PREMIUM_PRICE_BOOK_V1, OPEN_POLICY_PREMIUM_V1_UNAVAILABLE_SERVICE_ADD_ONS } from './commercialPriceBook';
 import { assembleDraftInvoice, buildCommercialEvent, rateCommercialEvent } from './commercialEconomicsEngine';
 import type { CommercialAgreement, CommercialPlanVersion } from '../types/insurance';
 
@@ -171,4 +171,69 @@ test('executed enterprise implementation agreement creates one exact one-time in
   assert.equal(serviceLine?.amountCents, 725_000);
   assert.equal(serviceLine?.negotiatedServiceChargeId, 'service-implementation-1');
   assert.equal(invoice.totalDueCents, 49_900 + 725_000);
+});
+
+test('V2 publishes the complete founder-authorized tier and capacity network', () => {
+  const book = OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2;
+  assert.equal(book.consumerPriceCents, 0);
+  assert.deepEqual(Object.fromEntries(Object.entries(book.memberships).map(([tier, value]) =>
+    [tier, [value.priceCentsMonthly, value.producerSeats, value.jurisdictions,
+      value.concurrentCompetitions, value.monthlyOfferSubmissions]])), {
+    SOLO: [9_900, 1, 1, 5, 25], AGENCY: [24_900, 3, 2, 20, 100],
+    PREMIUM: [49_900, 5, 3, 60, 300], NETWORK: [99_900, 15, 5, 200, 1_000],
+    ENTERPRISE: [199_900, 30, 10, 500, 2_500]
+  });
+  assert.deepEqual(book.memberships.NETWORK.includedServices, ['MULTI_LOCATION_ADMINISTRATION']);
+  assert.deepEqual(book.memberships.ENTERPRISE.includedServices,
+    ['MULTI_LOCATION_ADMINISTRATION', 'ENTERPRISE_REPORTING']);
+  assert.deepEqual(book.recurringAddOns, {
+    ADDITIONAL_PRODUCER_SEAT: 3_500, ADDITIONAL_JURISDICTION: 5_000,
+    ADDITIONAL_10_CONCURRENT_COMPETITIONS: 5_000,
+    ADDITIONAL_100_MONTHLY_OFFER_SUBMISSIONS: 5_000,
+    WORKFLOW_AUTOMATION: 14_900, ENTERPRISE_REPORTING: 19_900,
+    API_INTEGRATION: 39_900, MULTI_LOCATION_ADMINISTRATION: 14_900
+  });
+});
+
+test('V2 makes engagement free and rates only approved line-specific authorized connections', () => {
+  const tier = OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.memberships.SOLO;
+  const v2Version: CommercialPlanVersion = {
+    ...planVersion, id: 'pricebook-v2', version: 2,
+    effectiveFrom: OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.effectiveFrom,
+    recurringFeeCents: tier.priceCentsMonthly,
+    termsSnapshot: {
+      priceBookId: OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.id,
+      includedProducerSeats: tier.producerSeats, includedJurisdictions: tier.jurisdictions,
+      includedConcurrentCompetitions: tier.concurrentCompetitions,
+      includedMonthlyOfferSubmissions: tier.monthlyOfferSubmissions,
+      qualifiedEngagementUnitPriceCents: 0,
+      freeMarketplaceEvents: [...OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.freeMarketplaceEvents],
+      authorizedConnectionCentsByInsuranceLine: {
+        ...OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.authorizedConnectionCentsByInsuranceLine
+      },
+      unavailableInsuranceLines: [...OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.unavailableInsuranceLines],
+      compensationDeterminationApproved: true, determinationReference: 'V2-TEST'
+    }
+  };
+  const engagement = rateCommercialEvent({ event: buildCommercialEvent({
+    providerOrganizationId: agreement.providerOrganizationId, eventType: 'VPO_ENGAGED',
+    sourceEntityType: 'CHALLENGE_PARTICIPATION', sourceEntityId: 'v2-engagement',
+    commercialAgreementId: agreement.id, commercialPlanVersionId: v2Version.id
+  }), agreement: { ...agreement, planVersionId: v2Version.id }, planVersion: v2Version });
+  assert.equal(engagement.billable, false);
+  assert.equal(engagement.amountCents, 0);
+
+  for (const [insuranceLine, expected] of Object.entries(
+    OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.authorizedConnectionCentsByInsuranceLine)) {
+    const decision = rateCommercialEvent({ event: buildCommercialEvent({
+      providerOrganizationId: agreement.providerOrganizationId, eventType: 'AUTHORIZED_CONNECTION',
+      sourceEntityType: 'DISCLOSURE_EVENT', sourceEntityId: `v2-${insuranceLine}`,
+      commercialAgreementId: agreement.id, commercialPlanVersionId: v2Version.id,
+      metadata: { insuranceLine }
+    }), agreement: { ...agreement, planVersionId: v2Version.id }, planVersion: v2Version });
+    assert.equal(decision.disposition, 'BILLABLE', insuranceLine);
+    assert.equal(decision.amountCents, expected, insuranceLine);
+  }
+  assert.equal('MEDICARE' in OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.authorizedConnectionCentsByInsuranceLine, false);
+  assert.deepEqual(OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.unavailableInsuranceLines, ['MEDICARE']);
 });

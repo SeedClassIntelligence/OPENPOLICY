@@ -47,7 +47,7 @@ import {
   buildRefundRecord
 } from '../../domain/commercialEconomicsEngine';
 import { OPEN_POLICY_PREMIUM_V1_UNAVAILABLE_SERVICE_ADD_ONS } from '../../domain/commercialPriceBook';
-import { OPEN_POLICY_PREMIUM_PRICE_BOOK_V1 } from '../../domain/commercialPriceBook';
+import { OPEN_POLICY_PREMIUM_PRICE_BOOK_V1, OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2 } from '../../domain/commercialPriceBook';
 
 /**
  * CommercialStore — Persistence layer for Open Policy Commercial Economics (CE-1 through CE-5).
@@ -2034,8 +2034,31 @@ export class CommercialStore {
     );
   }
 
+  private async getActiveCompetitionCount(providerOrgId: string): Promise<number> {
+    const client = await this.getClient();
+    const result = await client.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM (
+         SELECT 'competition:' || p.competition_id AS capacity_key
+         FROM challenge_participations p
+         JOIN competitions c ON c.id = p.competition_id
+         WHERE p.provider_organization_id = $1
+           AND p.status <> 'WITHDRAWN'
+           AND c.status IN ('PREPARING','MATCHING','INVITING','OPEN','CONSUMER_REVIEW')
+         GROUP BY p.competition_id
+         UNION ALL
+         SELECT 'reservation:' || u.id AS capacity_key
+         FROM commercial_usage_records u
+         WHERE u.provider_organization_id = $1
+           AND u.usage_type = 'ACTIVE_COMPETITION'
+           AND u.participation_id IS NULL
+       ) active_capacity;`,
+      [providerOrgId]
+    );
+    return parseInt(result.rows[0]?.count || '0', 10);
+  }
+
   /**
-   * Atomically evaluates and consumes VPO engagement capacity under PostgreSQL row locking.
+   * Atomically evaluates and consumes a concurrent-competition slot under PostgreSQL row locking.
    * Guarantees that concurrent requests cannot oversubscribe capacity, duplicate retries
    * are idempotent, and failed marketplace steps can be cleanly released without phantom usage.
    */
@@ -2047,7 +2070,7 @@ export class CommercialStore {
     idempotencyKey?: string;
   }): Promise<CommercialCapacityResult> {
     const { providerOrgId, invitationId, challengeId, participationId } = params;
-    const idempotencyKey = params.idempotencyKey || `usage:vpo_engagement:${providerOrgId}:${invitationId}`;
+    const idempotencyKey = params.idempotencyKey || `usage:active_competition:${providerOrgId}:${invitationId}`;
     const client = await this.getClient();
 
     // 1. Idempotency Check: if already recorded for this key, return idempotent success
@@ -2057,7 +2080,7 @@ export class CommercialStore {
         allowed: true,
         alreadyConsumed: true,
         isOverage: existingUsage.isOverage,
-        currentUsage: await this.getUsageCount(providerOrgId, 'VPO_ENGAGEMENT'),
+        currentUsage: await this.getActiveCompetitionCount(providerOrgId),
         enforcementPolicy: existingUsage.policyMode,
         usageRecord: existingUsage,
         code: 'WITHIN_CAPACITY'
@@ -2097,7 +2120,7 @@ export class CommercialStore {
 
       const agreement = agRes.rows[0];
 
-      // Retrieve VPO_ENGAGEMENT_CAPACITY entitlement
+      // Retrieve the V2 concurrent-competition entitlement.
       const entRes = await client.query<{
         id: string;
         entitlement_type: string;
@@ -2105,19 +2128,40 @@ export class CommercialStore {
         enforcement_policy: string;
       }>(
         `SELECT * FROM provider_entitlements 
-         WHERE commercial_agreement_id = $1 AND entitlement_type = 'VPO_ENGAGEMENT_CAPACITY';`,
+         WHERE commercial_agreement_id = $1 AND entitlement_type = 'ACTIVE_COMPETITION_CAPACITY';`,
         [agreement.id]
       );
 
       const entitlement = entRes.rows[0];
+      if (!entitlement || entitlement.limit_val === null) {
+        await client.query('COMMIT;');
+        return {
+          allowed: false, code: 'COMMERCIAL_CAPACITY_REACHED', isOverage: false,
+          currentUsage: 0, enforcementPolicy: 'HARD_BLOCK',
+          reason: 'Concurrent competition entitlement is not configured'
+        };
+      }
       const limit = entitlement?.limit_val ?? undefined;
       const policy = (entitlement?.enforcement_policy as CapacityEnforcementPolicy) || 'HARD_BLOCK';
 
-      // Reconstruct actual usage from durable usage records inside the transaction
+      // Reconstruct current active participation. Historical participation never
+      // consumes a current slot after its competition reaches a terminal state.
       const countRes = await client.query<{ count: string }>(
-        `SELECT COALESCE(SUM(quantity), 0) AS count 
-         FROM commercial_usage_records 
-         WHERE provider_organization_id = $1 AND usage_type = 'VPO_ENGAGEMENT';`,
+        `SELECT COUNT(*)::text AS count FROM (
+           SELECT 'competition:' || p.competition_id AS capacity_key
+           FROM challenge_participations p
+           JOIN competitions c ON c.id = p.competition_id
+           WHERE p.provider_organization_id = $1
+             AND p.status <> 'WITHDRAWN'
+             AND c.status IN ('PREPARING','MATCHING','INVITING','OPEN','CONSUMER_REVIEW')
+           GROUP BY p.competition_id
+           UNION ALL
+           SELECT 'reservation:' || u.id AS capacity_key
+           FROM commercial_usage_records u
+           WHERE u.provider_organization_id = $1
+             AND u.usage_type = 'ACTIVE_COMPETITION'
+             AND u.participation_id IS NULL
+         ) active_capacity;`,
         [providerOrgId]
       );
       const currentUsage = parseInt(countRes.rows[0]?.count || '0', 10);
@@ -2136,7 +2180,7 @@ export class CommercialStore {
           currentUsage,
           limit,
           enforcementPolicy: 'HARD_BLOCK',
-          reason: `VPO engagement capacity reached (${currentUsage}/${limit}) under HARD_BLOCK policy`
+          reason: `Concurrent competition capacity reached (${currentUsage}/${limit}) under HARD_BLOCK policy`
         };
       }
 
@@ -2156,7 +2200,7 @@ export class CommercialStore {
           providerOrgId,
           agreement.id,
           entitlement?.id || null,
-          'VPO_ENGAGEMENT',
+          'ACTIVE_COMPETITION',
           1,
           invitationId,
           challengeId || null,
@@ -2176,7 +2220,7 @@ export class CommercialStore {
         providerOrganizationId: providerOrgId,
         commercialAgreementId: agreement.id,
         entitlementId: entitlement?.id,
-        usageType: 'VPO_ENGAGEMENT',
+        usageType: 'ACTIVE_COMPETITION',
         quantity: 1,
         invitationId,
         challengeId,
@@ -2200,6 +2244,127 @@ export class CommercialStore {
     } catch (err) {
       await client.query('ROLLBACK;');
       throw err;
+    }
+  }
+
+  /**
+   * Atomically consumes one immutable offer-version submission from the current
+   * contractual month. Each version counts once; retries are idempotent.
+   */
+  public async consumeOfferSubmissionCapacity(params: {
+    providerOrgId: string;
+    challengeId: string;
+    offerVersionId: string;
+    idempotencyKey?: string;
+  }): Promise<CommercialCapacityResult> {
+    const { providerOrgId, challengeId, offerVersionId } = params;
+    const idempotencyKey = params.idempotencyKey ||
+      `usage:offer_submission:${providerOrgId}:${offerVersionId}`;
+    const client = await this.getClient();
+
+    await client.query('BEGIN;');
+    try {
+      const existing = await client.query(
+        `SELECT * FROM commercial_usage_records WHERE idempotency_key = $1 FOR UPDATE;`,
+        [idempotencyKey]
+      );
+      if (existing.rows.length) {
+        await client.query('COMMIT;');
+        const usageRecord = await this.getUsageRecordByIdempotencyKey(idempotencyKey);
+        return {
+          allowed: true, alreadyConsumed: true, isOverage: Boolean(usageRecord?.isOverage),
+          currentUsage: 0, enforcementPolicy: usageRecord?.policyMode || 'HARD_BLOCK',
+          usageRecord, code: 'WITHIN_CAPACITY'
+        };
+      }
+
+      const agreementResult = await client.query<{
+        id: string; starts_at: string;
+      }>(
+        `SELECT id, starts_at FROM commercial_agreements
+         WHERE provider_organization_id = $1 AND status = 'ACTIVE' FOR UPDATE;`,
+        [providerOrgId]
+      );
+      if (!agreementResult.rows.length) {
+        await client.query('COMMIT;');
+        return { allowed: false, code: 'NO_ACTIVE_AGREEMENT', isOverage: false,
+          currentUsage: 0, enforcementPolicy: 'HARD_BLOCK',
+          reason: 'No active commercial agreement found for provider organization' };
+      }
+      const agreement = agreementResult.rows[0];
+      const entitlementResult = await client.query<{
+        id: string; limit_val: number | null; enforcement_policy: string;
+      }>(
+        `SELECT id, limit_val, enforcement_policy FROM provider_entitlements
+         WHERE commercial_agreement_id = $1
+           AND entitlement_type = 'MONTHLY_OFFER_SUBMISSION_CAPACITY';`,
+        [agreement.id]
+      );
+      const entitlement = entitlementResult.rows[0];
+      if (!entitlement || entitlement.limit_val === null) {
+        await client.query('COMMIT;');
+        return { allowed: false, code: 'COMMERCIAL_CAPACITY_REACHED', isOverage: false,
+          currentUsage: 0, enforcementPolicy: 'HARD_BLOCK',
+          reason: 'Monthly offer-submission entitlement is not configured' };
+      }
+
+      const start = new Date(agreement.starts_at);
+      const now = new Date();
+      const anniversary = (year: number, month: number): Date => {
+        const normalized = new Date(Date.UTC(year, month, 1));
+        const daysInMonth = new Date(Date.UTC(normalized.getUTCFullYear(), normalized.getUTCMonth() + 1, 0)).getUTCDate();
+        return new Date(Date.UTC(normalized.getUTCFullYear(), normalized.getUTCMonth(),
+          Math.min(start.getUTCDate(), daysInMonth), start.getUTCHours(), start.getUTCMinutes(),
+          start.getUTCSeconds(), start.getUTCMilliseconds()));
+      };
+      let periodStart = anniversary(now.getUTCFullYear(), now.getUTCMonth());
+      if (periodStart > now) periodStart = anniversary(now.getUTCFullYear(), now.getUTCMonth() - 1);
+      const periodEnd = anniversary(periodStart.getUTCFullYear(), periodStart.getUTCMonth() + 1);
+
+      const countResult = await client.query<{ count: string }>(
+        `SELECT COALESCE(SUM(quantity), 0)::text AS count FROM commercial_usage_records
+         WHERE commercial_agreement_id = $1 AND usage_type = 'OFFER_SUBMISSION'
+           AND consumed_at >= $2 AND consumed_at < $3;`,
+        [agreement.id, periodStart.toISOString(), periodEnd.toISOString()]
+      );
+      const currentUsage = parseInt(countResult.rows[0]?.count || '0', 10);
+      const limit = entitlement.limit_val;
+      const policy = (entitlement.enforcement_policy as CapacityEnforcementPolicy) || 'HARD_BLOCK';
+      const withinLimit = currentUsage < limit;
+      if (!withinLimit && policy === 'HARD_BLOCK') {
+        await client.query('COMMIT;');
+        return { allowed: false, code: 'COMMERCIAL_CAPACITY_REACHED', isOverage: false,
+          currentUsage, limit, enforcementPolicy: policy,
+          reason: `Monthly offer-submission capacity reached (${currentUsage}/${limit})` };
+      }
+
+      const isOverage = !withinLimit;
+      const recordId = `cur_${crypto.randomBytes(8).toString('hex')}`;
+      const consumedAt = now.toISOString();
+      await client.query(
+        `INSERT INTO commercial_usage_records (
+          id, provider_organization_id, commercial_agreement_id, entitlement_id,
+          usage_type, quantity, challenge_id, consumed_at, idempotency_key,
+          policy_mode, is_overage, metadata
+        ) VALUES ($1,$2,$3,$4,'OFFER_SUBMISSION',1,$5,$6,$7,$8,$9,$10);`,
+        [recordId, providerOrgId, agreement.id, entitlement.id, challengeId, consumedAt,
+          idempotencyKey, policy, isOverage, JSON.stringify({ offerVersionId,
+            billingPeriodStart: periodStart.toISOString(), billingPeriodEnd: periodEnd.toISOString() })]
+      );
+      await client.query('COMMIT;');
+      return {
+        allowed: true,
+        code: isOverage ? (policy === 'ALLOW_OVERAGE' ? 'OVERAGE_PERMITTED' : 'NOTIFY_CAPACITY_EXCEEDED') : 'WITHIN_CAPACITY',
+        isOverage, currentUsage: currentUsage + 1, limit, enforcementPolicy: policy,
+        usageRecord: { id: recordId, providerOrganizationId: providerOrgId,
+          commercialAgreementId: agreement.id, entitlementId: entitlement.id,
+          usageType: 'OFFER_SUBMISSION', quantity: 1, challengeId, consumedAt,
+          idempotencyKey, policyMode: policy, isOverage, metadata: { offerVersionId,
+            billingPeriodStart: periodStart.toISOString(), billingPeriodEnd: periodEnd.toISOString() } }
+      };
+    } catch (error) {
+      await client.query('ROLLBACK;');
+      throw error;
     }
   }
 
@@ -2275,12 +2440,18 @@ export class CommercialStore {
       };
       const selectedAddOns = (mergedTerms.selectedRecurringAddOns || {}) as Record<string, unknown>;
       const addOnCatalog = (mergedTerms.recurringAddOns || {}) as Record<string, unknown>;
+      const includedServicesValue = (mergedTerms as Record<string, unknown>).includedServices;
+      const includedServices = new Set(Array.isArray(includedServicesValue)
+        ? includedServicesValue.map(String) : []);
       for (const [code, quantity] of Object.entries(selectedAddOns)) {
         if (!(code in addOnCatalog) || !Number.isInteger(quantity) || Number(quantity) <= 0) {
           throw new Error(`Invalid contracted recurring add-on selection: ${code}`);
         }
         if ((OPEN_POLICY_PREMIUM_V1_UNAVAILABLE_SERVICE_ADD_ONS as readonly string[]).includes(code)) {
           throw Object.assign(new Error(`PREMIUM_SERVICE_NOT_OPERATIONAL: ${code}`), { statusCode: 409 });
+        }
+        if (includedServices.has(code)) {
+          throw Object.assign(new Error(`ADD_ON_ALREADY_INCLUDED_IN_PLAN: ${code}`), { statusCode: 409 });
         }
       }
       const governedServices = Object.keys(selectedAddOns).filter(code =>
@@ -2311,25 +2482,10 @@ export class CommercialStore {
     }
 
     if (!planVersion) {
-      const versionId = `cpv_${planId}_${Date.now()}`;
-      planVersion = {
-        id: versionId,
-        planId,
-        version: 1,
-        effectiveFrom: now,
-        billingInterval: 'MONTHLY',
-        recurringFeeCents: 0,
-        currency: 'USD',
-        termsSnapshot: {
-          includedProducerSeats: 5,
-          includedJurisdictions: 3,
-          includedVpoCapacity: 50,
-          includedEngagementCapacity: 25,
-          capacityEnforcementPolicy: enforcementPolicy || 'HARD_BLOCK'
-        },
-        createdAt: now
-      };
-      await this.saveCommercialPlanVersion(planVersion);
+      throw Object.assign(
+        new Error('COMMERCIAL_PLAN_VERSION_REQUIRED: the selected plan has no approved executable version.'),
+        { statusCode: 409 }
+      );
     }
 
     const existingActive = await this.getActiveAgreementForOrg(providerOrgId);
@@ -2439,6 +2595,15 @@ export class CommercialStore {
       });
     }
 
+    const existingNetwork = await this.getCommercialPlanByCode('PLAN_NETWORK');
+    if (!existingNetwork) {
+      await this.saveCommercialPlan({
+        id: 'plan_network', code: 'PLAN_NETWORK', displayName: 'Network',
+        providerSegment: 'NETWORK', status: 'ACTIVE',
+        createdAt: OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.effectiveFrom
+      });
+    }
+
     let premiumPlan = await this.getCommercialPlanByCode('PLAN_OPEN_POLICY_PREMIUM');
     if (!premiumPlan) {
       premiumPlan = {
@@ -2486,6 +2651,44 @@ export class CommercialStore {
         createdAt: OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.effectiveFrom
       });
     }
+
+    // V2 is the founder-approved initial-launch catalog. V1 remains immutable
+    // development history and is not rewritten or deleted.
+    for (const [tier, definition] of Object.entries(OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.memberships)) {
+      const plan = await this.getCommercialPlanByCode(definition.planCode);
+      if (!plan) throw new Error(`Canonical commercial plan missing: ${definition.planCode}`);
+      const versionId = `cpv_${definition.planCode.toLowerCase()}_v2`;
+      if (await this.getCommercialPlanVersion(versionId)) continue;
+      const includedServices = [...definition.includedServices];
+      await this.saveCommercialPlanVersion({
+        id: versionId, planId: plan.id,
+        version: definition.planCode === 'PLAN_OPEN_POLICY_PREMIUM' ? 2 : 1,
+        effectiveFrom: OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.effectiveFrom,
+        billingInterval: 'MONTHLY', recurringFeeCents: definition.priceCentsMonthly,
+        currency: 'USD',
+        termsSnapshot: {
+          priceBookId: OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.id,
+          membershipTier: tier,
+          includedProducerSeats: definition.producerSeats,
+          includedJurisdictions: definition.jurisdictions,
+          includedConcurrentCompetitions: definition.concurrentCompetitions,
+          includedMonthlyOfferSubmissions: definition.monthlyOfferSubmissions,
+          includedServices,
+          recurringAddOns: { ...OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.recurringAddOns },
+          selectedRecurringAddOns: {},
+          implementationServices: { ...OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.implementationServices },
+          qualifiedEngagementUnitPriceCents: 0,
+          freeMarketplaceEvents: [...OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.freeMarketplaceEvents],
+          authorizedConnectionCentsByInsuranceLine: { ...OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.authorizedConnectionCentsByInsuranceLine },
+          unavailableInsuranceLines: [...OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.unavailableInsuranceLines],
+          rates: { VPO_ENGAGED_CENTS: 0 },
+          compensationDeterminationApproved: false,
+          unpricedOutcomeEvents: [...OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.unpricedOutcomeEvents],
+          capacityEnforcementPolicy: 'HARD_BLOCK'
+        },
+        createdAt: OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.effectiveFrom
+      });
+    }
   }
 
   /**
@@ -2501,7 +2704,7 @@ export class CommercialStore {
       await this.saveCommercialPlanVersion({
         id: 'fixture_cpv_solo_v1',
         planId: soloPlan.id,
-        version: 1,
+        version: 99,
         effectiveFrom: '2026-01-01T00:00:00Z',
         billingInterval: 'MONTHLY',
         recurringFeeCents: 0,
@@ -2511,6 +2714,8 @@ export class CommercialStore {
           includedJurisdictions: 1,
           includedVpoCapacity: 50,
           includedEngagementCapacity: 10,
+          includedConcurrentCompetitions: 10,
+          includedMonthlyOfferSubmissions: 50,
           capacityEnforcementPolicy: 'HARD_BLOCK'
         },
         createdAt: '2026-01-01T00:00:00Z'
@@ -2522,7 +2727,7 @@ export class CommercialStore {
       await this.saveCommercialPlanVersion({
         id: 'fixture_cpv_agency_v1',
         planId: agencyPlan.id,
-        version: 1,
+        version: 99,
         effectiveFrom: '2026-01-01T00:00:00Z',
         billingInterval: 'MONTHLY',
         recurringFeeCents: 0,
@@ -2532,10 +2737,26 @@ export class CommercialStore {
           includedJurisdictions: 3,
           includedVpoCapacity: 200,
           includedEngagementCapacity: 100,
+          includedConcurrentCompetitions: 100,
+          includedMonthlyOfferSubmissions: 200,
           capacityEnforcementPolicy: 'HARD_BLOCK'
         },
         createdAt: '2026-01-01T00:00:00Z'
       });
+    }
+  }
+
+  /** Explicit non-production commercial bootstrap used only with fixture auth. */
+  public async seedTestCommercialAgreements(): Promise<void> {
+    await this.seedTestCommercialFixtures();
+    const fixtures = [
+      { providerOrgId: 'org_sierra', planId: 'PLAN_SOLO', planVersionId: 'fixture_cpv_solo_v1' },
+      { providerOrgId: 'org_buckeye', planId: 'PLAN_AGENCY', planVersionId: 'fixture_cpv_agency_v1' },
+      { providerOrgId: 'org_apex', planId: 'PLAN_AGENCY', planVersionId: 'fixture_cpv_agency_v1' }
+    ];
+    for (const fixture of fixtures) {
+      if (await this.getActiveAgreementForOrg(fixture.providerOrgId)) continue;
+      await this.enrollCommercialAgreement({ ...fixture, actorRole: 'ADMIN' });
     }
   }
 

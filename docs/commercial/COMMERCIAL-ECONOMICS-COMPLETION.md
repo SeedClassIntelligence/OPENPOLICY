@@ -1,5 +1,9 @@
 # Open Policy Commercial Economics Completion Record
 
+> Historical V1 completion record. Current launch pricing and capacity authority is
+> `OPEN-POLICY-COMMERCIAL-PRICING-V2.md`. V1 values below must not be used for new
+> production enrollment.
+
 Date: 2026-10-14
 
 Price book: `OPEN_POLICY_PREMIUM_V1`

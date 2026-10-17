@@ -185,7 +185,11 @@ test('provider landing page preserves access, neutrality, and transaction bounda
   assert.match(providerLanding, /From shared contact inquiry to verified policy opportunity/);
   assert.match(providerLanding, /consumer selects an offer and authorizes the handoff/);
   assert.match(providerLanding, /A governed path to earn a consumer-authorized connection/);
-  assert.doesNotMatch(providerLanding, /\$499|\$35|Monthly provider membership|Qualified engagement/);
+  for (const price of ['$99', '$249', '$499', '$999', '$1,999', '$75']) {
+    assert.match(providerLanding, new RegExp(price.replace('$', '\\$')));
+  }
+  assert.match(providerLanding, /Marketplace availability, viewing, engagement, offer submission, and consumer selection carry no separate event charge/);
+  assert.doesNotMatch(providerLanding, /\$35|Qualified engagement/);
   assert.doesNotMatch(providerLanding, /\bbid(?:ding|s)?\b|\bauction(?:ed|ing|s)?\b|\brank(?:ed|ing|s)?\b/i);
 });
 

@@ -32,6 +32,79 @@ async function bootstrap() {
 test.before(bootstrap);
 test.after(async () => { await postgres.close(); fs.rmSync(dataDir, { recursive: true, force: true }); });
 
+test('structural commercial plans cannot fabricate zero-dollar production agreements', async () => {
+  await commercial.saveCommercialPlan({
+    id: 'plan_unpriced_test', code: 'PLAN_UNPRICED_TEST', displayName: 'Unpriced Test Plan',
+    providerSegment: 'AGENCY', status: 'ACTIVE', createdAt: new Date().toISOString()
+  });
+  await assert.rejects(
+    () => commercial.enrollCommercialAgreement({
+      providerOrgId: 'org_sierra',
+      planId: 'PLAN_UNPRICED_TEST',
+      actorRole: 'ADMIN'
+    }),
+    /COMMERCIAL_PLAN_VERSION_REQUIRED/
+  );
+  assert.equal(await commercial.getActiveAgreementForOrg('org_sierra'), undefined);
+});
+
+test('V2 agreement derives organization capacities and enforces monthly offer submissions', async () => {
+  const enrollment = await commercial.enrollCommercialAgreement({
+    providerOrgId: 'org_buckeye', planId: 'PLAN_AGENCY', actorRole: 'ADMIN',
+    customTerms: { includedMonthlyOfferSubmissions: 1,
+      selectedRecurringAddOns: { ADDITIONAL_10_CONCURRENT_COMPETITIONS: 1 } }
+  });
+  const activeCapacity = enrollment.entitlements.find(item => item.entitlementType === 'ACTIVE_COMPETITION_CAPACITY');
+  const monthlyCapacity = enrollment.entitlements.find(item => item.entitlementType === 'MONTHLY_OFFER_SUBMISSION_CAPACITY');
+  assert.equal(activeCapacity?.limit, 30);
+  assert.equal(monthlyCapacity?.limit, 1);
+
+  const first = await commercial.consumeOfferSubmissionCapacity({
+    providerOrgId: 'org_buckeye', challengeId: 'challenge-v2-capacity', offerVersionId: 'version-v2-1'
+  });
+  assert.equal(first.allowed, true);
+  const retry = await commercial.consumeOfferSubmissionCapacity({
+    providerOrgId: 'org_buckeye', challengeId: 'challenge-v2-capacity', offerVersionId: 'version-v2-1'
+  });
+  assert.equal(retry.allowed, true);
+  assert.equal(retry.alreadyConsumed, true);
+  const second = await commercial.consumeOfferSubmissionCapacity({
+    providerOrgId: 'org_buckeye', challengeId: 'challenge-v2-capacity', offerVersionId: 'version-v2-2'
+  });
+  assert.equal(second.allowed, false);
+  assert.equal(second.code, 'COMMERCIAL_CAPACITY_REACHED');
+});
+
+test('included membership services cannot be selected and billed again', async () => {
+  await assert.rejects(() => commercial.enrollCommercialAgreement({
+    providerOrgId: 'org_sierra', planId: 'PLAN_NETWORK', actorRole: 'ADMIN',
+    customTerms: { selectedRecurringAddOns: { MULTI_LOCATION_ADMINISTRATION: 1 } }
+  }), /ADD_ON_ALREADY_INCLUDED_IN_PLAN/);
+  const enrollment = await commercial.enrollCommercialAgreement({
+    providerOrgId: 'org_sierra', planId: 'PLAN_NETWORK', actorRole: 'ADMIN'
+  });
+  assert.ok(enrollment.entitlements.some(item => item.entitlementType === 'MULTI_LOCATION_ADMIN'));
+});
+
+test('an unlinked competition reservation prevents capacity oversubscription', async () => {
+  await commercial.enrollCommercialAgreement({
+    providerOrgId: 'org_sierra', planId: 'PLAN_NETWORK', actorRole: 'ADMIN',
+    // Canonical fixture data already has one active Sierra participation.
+    customTerms: { includedConcurrentCompetitions: 2 }
+  });
+  const reserved = await commercial.consumeEngagementCapacity({
+    providerOrgId: 'org_sierra', invitationId: 'inv-capacity-reservation-1',
+    challengeId: 'challenge-capacity-reservation-1'
+  });
+  assert.equal(reserved.allowed, true);
+  const blocked = await commercial.consumeEngagementCapacity({
+    providerOrgId: 'org_sierra', invitationId: 'inv-capacity-reservation-2',
+    challengeId: 'challenge-capacity-reservation-2'
+  });
+  assert.equal(blocked.allowed, false);
+  assert.equal(blocked.currentUsage, 2);
+});
+
 test('workflow automation is entitlement-enforced and deterministically evaluates rules', async () => {
   const rule = await services.createWorkflowRule({ providerOrganizationId: 'org_apex', name: 'Nevada Auto Priority',
     jurisdictions: ['NV'], insuranceLines: ['PERSONAL_AUTO'], riskMarkets: ['STANDARD'],

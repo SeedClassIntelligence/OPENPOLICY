@@ -1384,6 +1384,8 @@ export interface CommercialPlanTermsSnapshot {
   includedJurisdictions?: number;
   includedVpoCapacity?: number;
   includedEngagementCapacity?: number;
+  includedConcurrentCompetitions?: number;
+  includedMonthlyOfferSubmissions?: number;
   includedAuthorizedConnections?: number;
   authorizedConnectionUnitPriceCents?: number;
   boundAcquisitionUnitPriceCents?: number;
@@ -1434,6 +1436,7 @@ export type EntitlementType =
   | 'VPO_VIEW_CAPACITY'
   | 'VPO_ENGAGEMENT_CAPACITY'
   | 'ACTIVE_COMPETITION_CAPACITY'
+  | 'MONTHLY_OFFER_SUBMISSION_CAPACITY'
   | 'API_ACCESS'
   | 'AUTOMATED_APPETITE_MATCHING'
   | 'MULTI_LOCATION_ADMIN'
@@ -1458,7 +1461,9 @@ export type CommercialUsageType =
   | 'VPO_ENGAGEMENT'
   | 'VPO_VIEW'
   | 'PRODUCER_SEAT'
-  | 'JURISDICTION';
+  | 'JURISDICTION'
+  | 'ACTIVE_COMPETITION'
+  | 'OFFER_SUBMISSION';
 
 export interface CommercialUsageRecord {
   id: string;

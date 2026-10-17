@@ -264,13 +264,13 @@ async function runValidation() {
     // ------------------------------------------------------------------------
     console.log('\n--- Test Group 5: Entitlement Enforcement at Marketplace Invitation Acceptance ---');
     // Setup isolated organization: org_apex
-    // Create an explicit agreement with VPO_ENGAGEMENT_CAPACITY limit = 1 and HARD_BLOCK
+    // Create an explicit agreement with ACTIVE_COMPETITION_CAPACITY limit = 1 and HARD_BLOCK
     const apexHeaders = { 'x-provider-user-id': 'user_apex_1' };
     const apexEnrollRes = await request(server, 'POST', '/api/admin/commercial/agreements/enroll', {
       providerOrganizationId: 'org_apex', planCode: 'PLAN_SOLO',
       enforcementPolicy: 'HARD_BLOCK',
       customTerms: {
-        includedEngagementCapacity: 1
+        includedConcurrentCompetitions: 1
       }
     }, adminHeaders);
     assert(apexEnrollRes.status === 201, 'Enrolled org_apex with HARD_BLOCK and capacity limit = 1');
@@ -325,7 +325,7 @@ async function runValidation() {
       providerOrganizationId: 'org_sierra', planCode: 'PLAN_SOLO',
       enforcementPolicy: 'ALLOW_OVERAGE',
       customTerms: {
-        includedEngagementCapacity: 0
+        includedConcurrentCompetitions: 0
       }
     }, adminHeaders);
     assert(sierraEnrollRes.status === 201, 'Enrolled org_sierra with ALLOW_OVERAGE policy and limit = 0');
@@ -342,13 +342,13 @@ async function runValidation() {
         id: 'ent_notify',
         providerOrganizationId: 'org_sierra',
         commercialAgreementId: 'agr_notify',
-        entitlementType: 'VPO_ENGAGEMENT_CAPACITY',
+        entitlementType: 'ACTIVE_COMPETITION_CAPACITY',
         limit: 5,
         enforcementPolicy: 'NOTIFY_ONLY',
         effectiveFrom: new Date().toISOString(),
         createdAt: new Date().toISOString()
       }],
-      entitlementType: 'VPO_ENGAGEMENT_CAPACITY',
+      entitlementType: 'ACTIVE_COMPETITION_CAPACITY',
       currentUsage: 10,
       agreementStatus: 'ACTIVE'
     });
@@ -363,7 +363,7 @@ async function runValidation() {
     // 6.1 Retry does not double-consume capacity
     const retryRes = await request(server, 'POST', `/api/marketplace/invitations/${inv1Id}/accept`, {}, apexHeaders);
     assert(retryRes.status === 200, 'Duplicate retry returns 200 OK');
-    const apexUsageCount = await commercialStore.getUsageCount('org_apex', 'VPO_ENGAGEMENT');
+    const apexUsageCount = await commercialStore.getUsageCount('org_apex', 'ACTIVE_COMPETITION');
     assert(apexUsageCount === 1, `Retry did not double-consume: usage count is 1 (actual: ${apexUsageCount})`);
 
     // 6.2 Auditable source of truth
@@ -379,10 +379,10 @@ async function runValidation() {
     db.saveInvitation({ ...declinedInvitation, status: 'DECLINED', declinedAt: new Date().toISOString() });
     await synchronizeFixturePersistence();
 
-    const countSierraUsageBefore = await commercialStore.getUsageCount('org_sierra', 'VPO_ENGAGEMENT');
+    const countSierraUsageBefore = await commercialStore.getUsageCount('org_sierra', 'ACTIVE_COMPETITION');
     const failedAcceptRes = await request(server, 'POST', `/api/marketplace/invitations/${bogusInvId}/accept`, {}, sierraHeaders);
     assert(failedAcceptRes.status === 409, `Failed marketplace acceptance rejected with 409 Conflict (${failedAcceptRes.status}: ${JSON.stringify(failedAcceptRes.body)})`);
-    const countSierraUsageAfter = await commercialStore.getUsageCount('org_sierra', 'VPO_ENGAGEMENT');
+    const countSierraUsageAfter = await commercialStore.getUsageCount('org_sierra', 'ACTIVE_COMPETITION');
     assert(countSierraUsageBefore === countSierraUsageAfter, 'Zero phantom consumption: usage record released upon marketplace failure');
 
     // 6.4 Concurrency protection under row locking: simulated concurrent acceptance of final unit
@@ -417,7 +417,7 @@ async function runValidation() {
       providerOrgId: concurrentOrgId,
       planId: 'PLAN_SOLO',
       enforcementPolicy: 'HARD_BLOCK',
-      customTerms: { includedEngagementCapacity: 1 },
+      customTerms: { includedConcurrentCompetitions: 1 },
       actorRole: 'ADMIN'
     });
 
@@ -457,7 +457,7 @@ async function runValidation() {
 
     const statuses = [c1.status, c2.status].sort();
     assert(statuses[0] === 200 && statuses[1] === 403, `Concurrent requests for final unit: exactly one succeeds (200) and one is blocked (403). Actual: [${c1.status}, ${c2.status}]`);
-    const concurrentUsage = await commercialStore.getUsageCount(concurrentOrgId, 'VPO_ENGAGEMENT');
+    const concurrentUsage = await commercialStore.getUsageCount(concurrentOrgId, 'ACTIVE_COMPETITION');
     assert(concurrentUsage === 1, `Concurrent usage count strictly equals 1 under row locking (actual: ${concurrentUsage})`);
 
     // 6.5 Tenant Isolation: Provider A cannot access Provider B's commercial state

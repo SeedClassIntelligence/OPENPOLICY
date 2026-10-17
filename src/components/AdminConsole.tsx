@@ -75,6 +75,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
   const [financialSummary, setFinancialSummary] = useState<any | null>(null);
   const [additionalSeats, setAdditionalSeats] = useState(0);
   const [additionalJurisdictions, setAdditionalJurisdictions] = useState(0);
+  const [selectedCommercialPlan, setSelectedCommercialPlan] = useState('PLAN_SOLO');
   const [implementationAmount, setImplementationAmount] = useState(2500);
   const [executedAgreementReference, setExecutedAgreementReference] = useState('');
   const [implementationSupportingReference, setImplementationSupportingReference] = useState('');
@@ -89,7 +90,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
   const [providerStatusBusy, setProviderStatusBusy] = useState<string | null>(null);
   const [commercialGovernance, setCommercialGovernance] = useState<any | null>(null);
   const [determinationForm, setDeterminationForm] = useState({ jurisdictionCode: 'NV', insuranceLine: 'PERSONAL_AUTO', authorityReference: '', supportingReference: '', determinationSummary: '', effectiveFrom: new Date().toISOString().slice(0, 10) });
-  const [priceForm, setPriceForm] = useState({ priceBookId: '', effectiveFrom: '', recurringFeeDollars: 499, engagementDollars: 35 });
+  const [priceForm, setPriceForm] = useState({ priceBookId: '', effectiveFrom: '', recurringFeeDollars: 99 });
   const [premiumServiceReason,setPremiumServiceReason]=useState('');
   const [platformFinancials,setPlatformFinancials]=useState<any|null>(null);
   const [administratorRegistry,setAdministratorRegistry]=useState<any|null>(null);
@@ -250,7 +251,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
     }
   };
 
-  const activatePremiumAgreement = async () => {
+  const activateCommercialAgreement = async () => {
     if (!financialOrgId.trim()) return;
     setFinancialBusy(true);
     setFinancialMessage(null);
@@ -261,13 +262,13 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
       const response = await apiFetch('/api/admin/commercial/agreements/enroll', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          providerOrganizationId: financialOrgId.trim(), planCode: 'PLAN_OPEN_POLICY_PREMIUM',
+          providerOrganizationId: financialOrgId.trim(), planCode: selectedCommercialPlan,
           customTerms: { selectedRecurringAddOns }
         })
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Commercial agreement could not be activated.');
-      setFinancialMessage('Open Policy Premium agreement activated under platform financial authority.');
+      setFinancialMessage('Commercial agreement activated under platform financial authority.');
       await loadFinancialSummary();
     } catch (error: any) {
       setFinancialMessage(error?.message || 'Commercial agreement could not be activated.');
@@ -358,14 +359,14 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
   };
 
   const publishFuturePriceVersion = async () => {
-    const plan=commercialGovernance?.plans?.[0]; if(!plan?.latestVersion) return;
+    const plan=commercialGovernance?.plans?.find((item:any)=>item.code===selectedCommercialPlan); if(!plan?.latestVersion) return;
     setFinancialBusy(true); setFinancialMessage(null);
     try {
       const response=await apiFetch(`/api/admin/commercial/plans/${encodeURIComponent(plan.id)}/versions`,{
         method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
           priceBookId:priceForm.priceBookId,effectiveFrom:`${priceForm.effectiveFrom}T00:00:00.000Z`,
           recurringFeeCents:Math.round(priceForm.recurringFeeDollars*100),
-          qualifiedEngagementUnitPriceCents:Math.round(priceForm.engagementDollars*100),
+          qualifiedEngagementUnitPriceCents:0,
           authorizedConnectionCentsByInsuranceLine:plan.latestVersion.termsSnapshot.authorizedConnectionCentsByInsuranceLine||{}
         })
       });
@@ -589,10 +590,10 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
               <input value={priceForm.priceBookId} onChange={e=>setPriceForm({...priceForm,priceBookId:e.target.value})} placeholder="Price book ID" className="rounded-lg border px-3 py-2 text-xs" />
               <input type="date" value={priceForm.effectiveFrom} onChange={e=>setPriceForm({...priceForm,effectiveFrom:e.target.value})} className="rounded-lg border px-3 py-2 text-xs" />
               <label className="text-[11px] text-slate-600">Membership USD<input type="number" min={0} value={priceForm.recurringFeeDollars} onChange={e=>setPriceForm({...priceForm,recurringFeeDollars:Number(e.target.value)})} className="mt-1 w-full rounded-lg border px-3 py-2 text-xs" /></label>
-              <label className="text-[11px] text-slate-600">Qualified engagement USD<input type="number" min={0} value={priceForm.engagementDollars} onChange={e=>setPriceForm({...priceForm,engagementDollars:Number(e.target.value)})} className="mt-1 w-full rounded-lg border px-3 py-2 text-xs" /></label>
+              <div className="rounded-lg border bg-slate-50 px-3 py-2 text-[11px] text-slate-600"><span className="block">Engagement event</span><strong className="text-slate-950">$0 · fixed by V2</strong></div>
             </div>
             <button onClick={publishFuturePriceVersion} disabled={financialBusy||!priceForm.priceBookId||!priceForm.effectiveFrom} className="w-full rounded-lg bg-slate-950 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">Publish immutable future version</button>
-            <p className="text-[10px] text-slate-500">Latest: v{commercialGovernance?.plans?.[0]?.latestVersion?.version||'—'} · Compensation activation is never inferred from a price change.</p>
+            <p className="text-[10px] text-slate-500">Selected plan: {selectedCommercialPlan} · Compensation activation is never inferred from a price change.</p>
           </div>
           <div className="rounded-xl border border-amber-200 bg-amber-50/40 p-4 space-y-3">
             <div><h4 className="text-sm font-bold text-slate-950">Compensation determination registry</h4><p className="text-[11px] text-slate-500">Records scoped legal/compliance authority. It does not silently activate a charge.</p></div>
@@ -642,7 +643,16 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 rounded-xl bg-slate-50 p-4 border border-slate-200">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-3 rounded-xl bg-slate-50 p-4 border border-slate-200">
+          <label className="text-xs font-semibold text-slate-700">Commercial plan
+            <select value={selectedCommercialPlan} onChange={event=>setSelectedCommercialPlan(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2">
+              <option value="PLAN_SOLO">Solo · $99/month</option>
+              <option value="PLAN_AGENCY">Agency · $249/month</option>
+              <option value="PLAN_OPEN_POLICY_PREMIUM">Premium · $499/month</option>
+              <option value="PLAN_NETWORK">Network · $999/month</option>
+              <option value="PLAN_ENTERPRISE">Enterprise / Direct Carrier · from $1,999/month</option>
+            </select>
+          </label>
           <label className="text-xs font-semibold text-slate-700">Additional producer seats
             <input type="number" min={0} value={additionalSeats} onChange={event => setAdditionalSeats(Math.max(0, Number(event.target.value) || 0))}
               className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" />
@@ -652,9 +662,9 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
               className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" />
           </label>
           <div className="md:col-span-2 flex items-end">
-            <button type="button" onClick={activatePremiumAgreement} disabled={financialBusy || !financialOrgId.trim()}
+            <button type="button" onClick={activateCommercialAgreement} disabled={financialBusy || !financialOrgId.trim()}
               className="w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white disabled:opacity-50">
-              Activate Open Policy Premium under admin authority
+              Activate selected plan under admin authority
             </button>
           </div>
         </div>

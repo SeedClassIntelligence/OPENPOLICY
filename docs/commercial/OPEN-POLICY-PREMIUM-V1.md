@@ -1,5 +1,9 @@
 # Open Policy Premium V1 Revenue Contract
 
+> Historical contract only. It remains immutable for audit and historical plan-version
+> interpretation, but it is superseded for all initial production enrollment by
+> `OPEN-POLICY-COMMERCIAL-PRICING-V2.md` effective October 17, 2026.
+
 Effective: 2026-10-14
 
 Price book: `OPEN_POLICY_PREMIUM_V1`

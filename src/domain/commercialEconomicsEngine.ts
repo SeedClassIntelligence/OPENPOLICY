@@ -175,6 +175,14 @@ export function deriveEntitlementsFromPlanVersion(params: {
   if (snapshot.includedEngagementCapacity !== undefined) {
     add('VPO_ENGAGEMENT_CAPACITY', snapshot.includedEngagementCapacity);
   }
+  if (snapshot.includedConcurrentCompetitions !== undefined) {
+    add('ACTIVE_COMPETITION_CAPACITY', snapshot.includedConcurrentCompetitions +
+      (selectedQuantity('ADDITIONAL_10_CONCURRENT_COMPETITIONS') * 10));
+  }
+  if (snapshot.includedMonthlyOfferSubmissions !== undefined) {
+    add('MONTHLY_OFFER_SUBMISSION_CAPACITY', snapshot.includedMonthlyOfferSubmissions +
+      (selectedQuantity('ADDITIONAL_100_MONTHLY_OFFER_SUBMISSIONS') * 100));
+  }
 
   // Service add-ons create explicit contractual authority. Product surfaces
   // must still check these entitlements before exposing the corresponding
@@ -185,9 +193,11 @@ export function deriveEntitlementsFromPlanVersion(params: {
     ['API_INTEGRATION', 'API_ACCESS'],
     ['MULTI_LOCATION_ADMINISTRATION', 'MULTI_LOCATION_ADMIN']
   ];
+  const includedServices = Array.isArray(snapshot.includedServices) ? snapshot.includedServices : [];
   for (const [code, entitlementType] of serviceAddOns) {
     const quantity = selectedQuantity(code);
-    if (quantity > 0) add(entitlementType, quantity, defaultPolicy, { recurringAddOnCode: code });
+    if (includedServices.includes(code)) add(entitlementType, 1, defaultPolicy, { includedByMembership: true });
+    else if (quantity > 0) add(entitlementType, quantity, defaultPolicy, { recurringAddOnCode: code });
   }
 
   return entitlements;
