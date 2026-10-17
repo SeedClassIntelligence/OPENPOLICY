@@ -200,3 +200,25 @@ the replacement in Secret Manager, deploy a new zero-traffic revision pinned
 to that version, and prove one signed delivery returns HTTP 200 without a
 duplicate ledger mutation.
 
+### Webhook-secret rotation closure
+
+The Stripe signing secret was rolled with an overlap period and stored as
+Secret Manager version 6 without printing or committing its value. Commit
+`9730e27` was deployed as zero-traffic revision
+`openpolicy-acceptance-release-9730e27-v6`, explicitly pinned to version 6.
+The Stripe destination was updated to the `release-candidate` endpoint.
+
+Stripe then resent live event `evt_3URMpxRoz1NoMP9p1ZvftlxQ` to that exact
+revision. Cloud Run recorded a Stripe-originated POST returning HTTP 200. A
+subsequent read-only ledger query confirmed invoice
+`inv_usage_1792181291323_5695` remained `PAID` with a zero balance, exactly one
+successful payment totaling $35.00, and exactly one settlement allocation
+totaling $35.00. No duplicate ledger mutation occurred and the revision emitted
+no error-level logs.
+
+The revision remained at zero traffic, the incumbent persistence revision
+retained 100% of traffic, and live collection remained disabled. The rotated
+secret is therefore accepted for the zero-traffic release candidate. General
+collection, traffic promotion, Nevada connection fees, and merge remain
+separately unauthorized.
+
