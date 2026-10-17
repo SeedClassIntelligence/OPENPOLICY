@@ -161,3 +161,42 @@ No connection fee may be activated until the separate Nevada compensation
 determination is approved and its durable determination reference is attached
 to the applicable immutable commercial plan version.
 
+## Zero-traffic release-candidate validation
+
+On October 17, 2026, commit
+`03445517dc1b91537d2f6aeb89038fd641402ef1` completed a fresh detached-checkout
+release gate:
+
+- clean `npm ci`;
+- TypeScript passed;
+- all 11 canonical validator runs passed;
+- authorization/payment regression passed 50/50;
+- onboarding regression passed 33/33;
+- document-intelligence regression passed 48/48;
+- adversarial HTTP security probes passed 19/19;
+- copy regression passed 16/16 and copy lint reported zero findings;
+- production client and server builds passed; and
+- `npm audit --omit=dev` reported zero vulnerabilities.
+
+The exact commit was then deployed as zero-traffic revision
+`openpolicy-acceptance-release-0344551`, available through the
+`release-candidate` tag. The incumbent revision retained 100% of traffic and
+live collection remained disabled. The candidate returned HTTP 200 for both
+the application and health endpoint, returned HTTP 401 for anonymous protected
+marketplace access, and emitted no error-level Cloud Run logs during the smoke
+interval.
+
+The candidate uses the canonical service URL for `APP_URL`. The Firebase
+browser key retained all existing API and referrer restrictions and added only
+the release-candidate referrer. Firebase Authentication retained every existing
+authorized domain and added the canonical service and release-candidate
+domains.
+
+Before traffic promotion, replace the Stripe webhook signing secret because
+its prior value entered the controlled execution transcript. The Stripe runtime
+key intentionally lacks webhook-administration permission, so this rotation
+must be performed through an authorized Stripe administration session. Store
+the replacement in Secret Manager, deploy a new zero-traffic revision pinned
+to that version, and prove one signed delivery returns HTTP 200 without a
+duplicate ledger mutation.
+
