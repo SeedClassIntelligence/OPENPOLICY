@@ -125,9 +125,37 @@ key was rotated with immediate expiration and its obsolete Secret Manager
 version was disabled. The restricted-key candidate remained Ready and its
 health endpoint continued to return HTTP 200 after retirement.
 
-The remaining external payment gate before live activation is a controlled
-production smoke test. Live collection remains disabled until that gate is
-documented.
+## Controlled live-mode payment acceptance evidence
+
+On October 17, 2026, commit
+`f408bcce452854a99a764ed2303eee720bd39564` was deployed as the zero-traffic
+revision `openpolicy-acceptance-stripe-webhook-v5-f408bcc`. The incumbent
+revision retained 100% of production traffic. Live collection remained
+disabled throughout the acceptance exercise.
+
+Verified evidence:
+
+- Stripe live-mode PaymentIntent `pi_3URMpxRoz1NoMP9p1pwCP4JV` collected a
+  controlled $35.00 payment for Open Policy invoice
+  `inv_usage_1792181291323_5695` (`INV-USAGE-20261016-1202`);
+- signed Stripe event `evt_3URMpxRoz1NoMP9p1ZvftlxQ` was delivered to the
+  zero-traffic candidate's webhook endpoint and returned HTTP 200;
+- Stripe recorded that delivery as `Delivered` and `Recovered`;
+- after delivery, the invoice remained `PAID` with a zero balance;
+- the durable ledger contained exactly one `SUCCEEDED` $35.00 payment and
+  exactly one $35.00 settlement allocation;
+- signed-event retry created no duplicate payment or allocation;
+- the initial webhook failure was traced to a truncated Secret Manager value,
+  not application settlement logic; the full signing secret was installed as
+  secret version 5, verified without logging its value, and the corrected
+  candidate accepted the real Stripe delivery;
+- no traffic was promoted, no merge was performed, and
+  `OPENPOLICY_LIVE_COLLECTIONS_ENABLED` remained `false`.
+
+This closes the controlled live-mode payment-path acceptance test. It does not
+authorize general live collection, traffic promotion, or marketplace release.
+Those actions remain subject to final release validation, production
+configuration review, rollback readiness, and explicit founder authorization.
 
 No connection fee may be activated until the separate Nevada compensation
 determination is approved and its durable determination reference is attached
