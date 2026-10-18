@@ -101,6 +101,17 @@ export async function getFirebaseUserProfile(uid: string): Promise<Record<string
   return snapshot.exists ? snapshot.data() : undefined;
 }
 
+export async function updateFirebaseProviderReviewState(uid: string, params: {
+  providerStatus: 'PENDING_VERIFICATION' | 'REJECTED';
+  providerUserId?: string;
+  providerOrganizationId?: string;
+}): Promise<void> {
+  const update: Record<string, unknown> = { providerStatus: params.providerStatus };
+  if (params.providerUserId) update.providerUserId = params.providerUserId;
+  if (params.providerOrganizationId) update.providerOrganizationId = params.providerOrganizationId;
+  await getFirestore(firebaseAdminApp()).collection('users').doc(uid).update(update);
+}
+
 export async function resolveFirebaseIdentity(token: string): Promise<RequestIdentity> {
   const adminApp = firebaseAdminApp();
   const decoded = await getAuth(adminApp).verifyIdToken(token, true);

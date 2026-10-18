@@ -1671,6 +1671,72 @@ export class PostgresStore {
     return result.rows.map(row => this.mapProviderApplication(row));
   }
 
+  public async reviewProviderApplication(params: {
+    applicationId: string;
+    decision: 'APPROVE' | 'REJECT';
+    actorId: string;
+    reason: string;
+    licenseType?: string;
+    licenseExpirationDate?: string;
+    verificationSource?: string;
+  }): Promise<ProviderApplication> {
+    await this.ensureReady();
+    if (!params.reason.trim()) throw Object.assign(new Error('A review reason is required.'), { statusCode: 400 });
+    return this.sql!.transaction(async client => {
+      const locked = await client.query<any>(`SELECT * FROM provider_applications WHERE id=$1 FOR UPDATE;`, [params.applicationId]);
+      if (!locked.rows[0]) throw Object.assign(new Error('Provider application not found.'), { statusCode: 404 });
+      const current = this.mapProviderApplication(locked.rows[0]);
+      if (current.status === 'APPROVED' || current.status === 'REJECTED') return current;
+      const now = new Date().toISOString();
+      if (params.decision === 'REJECT') {
+        const rejected = await client.query<any>(
+          `UPDATE provider_applications SET status='REJECTED',reviewed_at=$2,reviewed_by=$3,review_reason=$4,updated_at=$2 WHERE id=$1 RETURNING *;`,
+          [current.id, now, params.actorId, params.reason.trim()]
+        );
+        await this.appendAuditInTransaction(client, { eventType: 'PROVIDER_APPLICATION_REJECTED' as any,
+          actorRole: 'ADMIN', actorId: params.actorId,
+          details: `Provider application ${current.id} rejected. Reason: ${params.reason.trim()}` });
+        return this.mapProviderApplication(rejected.rows[0]);
+      }
+      if (current.organizationType === 'DIRECT_CARRIER') {
+        throw Object.assign(new Error('Direct-carrier approval is unavailable until certificate-of-authority evidence is modeled and verified.'), { statusCode: 409 });
+      }
+      if (!current.producerLicenseNumber || !params.licenseType?.trim() || !/^\d{4}-\d{2}-\d{2}$/.test(params.licenseExpirationDate || '') || !params.verificationSource?.trim()) {
+        throw Object.assign(new Error('Verified license type, expiration date, and verification source are required for approval.'), { statusCode: 400 });
+      }
+      const organizationId = `org_application_${current.firebaseUid}`;
+      const providerUserId = `provider_user_${current.firebaseUid}`;
+      const licenseId = `provider_license_${current.firebaseUid}`;
+      await client.query(
+        `INSERT INTO provider_organizations (id,legal_name,display_name,organization_type,verification_status,marketplace_status,states,lines_of_business,created_at,verified_at)
+         VALUES ($1,$2,$3,$4,'MARKETPLACE_APPROVED','PENDING',$5,$6,$7,$7)
+         ON CONFLICT (id) DO UPDATE SET legal_name=EXCLUDED.legal_name,display_name=EXCLUDED.display_name,verification_status='MARKETPLACE_APPROVED',marketplace_status='PENDING',verified_at=EXCLUDED.verified_at;`,
+        [organizationId,current.legalName,current.displayName,current.organizationType,JSON.stringify([current.jurisdictionCode]),JSON.stringify(current.insuranceLines),now]
+      );
+      await client.query(
+        `INSERT INTO provider_users (id,organization_id,email,full_name,role,is_active,created_at)
+         VALUES ($1,$2,$3,$4,'OWNER',TRUE,$5)
+         ON CONFLICT (id) DO UPDATE SET organization_id=EXCLUDED.organization_id,email=EXCLUDED.email,full_name=EXCLUDED.full_name,role='OWNER',is_active=TRUE;`,
+        [providerUserId,organizationId,current.applicantEmail,current.applicantName,now]
+      );
+      await client.query(
+        `INSERT INTO provider_licenses (id,provider_organization_id,jurisdiction,license_number,license_type,status,expiration_date,verified_at,provider_user_id,npn,verification_source,verified_by)
+         VALUES ($1,$2,$3,$4,$5,'ACTIVE',$6,$7,$8,$9,$10,$11)
+         ON CONFLICT (id) DO UPDATE SET status='ACTIVE',expiration_date=EXCLUDED.expiration_date,verified_at=EXCLUDED.verified_at,verification_source=EXCLUDED.verification_source,verified_by=EXCLUDED.verified_by;`,
+        [licenseId,organizationId,current.jurisdictionCode,current.producerLicenseNumber,params.licenseType.trim(),params.licenseExpirationDate,now,providerUserId,current.producerNpn||null,params.verificationSource.trim(),params.actorId]
+      );
+      const approved = await client.query<any>(
+        `UPDATE provider_applications SET status='APPROVED',reviewed_at=$2,reviewed_by=$3,review_reason=$4,
+         provider_organization_id=$5,provider_user_id=$6,updated_at=$2 WHERE id=$1 RETURNING *;`,
+        [current.id,now,params.actorId,params.reason.trim(),organizationId,providerUserId]
+      );
+      await this.appendAuditInTransaction(client, { eventType: 'PROVIDER_APPLICATION_APPROVED' as any,
+        actorRole: 'ADMIN', actorId: params.actorId,
+        details: `Provider application ${current.id} approved for mapping ${organizationId}/${providerUserId}; marketplace remains PENDING.` });
+      return this.mapProviderApplication(approved.rows[0]);
+    });
+  }
+
   public async saveProviderOrganization(org: ProviderOrganization) {
     await this.ensureReady();
     await this.sql!.query(

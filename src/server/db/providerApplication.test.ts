@@ -52,6 +52,69 @@ test('direct-carrier application records evidence reference without granting car
     assert.equal(application.carrierAuthorityReference, 'NV-COA-REVIEW-REFERENCE');
     assert.equal(application.status, 'SUBMITTED');
     assert.equal(application.providerOrganizationId, undefined);
+    await assert.rejects(() => store.reviewProviderApplication({
+      applicationId: application.id, decision: 'APPROVE', actorId: 'admin-owner', reason: 'Attempted review',
+      verificationSource: 'Nevada DOI', licenseType: 'CARRIER', licenseExpirationDate: '2027-12-31'
+    }), /certificate-of-authority evidence is modeled and verified/);
+  } finally {
+    await store.close();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('administrator review creates pending mappings atomically without marketplace activation', async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openpolicy-provider-review-'));
+  const store = new PostgresStore(dataDir);
+  try {
+    const application = await store.submitProviderApplication({
+      firebaseUid: 'firebase-reviewed-provider', applicantName: 'Reviewed Owner',
+      applicantEmail: 'owner@reviewed.example', legalName: 'Reviewed Agency LLC', displayName: 'Reviewed Agency',
+      organizationType: 'INDEPENDENT_AGENCY', jurisdictionCode: 'NV', insuranceLines: ['PERSONAL_AUTO'],
+      producerLicenseNumber: 'NV-REVIEWED-1', producerNpn: '1234567', requestedPlanCode: 'PLAN_SOLO'
+    });
+    const approved = await store.reviewProviderApplication({
+      applicationId: application.id, decision: 'APPROVE', actorId: 'admin-owner',
+      reason: 'License evidence verified for intake mapping.', licenseType: 'PROPERTY_CASUALTY',
+      licenseExpirationDate: '2027-12-31', verificationSource: 'Nevada DOI producer lookup'
+    });
+    assert.equal(approved.status, 'APPROVED');
+    assert.ok(approved.providerOrganizationId);
+    assert.ok(approved.providerUserId);
+    const organization = await store.getProviderOrganization(approved.providerOrganizationId!);
+    const user = await store.getProviderUser(approved.providerUserId!);
+    const licenses = await store.getProviderLicenses(approved.providerOrganizationId!);
+    assert.equal(organization?.marketplaceStatus, 'PENDING');
+    assert.equal(organization?.verificationStatus, 'MARKETPLACE_APPROVED');
+    assert.equal(user?.role, 'OWNER');
+    assert.equal(licenses[0]?.verificationStatus, 'VERIFIED');
+    const retry = await store.reviewProviderApplication({
+      applicationId: application.id, decision: 'APPROVE', actorId: 'admin-owner', reason: 'retry'
+    });
+    assert.equal(retry.providerOrganizationId, approved.providerOrganizationId);
+    assert.equal((await store.getProviderUsers(approved.providerOrganizationId!)).length, 1);
+    assert.equal((await store.getProviderLicenses(approved.providerOrganizationId!)).length, 1);
+  } finally {
+    await store.close();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('rejected application creates no provider mappings', async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openpolicy-provider-rejection-'));
+  const store = new PostgresStore(dataDir);
+  try {
+    const application = await store.submitProviderApplication({
+      firebaseUid: 'firebase-rejected-provider', applicantName: 'Rejected Applicant',
+      applicantEmail: 'rejected@example.com', legalName: 'Rejected Agency LLC', displayName: 'Rejected Agency',
+      organizationType: 'BROKERAGE', jurisdictionCode: 'NV', insuranceLines: ['PERSONAL_AUTO'],
+      producerLicenseNumber: 'INVALID', requestedPlanCode: 'PLAN_SOLO'
+    });
+    const rejected = await store.reviewProviderApplication({
+      applicationId: application.id, decision: 'REJECT', actorId: 'admin-owner', reason: 'Authority evidence could not be verified.'
+    });
+    assert.equal(rejected.status, 'REJECTED');
+    assert.equal(rejected.providerOrganizationId, undefined);
+    assert.equal((await store.getProviderOrganizations()).some(org => org.legalName === application.legalName), false);
   } finally {
     await store.close();
     fs.rmSync(dataDir, { recursive: true, force: true });

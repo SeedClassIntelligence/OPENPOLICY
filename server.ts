@@ -45,7 +45,7 @@ import {
 } from './src/domain/pm5ReconciliationEngine';
 import { verifyCryptographicAuditChain, processReviewQueueResolution,
   generateRegulatoryAuditProof } from './src/domain/governanceAuditEngine';
-import { assertProductionAuthConfiguration, attachRequestIdentity, configuredAuthMode, getFirebaseUserProfile } from './src/server/auth/requestIdentity';
+import { assertProductionAuthConfiguration, attachRequestIdentity, configuredAuthMode, getFirebaseUserProfile, updateFirebaseProviderReviewState } from './src/server/auth/requestIdentity';
 import { assertBindingRelationship, assertChallengeRelationship, enforceApiAuthorization } from './src/server/auth/routeAuthorization';
 import { assertDirectSettlementMutationAllowed } from './src/server/paymentCollectionBoundary';
 import { StripePaymentProcessor, mapStripeIntentStatus, shouldApplyStripePaymentStatus, stripePaymentMethod, stripeProcessorConfig, stripeRefundLedgerKey } from './src/server/stripePaymentProcessor';
@@ -1357,6 +1357,32 @@ app.post('/api/provider-applications/current', async (req, res) => {
 app.get('/api/admin/provider-applications', async (_req, res) => {
   try { res.json(await postgresStore.listProviderApplications()); }
   catch (e: any) { res.status(e.statusCode || 500).json({ error: e.message }); }
+});
+
+app.post('/api/admin/provider-applications/:applicationId/review', async (req, res) => {
+  try {
+    const decision = String(req.body?.decision || '').toUpperCase();
+    if (decision !== 'APPROVE' && decision !== 'REJECT') {
+      return res.status(400).json({ error: 'decision must be APPROVE or REJECT.' });
+    }
+    const application = await postgresStore.reviewProviderApplication({
+      applicationId: req.params.applicationId, decision: decision as 'APPROVE' | 'REJECT',
+      actorId: req.openPolicyIdentity!.uid, reason: String(req.body?.reason || ''),
+      licenseType: req.body?.licenseType ? String(req.body.licenseType) : undefined,
+      licenseExpirationDate: req.body?.licenseExpirationDate ? String(req.body.licenseExpirationDate) : undefined,
+      verificationSource: req.body?.verificationSource ? String(req.body.verificationSource) : undefined
+    });
+    if (req.openPolicyIdentity!.source !== 'FIXTURE') {
+      await updateFirebaseProviderReviewState(application.firebaseUid, {
+        providerStatus: application.status === 'REJECTED' ? 'REJECTED' : 'PENDING_VERIFICATION',
+        providerUserId: application.providerUserId,
+        providerOrganizationId: application.providerOrganizationId
+      });
+    }
+    res.json({ success: true, application, marketplaceAccessGranted: false, commercialAgreementActivated: false });
+  } catch (e: any) {
+    res.status(e.statusCode || 500).json({ error: e.message });
+  }
 });
 
 app.get('/api/admin/administrators',async(req,res)=>{
