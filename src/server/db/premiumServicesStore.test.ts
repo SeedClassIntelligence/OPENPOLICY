@@ -48,6 +48,17 @@ test('structural commercial plans cannot fabricate zero-dollar production agreem
   assert.equal(await commercial.getActiveAgreementForOrg('org_sierra'), undefined);
 });
 
+test('canonical V2 plan seeding is idempotent under concurrent startup', async () => {
+  await Promise.all([commercial.seedCanonicalPlans(), commercial.seedCanonicalPlans()]);
+  const plans = await commercial.listActivePlans();
+  const canonical = plans.filter(plan => ['PLAN_SOLO','PLAN_AGENCY','PLAN_OPEN_POLICY_PREMIUM','PLAN_NETWORK','PLAN_ENTERPRISE'].includes(plan.code));
+  assert.equal(canonical.length, 5);
+  for (const plan of canonical) {
+    const latest = await commercial.getLatestPlanVersion(plan.id);
+    assert.ok(latest, `${plan.code} has a durable canonical version`);
+  }
+});
+
 test('provider activation evidence requires a fully paid positive subscription invoice', async () => {
   const agreement = await commercial.getActiveAgreementForOrg('org_apex');
   assert.ok(agreement);

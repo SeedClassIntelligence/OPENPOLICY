@@ -254,7 +254,7 @@ export class CommercialStore {
         id, plan_id, version, effective_from, effective_until, billing_interval,
         recurring_fee_cents, currency, terms_snapshot, created_at
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      ON CONFLICT (id) DO NOTHING;`, // Immutable: never mutate historical versions
+      ON CONFLICT DO NOTHING;`, // Immutable and race-safe across both id and (plan_id, version).
       [
         version.id,
         version.planId,
