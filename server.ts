@@ -49,6 +49,7 @@ import { assertProductionAuthConfiguration, attachRequestIdentity, configuredAut
 import { assertBindingRelationship, assertChallengeRelationship, enforceApiAuthorization } from './src/server/auth/routeAuthorization';
 import { assertDirectSettlementMutationAllowed } from './src/server/paymentCollectionBoundary';
 import { StripePaymentProcessor, mapStripeIntentStatus, shouldApplyStripePaymentStatus, stripePaymentMethod, stripeProcessorConfig, stripeRefundLedgerKey } from './src/server/stripePaymentProcessor';
+import { activateApprovedProviderApplication } from './src/server/providerActivation';
 
 import { runComparisonEngineTestSuite } from './src/domain/comparisonEngine.test';
 import { runEligibilityEngineTestSuite } from './src/domain/eligibilityEngine.test';
@@ -1387,36 +1388,21 @@ app.post('/api/admin/provider-applications/:applicationId/review', async (req, r
 
 app.post('/api/admin/provider-applications/:applicationId/activate', async (req, res) => {
   try {
-    const application = (await postgresStore.listProviderApplications()).find(item => item.id === req.params.applicationId);
-    if (!application) return res.status(404).json({ error: 'Provider application not found.' });
-    if (application.status !== 'APPROVED' || !application.providerOrganizationId || !application.providerUserId) {
-      return res.status(409).json({ error: 'Provider application must be approved and authoritatively mapped before activation.' });
-    }
-    if (application.organizationType === 'DIRECT_CARRIER') {
-      return res.status(409).json({ error: 'Direct-carrier activation is unavailable until carrier authority evidence is modeled and verified.' });
-    }
-    const agreement = await commercialStore.getActiveAgreementForOrg(application.providerOrganizationId);
-    if (!agreement) return res.status(409).json({ error: 'An active V2 commercial agreement is required before provider activation.' });
-    const version = await commercialStore.getCommercialPlanVersion(agreement.planVersionId);
-    const plan = version ? await commercialStore.getCommercialPlanById(version.planId) : undefined;
-    if (!version || !plan || version.termsSnapshot.priceBookId !== OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.id || plan.code !== application.requestedPlanCode) {
-      return res.status(409).json({ error: 'The active agreement does not match the application requested OPEN_POLICY_COMMERCIAL_V2 membership.' });
-    }
-    if (!(await commercialStore.hasPaidSubscriptionInvoice(application.providerOrganizationId, agreement.id))) {
-      return res.status(409).json({ error: 'A fully settled V2 membership subscription invoice is required before provider activation.' });
-    }
-    if (req.openPolicyIdentity!.source !== 'FIXTURE') {
-      await updateFirebaseProviderReviewState(application.firebaseUid, {
-        providerStatus: 'ACTIVE', providerUserId: application.providerUserId,
-        providerOrganizationId: application.providerOrganizationId
-      });
-    }
-    const organization = await postgresStore.changeProviderOrganizationStatus({
-      organizationId: application.providerOrganizationId, marketplaceStatus: 'ACTIVE',
+    const result = await activateApprovedProviderApplication({
+      applicationId: req.params.applicationId,
       actorId: req.openPolicyIdentity!.uid,
-      reason: String(req.body?.reason || 'Verified authority, matching V2 agreement, and settled membership invoice confirmed.')
+      reason: String(req.body?.reason || ''),
+      postgresStore,
+      commercialStore,
+      synchronizeIdentity: req.openPolicyIdentity!.source === 'FIXTURE' ? undefined : async application => {
+        await updateFirebaseProviderReviewState(application.firebaseUid, {
+          providerStatus: 'ACTIVE',
+          providerUserId: application.providerUserId,
+          providerOrganizationId: application.providerOrganizationId
+        });
+      }
     });
-    res.json({ success: true, application, agreement, organization, marketplaceAccessGranted: true });
+    res.json({ success: true, ...result, marketplaceAccessGranted: true });
   } catch (e: any) {
     res.status(e.statusCode || 500).json({ error: e.message });
   }
