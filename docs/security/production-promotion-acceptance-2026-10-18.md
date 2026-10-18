@@ -113,10 +113,11 @@ regresses. No rollback was required during this acceptance.
    Merge requires separate founder authorization and a final comparison of the
    deployed runtime checkpoint plus later acceptance-only commits against the
    intended canonical branch.
-6. **Operational alerting.** Read-only Cloud Monitoring API inspection returned
-   no alert policies and no uptime-check configurations. Production health can
-   be queried, but automated outage/error notification is not yet established.
-   Creating it requires an authorized notification destination.
+6. **Operational alerting.** A one-minute HTTPS uptime check named
+   `Open Policy production health` now verifies valid SSL, HTTP 200 and the
+   expected `"status":"ok"` response from `/api/health` in three U.S. checker
+   regions. No notification channels or alert policies exist, so automated
+   outage/error notification still requires an authorized destination.
 
 ## Operational conclusion
 
