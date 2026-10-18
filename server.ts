@@ -1439,6 +1439,13 @@ app.patch('/api/admin/providers/:organizationId/status', async (req, res) => {
     if (!['ACTIVE', 'PENDING', 'SUSPENDED', 'INACTIVE'].includes(marketplaceStatus)) {
       return res.status(400).json({ error: 'marketplaceStatus must be ACTIVE, PENDING, SUSPENDED, or INACTIVE.' });
     }
+    const currentOrganization = await postgresStore.getProviderOrganization(req.params.organizationId);
+    if (!currentOrganization) return res.status(404).json({ error: 'Provider organization not found.' });
+    if (marketplaceStatus === 'ACTIVE' && currentOrganization.marketplaceStatus !== 'SUSPENDED') {
+      return res.status(409).json({
+        error: 'Initial provider activation must use the provider-application activation gate after verified authority, a matching V2 agreement, and a settled membership invoice.'
+      });
+    }
     const organization = await postgresStore.changeProviderOrganizationStatus({
       organizationId: req.params.organizationId,
       marketplaceStatus: marketplaceStatus as any,

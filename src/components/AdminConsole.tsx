@@ -96,11 +96,15 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
   const [administratorRegistry,setAdministratorRegistry]=useState<any|null>(null);
   const [marketplaceOperations,setMarketplaceOperations]=useState<any|null>(null);
   const [adminForm,setAdminForm]=useState({firebaseUid:'',permissions:['PLATFORM_READ'] as string[],status:'ACTIVE',reason:''});
+  const [providerApplications,setProviderApplications]=useState<any[]>([]);
+  const [applicationActionId,setApplicationActionId]=useState<string|null>(null);
+  const [applicationMessage,setApplicationMessage]=useState<string|null>(null);
+  const [applicationReview,setApplicationReview]=useState({reason:'',licenseType:'PROPERTY_CASUALTY',licenseExpirationDate:'',verificationSource:''});
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [eventsRes, queueRes, verifyRes, linesRes, rolloutRes, overviewRes, governanceRes, platformFinancialsRes, administratorsRes, operationsRes] = await Promise.all([
+      const [eventsRes, queueRes, verifyRes, linesRes, rolloutRes, overviewRes, governanceRes, platformFinancialsRes, administratorsRes, operationsRes, applicationsRes] = await Promise.all([
         apiFetch('/api/audit-events'),
         apiFetch('/api/admin/review-queue'),
         apiFetch('/api/admin/audit-chain/verify'),
@@ -110,7 +114,8 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
         apiFetch('/api/admin/commercial/governance'),
         apiFetch('/api/admin/commercial/platform-summary'),
         apiFetch('/api/admin/administrators'),
-        apiFetch('/api/admin/marketplace-operations')
+        apiFetch('/api/admin/marketplace-operations'),
+        apiFetch('/api/admin/provider-applications')
       ]);
 
       const eventsData = await eventsRes.json();
@@ -123,6 +128,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
       const platformFinancialsData = await platformFinancialsRes.json();
       const administratorsData = await administratorsRes.json();
       const operationsData = await operationsRes.json();
+      const applicationsData = await applicationsRes.json();
 
       setAuditEvents(eventsData);
       setReviewQueue(queueData);
@@ -134,11 +140,34 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
       if (platformFinancialsRes.ok) setPlatformFinancials(platformFinancialsData);
       if (administratorsRes.ok) setAdministratorRegistry(administratorsData);
       if (operationsRes.ok) setMarketplaceOperations(operationsData);
+      if (applicationsRes.ok) setProviderApplications(Array.isArray(applicationsData) ? applicationsData : []);
     } catch (e) {
       console.error('Failed to load admin audit console data:', e);
     } finally {
       setLoading(false);
     }
+  };
+
+  const reviewProviderApplication = async (applicationId:string, decision:'APPROVE'|'REJECT') => {
+    setApplicationActionId(applicationId); setApplicationMessage(null);
+    try {
+      const response=await apiFetch(`/api/admin/provider-applications/${applicationId}/review`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({decision,...applicationReview})});
+      const data=await response.json(); if(!response.ok) throw new Error(data.error||'Provider application review failed.');
+      setApplicationMessage(`Application ${decision==='APPROVE'?'approved for commercial setup':'rejected'}. No marketplace access was granted.`);
+      await loadData(); onRefreshData();
+    } catch(error:any){setApplicationMessage(error?.message||'Provider application review failed.');}
+    finally{setApplicationActionId(null);}
+  };
+
+  const activateProviderApplication = async (applicationId:string) => {
+    setApplicationActionId(applicationId); setApplicationMessage(null);
+    try {
+      const response=await apiFetch(`/api/admin/provider-applications/${applicationId}/activate`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reason:'Verified provider authority, matching OPEN_POLICY_COMMERCIAL_V2 agreement, and settled membership invoice confirmed by platform administration.'})});
+      const data=await response.json(); if(!response.ok) throw new Error(data.error||'Provider activation failed closed.');
+      setApplicationMessage('Provider marketplace access activated after all authority and payment gates passed.');
+      await loadData(); onRefreshData();
+    } catch(error:any){setApplicationMessage(error?.message||'Provider activation failed closed.');}
+    finally{setApplicationActionId(null);}
   };
 
   useEffect(() => {
@@ -522,6 +551,35 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
         </div>
         <div id="owner-providers" className="scroll-mt-36 space-y-3 pt-2">
           <div>
+            <h4 className="text-sm font-bold text-slate-950">Provider application and activation queue</h4>
+            <p className="text-[11px] text-slate-500">Review establishes verified provider mappings only. Marketplace access remains closed until the matching V2 membership agreement and subscription invoice are fully settled.</p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <input value={applicationReview.reason} onChange={event=>setApplicationReview({...applicationReview,reason:event.target.value})} placeholder="Required review reason" className="rounded-lg border bg-white px-3 py-2 text-xs" />
+            <input value={applicationReview.licenseType} onChange={event=>setApplicationReview({...applicationReview,licenseType:event.target.value})} placeholder="Verified license type" className="rounded-lg border bg-white px-3 py-2 text-xs" />
+            <input type="date" value={applicationReview.licenseExpirationDate} onChange={event=>setApplicationReview({...applicationReview,licenseExpirationDate:event.target.value})} className="rounded-lg border bg-white px-3 py-2 text-xs" />
+            <input value={applicationReview.verificationSource} onChange={event=>setApplicationReview({...applicationReview,verificationSource:event.target.value})} placeholder="Authoritative verification source" className="rounded-lg border bg-white px-3 py-2 text-xs" />
+          </div>
+          {applicationMessage&&<div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900">{applicationMessage}</div>}
+          <div className="overflow-x-auto rounded-xl border border-slate-200">
+            <table className="min-w-full divide-y divide-slate-200 text-left text-xs">
+              <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500"><tr><th className="px-3 py-2">Applicant</th><th className="px-3 py-2">Authority evidence</th><th className="px-3 py-2">Requested access</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Controlled action</th></tr></thead>
+              <tbody className="divide-y divide-slate-100">
+                {providerApplications.map((application:any)=><tr key={application.id} className="align-top hover:bg-slate-50">
+                  <td className="px-3 py-2"><strong className="block text-slate-900">{application.displayName||application.legalName}</strong><span className="block text-[10px] text-slate-500">{application.applicantName} · {application.applicantEmail}</span><span className="font-mono text-[10px] text-slate-400">{application.id}</span></td>
+                  <td className="px-3 py-2"><span className="block">{application.organizationType} · {application.jurisdictionCode}</span><span className="block text-[10px] text-slate-500">{application.organizationType==='DIRECT_CARRIER'?(application.carrierAuthorityReference||'Missing carrier authority'):`License ${application.producerLicenseNumber||'missing'}${application.producerNpn?` · NPN ${application.producerNpn}`:''}`}</span></td>
+                  <td className="px-3 py-2"><strong className="block">{application.requestedPlanCode}</strong><span className="text-[10px] text-slate-500">{application.insuranceLines?.join(', ')||'No lines'}</span></td>
+                  <td className="px-3 py-2"><strong>{application.status}</strong>{application.providerOrganizationId&&<><span className="mt-1 block font-mono text-[10px] text-slate-400">{application.providerOrganizationId}</span><button onClick={()=>{setFinancialOrgId(application.providerOrganizationId);setSelectedCommercialPlan(application.requestedPlanCode);setFinancialSummary(null);document.querySelector('#owner-commercial')?.scrollIntoView({behavior:'smooth'});}} className="mt-1 text-[10px] font-bold text-emerald-700 underline">Open commercial setup</button></>}</td>
+                  <td className="px-3 py-2"><div className="flex flex-wrap gap-1">
+                    {['SUBMITTED','UNDER_REVIEW'].includes(application.status)&&<><button disabled={applicationActionId===application.id||!applicationReview.reason.trim()} onClick={()=>reviewProviderApplication(application.id,'REJECT')} className="rounded border border-rose-300 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-800 disabled:opacity-40">Reject</button><button disabled={applicationActionId===application.id||!applicationReview.reason.trim()||!applicationReview.licenseExpirationDate||!applicationReview.verificationSource.trim()} onClick={()=>reviewProviderApplication(application.id,'APPROVE')} className="rounded border border-blue-300 bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-800 disabled:opacity-40">Approve authority</button></>}
+                    {application.status==='APPROVED'&&<button disabled={applicationActionId===application.id||application.organizationType==='DIRECT_CARRIER'} onClick={()=>activateProviderApplication(application.id)} className="rounded border border-emerald-300 bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-800 disabled:opacity-40">Verify payment & activate</button>}
+                  </div>{application.organizationType==='DIRECT_CARRIER'&&<span className="mt-1 block text-[10px] text-amber-700">Carrier activation remains fail-closed pending modeled certificate-of-authority verification.</span>}</td>
+                </tr>)}
+                {!providerApplications.length&&<tr><td colSpan={5} className="px-3 py-4 text-center text-slate-500">No durable provider applications recorded.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+          <div className="border-t border-slate-200 pt-3">
             <h4 className="text-sm font-bold text-slate-950">Provider organization registry</h4>
             <p className="text-[11px] text-slate-500">Authoritative marketplace organizations and their current operating status.</p>
           </div>
@@ -542,8 +600,10 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
                     <td className="px-3 py-2">
                       {organization.marketplaceStatus === 'ACTIVE' ? (
                         <button disabled={!providerStatusReason.trim() || providerStatusBusy === organization.id} onClick={() => changeProviderStatus(organization.id, 'SUSPENDED')} className="rounded border border-amber-300 bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-800 disabled:opacity-40">Suspend</button>
-                      ) : (
+                      ) : organization.marketplaceStatus === 'SUSPENDED' ? (
                         <button disabled={!providerStatusReason.trim() || providerStatusBusy === organization.id} onClick={() => changeProviderStatus(organization.id, 'ACTIVE')} className="rounded border border-emerald-300 bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-800 disabled:opacity-40">Activate</button>
+                      ) : (
+                        <span className="text-[10px] font-semibold text-slate-500">Use application gate</span>
                       )}
                     </td>
                   </tr>
