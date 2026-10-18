@@ -48,6 +48,30 @@ test('structural commercial plans cannot fabricate zero-dollar production agreem
   assert.equal(await commercial.getActiveAgreementForOrg('org_sierra'), undefined);
 });
 
+test('provider activation evidence requires a fully paid positive subscription invoice', async () => {
+  const agreement = await commercial.getActiveAgreementForOrg('org_apex');
+  assert.ok(agreement);
+  const now = new Date().toISOString();
+  const period = {
+    id: 'bp_activation_evidence', providerOrganizationId: 'org_apex', commercialAgreementId: agreement.id,
+    commercialPlanVersionId: agreement.planVersionId, periodStart: '2026-10-01T00:00:00.000Z',
+    periodEnd: '2026-11-01T00:00:00.000Z', status: 'OPEN' as const, createdAt: now
+  };
+  await commercial.saveBillingPeriod(period);
+  const draft = await commercial.generateDraftInvoice({
+    providerOrganizationId: 'org_apex', billingPeriodId: period.id, idempotencyKey: 'activation-evidence-invoice'
+  });
+  const finalized = await commercial.finalizeInvoiceById(draft.invoice.id);
+  assert.equal(await commercial.hasPaidSubscriptionInvoice('org_apex', agreement.id), false);
+  assert.ok(finalized.totalDueCents > 0);
+  await commercial.recordPayment({
+    providerOrganizationId: 'org_apex', invoiceId: finalized.id, amountCents: finalized.totalDueCents,
+    paymentMethod: 'CREDIT_CARD', externalReference: 'pi_activation_evidence',
+    idempotencyKey: 'activation-evidence-payment'
+  });
+  assert.equal(await commercial.hasPaidSubscriptionInvoice('org_apex', agreement.id), true);
+});
+
 test('V2 agreement derives organization capacities and enforces monthly offer submissions', async () => {
   const enrollment = await commercial.enrollCommercialAgreement({
     providerOrgId: 'org_buckeye', planId: 'PLAN_AGENCY', actorRole: 'ADMIN',

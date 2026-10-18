@@ -2990,6 +2990,25 @@ export class CommercialStore {
     return invoices;
   }
 
+  /** Launch activation requires a fully settled recurring membership invoice. */
+  public async hasPaidSubscriptionInvoice(providerOrganizationId: string, commercialAgreementId: string): Promise<boolean> {
+    const client = await this.getClient();
+    const result = await client.query<{ count: number }>(
+      `SELECT COUNT(DISTINCT i.id)::int AS count
+       FROM invoices i
+       JOIN invoice_line_items l ON l.invoice_id=i.id
+       WHERE i.provider_organization_id=$1
+         AND i.commercial_agreement_id=$2
+         AND i.status='PAID'
+         AND i.balance_due_cents=0
+         AND i.paid_at IS NOT NULL
+         AND l.line_type='SUBSCRIPTION'
+         AND l.amount_cents>0;`,
+      [providerOrganizationId, commercialAgreementId]
+    );
+    return Number(result.rows[0]?.count || 0) > 0;
+  }
+
   public async getPlatformFinancialOverview(): Promise<Record<string, unknown>> {
     const client=await this.getClient();
     const [invoiceTotals,paymentTotals,refundTotals,eventTotals,recentInvoices,recentPayments,recentRefunds]=await Promise.all([

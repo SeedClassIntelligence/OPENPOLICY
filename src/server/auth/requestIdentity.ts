@@ -102,7 +102,7 @@ export async function getFirebaseUserProfile(uid: string): Promise<Record<string
 }
 
 export async function updateFirebaseProviderReviewState(uid: string, params: {
-  providerStatus: 'PENDING_VERIFICATION' | 'REJECTED';
+  providerStatus: 'PENDING_VERIFICATION' | 'ACTIVE' | 'REJECTED';
   providerUserId?: string;
   providerOrganizationId?: string;
 }): Promise<void> {

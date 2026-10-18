@@ -77,6 +77,8 @@ test('provider application intake and review preserve separate authority boundar
   assert.equal(invoke('GET', '/admin/provider-applications', provider).status, 403);
   assert.equal(invoke('POST', '/admin/provider-applications/application-a/review', provider).status, 403);
   assert.equal(invoke('POST', '/admin/provider-applications/application-a/review', admin).next, true);
+  assert.equal(invoke('POST', '/admin/provider-applications/application-a/activate', provider).status, 403);
+  assert.equal(invoke('POST', '/admin/provider-applications/application-a/activate', admin).next, true);
 });
 
 test('sensitive routes reject anonymous callers', () => {
