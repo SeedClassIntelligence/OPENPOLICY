@@ -1,7 +1,7 @@
 import { PGlite } from '@electric-sql/pglite';
 import fs from 'fs';
 import pg from 'pg';
-import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8, SQL_MIGRATION_V9, SQL_MIGRATION_V10, SQL_MIGRATION_V11, SQL_MIGRATION_V12, SQL_MIGRATION_V13, SQL_MIGRATION_V14, SQL_MIGRATION_V15, SQL_MIGRATION_V16, SQL_MIGRATION_V17, SQL_MIGRATION_V18, SQL_MIGRATION_V19, SQL_MIGRATION_V20, SQL_MIGRATION_V21 } from './migrate';
+import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8, SQL_MIGRATION_V9, SQL_MIGRATION_V10, SQL_MIGRATION_V11, SQL_MIGRATION_V12, SQL_MIGRATION_V13, SQL_MIGRATION_V14, SQL_MIGRATION_V15, SQL_MIGRATION_V16, SQL_MIGRATION_V17, SQL_MIGRATION_V18, SQL_MIGRATION_V19, SQL_MIGRATION_V20, SQL_MIGRATION_V21, SQL_MIGRATION_V22 } from './migrate';
 import { buildVerifiedPolicyAndBaseline } from '../../domain/policyEvidenceVerification';
 import {
   ProviderOrganization,
@@ -61,6 +61,29 @@ export interface CompensationDetermination {
   revokedAt?: string;
   revokeReason?: string;
   idempotencyKey: string;
+}
+
+export interface ProviderApplication {
+  id: string;
+  firebaseUid: string;
+  applicantName: string;
+  applicantEmail: string;
+  legalName: string;
+  displayName: string;
+  organizationType: ProviderOrganization['organizationType'];
+  jurisdictionCode: string;
+  insuranceLines: string[];
+  producerLicenseNumber?: string;
+  producerNpn?: string;
+  carrierAuthorityReference?: string;
+  requestedPlanCode: string;
+  status: 'SUBMITTED' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED';
+  submittedAt: string;
+  reviewedAt?: string;
+  reviewedBy?: string;
+  reviewReason?: string;
+  providerOrganizationId?: string;
+  providerUserId?: string;
 }
 
 export interface PremiumServiceControl {
@@ -293,6 +316,10 @@ export class PostgresStore {
         await this.sql.exec(SQL_MIGRATION_V21);
         await this.sql.query(
           `INSERT INTO _migrations (name) VALUES ('0021_platform_admin_authority') ON CONFLICT (name) DO NOTHING;`
+        );
+        await this.sql.exec(SQL_MIGRATION_V22);
+        await this.sql.query(
+          `INSERT INTO _migrations (name) VALUES ('0022_provider_application_intake') ON CONFLICT (name) DO NOTHING;`
         );
         this.isReady = true;
         console.log(
@@ -1577,6 +1604,71 @@ export class PostgresStore {
       extractedPremium: row.extracted_premium ?? undefined,
       enteredPremium: row.entered_premium ?? undefined
     };
+  }
+
+  private mapProviderApplication(row: any): ProviderApplication {
+    return {
+      id: row.id, firebaseUid: row.firebase_uid, applicantName: row.applicant_name,
+      applicantEmail: row.applicant_email, legalName: row.legal_name, displayName: row.display_name,
+      organizationType: row.organization_type, jurisdictionCode: row.jurisdiction_code,
+      insuranceLines: JSON.parse(row.insurance_lines || '[]'),
+      producerLicenseNumber: row.producer_license_number || undefined,
+      producerNpn: row.producer_npn || undefined,
+      carrierAuthorityReference: row.carrier_authority_reference || undefined,
+      requestedPlanCode: row.requested_plan_code, status: row.status,
+      submittedAt: row.submitted_at, reviewedAt: row.reviewed_at || undefined,
+      reviewedBy: row.reviewed_by || undefined, reviewReason: row.review_reason || undefined,
+      providerOrganizationId: row.provider_organization_id || undefined,
+      providerUserId: row.provider_user_id || undefined
+    };
+  }
+
+  public async submitProviderApplication(input: Omit<ProviderApplication, 'id' | 'status' | 'submittedAt'>): Promise<ProviderApplication> {
+    await this.ensureReady();
+    const now = new Date().toISOString();
+    const id = `provider_application_${input.firebaseUid}`;
+    const result = await this.sql!.query<any>(
+      `INSERT INTO provider_applications (
+         id,firebase_uid,applicant_name,applicant_email,legal_name,display_name,organization_type,
+         jurisdiction_code,insurance_lines,producer_license_number,producer_npn,carrier_authority_reference,
+         requested_plan_code,status,submitted_at,created_at,updated_at
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'SUBMITTED',$14,$14,$14)
+       ON CONFLICT (firebase_uid) DO UPDATE SET
+         applicant_name=EXCLUDED.applicant_name, applicant_email=EXCLUDED.applicant_email,
+         legal_name=EXCLUDED.legal_name, display_name=EXCLUDED.display_name,
+         organization_type=EXCLUDED.organization_type, jurisdiction_code=EXCLUDED.jurisdiction_code,
+         insurance_lines=EXCLUDED.insurance_lines, producer_license_number=EXCLUDED.producer_license_number,
+         producer_npn=EXCLUDED.producer_npn, carrier_authority_reference=EXCLUDED.carrier_authority_reference,
+         requested_plan_code=EXCLUDED.requested_plan_code, updated_at=EXCLUDED.updated_at
+       WHERE provider_applications.status IN ('SUBMITTED','UNDER_REVIEW')
+       RETURNING *;`,
+      [id,input.firebaseUid,input.applicantName.trim(),input.applicantEmail.trim().toLowerCase(),
+       input.legalName.trim(),input.displayName.trim(),input.organizationType,input.jurisdictionCode,
+       JSON.stringify(input.insuranceLines),input.producerLicenseNumber||null,input.producerNpn||null,
+       input.carrierAuthorityReference||null,input.requestedPlanCode,now]
+    );
+    if (!result.rows[0]) {
+      const existing = await this.getProviderApplicationByFirebaseUid(input.firebaseUid);
+      if (existing) return existing;
+      throw Object.assign(new Error('Provider application could not be submitted.'), { statusCode: 409 });
+    }
+    await this.appendAuditEvent({
+      eventType: 'PROVIDER_APPLICATION_SUBMITTED', actorRole: 'PROVIDER', actorId: input.firebaseUid,
+      details: `Provider application ${id} submitted for ${input.legalName}; requested plan ${input.requestedPlanCode}.`
+    } as any);
+    return this.mapProviderApplication(result.rows[0]);
+  }
+
+  public async getProviderApplicationByFirebaseUid(firebaseUid: string): Promise<ProviderApplication | undefined> {
+    await this.ensureReady();
+    const result = await this.sql!.query<any>(`SELECT * FROM provider_applications WHERE firebase_uid=$1;`, [firebaseUid]);
+    return result.rows[0] ? this.mapProviderApplication(result.rows[0]) : undefined;
+  }
+
+  public async listProviderApplications(): Promise<ProviderApplication[]> {
+    await this.ensureReady();
+    const result = await this.sql!.query<any>(`SELECT * FROM provider_applications ORDER BY submitted_at ASC;`);
+    return result.rows.map(row => this.mapProviderApplication(row));
   }
 
   public async saveProviderOrganization(org: ProviderOrganization) {

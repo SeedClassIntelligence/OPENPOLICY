@@ -56,6 +56,7 @@ const rules: RouteRule[] = [
   { methods: ['POST'], pattern: /^\/marketplace\/binding\/[^/]+\/(?:grant-consent|revoke-consent|resolve-modification|accept-modification|reject-modification|consumer-verify)$/, roles: ['CONSUMER'] },
 
   { pattern: /^\/marketplace\/(?:my-provider|active-provider|opportunities|invitations\/|competitions|workspace\/)/, roles: ['PROVIDER'] },
+  { pattern: /^\/provider-applications\/current$/, roles: ['PROVIDER'] },
   { methods: ['GET'], pattern: /^\/marketplace\/competition\/[^/]+\/offer-status$/, roles: ['PROVIDER'] },
   { methods: ['POST'], pattern: /^\/offers\/submit$/, roles: ['PROVIDER'] },
   { pattern: /^\/commercial\//, roles: ['PROVIDER'] },

@@ -70,18 +70,17 @@ The V2 price book independently defines event prices. They are not access roles 
 
 ## Current onboarding mismatch
 
-The public provider UI uses one generic `Broker / Carrier (Provider)` selection and collects agent name, agency name, one license number, state, email and password. It does not collect or establish:
+The public provider UI now creates a durable, idempotent provider application and collects organization type, legal name, requested V2 membership, jurisdiction, insurance line, applicable producer evidence and a direct-carrier authority reference. Submission explicitly grants neither marketplace authority nor a commercial agreement. The remaining review and activation workflow does not yet establish:
 
-- the canonical provider organization type;
 - whether the applicant is an individual producer joining an existing organization or an organization owner creating a new organization;
-- direct-carrier certificate-of-authority evidence;
+- verified direct-carrier certificate-of-authority evidence (the application records a reference for review only);
 - captive versus independent carrier relationships;
 - the durable provider user and organization mapping required by server identity;
-- a selected commercial plan/version or a negotiated agreement;
+- an activated immutable commercial agreement from the selected plan request;
 - payment authorization; or
 - marketplace activation.
 
-The form creates a Firebase profile with `PENDING_VERIFICATION`. The Provider Desk remains closed until the profile becomes active. This is appropriately an **application start**, but the current labels make it appear to be complete provider account creation.
+The form creates a Firebase profile with `PENDING_VERIFICATION` and a PostgreSQL-authoritative application in `SUBMITTED` state. The Provider Desk remains closed until a verified database mapping and active organization status exist. The interface labels this as an application rather than completed provider access.
 
 ## What is established and may be presented publicly
 
@@ -126,7 +125,7 @@ Repository verification against `cb75912` produced the following disposition:
 
 | Supplied claim | Disposition | Repository evidence |
 | --- | --- | --- |
-| `$35` applies to `VPO_ENGAGED`, not viewing | **Confirmed** | Participation projects `VPO_ENGAGED`; a viewed invitation projects zero-rated `VPO_VIEWED`; engagement idempotency is provider organization plus challenge/opportunity. |
+| `$35` applies to `VPO_ENGAGED`, not viewing | **Superseded by V2** | V2 eliminates the engagement charge. Both `VPO_VIEWED` and `VPO_ENGAGED` remain measurable but free; `AUTHORIZED_CONNECTION` is the sole billable marketplace transaction event. |
 | Premium V1 defines two seats and one jurisdiction but no included view/engagement/concurrent-opportunity quantity | **Confirmed** | The immutable V1 terms include seats and jurisdictions, but no included opportunity or engagement capacity. |
 | Only personal auto may enter the accepted policy pipeline | **Confirmed** | `canEnterPolicyPipeline` requires `implementationStatus === 'ACCEPTANCE'`; only personal auto has that status. |
 | Property and selected commercial lines have meaningful schema/normalization preparation but are not accepted end to end | **Confirmed** | Homeowners, renters, CGL and BOP remain `DEVELOPMENT` and are explicitly denied entry by registry tests. |

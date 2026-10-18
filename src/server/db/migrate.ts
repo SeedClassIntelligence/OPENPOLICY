@@ -1396,6 +1396,37 @@ CREATE TABLE IF NOT EXISTS platform_admin_assignments (
 );
 `;
 
+export const SQL_MIGRATION_V22 = `
+-- Durable provider application intake. Creating an identity or paying never
+-- establishes provider authority; platform review remains an explicit gate.
+CREATE TABLE IF NOT EXISTS provider_applications (
+  id TEXT PRIMARY KEY,
+  firebase_uid TEXT NOT NULL UNIQUE,
+  applicant_name TEXT NOT NULL,
+  applicant_email TEXT NOT NULL,
+  legal_name TEXT NOT NULL,
+  display_name TEXT NOT NULL,
+  organization_type TEXT NOT NULL CHECK (organization_type IN ('INDEPENDENT_AGENCY','BROKERAGE','DIRECT_CARRIER','CAPTIVE_AGENCY','OTHER_AUTHORIZED_PROVIDER')),
+  jurisdiction_code TEXT NOT NULL,
+  insurance_lines TEXT NOT NULL,
+  producer_license_number TEXT,
+  producer_npn TEXT,
+  carrier_authority_reference TEXT,
+  requested_plan_code TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('SUBMITTED','UNDER_REVIEW','APPROVED','REJECTED')),
+  submitted_at TEXT NOT NULL,
+  reviewed_at TEXT,
+  reviewed_by TEXT,
+  review_reason TEXT,
+  provider_organization_id TEXT,
+  provider_user_id TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS provider_applications_status_idx
+  ON provider_applications(status, submitted_at);
+`;
+
 export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR || './data/openpolicy_pg') {
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
@@ -1488,7 +1519,11 @@ export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR ||
     await pglite.query(
       `INSERT INTO _migrations (name) VALUES ('0021_platform_admin_authority') ON CONFLICT (name) DO NOTHING;`
     );
-    console.log(`[Open Policy DB] Migrations 0001 through 0021 applied successfully.`);
+    await pglite.exec(SQL_MIGRATION_V22);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0022_provider_application_intake') ON CONFLICT (name) DO NOTHING;`
+    );
+    console.log(`[Open Policy DB] Migrations 0001 through 0022 applied successfully.`);
     return pglite;
   } catch (error) {
     console.error(`[Open Policy DB] Migration error:`, error);

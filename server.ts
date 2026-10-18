@@ -93,6 +93,7 @@ import { DocumentAiOcrProvider } from './src/server/documentAiOcrProvider';
 import { extractAndClassifyPolicyDocument } from './src/server/policyDocumentExtraction';
 import { validatePolicyFieldCorrection } from './src/domain/policyFieldCorrection';
 import { canEnterPolicyPipeline, INSURANCE_LINES } from './src/domain/insuranceLineRegistry';
+import { OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2 } from './src/domain/commercialPriceBook';
 import { validatePolicyLineOfferFacts } from './src/domain/policyLineOfferContract';
 import { JURISDICTION_LINE_ROLLOUT_MATRIX } from './src/domain/jurisdictionLineAvailability';
 import type { InsuranceLine } from './src/types/jurisdiction';
@@ -1279,6 +1280,83 @@ app.get('/api/admin/marketplace-operations',async(_req,res)=>{
       selections:selections.map(item=>({id:item.id,challengeId:item.challengeId,providerOrganizationId:item.providerOrganizationId,carrier:item.carrier,status:item.status,selectedAt:item.selectedAt,annualPremium:item.annualPremium})),
       handoffs:handoffs.map(item=>({id:item.id,bindingReference:item.bindingReference,challengeId:item.challengeId,providerOrganizationId:item.providerOrganizationId,carrier:item.carrier,status:item.status,createdAt:item.createdAt,updatedAt:item.updatedAt}))});
   }catch(e:any){res.status(e.statusCode||500).json({error:e.message});}
+});
+
+const V2_PROVIDER_PLAN_CODES: Set<string> = new Set(
+  Object.values(OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.memberships).map(plan => plan.planCode)
+);
+const PROVIDER_ORGANIZATION_TYPES = new Set([
+  'INDEPENDENT_AGENCY','BROKERAGE','DIRECT_CARRIER','CAPTIVE_AGENCY','OTHER_AUTHORIZED_PROVIDER'
+]);
+
+app.get('/api/provider-applications/current', async (req, res) => {
+  try {
+    const application = await postgresStore.getProviderApplicationByFirebaseUid(req.openPolicyIdentity!.uid);
+    if (!application) return res.status(404).json({ error: 'Provider application not found.' });
+    res.json(application);
+  } catch (e: any) {
+    res.status(e.statusCode || 500).json({ error: e.message });
+  }
+});
+
+app.post('/api/provider-applications/current', async (req, res) => {
+  try {
+    const identity = req.openPolicyIdentity!;
+    const organizationType = String(req.body?.organizationType || '').toUpperCase();
+    const jurisdictionCode = String(req.body?.jurisdictionCode || '').toUpperCase();
+    const requestedPlanCode = String(req.body?.requestedPlanCode || '');
+    const insuranceLines: string[] = Array.isArray(req.body?.insuranceLines)
+      ? [...new Set<string>(req.body.insuranceLines.map((line: unknown) => String(line).toUpperCase()))]
+      : [];
+    if (!PROVIDER_ORGANIZATION_TYPES.has(organizationType)) {
+      return res.status(400).json({ error: 'A valid provider organization type is required.' });
+    }
+    if (!/^[A-Z]{2}$/.test(jurisdictionCode)) {
+      return res.status(400).json({ error: 'A two-letter licensing jurisdiction is required.' });
+    }
+    if (!V2_PROVIDER_PLAN_CODES.has(requestedPlanCode)) {
+      return res.status(400).json({ error: 'A valid OPEN_POLICY_COMMERCIAL_V2 membership is required.' });
+    }
+    if (insuranceLines.length === 0 || insuranceLines.some(line => !INSURANCE_LINES.some(item => item.code === line))) {
+      return res.status(400).json({ error: 'At least one recognized insurance line is required.' });
+    }
+    const producerLicenseNumber = String(req.body?.producerLicenseNumber || '').trim();
+    const carrierAuthorityReference = String(req.body?.carrierAuthorityReference || '').trim();
+    if (organizationType === 'DIRECT_CARRIER' && !carrierAuthorityReference) {
+      return res.status(400).json({ error: 'Direct-carrier applications require a certificate-of-authority reference for review.' });
+    }
+    if (organizationType !== 'DIRECT_CARRIER' && !producerLicenseNumber) {
+      return res.status(400).json({ error: 'A producer or entity license number is required.' });
+    }
+    const applicantName = String(req.body?.applicantName || '').trim();
+    const applicantEmail = String(identity.email || req.body?.applicantEmail || '').trim();
+    const legalName = String(req.body?.legalName || '').trim();
+    if (!applicantName || !applicantEmail || !legalName) {
+      return res.status(400).json({ error: 'Applicant name, email, and organization legal name are required.' });
+    }
+    const application = await postgresStore.submitProviderApplication({
+      firebaseUid: identity.uid,
+      applicantName,
+      applicantEmail,
+      legalName,
+      displayName: String(req.body?.displayName || req.body?.legalName || '').trim(),
+      organizationType: organizationType as any,
+      jurisdictionCode,
+      insuranceLines,
+      producerLicenseNumber: producerLicenseNumber || undefined,
+      producerNpn: String(req.body?.producerNpn || '').trim() || undefined,
+      carrierAuthorityReference: carrierAuthorityReference || undefined,
+      requestedPlanCode
+    });
+    res.status(201).json({ application, authorityGranted: false, commercialAgreementActivated: false });
+  } catch (e: any) {
+    res.status(e.statusCode || 500).json({ error: e.message });
+  }
+});
+
+app.get('/api/admin/provider-applications', async (_req, res) => {
+  try { res.json(await postgresStore.listProviderApplications()); }
+  catch (e: any) { res.status(e.statusCode || 500).json({ error: e.message }); }
 });
 
 app.get('/api/admin/administrators',async(req,res)=>{

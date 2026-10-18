@@ -13,7 +13,7 @@
     "validate": "tsx scripts/run-validators.ts",
     "pr0b:capture": "NODE_USE_ENV_PROXY=1 tsx scripts/pr0b/capture-source.ts",
     "pr0b:capture:inventory": "NODE_USE_ENV_PROXY=1 tsx scripts/pr0b/capture-inventory.ts",
-    "test:onboarding": "node --import tsx --test src/auth/roleAccess.test.ts src/server/auth/requestIdentity.test.ts src/server/auth/routeAuthorization.test.ts src/server/db/postgresStore.test.ts",
+    "test:onboarding": "node --import tsx --test src/auth/roleAccess.test.ts src/server/auth/requestIdentity.test.ts src/server/auth/routeAuthorization.test.ts src/server/db/postgresStore.test.ts src/server/db/providerApplication.test.ts",
     "test:authorization": "node --import tsx --test src/server/auth/requestIdentity.test.ts src/server/auth/routeAuthorization.test.ts src/server/auth/notificationAuthorization.test.ts src/server/paymentCollectionBoundary.test.ts src/server/stripePaymentProcessor.test.ts src/server/db/postgresStore.test.ts src/services/apiClient.test.ts src/services/firestoreSecurity.test.ts",
     "test:security-http": "tsx scripts/security-http-probes.ts",
     "test:copy": "node --import tsx --test src/copy/copyLint.test.ts",

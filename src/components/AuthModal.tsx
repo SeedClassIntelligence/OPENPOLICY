@@ -65,6 +65,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [providerState, setProviderState] = useState('NV');
   const [providerEmail, setProviderEmail] = useState('');
   const [providerPassword, setProviderPassword] = useState('');
+  const [providerOrganizationType, setProviderOrganizationType] = useState('INDEPENDENT_AGENCY');
+  const [providerPlanCode, setProviderPlanCode] = useState('PLAN_SOLO');
+  const [providerInsuranceLine, setProviderInsuranceLine] = useState<InsuranceLine>('PERSONAL_AUTO');
+  const [providerNpn, setProviderNpn] = useState('');
+  const [carrierAuthorityReference, setCarrierAuthorityReference] = useState('');
 
   // Sign In form state
   const [signInEmail, setSignInEmail] = useState('');
@@ -104,10 +109,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           );
           if (onSuccess) onSuccess(createdRole);
         } else {
-          if (!agentName.trim() || !agencyName.trim() || !licenseNumber.trim()) {
-            throw new Error('Please complete all agency registration fields.');
+          if (!agentName.trim() || !agencyName.trim() || (providerOrganizationType !== 'DIRECT_CARRIER' && !licenseNumber.trim())) {
+            throw new Error('Please complete all required provider application fields.');
           }
-          const createdRole = await signUpAsProvider(agentName, agencyName, licenseNumber, providerState, providerEmail, providerPassword);
+          const createdRole = await signUpAsProvider(
+            agentName, agencyName, licenseNumber, providerState, providerEmail, providerPassword,
+            providerOrganizationType, providerPlanCode, [providerInsuranceLine], providerNpn,
+            carrierAuthorityReference
+          );
           if (onSuccess) onSuccess(createdRole);
         }
       }
@@ -397,6 +406,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 </div>
               </div>
 
+
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-slate-700">Email Address (Kept Private)</label>
                 <div className="relative">
@@ -484,6 +494,29 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           ) : (
             /* Provider / Broker Sign Up Form */
             <form onSubmit={handleSubmit} className="space-y-3">
+              <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-[11px] leading-5 text-blue-900">
+                This creates a provider application—not marketplace authority. Open Policy must verify the organization, applicable authority, requested line, and commercial activation before the Provider Desk opens.
+              </div>
+              <div className="grid grid-cols-2 gap-2.5">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-700">Organization Type</label>
+                  <select value={providerOrganizationType} onChange={(e) => setProviderOrganizationType(e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-blue-500">
+                    <option value="INDEPENDENT_AGENCY">Independent agency</option><option value="BROKERAGE">Brokerage</option><option value="CAPTIVE_AGENCY">Captive agency</option><option value="DIRECT_CARRIER">Direct carrier</option><option value="OTHER_AUTHORIZED_PROVIDER">Other authorized provider</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-700">Requested V2 Plan</label>
+                  <select value={providerPlanCode} onChange={(e) => setProviderPlanCode(e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-blue-500">
+                    <option value="PLAN_SOLO">Solo — $99/month</option><option value="PLAN_AGENCY">Agency — $249/month</option><option value="PLAN_OPEN_POLICY_PREMIUM">Premium — $499/month</option><option value="PLAN_NETWORK">Network — $999/month</option><option value="PLAN_ENTERPRISE">Enterprise / Direct Carrier — from $1,999/month</option>
+                  </select>
+                </div>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-700">Requested Insurance Line</label>
+                <select value={providerInsuranceLine} onChange={(e) => setProviderInsuranceLine(e.target.value as InsuranceLine)} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-blue-500">
+                  {INSURANCE_LINES.map(line => <option key={line.code} value={line.code}>{line.displayName}{line.implementationStatus === 'ACCEPTANCE' ? '' : ' — production availability pending'}</option>)}
+                </select>
+              </div>
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-slate-700">Licensed Agent Name</label>
                 <div className="relative">
@@ -499,8 +532,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 </div>
               </div>
 
+              <div className="space-y-1"><label className="text-xs font-semibold text-slate-700">National Producer Number (optional)</label><input type="text" value={providerNpn} onChange={(e) => setProviderNpn(e.target.value)} placeholder="NPN" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-blue-500" /></div>
+              {providerOrganizationType === 'DIRECT_CARRIER' && <div className="space-y-1"><label className="text-xs font-semibold text-slate-700">Certificate-of-Authority Reference</label><input type="text" required value={carrierAuthorityReference} onChange={(e) => setCarrierAuthorityReference(e.target.value)} placeholder="Regulator record or certificate reference" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-blue-500" /><p className="text-[11px] leading-5 text-amber-700">Submission records evidence for review. It does not establish carrier authority automatically.</p></div>}
+
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-700">Agency / Brokerage Name</label>
+                <label className="text-xs font-semibold text-slate-700">Organization Legal Name</label>
                 <div className="relative">
                   <Building2 className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
@@ -508,7 +544,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     required
                     value={agencyName}
                     onChange={(e) => setAgencyName(e.target.value)}
-                    placeholder="Sierra Brokerage Group LLC"
+                    placeholder="Legal provider or carrier name"
                     className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                   />
                 </div>
@@ -527,10 +563,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-700">License / NPN #</label>
+                  <label className="text-xs font-semibold text-slate-700">{providerOrganizationType === 'DIRECT_CARRIER' ? 'Producer License (if applicable)' : 'License Number'}</label>
                   <input
                     type="text"
-                    required
+                    required={providerOrganizationType !== 'DIRECT_CARRIER'}
                     value={licenseNumber}
                     onChange={(e) => setLicenseNumber(e.target.value)}
                     placeholder="NV-LIC-984210"
@@ -575,7 +611,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 disabled={loading}
                 className="w-full mt-2 py-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-md transition cursor-pointer flex items-center justify-center space-x-2"
               >
-                <span>{loading ? 'Registering Agency...' : 'Register Agency & Open Quoting Desk'}</span>
+                <span>{loading ? 'Submitting Application...' : 'Submit Provider Application'}</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
             </form>
