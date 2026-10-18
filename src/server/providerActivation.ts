@@ -16,7 +16,17 @@ export async function activateApprovedProviderApplication(input: {
     throw Object.assign(new Error('Provider application must be approved and authoritatively mapped before activation.'), { statusCode: 409 });
   }
   if (application.organizationType === 'DIRECT_CARRIER') {
-    throw Object.assign(new Error('Direct-carrier activation is unavailable until carrier authority evidence is modeled and verified.'), { statusCode: 409 });
+    const licenses = await input.postgresStore.getProviderLicenses(application.providerOrganizationId);
+    const certificate = licenses.find(item =>
+      !item.providerUserId && item.jurisdiction === application.jurisdictionCode &&
+      item.licenseType === 'CARRIER_CERTIFICATE_OF_AUTHORITY' && item.status === 'ACTIVE' &&
+      item.verificationStatus === 'VERIFIED' && item.licenseNumber === application.carrierAuthorityReference &&
+      !!item.verificationSource && !!item.verifiedBy &&
+      (!item.expirationDate || item.expirationDate.slice(0, 10) > new Date().toISOString().slice(0, 10))
+    );
+    if (!certificate) {
+      throw Object.assign(new Error('A current, independently verified carrier certificate-of-authority record is required before activation.'), { statusCode: 409 });
+    }
   }
   const agreement = await input.commercialStore.getActiveAgreementForOrg(application.providerOrganizationId);
   if (!agreement) throw Object.assign(new Error('An active V2 commercial agreement is required before provider activation.'), { statusCode: 409 });

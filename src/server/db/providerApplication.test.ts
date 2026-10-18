@@ -39,7 +39,7 @@ test('provider application intake is durable, idempotent, and grants no authorit
   }
 });
 
-test('direct-carrier application records evidence reference without granting carrier authority', async () => {
+test('direct-carrier application requires independently verified certificate evidence before approval', async () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openpolicy-carrier-application-'));
   const store = new PostgresStore(dataDir);
   try {
@@ -55,7 +55,20 @@ test('direct-carrier application records evidence reference without granting car
     await assert.rejects(() => store.reviewProviderApplication({
       applicationId: application.id, decision: 'APPROVE', actorId: 'admin-owner', reason: 'Attempted review',
       verificationSource: 'Nevada DOI', licenseType: 'CARRIER', licenseExpirationDate: '2027-12-31'
-    }), /certificate-of-authority evidence is modeled and verified/);
+    }), /CARRIER_CERTIFICATE_OF_AUTHORITY/);
+    const approved = await store.reviewProviderApplication({
+      applicationId: application.id, decision: 'APPROVE', actorId: 'admin-owner',
+      reason: 'Nevada certificate of authority independently verified.',
+      verificationSource: 'Nevada Division of Insurance certificate lookup',
+      licenseType: 'CARRIER_CERTIFICATE_OF_AUTHORITY', licenseExpirationDate: '2027-12-31'
+    });
+    assert.equal(approved.status, 'APPROVED');
+    const licenses = await store.getProviderLicenses(approved.providerOrganizationId!);
+    assert.equal(licenses.length, 1);
+    assert.equal(licenses[0].licenseNumber, 'NV-COA-REVIEW-REFERENCE');
+    assert.equal(licenses[0].licenseType, 'CARRIER_CERTIFICATE_OF_AUTHORITY');
+    assert.equal(licenses[0].providerUserId, undefined);
+    assert.equal(licenses[0].verificationStatus, 'VERIFIED');
   } finally {
     await store.close();
     fs.rmSync(dataDir, { recursive: true, force: true });

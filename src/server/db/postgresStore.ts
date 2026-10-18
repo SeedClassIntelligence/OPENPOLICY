@@ -1005,7 +1005,8 @@ export class PostgresStore {
     const res = await this.sql!.query<{
       id: string; provider_organization_id: string; jurisdiction: string;
       license_number: string; license_type: string; status: string;
-      expiration_date: string; verified_at: string | null;
+      expiration_date: string; verified_at: string | null; provider_user_id: string | null;
+      npn: string | null; verification_source: string | null; verified_by: string | null;
     }>(`SELECT * FROM provider_licenses WHERE provider_organization_id = $1;`, [orgId]);
     return res.rows.map(row => ({
       id: row.id,
@@ -1016,7 +1017,12 @@ export class PostgresStore {
       status: row.status as ProviderLicense['status'],
       effectiveDate: row.verified_at || '2025-01-01',
       expirationDate: row.expiration_date,
-      verificationStatus: row.verified_at ? 'VERIFIED' : 'PENDING'
+      verificationStatus: row.verified_at ? 'VERIFIED' : 'PENDING',
+      providerUserId: row.provider_user_id || undefined,
+      npn: row.npn || undefined,
+      verificationSource: row.verification_source || undefined,
+      verifiedAt: row.verified_at || undefined,
+      verifiedBy: row.verified_by || undefined
     }));
   }
 
@@ -1698,10 +1704,13 @@ export class PostgresStore {
           details: `Provider application ${current.id} rejected. Reason: ${params.reason.trim()}` });
         return this.mapProviderApplication(rejected.rows[0]);
       }
-      if (current.organizationType === 'DIRECT_CARRIER') {
-        throw Object.assign(new Error('Direct-carrier approval is unavailable until certificate-of-authority evidence is modeled and verified.'), { statusCode: 409 });
+      const isDirectCarrier = current.organizationType === 'DIRECT_CARRIER';
+      const authorityNumber = isDirectCarrier ? current.carrierAuthorityReference : current.producerLicenseNumber;
+      const requiredLicenseType = isDirectCarrier ? 'CARRIER_CERTIFICATE_OF_AUTHORITY' : params.licenseType?.trim();
+      if (isDirectCarrier && params.licenseType?.trim() !== requiredLicenseType) {
+        throw Object.assign(new Error('Direct-carrier approval requires licenseType CARRIER_CERTIFICATE_OF_AUTHORITY.'), { statusCode: 400 });
       }
-      if (!current.producerLicenseNumber || !params.licenseType?.trim() || !/^\d{4}-\d{2}-\d{2}$/.test(params.licenseExpirationDate || '') || !params.verificationSource?.trim()) {
+      if (!authorityNumber || !requiredLicenseType || !/^\d{4}-\d{2}-\d{2}$/.test(params.licenseExpirationDate || '') || !params.verificationSource?.trim()) {
         throw Object.assign(new Error('Verified license type, expiration date, and verification source are required for approval.'), { statusCode: 400 });
       }
       const organizationId = `org_application_${current.firebaseUid}`;
@@ -1723,7 +1732,8 @@ export class PostgresStore {
         `INSERT INTO provider_licenses (id,provider_organization_id,jurisdiction,license_number,license_type,status,expiration_date,verified_at,provider_user_id,npn,verification_source,verified_by)
          VALUES ($1,$2,$3,$4,$5,'ACTIVE',$6,$7,$8,$9,$10,$11)
          ON CONFLICT (id) DO UPDATE SET status='ACTIVE',expiration_date=EXCLUDED.expiration_date,verified_at=EXCLUDED.verified_at,verification_source=EXCLUDED.verification_source,verified_by=EXCLUDED.verified_by;`,
-        [licenseId,organizationId,current.jurisdictionCode,current.producerLicenseNumber,params.licenseType.trim(),params.licenseExpirationDate,now,providerUserId,current.producerNpn||null,params.verificationSource.trim(),params.actorId]
+        [licenseId,organizationId,current.jurisdictionCode,authorityNumber,requiredLicenseType,params.licenseExpirationDate,now,
+         isDirectCarrier ? null : providerUserId,isDirectCarrier ? null : current.producerNpn||null,params.verificationSource.trim(),params.actorId]
       );
       const approved = await client.query<any>(
         `UPDATE provider_applications SET status='APPROVED',reviewed_at=$2,reviewed_by=$3,review_reason=$4,

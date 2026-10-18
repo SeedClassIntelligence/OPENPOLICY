@@ -62,10 +62,53 @@ test('provider activation fails closed until authority, matching V2 agreement, a
   }
 });
 
-test('direct-carrier activation remains unavailable without modeled certificate-of-authority verification', async () => {
+test('direct-carrier activation fails closed without a current independently verified certificate', async () => {
   const fakeApplication = { id: 'carrier-app', status: 'APPROVED', organizationType: 'DIRECT_CARRIER',
     providerOrganizationId: 'org-carrier', providerUserId: 'user-carrier' } as any;
   await assert.rejects(activateApprovedProviderApplication({ applicationId: fakeApplication.id, actorId: 'admin', reason: 'test',
-    postgresStore: { listProviderApplications: async () => [fakeApplication] } as any,
-    commercialStore: {} as any }), /Direct-carrier activation is unavailable/);
+    postgresStore: { listProviderApplications: async () => [fakeApplication], getProviderLicenses: async () => [] } as any,
+    commercialStore: {} as any }), /verified carrier certificate-of-authority/);
+});
+
+test('direct carrier activates only after verified certificate, matching V2 agreement, and settled subscription', async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openpolicy-carrier-activation-'));
+  const postgres = new PostgresStore(dataDir);
+  const commercial = new CommercialStore(postgres);
+  try {
+    await commercial.seedCanonicalPlans();
+    const application = await postgres.submitProviderApplication({
+      firebaseUid: 'firebase-direct-carrier', applicantName: 'Carrier Administrator',
+      applicantEmail: 'administrator@carrier.example', legalName: 'Verified Carrier Inc.',
+      displayName: 'Verified Carrier', organizationType: 'DIRECT_CARRIER', jurisdictionCode: 'NV',
+      insuranceLines: ['PERSONAL_AUTO'], carrierAuthorityReference: 'NV-COA-2026-001',
+      requestedPlanCode: 'PLAN_ENTERPRISE'
+    });
+    const approved = await postgres.reviewProviderApplication({
+      applicationId: application.id, decision: 'APPROVE', actorId: 'admin-owner',
+      reason: 'Certificate independently verified against the regulator record.',
+      licenseType: 'CARRIER_CERTIFICATE_OF_AUTHORITY', licenseExpirationDate: '2027-12-31',
+      verificationSource: 'Nevada Division of Insurance certificate lookup'
+    });
+    const enrollment = await commercial.enrollCommercialAgreement({
+      providerOrgId: approved.providerOrganizationId!, planId: 'PLAN_ENTERPRISE', actorRole: 'ADMIN'
+    });
+    const now = new Date().toISOString();
+    await commercial.saveBillingPeriod({ id: 'bp_carrier_activation',
+      providerOrganizationId: approved.providerOrganizationId!, commercialAgreementId: enrollment.agreement.id,
+      commercialPlanVersionId: enrollment.planVersion.id, periodStart: '2026-10-01T00:00:00.000Z',
+      periodEnd: '2026-11-01T00:00:00.000Z', status: 'OPEN', createdAt: now });
+    const draft = await commercial.generateDraftInvoice({ providerOrganizationId: approved.providerOrganizationId!,
+      billingPeriodId: 'bp_carrier_activation', idempotencyKey: 'carrier-activation-subscription' });
+    const invoice = await commercial.finalizeInvoiceById(draft.invoice.id);
+    await commercial.recordPayment({ providerOrganizationId: approved.providerOrganizationId!, invoiceId: invoice.id,
+      amountCents: invoice.totalDueCents, paymentMethod: 'CREDIT_CARD', externalReference: 'pi_carrier_activation',
+      idempotencyKey: 'carrier-activation-payment' });
+    const activated = await activateApprovedProviderApplication({ applicationId: application.id,
+      actorId: 'admin-owner', reason: 'Carrier activation acceptance.', postgresStore: postgres, commercialStore: commercial });
+    assert.equal(activated.organization.marketplaceStatus, 'ACTIVE');
+    assert.equal(activated.agreement.id, enrollment.agreement.id);
+  } finally {
+    await postgres.close();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
 });

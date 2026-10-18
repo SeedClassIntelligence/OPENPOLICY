@@ -79,12 +79,20 @@ export function evaluateProviderJurisdictionAuthority(input: ProviderAuthorityIn
     if (carrierRules.length === 0) {
       return { ...base, outcome: 'INDETERMINATE', reasons: [...reasons, 'No CARRIER_AUTHORITY requirement is in force for this jurisdiction.'], ruleIds };
     }
-    return {
-      ...base,
-      outcome: 'INDETERMINATE',
-      reasons: [...reasons, 'Certificate-of-authority evidence is not yet modeled; carrier authority cannot be established.'],
-      ruleIds
-    };
+    const certificates = validLicenses.filter(
+      license => !license.providerUserId && license.licenseType === 'CARRIER_CERTIFICATE_OF_AUTHORITY'
+    );
+    let missingCertificate = false;
+    for (const rule of carrierRules) {
+      const requirement = rule.machineRule as Extract<NonNullable<JurisdictionRule['machineRule']>, { kind: 'CARRIER_AUTHORITY' }>;
+      if (requirement.certificateOfAuthorityRequired && certificates.length === 0) {
+        missingCertificate = true;
+        reasons.push(`${rule.ruleCode}: no current verified certificate-of-authority evidence exists for ${jurisdictionCode}.`);
+      } else if (requirement.certificateOfAuthorityRequired) {
+        reasons.push(`${rule.ruleCode}: verified certificate ${certificates[0].licenseNumber} satisfies the carrier-authority requirement.`);
+      }
+    }
+    return { ...base, outcome: missingCertificate ? 'NOT_AUTHORIZED' : 'AUTHORIZED', reasons, ruleIds };
   }
 
   if (producerRules.length === 0) {
