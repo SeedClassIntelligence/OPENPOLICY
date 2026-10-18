@@ -114,10 +114,12 @@ regresses. No rollback was required during this acceptance.
    deployed runtime checkpoint plus later acceptance-only commits against the
    intended canonical branch.
 6. **Operational alerting.** A one-minute HTTPS uptime check named
-   `Open Policy production health` now verifies valid SSL, HTTP 200 and the
-   expected `"status":"ok"` response from `/api/health` in three U.S. checker
-   regions. No notification channels or alert policies exist, so automated
-   outage/error notification still requires an authorized destination.
+   `Open Policy production health` verifies valid SSL, HTTP 200 and the expected
+   `"status":"ok"` response from `/api/health` in three U.S. checker regions.
+   All three series reported healthy after creation. The enabled alert policy
+   `Open Policy production unavailable` triggers after two minutes of failed
+   health checks and routes to the enabled `Open Policy owner operations` email
+   channel at `openpolicylv@gmail.com`.
 
 ## Operational conclusion
 
