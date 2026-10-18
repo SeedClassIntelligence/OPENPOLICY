@@ -104,7 +104,8 @@ regresses. No rollback was required during this acceptance.
 3. **Permanent public domain.** The canonical service currently uses its Cloud
    Run URL. A permanent founder-selected domain still needs DNS, certificate,
    Firebase authorized-domain/browser-referrer, application URL, callback and
-   final smoke verification.
+   final smoke verification. A read-only Cloud Run API inspection returned no
+   domain-mapping resources for project `openpolicy-35f82`.
 4. **Insurance-line activation.** A published V2 connection price is not proof
    that a line's ingestion, regulatory, provider-authority and operational gates
    passed. Only independently accepted lines may be enabled.
@@ -112,6 +113,10 @@ regresses. No rollback was required during this acceptance.
    Merge requires separate founder authorization and a final comparison of the
    deployed runtime checkpoint plus later acceptance-only commits against the
    intended canonical branch.
+6. **Operational alerting.** Read-only Cloud Monitoring API inspection returned
+   no alert policies and no uptime-check configurations. Production health can
+   be queried, but automated outage/error notification is not yet established.
+   Creating it requires an authorized notification destination.
 
 ## Operational conclusion
 
