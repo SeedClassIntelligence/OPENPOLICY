@@ -3,19 +3,21 @@
 Date prepared: October 18, 2026  
 Product: Open Policy  
 Commercial authority: `OPEN_POLICY_COMMERCIAL_V2`  
-Status: **Prepared for Nevada insurance counsel or regulator review — not approved**
+Status: **Conduct-based compliance record — no special Nevada approval presumed**
 
-## Decision requested
+## Compliance question
 
-Determine whether Open Policy may charge a licensed provider the V2
+Evaluate whether Open Policy may charge a licensed provider the V2
 `AUTHORIZED_CONNECTION` fee after consumer selection, express authorization,
 controlled disclosure and successful connection without Open Policy itself
 holding a Nevada producer license, given the implemented conduct and neutrality
 controls below.
 
-This is a factual issue-spotting record, not legal advice. It does not activate
-compensation authority. Runtime charging must continue to fail closed until an
-authorized determination is durably recorded.
+This is a factual issue-spotting record, not legal advice. Nevada has not been
+shown to require a special referral-fee permit or case-specific government
+approval. Runtime charging remains off until separate operational activation;
+the durable compliance record exists to enforce the statutory conduct boundary,
+not to manufacture another regulatory approval process.
 
 ## Official Nevada authority
 
@@ -84,7 +86,7 @@ Policy receives no separate V2 marketplace fee for binding.
 | Provider handoff | Licensed provider applies, underwrites, binds and issues | Supports the position that Open Policy does not sell or bind |
 | Reconciliation | Factual issued-policy variance review | Confirm post-issuance comparison is not advice or negotiation |
 
-## Express determinations required
+## Conduct boundaries to confirm and preserve
 
 1. Does Open Policy “obtain insurance from insurers or purchasers” within NRS
    683A.065 when it facilitates disclosure and connection but does not apply or
@@ -101,12 +103,15 @@ Policy receives no separate V2 marketplace fee for binding.
 7. What disclosure, advertising, supervision and record-retention conditions
    should apply?
 
-## Required written disposition
+## Required internal compliance record
 
-Record the approving attorney or regulator, jurisdiction and line, reviewed
-product version and functions, approved/conditional/prohibited status, permitted
-charge if any, mandatory conditions and prohibited conduct, effective and review
-dates, citations, and the durable Open Policy governance record reference.
+Record the responsible platform compliance owner, jurisdiction and line,
+reviewed product version and functions, permissible/conditional/prohibited
+conduct, mandatory conditions, effective and review dates, primary citations,
+and the durable Open Policy governance record reference. Outside counsel or a
+regulator may be consulted, but neither is represented as a universal statutory
+precondition merely because Open Policy charges a connection fee.
 
-Until that disposition exists, Nevada `AUTHORIZED_CONNECTION` charging remains
-disabled. Publishing a V2 price is not regulatory authority.
+Live Nevada `AUTHORIZED_CONNECTION` charging remains disabled until separate
+operational activation. Publishing a V2 price is not authority to cross the
+sell/solicit/negotiate boundary.

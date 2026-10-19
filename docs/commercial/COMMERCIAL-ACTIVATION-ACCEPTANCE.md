@@ -157,9 +157,12 @@ authorize general live collection, traffic promotion, or marketplace release.
 Those actions remain subject to final release validation, production
 configuration review, rollback readiness, and explicit founder authorization.
 
-No connection fee may be activated until the separate Nevada compensation
-determination is approved and its durable determination reference is attached
-to the applicable immutable commercial plan version.
+Nevada has not been shown to require a special referral-fee permit or
+case-specific government approval. Before a connection fee is operationally
+activated, the durable compensation-control record must cite the applicable
+statutory/compliance basis and confirm that the implemented conduct remains
+outside selling, soliciting and negotiating insurance. The control enforces
+the legal operating boundary; it does not claim regulator approval.
 
 ## Zero-traffic release-candidate validation
 

@@ -94,10 +94,14 @@ regresses. No rollback was required during this acceptance.
 
 ## Gates that remain intentionally open
 
-1. **Nevada compensation determination.** Authorized-connection charging must
-   remain fail closed until the applicable legal determination is approved and
-   durably attached to the governing plan/version. This record is technical
-   evidence, not legal advice or regulatory approval.
+1. **Nevada conduct-based compensation control.** Nevada has not been shown to
+   require a special referral-fee permit or case-specific government approval.
+   Before live connection billing is enabled, Open Policy must durably record
+   the statutory/compliance basis that the implemented workflow does not sell,
+   solicit or negotiate insurance and satisfies the other applicable Nevada
+   restrictions. The control enforces the operating boundary; it does not
+   represent regulator approval. Live billing remains off pending separate
+   operational activation.
 2. **Live collection activation.** `OPENPOLICY_LIVE_COLLECTIONS_ENABLED` remains
    `false`. Controlled Stripe payment/webhook acceptance is recorded separately;
    general live collection was not activated here.
