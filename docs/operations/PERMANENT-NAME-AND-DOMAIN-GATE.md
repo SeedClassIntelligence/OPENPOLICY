@@ -1,7 +1,20 @@
 # Permanent name and domain gate
 
 Date: October 18, 2026  
-Status: **Founder decision required before permanent domain mapping**
+Status: **Founder selected `openpolici.com`; ownership verification pending**
+
+## Founder decision
+
+On October 18, 2026, the founder selected the exact permanent domain
+`openpolici.com`. The spelling is intentional. Public-brand presentation as
+`OpenPolici` remains the working interpretation for implementation; internal
+historical identifiers do not need destructive renaming.
+
+Verisign RDAP reports that `OPENPOLICI.COM` was registered on October 19, 2026
+UTC through infrastructure using `ns1.siteground.net` and
+`ns2.siteground.net`, with expiration on October 19, 2027. Google Cloud did not
+yet list the domain as verified for the active account, and the apex and `www`
+host did not yet resolve to application address records when inspected.
 
 ## Verified conflict
 
@@ -36,13 +49,12 @@ No permanent domain mapping, certificate, Firebase authorized-domain change,
 Stripe redirect/webhook migration or public-email migration should occur until
 the permanent name is selected.
 
-## Required founder decision
+## Required ownership step
 
-Provide either:
-
-1. a distinct permanent product/company name to clear and map; or
-2. explicit direction to retain `Open Policy` after obtaining appropriate
-   trademark advice and accepting the collision risk.
+Complete Google Search Console domain ownership verification for
+`openpolici.com` using the domain's SiteGround DNS control. The official Google
+verification workflow has been opened for the active account. Domain mapping
+must not be created until Google reports ownership verified.
 
 Once the name is decided, the implementation sequence is bounded:
 
