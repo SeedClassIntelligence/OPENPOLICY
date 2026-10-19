@@ -1,7 +1,7 @@
 # Permanent name and domain gate
 
 Date: October 18, 2026  
-Status: **Founder selected `openpolici.com`; ownership verification pending**
+Status: **Founder selected and acquired `openpolici.com`; connection deferred**
 
 ## Founder decision
 
@@ -10,11 +10,11 @@ On October 18, 2026, the founder selected the exact permanent domain
 `OpenPolici` remains the working interpretation for implementation; internal
 historical identifiers do not need destructive renaming.
 
+The founder confirmed ownership of `openpolici.com` through SiteGround.
 Verisign RDAP reports that `OPENPOLICI.COM` was registered on October 19, 2026
-UTC through infrastructure using `ns1.siteground.net` and
-`ns2.siteground.net`, with expiration on October 19, 2027. Google Cloud did not
-yet list the domain as verified for the active account, and the apex and `www`
-host did not yet resolve to application address records when inspected.
+UTC using `ns1.siteground.net` and `ns2.siteground.net`, with expiration on
+October 19, 2027. Connecting the domain to Open Policy is intentionally
+deferred and is not a prerequisite for completing the platform.
 
 ## Verified conflict
 
@@ -44,19 +44,19 @@ decision and appropriate clearance.
 
 ## Operational consequence
 
-The current Cloud Run URL remains the accepted temporary production endpoint.
-No permanent domain mapping, certificate, Firebase authorized-domain change,
-Stripe redirect/webhook migration or public-email migration should occur until
-the permanent name is selected.
+The current Cloud Run URL remains the accepted application endpoint. No domain
+mapping, certificate, Firebase authorized-domain change, Stripe redirect or
+webhook migration, or public-email migration is required now. Those changes
+remain deferred until the founder elects to connect `openpolici.com`.
 
-## Required ownership step
+## Deferred connection step
 
-Complete Google Search Console domain ownership verification for
-`openpolici.com` using the domain's SiteGround DNS control. The official Google
-verification workflow has been opened for the active account. Domain mapping
-must not be created until Google reports ownership verified.
+No Google Search Console verification or DNS mutation is required for the
+current platform-completion work. Domain connection will be handled as a
+separate founder-authorized operation.
 
-Once the name is decided, the implementation sequence is bounded:
+When the founder elects to connect the domain, the implementation sequence is
+bounded:
 
 1. verify domain and trademark availability;
 2. acquire/control the domain;

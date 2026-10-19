@@ -105,11 +105,12 @@ regresses. No rollback was required during this acceptance.
 2. **Live collection activation.** `OPENPOLICY_LIVE_COLLECTIONS_ENABLED` remains
    `false`. Controlled Stripe payment/webhook acceptance is recorded separately;
    general live collection was not activated here.
-3. **Permanent public domain.** The canonical service currently uses its Cloud
-   Run URL. A permanent founder-selected domain still needs DNS, certificate,
-   Firebase authorized-domain/browser-referrer, application URL, callback and
-   final smoke verification. A read-only Cloud Run API inspection returned no
-   domain-mapping resources for project `openpolicy-35f82`.
+3. **Permanent public-domain connection — deferred, not blocking.** The founder
+   selected and acquired `openpolici.com` through SiteGround. The canonical
+   service may continue on its accepted Cloud Run URL. DNS, TLS, Firebase,
+   Stripe, application-URL and monitoring migration will occur only when the
+   founder elects to connect the domain; they are not prerequisites for
+   completing the platform.
 4. **Insurance-line activation.** A published V2 connection price is not proof
    that a line's ingestion, regulatory, provider-authority and operational gates
    passed. Only independently accepted lines may be enabled.
@@ -130,6 +131,7 @@ regresses. No rollback was required during this acceptance.
 Open Policy's promoted runtime is healthy and its tested consumer/provider
 authorization boundaries remain intact. The product may continue controlled
 acceptance on the canonical Cloud Run URL. It must not represent Nevada
-connection-fee collection, unrestricted multi-line availability, permanent
-public-domain readiness or repository merge as complete until the corresponding
-gate above is closed with direct evidence.
+connection-fee collection, unrestricted multi-line availability or repository
+merge as complete until the corresponding gate above is closed with direct
+evidence. Connecting the founder-owned domain remains a separately authorized
+launch operation rather than a platform-completion gate.
