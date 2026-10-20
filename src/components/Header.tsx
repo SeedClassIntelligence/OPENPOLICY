@@ -157,6 +157,7 @@ export const Header: React.FC<HeaderProps> = ({
   }, []);
 
   const unreadCount = notifications.filter(n => !n.read).length;
+  const publicAuthRole = publicLandingPath === '/providers' ? 'PROVIDER' : 'CONSUMER';
 
   const handleMarkRead = async (id: string) => {
     try {
@@ -440,14 +441,14 @@ export const Header: React.FC<HeaderProps> = ({
               <div className="flex items-center gap-1.5">
                 <button
                   type="button"
-                  onClick={() => openAuthModal({ initialMode: 'SIGN_IN' })}
+                  onClick={() => openAuthModal({ initialMode: 'SIGN_IN', initialRole: publicAuthRole })}
                   className="px-2.5 py-1.5 rounded-lg text-xs text-slate-300 hover:text-white hover:bg-slate-800 transition cursor-pointer font-medium"
                 >
                   Sign In
                 </button>
                 <button
                   type="button"
-                  onClick={() => openAuthModal({ initialMode: 'SIGN_UP', initialRole: 'CONSUMER' })}
+                  onClick={() => openAuthModal({ initialMode: 'SIGN_UP', initialRole: publicAuthRole })}
                   className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow-xs transition cursor-pointer whitespace-nowrap"
                 >
                   Create Account
