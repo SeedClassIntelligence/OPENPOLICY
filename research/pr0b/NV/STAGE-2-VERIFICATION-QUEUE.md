@@ -11,14 +11,10 @@ Production effect: **none**
 - `NV-MINIMUM-LIABILITY-001` — $25,000 bodily injury per person.
 - `NV-MINIMUM-LIABILITY-002` — $50,000 bodily injury per crash.
 - `NV-MINIMUM-LIABILITY-003` — $20,000 property damage per crash.
-- `NV-MIDTERM-CANCELLATION-001` — protected-period cancellation grounds and 10/30-day notice timing.
-- `NV-NONRENEWAL-001` — 30-day personal-lines nonrenewal notice and statutory remedy.
-- `NV-RENEWAL-CHANGE-NOTICE-001` — 30-day notice for renewal changes and statutory remedy.
-- `NV-BINDER-REPLACEMENT-001` — binder-to-policy limits, effective date and premium reconciliation.
 - `NV-ELECTRONIC-RECORD-REPRODUCTION-001` — retainable/reproducible electronic writing and recipient storage/printing.
 - `NV-ELECTRONIC-RETENTION-001` — electronic-record integrity, accessibility and reproduction method.
 
-For each rule the verifier must confirm the current official text, July 1, 2018 effective date, moped exception, coverage-code mapping, evaluation date and deterministic pass/fail fixtures.
+For each rule the verifier must confirm the current official text, the stated effective period, evaluation date, machine interpretation and deterministic pass/fail fixtures. For the three minimum-liability rules, the verifier must also confirm the July 1, 2018 effective date, moped exception and coverage-code mapping.
 
 ## Research completed; verifier resolution required
 
@@ -26,6 +22,10 @@ For each rule the verifier must confirm the current official text, July 1, 2018 
 - `NV-PROOF-001` — confirm the effective period of the current consolidated evidence-of-insurance field requirements.
 - `NV-REBATE-001` — confirm the current effective period and whether any consumer benefit proposed by Open Polici invokes an exception.
 - `NV-CANCELLATION-NOTICE-001` — confirm common delivery/content requirements and interaction with each underlying cancellation provision.
+- `NV-MIDTERM-CANCELLATION-001` — confirm the effective period for the protected-period grounds and 10/30-day notice timing.
+- `NV-NONRENEWAL-001` — confirm the effective period for the 30-day personal-lines nonrenewal notice and statutory remedy.
+- `NV-RENEWAL-CHANGE-NOTICE-001` — confirm the effective period for the 30-day renewal-change notice and statutory remedy.
+- `NV-BINDER-REPLACEMENT-001` — confirm the effective period for binder-to-policy limits, effective-date matching and premium reconciliation.
 
 ## Legal characterization required; must remain blocking
 

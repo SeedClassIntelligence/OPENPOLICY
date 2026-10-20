@@ -122,11 +122,11 @@
       "applicability": "Persons selling, soliciting, or negotiating personal-auto insurance in Nevada.",
       "exceptions": ["Insurer itself", "Applicable exemptions in NRS 683A.211, only within their stated limits"],
       "requiredEvidence": ["Current Nevada producer license", "Applicable casualty/property line authority", "Transaction date", "Current provider-user and organization relationship"],
-      "machineInterpretation": {"kind":"PRODUCER_AUTHORITY","acceptedLicenseClasses":["PROPERTY","CASUALTY","PERSONAL_LINES"],"entityLicenseRequired":true,"individualLicenseRequired":true,"appointmentRequired":true},
+      "machineInterpretation": null,
       "enforcementPoint": "PROVIDER_AUTHORITY",
       "evaluationDateBasis": "transactionDate",
       "effectiveFrom": "2003-10-01",
-      "openQuestions": ["The exact accepted Nevada license-class mapping, business-entity requirement, and appointment requirement require verifier confirmation against NRS 683A.261-.321 and current DOI operational records."],
+      "openQuestions": ["The exact accepted Nevada license-class mapping and business-entity requirement require verifier confirmation against NRS 683A.251-.321 and current DOI operational records. Appointment is transaction-role dependent under NV-APPOINTMENT-001 and must not be encoded as universally required."],
       "researchStatus": "REVIEW_REQUIRED",
       "verificationStatus": "UNVERIFIED"
     },
@@ -300,7 +300,7 @@
       "evaluationDateBasis": "cancellationEffectiveDate",
       "effectiveFrom": null,
       "openQuestions": ["Each permissible statutory ground should be normalized separately before automated ground validation is considered."],
-      "researchStatus": "READY_FOR_VERIFICATION",
+      "researchStatus": "RESEARCHED",
       "verificationStatus": "UNVERIFIED"
     },
     {
@@ -319,7 +319,7 @@
       "evaluationDateBasis": "policyExpirationDate",
       "effectiveFrom": null,
       "openQuestions": ["Verifier must confirm date-counting convention and evidence sufficient to establish each exception."],
-      "researchStatus": "READY_FOR_VERIFICATION",
+      "researchStatus": "RESEARCHED",
       "verificationStatus": "UNVERIFIED"
     },
     {
@@ -338,7 +338,7 @@
       "evaluationDateBasis": "policyExpirationDate",
       "effectiveFrom": null,
       "openQuestions": ["Verifier must confirm date counting and how compound favorable/unfavorable changes are classified."],
-      "researchStatus": "READY_FOR_VERIFICATION",
+      "researchStatus": "RESEARCHED",
       "verificationStatus": "UNVERIFIED"
     },
     {
@@ -395,7 +395,7 @@
       "evaluationDateBasis": "issuedPolicyDate",
       "effectiveFrom": null,
       "openQuestions": ["Filed-rate evidence and any later specific personal-auto provisions require independent verification."],
-      "researchStatus": "READY_FOR_VERIFICATION",
+      "researchStatus": "RESEARCHED",
       "verificationStatus": "UNVERIFIED"
     },
     {

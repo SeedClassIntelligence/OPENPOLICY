@@ -42,8 +42,8 @@ Nevada DMV pages may also be needed for proof-of-insurance and financial-respons
 | 11 | Binding | REVIEW_REQUIRED | 1 | NRS 687B.182-.183 candidate covers issuer authority, duration, form and delivery; Open Polici does not itself issue binders. |
 | 12 | Proof of insurance | RESEARCHED | 1 | NRS 690B.023 candidate includes effective and expiration dates and other mandatory evidence fields. |
 | 13 | Policy issuance | RESEARCHED | 1 | Binder-replacement reconciliation candidate also governs the resulting issued policy. |
-| 14 | Replacement and switching | READY_FOR_VERIFICATION | 1 | NRS 687B.184 requires matching binder/policy limits and effective dates and a filed-rate premium for the binder period. |
-| 15 | Cancellation and nonrenewal | READY_FOR_VERIFICATION | 4 | Common notice content plus midterm cancellation, nonrenewal and renewal-change timing candidates extracted; individual cancellation grounds remain a verifier concern. |
+| 14 | Replacement and switching | RESEARCHED | 1 | NRS 687B.184 requires matching binder/policy limits and effective dates and a filed-rate premium for the binder period; effective-period confirmation remains open. |
+| 15 | Cancellation and nonrenewal | RESEARCHED | 4 | Common notice content plus midterm cancellation, nonrenewal and renewal-change timing candidates extracted; effective periods and individual cancellation grounds remain open. |
 | 16 | Privacy | REVIEW_REQUIRED | 1 | NAC 679B.695 disclosure-authorization candidate extracted; party classification and electronic-signature interaction remain open. |
 | 17 | Records and retention | REVIEW_REQUIRED | 3 | NAC 679B.705/.710 access/correction plus NRS 719.290 electronic-retention method extracted; record-specific periods remain open. |
 | 18 | Required forms | RESEARCHED | 3 | UM rejection, proof-of-insurance and binder-form requirements are represented in existing candidates; carrier-specific forms remain proposition-dependent. |
