@@ -41,12 +41,13 @@ import {
   verifyCommercialEventHash,
   buildBillingPeriod,
   assembleDraftInvoice,
+  assembleUsageInvoice,
   finalizeInvoice,
   calculateAuthoritativeAccountBalance,
   buildRefundRecord
 } from '../../domain/commercialEconomicsEngine';
 import { OPEN_POLICY_PREMIUM_V1_UNAVAILABLE_SERVICE_ADD_ONS } from '../../domain/commercialPriceBook';
-import { OPEN_POLICY_PREMIUM_PRICE_BOOK_V1 } from '../../domain/commercialPriceBook';
+import { OPEN_POLICY_PREMIUM_PRICE_BOOK_V1, OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2 } from '../../domain/commercialPriceBook';
 
 /**
  * CommercialStore — Persistence layer for Open Policy Commercial Economics (CE-1 through CE-5).
@@ -253,7 +254,7 @@ export class CommercialStore {
         id, plan_id, version, effective_from, effective_until, billing_interval,
         recurring_fee_cents, currency, terms_snapshot, created_at
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      ON CONFLICT (id) DO NOTHING;`, // Immutable: never mutate historical versions
+      ON CONFLICT DO NOTHING;`, // Immutable and race-safe across both id and (plan_id, version).
       [
         version.id,
         version.planId,
@@ -2033,8 +2034,31 @@ export class CommercialStore {
     );
   }
 
+  private async getActiveCompetitionCount(providerOrgId: string): Promise<number> {
+    const client = await this.getClient();
+    const result = await client.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM (
+         SELECT 'competition:' || p.competition_id AS capacity_key
+         FROM challenge_participations p
+         JOIN competitions c ON c.id = p.competition_id
+         WHERE p.provider_organization_id = $1
+           AND p.status <> 'WITHDRAWN'
+           AND c.status IN ('PREPARING','MATCHING','INVITING','OPEN','CONSUMER_REVIEW')
+         GROUP BY p.competition_id
+         UNION ALL
+         SELECT 'reservation:' || u.id AS capacity_key
+         FROM commercial_usage_records u
+         WHERE u.provider_organization_id = $1
+           AND u.usage_type = 'ACTIVE_COMPETITION'
+           AND u.participation_id IS NULL
+       ) active_capacity;`,
+      [providerOrgId]
+    );
+    return parseInt(result.rows[0]?.count || '0', 10);
+  }
+
   /**
-   * Atomically evaluates and consumes VPO engagement capacity under PostgreSQL row locking.
+   * Atomically evaluates and consumes a concurrent-competition slot under PostgreSQL row locking.
    * Guarantees that concurrent requests cannot oversubscribe capacity, duplicate retries
    * are idempotent, and failed marketplace steps can be cleanly released without phantom usage.
    */
@@ -2046,7 +2070,7 @@ export class CommercialStore {
     idempotencyKey?: string;
   }): Promise<CommercialCapacityResult> {
     const { providerOrgId, invitationId, challengeId, participationId } = params;
-    const idempotencyKey = params.idempotencyKey || `usage:vpo_engagement:${providerOrgId}:${invitationId}`;
+    const idempotencyKey = params.idempotencyKey || `usage:active_competition:${providerOrgId}:${invitationId}`;
     const client = await this.getClient();
 
     // 1. Idempotency Check: if already recorded for this key, return idempotent success
@@ -2056,7 +2080,7 @@ export class CommercialStore {
         allowed: true,
         alreadyConsumed: true,
         isOverage: existingUsage.isOverage,
-        currentUsage: await this.getUsageCount(providerOrgId, 'VPO_ENGAGEMENT'),
+        currentUsage: await this.getActiveCompetitionCount(providerOrgId),
         enforcementPolicy: existingUsage.policyMode,
         usageRecord: existingUsage,
         code: 'WITHIN_CAPACITY'
@@ -2096,7 +2120,7 @@ export class CommercialStore {
 
       const agreement = agRes.rows[0];
 
-      // Retrieve VPO_ENGAGEMENT_CAPACITY entitlement
+      // Retrieve the V2 concurrent-competition entitlement.
       const entRes = await client.query<{
         id: string;
         entitlement_type: string;
@@ -2104,19 +2128,40 @@ export class CommercialStore {
         enforcement_policy: string;
       }>(
         `SELECT * FROM provider_entitlements 
-         WHERE commercial_agreement_id = $1 AND entitlement_type = 'VPO_ENGAGEMENT_CAPACITY';`,
+         WHERE commercial_agreement_id = $1 AND entitlement_type = 'ACTIVE_COMPETITION_CAPACITY';`,
         [agreement.id]
       );
 
       const entitlement = entRes.rows[0];
+      if (!entitlement || entitlement.limit_val === null) {
+        await client.query('COMMIT;');
+        return {
+          allowed: false, code: 'COMMERCIAL_CAPACITY_REACHED', isOverage: false,
+          currentUsage: 0, enforcementPolicy: 'HARD_BLOCK',
+          reason: 'Concurrent competition entitlement is not configured'
+        };
+      }
       const limit = entitlement?.limit_val ?? undefined;
       const policy = (entitlement?.enforcement_policy as CapacityEnforcementPolicy) || 'HARD_BLOCK';
 
-      // Reconstruct actual usage from durable usage records inside the transaction
+      // Reconstruct current active participation. Historical participation never
+      // consumes a current slot after its competition reaches a terminal state.
       const countRes = await client.query<{ count: string }>(
-        `SELECT COALESCE(SUM(quantity), 0) AS count 
-         FROM commercial_usage_records 
-         WHERE provider_organization_id = $1 AND usage_type = 'VPO_ENGAGEMENT';`,
+        `SELECT COUNT(*)::text AS count FROM (
+           SELECT 'competition:' || p.competition_id AS capacity_key
+           FROM challenge_participations p
+           JOIN competitions c ON c.id = p.competition_id
+           WHERE p.provider_organization_id = $1
+             AND p.status <> 'WITHDRAWN'
+             AND c.status IN ('PREPARING','MATCHING','INVITING','OPEN','CONSUMER_REVIEW')
+           GROUP BY p.competition_id
+           UNION ALL
+           SELECT 'reservation:' || u.id AS capacity_key
+           FROM commercial_usage_records u
+           WHERE u.provider_organization_id = $1
+             AND u.usage_type = 'ACTIVE_COMPETITION'
+             AND u.participation_id IS NULL
+         ) active_capacity;`,
         [providerOrgId]
       );
       const currentUsage = parseInt(countRes.rows[0]?.count || '0', 10);
@@ -2135,7 +2180,7 @@ export class CommercialStore {
           currentUsage,
           limit,
           enforcementPolicy: 'HARD_BLOCK',
-          reason: `VPO engagement capacity reached (${currentUsage}/${limit}) under HARD_BLOCK policy`
+          reason: `Concurrent competition capacity reached (${currentUsage}/${limit}) under HARD_BLOCK policy`
         };
       }
 
@@ -2155,7 +2200,7 @@ export class CommercialStore {
           providerOrgId,
           agreement.id,
           entitlement?.id || null,
-          'VPO_ENGAGEMENT',
+          'ACTIVE_COMPETITION',
           1,
           invitationId,
           challengeId || null,
@@ -2175,7 +2220,7 @@ export class CommercialStore {
         providerOrganizationId: providerOrgId,
         commercialAgreementId: agreement.id,
         entitlementId: entitlement?.id,
-        usageType: 'VPO_ENGAGEMENT',
+        usageType: 'ACTIVE_COMPETITION',
         quantity: 1,
         invitationId,
         challengeId,
@@ -2199,6 +2244,127 @@ export class CommercialStore {
     } catch (err) {
       await client.query('ROLLBACK;');
       throw err;
+    }
+  }
+
+  /**
+   * Atomically consumes one immutable offer-version submission from the current
+   * contractual month. Each version counts once; retries are idempotent.
+   */
+  public async consumeOfferSubmissionCapacity(params: {
+    providerOrgId: string;
+    challengeId: string;
+    offerVersionId: string;
+    idempotencyKey?: string;
+  }): Promise<CommercialCapacityResult> {
+    const { providerOrgId, challengeId, offerVersionId } = params;
+    const idempotencyKey = params.idempotencyKey ||
+      `usage:offer_submission:${providerOrgId}:${offerVersionId}`;
+    const client = await this.getClient();
+
+    await client.query('BEGIN;');
+    try {
+      const existing = await client.query(
+        `SELECT * FROM commercial_usage_records WHERE idempotency_key = $1 FOR UPDATE;`,
+        [idempotencyKey]
+      );
+      if (existing.rows.length) {
+        await client.query('COMMIT;');
+        const usageRecord = await this.getUsageRecordByIdempotencyKey(idempotencyKey);
+        return {
+          allowed: true, alreadyConsumed: true, isOverage: Boolean(usageRecord?.isOverage),
+          currentUsage: 0, enforcementPolicy: usageRecord?.policyMode || 'HARD_BLOCK',
+          usageRecord, code: 'WITHIN_CAPACITY'
+        };
+      }
+
+      const agreementResult = await client.query<{
+        id: string; starts_at: string;
+      }>(
+        `SELECT id, starts_at FROM commercial_agreements
+         WHERE provider_organization_id = $1 AND status = 'ACTIVE' FOR UPDATE;`,
+        [providerOrgId]
+      );
+      if (!agreementResult.rows.length) {
+        await client.query('COMMIT;');
+        return { allowed: false, code: 'NO_ACTIVE_AGREEMENT', isOverage: false,
+          currentUsage: 0, enforcementPolicy: 'HARD_BLOCK',
+          reason: 'No active commercial agreement found for provider organization' };
+      }
+      const agreement = agreementResult.rows[0];
+      const entitlementResult = await client.query<{
+        id: string; limit_val: number | null; enforcement_policy: string;
+      }>(
+        `SELECT id, limit_val, enforcement_policy FROM provider_entitlements
+         WHERE commercial_agreement_id = $1
+           AND entitlement_type = 'MONTHLY_OFFER_SUBMISSION_CAPACITY';`,
+        [agreement.id]
+      );
+      const entitlement = entitlementResult.rows[0];
+      if (!entitlement || entitlement.limit_val === null) {
+        await client.query('COMMIT;');
+        return { allowed: false, code: 'COMMERCIAL_CAPACITY_REACHED', isOverage: false,
+          currentUsage: 0, enforcementPolicy: 'HARD_BLOCK',
+          reason: 'Monthly offer-submission entitlement is not configured' };
+      }
+
+      const start = new Date(agreement.starts_at);
+      const now = new Date();
+      const anniversary = (year: number, month: number): Date => {
+        const normalized = new Date(Date.UTC(year, month, 1));
+        const daysInMonth = new Date(Date.UTC(normalized.getUTCFullYear(), normalized.getUTCMonth() + 1, 0)).getUTCDate();
+        return new Date(Date.UTC(normalized.getUTCFullYear(), normalized.getUTCMonth(),
+          Math.min(start.getUTCDate(), daysInMonth), start.getUTCHours(), start.getUTCMinutes(),
+          start.getUTCSeconds(), start.getUTCMilliseconds()));
+      };
+      let periodStart = anniversary(now.getUTCFullYear(), now.getUTCMonth());
+      if (periodStart > now) periodStart = anniversary(now.getUTCFullYear(), now.getUTCMonth() - 1);
+      const periodEnd = anniversary(periodStart.getUTCFullYear(), periodStart.getUTCMonth() + 1);
+
+      const countResult = await client.query<{ count: string }>(
+        `SELECT COALESCE(SUM(quantity), 0)::text AS count FROM commercial_usage_records
+         WHERE commercial_agreement_id = $1 AND usage_type = 'OFFER_SUBMISSION'
+           AND consumed_at >= $2 AND consumed_at < $3;`,
+        [agreement.id, periodStart.toISOString(), periodEnd.toISOString()]
+      );
+      const currentUsage = parseInt(countResult.rows[0]?.count || '0', 10);
+      const limit = entitlement.limit_val;
+      const policy = (entitlement.enforcement_policy as CapacityEnforcementPolicy) || 'HARD_BLOCK';
+      const withinLimit = currentUsage < limit;
+      if (!withinLimit && policy === 'HARD_BLOCK') {
+        await client.query('COMMIT;');
+        return { allowed: false, code: 'COMMERCIAL_CAPACITY_REACHED', isOverage: false,
+          currentUsage, limit, enforcementPolicy: policy,
+          reason: `Monthly offer-submission capacity reached (${currentUsage}/${limit})` };
+      }
+
+      const isOverage = !withinLimit;
+      const recordId = `cur_${crypto.randomBytes(8).toString('hex')}`;
+      const consumedAt = now.toISOString();
+      await client.query(
+        `INSERT INTO commercial_usage_records (
+          id, provider_organization_id, commercial_agreement_id, entitlement_id,
+          usage_type, quantity, challenge_id, consumed_at, idempotency_key,
+          policy_mode, is_overage, metadata
+        ) VALUES ($1,$2,$3,$4,'OFFER_SUBMISSION',1,$5,$6,$7,$8,$9,$10);`,
+        [recordId, providerOrgId, agreement.id, entitlement.id, challengeId, consumedAt,
+          idempotencyKey, policy, isOverage, JSON.stringify({ offerVersionId,
+            billingPeriodStart: periodStart.toISOString(), billingPeriodEnd: periodEnd.toISOString() })]
+      );
+      await client.query('COMMIT;');
+      return {
+        allowed: true,
+        code: isOverage ? (policy === 'ALLOW_OVERAGE' ? 'OVERAGE_PERMITTED' : 'NOTIFY_CAPACITY_EXCEEDED') : 'WITHIN_CAPACITY',
+        isOverage, currentUsage: currentUsage + 1, limit, enforcementPolicy: policy,
+        usageRecord: { id: recordId, providerOrganizationId: providerOrgId,
+          commercialAgreementId: agreement.id, entitlementId: entitlement.id,
+          usageType: 'OFFER_SUBMISSION', quantity: 1, challengeId, consumedAt,
+          idempotencyKey, policyMode: policy, isOverage, metadata: { offerVersionId,
+            billingPeriodStart: periodStart.toISOString(), billingPeriodEnd: periodEnd.toISOString() } }
+      };
+    } catch (error) {
+      await client.query('ROLLBACK;');
+      throw error;
     }
   }
 
@@ -2274,6 +2440,9 @@ export class CommercialStore {
       };
       const selectedAddOns = (mergedTerms.selectedRecurringAddOns || {}) as Record<string, unknown>;
       const addOnCatalog = (mergedTerms.recurringAddOns || {}) as Record<string, unknown>;
+      const includedServicesValue = (mergedTerms as Record<string, unknown>).includedServices;
+      const includedServices = new Set(Array.isArray(includedServicesValue)
+        ? includedServicesValue.map(String) : []);
       for (const [code, quantity] of Object.entries(selectedAddOns)) {
         if (!(code in addOnCatalog) || !Number.isInteger(quantity) || Number(quantity) <= 0) {
           throw new Error(`Invalid contracted recurring add-on selection: ${code}`);
@@ -2281,6 +2450,20 @@ export class CommercialStore {
         if ((OPEN_POLICY_PREMIUM_V1_UNAVAILABLE_SERVICE_ADD_ONS as readonly string[]).includes(code)) {
           throw Object.assign(new Error(`PREMIUM_SERVICE_NOT_OPERATIONAL: ${code}`), { statusCode: 409 });
         }
+        if (includedServices.has(code)) {
+          throw Object.assign(new Error(`ADD_ON_ALREADY_INCLUDED_IN_PLAN: ${code}`), { statusCode: 409 });
+        }
+      }
+      const governedServices = Object.keys(selectedAddOns).filter(code =>
+        ['WORKFLOW_AUTOMATION','ENTERPRISE_REPORTING','API_INTEGRATION','MULTI_LOCATION_ADMINISTRATION'].includes(code));
+      if (governedServices.length) {
+        const client = await this.getClient();
+        const controls = await client.query<{service_code:string;status:string}>(
+          `SELECT service_code,status FROM premium_service_controls WHERE service_code = ANY($1);`, [governedServices]
+        );
+        const enabled = new Set(controls.rows.filter(row => row.status === 'ENABLED').map(row => row.service_code));
+        const blocked = governedServices.find(code => !enabled.has(code));
+        if (blocked) throw Object.assign(new Error(`PREMIUM_SERVICE_DISABLED: ${blocked}`), { statusCode: 409 });
       }
       planVersion = {
         id: versionId,
@@ -2299,25 +2482,10 @@ export class CommercialStore {
     }
 
     if (!planVersion) {
-      const versionId = `cpv_${planId}_${Date.now()}`;
-      planVersion = {
-        id: versionId,
-        planId,
-        version: 1,
-        effectiveFrom: now,
-        billingInterval: 'MONTHLY',
-        recurringFeeCents: 0,
-        currency: 'USD',
-        termsSnapshot: {
-          includedProducerSeats: 5,
-          includedJurisdictions: 3,
-          includedVpoCapacity: 50,
-          includedEngagementCapacity: 25,
-          capacityEnforcementPolicy: enforcementPolicy || 'HARD_BLOCK'
-        },
-        createdAt: now
-      };
-      await this.saveCommercialPlanVersion(planVersion);
+      throw Object.assign(
+        new Error('COMMERCIAL_PLAN_VERSION_REQUIRED: the selected plan has no approved executable version.'),
+        { statusCode: 409 }
+      );
     }
 
     const existingActive = await this.getActiveAgreementForOrg(providerOrgId);
@@ -2427,6 +2595,15 @@ export class CommercialStore {
       });
     }
 
+    const existingNetwork = await this.getCommercialPlanByCode('PLAN_NETWORK');
+    if (!existingNetwork) {
+      await this.saveCommercialPlan({
+        id: 'plan_network', code: 'PLAN_NETWORK', displayName: 'Network',
+        providerSegment: 'NETWORK', status: 'ACTIVE',
+        createdAt: OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.effectiveFrom
+      });
+    }
+
     let premiumPlan = await this.getCommercialPlanByCode('PLAN_OPEN_POLICY_PREMIUM');
     if (!premiumPlan) {
       premiumPlan = {
@@ -2457,7 +2634,11 @@ export class CommercialStore {
           selectedRecurringAddOns: {},
           implementationServices: { ...OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.implementationServices },
           qualifiedEngagementUnitPriceCents: OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.qualifiedEngagementCents,
+          freeMarketplaceEvents: [...OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.freeMarketplaceEvents],
           authorizedConnectionCentsByInsuranceLine: { ...OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.authorizedConnectionCentsByInsuranceLine },
+          authorizedConnectionMinimumCents: OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.authorizedConnectionMinimumCents,
+          authorizedConnectionMaximumCents: OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.authorizedConnectionMaximumCents,
+          unavailableInsuranceLines: [...OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.unavailableInsuranceLines],
           rates: {
             VPO_ENGAGED_CENTS: OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.qualifiedEngagementCents
           },
@@ -2468,6 +2649,44 @@ export class CommercialStore {
           capacityEnforcementPolicy: 'ALLOW_OVERAGE'
         },
         createdAt: OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.effectiveFrom
+      });
+    }
+
+    // V2 is the founder-approved initial-launch catalog. V1 remains immutable
+    // development history and is not rewritten or deleted.
+    for (const [tier, definition] of Object.entries(OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.memberships)) {
+      const plan = await this.getCommercialPlanByCode(definition.planCode);
+      if (!plan) throw new Error(`Canonical commercial plan missing: ${definition.planCode}`);
+      const versionId = `cpv_${definition.planCode.toLowerCase()}_v2`;
+      if (await this.getCommercialPlanVersion(versionId)) continue;
+      const includedServices = [...definition.includedServices];
+      await this.saveCommercialPlanVersion({
+        id: versionId, planId: plan.id,
+        version: definition.planCode === 'PLAN_OPEN_POLICY_PREMIUM' ? 2 : 1,
+        effectiveFrom: OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.effectiveFrom,
+        billingInterval: 'MONTHLY', recurringFeeCents: definition.priceCentsMonthly,
+        currency: 'USD',
+        termsSnapshot: {
+          priceBookId: OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.id,
+          membershipTier: tier,
+          includedProducerSeats: definition.producerSeats,
+          includedJurisdictions: definition.jurisdictions,
+          includedConcurrentCompetitions: definition.concurrentCompetitions,
+          includedMonthlyOfferSubmissions: definition.monthlyOfferSubmissions,
+          includedServices,
+          recurringAddOns: { ...OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.recurringAddOns },
+          selectedRecurringAddOns: {},
+          implementationServices: { ...OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.implementationServices },
+          qualifiedEngagementUnitPriceCents: 0,
+          freeMarketplaceEvents: [...OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.freeMarketplaceEvents],
+          authorizedConnectionCentsByInsuranceLine: { ...OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.authorizedConnectionCentsByInsuranceLine },
+          unavailableInsuranceLines: [...OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.unavailableInsuranceLines],
+          rates: { VPO_ENGAGED_CENTS: 0 },
+          compensationDeterminationApproved: false,
+          unpricedOutcomeEvents: [...OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.unpricedOutcomeEvents],
+          capacityEnforcementPolicy: 'HARD_BLOCK'
+        },
+        createdAt: OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.effectiveFrom
       });
     }
   }
@@ -2485,7 +2704,7 @@ export class CommercialStore {
       await this.saveCommercialPlanVersion({
         id: 'fixture_cpv_solo_v1',
         planId: soloPlan.id,
-        version: 1,
+        version: 99,
         effectiveFrom: '2026-01-01T00:00:00Z',
         billingInterval: 'MONTHLY',
         recurringFeeCents: 0,
@@ -2495,6 +2714,8 @@ export class CommercialStore {
           includedJurisdictions: 1,
           includedVpoCapacity: 50,
           includedEngagementCapacity: 10,
+          includedConcurrentCompetitions: 10,
+          includedMonthlyOfferSubmissions: 50,
           capacityEnforcementPolicy: 'HARD_BLOCK'
         },
         createdAt: '2026-01-01T00:00:00Z'
@@ -2506,7 +2727,7 @@ export class CommercialStore {
       await this.saveCommercialPlanVersion({
         id: 'fixture_cpv_agency_v1',
         planId: agencyPlan.id,
-        version: 1,
+        version: 99,
         effectiveFrom: '2026-01-01T00:00:00Z',
         billingInterval: 'MONTHLY',
         recurringFeeCents: 0,
@@ -2516,10 +2737,26 @@ export class CommercialStore {
           includedJurisdictions: 3,
           includedVpoCapacity: 200,
           includedEngagementCapacity: 100,
+          includedConcurrentCompetitions: 100,
+          includedMonthlyOfferSubmissions: 200,
           capacityEnforcementPolicy: 'HARD_BLOCK'
         },
         createdAt: '2026-01-01T00:00:00Z'
       });
+    }
+  }
+
+  /** Explicit non-production commercial bootstrap used only with fixture auth. */
+  public async seedTestCommercialAgreements(): Promise<void> {
+    await this.seedTestCommercialFixtures();
+    const fixtures = [
+      { providerOrgId: 'org_sierra', planId: 'PLAN_SOLO', planVersionId: 'fixture_cpv_solo_v1' },
+      { providerOrgId: 'org_buckeye', planId: 'PLAN_AGENCY', planVersionId: 'fixture_cpv_agency_v1' },
+      { providerOrgId: 'org_apex', planId: 'PLAN_AGENCY', planVersionId: 'fixture_cpv_agency_v1' }
+    ];
+    for (const fixture of fixtures) {
+      if (await this.getActiveAgreementForOrg(fixture.providerOrgId)) continue;
+      await this.enrollCommercialAgreement({ ...fixture, actorRole: 'ADMIN' });
     }
   }
 
@@ -2603,8 +2840,8 @@ export class CommercialStore {
     return closed;
   }
 
-  public async saveInvoice(invoice: Invoice): Promise<void> {
-    const client = await this.getClient();
+  public async saveInvoice(invoice: Invoice, transactionClient?: SqlClient): Promise<void> {
+    const client = transactionClient || await this.getClient();
     await client.query(
       `INSERT INTO invoices (
         id, invoice_number, provider_organization_id, commercial_agreement_id,
@@ -2644,8 +2881,8 @@ export class CommercialStore {
     );
   }
 
-  public async saveInvoiceLineItem(line: InvoiceLineItem): Promise<void> {
-    const client = await this.getClient();
+  public async saveInvoiceLineItem(line: InvoiceLineItem, transactionClient?: SqlClient): Promise<void> {
+    const client = transactionClient || await this.getClient();
     await client.query(
       `INSERT INTO invoice_line_items (
         id, invoice_id, line_type, description, quantity, unit_price_cents,
@@ -2669,15 +2906,15 @@ export class CommercialStore {
     );
   }
 
-  public async getInvoiceById(id: string): Promise<Invoice | undefined> {
-    const client = await this.getClient();
+  public async getInvoiceById(id: string, transactionClient?: SqlClient): Promise<Invoice | undefined> {
+    const client = transactionClient || await this.getClient();
     const res = await client.query<any>(
       `SELECT * FROM invoices WHERE id = $1;`,
       [id]
     );
     if (res.rows.length === 0) return undefined;
     const r = res.rows[0];
-    const lineItems = await this.getInvoiceLineItems(id);
+    const lineItems = await this.getInvoiceLineItems(id, client);
     return {
       id: r.id,
       invoiceNumber: r.invoice_number,
@@ -2710,14 +2947,14 @@ export class CommercialStore {
     return this.getInvoiceById(res.rows[0].id);
   }
 
-  public async getInvoiceByIdempotencyKey(key: string): Promise<Invoice | undefined> {
-    const client = await this.getClient();
+  public async getInvoiceByIdempotencyKey(key: string, transactionClient?: SqlClient): Promise<Invoice | undefined> {
+    const client = transactionClient || await this.getClient();
     const res = await client.query<any>(
       `SELECT * FROM invoices WHERE idempotency_key = $1;`,
       [key]
     );
     if (res.rows.length === 0) return undefined;
-    return this.getInvoiceById(res.rows[0].id);
+    return this.getInvoiceById(res.rows[0].id, client);
   }
 
   public async getInvoicesForOrg(providerOrganizationId: string): Promise<Invoice[]> {
@@ -2753,8 +2990,49 @@ export class CommercialStore {
     return invoices;
   }
 
-  public async getInvoiceLineItems(invoiceId: string): Promise<InvoiceLineItem[]> {
+  /** Launch activation requires a fully settled recurring membership invoice. */
+  public async hasPaidSubscriptionInvoice(providerOrganizationId: string, commercialAgreementId: string): Promise<boolean> {
     const client = await this.getClient();
+    const result = await client.query<{ count: number }>(
+      `SELECT COUNT(DISTINCT i.id)::int AS count
+       FROM invoices i
+       JOIN invoice_line_items l ON l.invoice_id=i.id
+       WHERE i.provider_organization_id=$1
+         AND i.commercial_agreement_id=$2
+         AND i.status='PAID'
+         AND i.balance_due_cents=0
+         AND i.paid_at IS NOT NULL
+         AND l.line_type='SUBSCRIPTION'
+         AND l.amount_cents>0;`,
+      [providerOrganizationId, commercialAgreementId]
+    );
+    return Number(result.rows[0]?.count || 0) > 0;
+  }
+
+  public async getPlatformFinancialOverview(): Promise<Record<string, unknown>> {
+    const client=await this.getClient();
+    const [invoiceTotals,paymentTotals,refundTotals,eventTotals,recentInvoices,recentPayments,recentRefunds]=await Promise.all([
+      client.query<any>(`SELECT COUNT(*)::int AS count,COALESCE(SUM(total_due_cents),0)::bigint AS invoiced_cents,COALESCE(SUM(balance_due_cents),0)::bigint AS outstanding_cents,COUNT(*) FILTER (WHERE status='PAST_DUE')::int AS past_due_count FROM invoices;`),
+      client.query<any>(`SELECT COUNT(*)::int AS count,COALESCE(SUM(amount_cents) FILTER (WHERE status='SUCCEEDED'),0)::bigint AS collected_cents,COUNT(*) FILTER (WHERE status='FAILED')::int AS failed_count,COUNT(*) FILTER (WHERE status='PENDING')::int AS pending_count FROM payment_records;`),
+      client.query<any>(`SELECT COUNT(*)::int AS count,COALESCE(SUM(amount_cents),0)::bigint AS refunded_cents FROM refund_records;`),
+      client.query<any>(`SELECT e.event_type,COUNT(*)::int AS event_count,COALESCE(SUM(b.amount_cents),0)::bigint AS rated_cents FROM commercial_events e LEFT JOIN billable_events b ON b.commercial_event_id=e.id GROUP BY e.event_type ORDER BY e.event_type;`),
+      client.query<any>(`SELECT i.id,i.invoice_number,i.provider_organization_id,o.display_name,i.status,i.total_due_cents,i.balance_due_cents,i.created_at FROM invoices i LEFT JOIN provider_organizations o ON o.id=i.provider_organization_id ORDER BY i.created_at DESC LIMIT 25;`),
+      client.query<any>(`SELECT p.id,p.provider_organization_id,o.display_name,p.invoice_id,p.amount_cents,p.status,p.payment_method,p.created_at,p.settled_at FROM payment_records p LEFT JOIN provider_organizations o ON o.id=p.provider_organization_id ORDER BY p.created_at DESC LIMIT 25;`),
+      client.query<any>(`SELECT r.id,r.provider_organization_id,o.display_name,r.original_payment_record_id,r.amount_cents,r.reason,r.refunded_at FROM refund_records r LEFT JOIN provider_organizations o ON o.id=r.provider_organization_id ORDER BY r.refunded_at DESC LIMIT 25;`)
+    ]);
+    const invoices=invoiceTotals.rows[0]||{};const payments=paymentTotals.rows[0]||{};const refunds=refundTotals.rows[0]||{};
+    return {generatedAt:new Date().toISOString(),totals:{invoiceCount:Number(invoices.count||0),invoicedCents:Number(invoices.invoiced_cents||0),
+      outstandingCents:Number(invoices.outstanding_cents||0),pastDueCount:Number(invoices.past_due_count||0),paymentCount:Number(payments.count||0),
+      collectedCents:Number(payments.collected_cents||0),failedPaymentCount:Number(payments.failed_count||0),pendingPaymentCount:Number(payments.pending_count||0),
+      refundCount:Number(refunds.count||0),refundedCents:Number(refunds.refunded_cents||0)},
+      revenueEvents:eventTotals.rows.map(row=>({eventType:row.event_type,eventCount:Number(row.event_count),ratedCents:Number(row.rated_cents)})),
+      recentInvoices:recentInvoices.rows.map(row=>({id:row.id,invoiceNumber:row.invoice_number,providerOrganizationId:row.provider_organization_id,providerName:row.display_name||row.provider_organization_id,status:row.status,totalDueCents:row.total_due_cents,balanceDueCents:row.balance_due_cents,createdAt:row.created_at})),
+      recentPayments:recentPayments.rows.map(row=>({id:row.id,providerOrganizationId:row.provider_organization_id,providerName:row.display_name||row.provider_organization_id,invoiceId:row.invoice_id,amountCents:row.amount_cents,status:row.status,paymentMethod:row.payment_method,createdAt:row.created_at,settledAt:row.settled_at||undefined})),
+      recentRefunds:recentRefunds.rows.map(row=>({id:row.id,providerOrganizationId:row.provider_organization_id,providerName:row.display_name||row.provider_organization_id,paymentId:row.original_payment_record_id,amountCents:row.amount_cents,reason:row.reason,refundedAt:row.refunded_at}))};
+  }
+
+  public async getInvoiceLineItems(invoiceId: string, transactionClient?: SqlClient): Promise<InvoiceLineItem[]> {
+    const client = transactionClient || await this.getClient();
     const res = await client.query<any>(
       `SELECT * FROM invoice_line_items WHERE invoice_id = $1 ORDER BY created_at ASC;`,
       [invoiceId]
@@ -2877,6 +3155,45 @@ export class CommercialStore {
     }
 
     return draft;
+  }
+
+  public async generateUsageInvoice(params: {
+    providerOrganizationId: string;
+    billingPeriodId: string;
+    billableEventIds: string[];
+    idempotencyKey: string;
+  }): Promise<{ invoice: Invoice; lineItems: InvoiceLineItem[] }> {
+    const existing = await this.getInvoiceByIdempotencyKey(params.idempotencyKey);
+    if (existing) return { invoice: existing, lineItems: existing.lineItems || [] };
+    const period = await this.getBillingPeriodById(params.billingPeriodId);
+    if (!period || period.providerOrganizationId !== params.providerOrganizationId) {
+      throw Object.assign(new Error('Billing period does not belong to provider organization.'), { statusCode: 409 });
+    }
+    const ids = [...new Set(params.billableEventIds.filter(Boolean))];
+    if (!ids.length) throw Object.assign(new Error('billableEventIds is required.'), { statusCode: 400 });
+    const billableEvents: BillableEvent[] = [];
+    for (const id of ids) {
+      const event = await this.getBillableEventById(id);
+      if (!event) throw Object.assign(new Error(`Billable event not found: ${id}`), { statusCode: 404 });
+      billableEvents.push(event);
+    }
+    const client = await this.getClient();
+    const alreadyInvoiced = await client.query<{ billable_event_id:string }>(
+      `SELECT billable_event_id FROM invoice_line_items WHERE billable_event_id = ANY($1::text[])`, [ids]
+    );
+    if (alreadyInvoiced.rows.length) {
+      throw Object.assign(new Error('One or more billable events have already been invoiced.'), { statusCode: 409 });
+    }
+    const draft = assembleUsageInvoice({ billingPeriod: period, billableEvents, idempotencyKey: params.idempotencyKey });
+    await client.transaction(async transactionClient => {
+      const raced = await this.getInvoiceByIdempotencyKey(params.idempotencyKey, transactionClient);
+      if (raced) return;
+      await this.saveInvoice(draft.invoice, transactionClient);
+      for (const item of draft.lineItems) await this.saveInvoiceLineItem(item, transactionClient);
+    });
+    const persisted = await this.getInvoiceByIdempotencyKey(params.idempotencyKey);
+    if (!persisted) throw new Error('Usage invoice transaction did not persist an invoice.');
+    return { invoice: persisted, lineItems: persisted.lineItems || [] };
   }
 
   public async createNegotiatedServiceCharge(params: {
@@ -3013,8 +3330,8 @@ export class CommercialStore {
   // Settlement Ledger Methods
   // =========================================================================
 
-  public async savePaymentRecord(payment: PaymentRecord): Promise<void> {
-    const client = await this.getClient();
+  public async savePaymentRecord(payment: PaymentRecord, transactionClient?: SqlClient): Promise<void> {
+    const client = transactionClient || await this.getClient();
     await client.query(
       `INSERT INTO payment_records (
         id, provider_organization_id, invoice_id, amount_cents, currency,
@@ -3042,8 +3359,8 @@ export class CommercialStore {
     );
   }
 
-  public async getPaymentRecordById(id: string): Promise<PaymentRecord | undefined> {
-    const client = await this.getClient();
+  public async getPaymentRecordById(id: string, transactionClient?: SqlClient): Promise<PaymentRecord | undefined> {
+    const client = transactionClient || await this.getClient();
     const res = await client.query<any>(
       `SELECT * FROM payment_records WHERE id = $1;`,
       [id]
@@ -3066,12 +3383,12 @@ export class CommercialStore {
     };
   }
 
-  public async getPaymentRecordByIdempotencyKey(idempotencyKey: string): Promise<PaymentRecord | undefined> {
-    const client = await this.getClient();
+  public async getPaymentRecordByIdempotencyKey(idempotencyKey: string, transactionClient?: SqlClient): Promise<PaymentRecord | undefined> {
+    const client = transactionClient || await this.getClient();
     const res = await client.query<{ id: string }>(
       `SELECT id FROM payment_records WHERE idempotency_key = $1;`, [idempotencyKey]
     );
-    return res.rows[0] ? this.getPaymentRecordById(res.rows[0].id) : undefined;
+    return res.rows[0] ? this.getPaymentRecordById(res.rows[0].id, client) : undefined;
   }
 
   public async getPaymentsForOrg(providerOrganizationId: string): Promise<PaymentRecord[]> {
@@ -3096,8 +3413,8 @@ export class CommercialStore {
     }));
   }
 
-  public async saveRefundRecord(refund: RefundRecord): Promise<void> {
-    const client = await this.getClient();
+  public async saveRefundRecord(refund: RefundRecord, transactionClient?: SqlClient): Promise<void> {
+    const client = transactionClient || await this.getClient();
     await client.query(
       `INSERT INTO refund_records (
         id, original_payment_record_id, provider_organization_id, amount_cents,
@@ -3117,8 +3434,8 @@ export class CommercialStore {
     );
   }
 
-  public async getRefundsForPayment(paymentId: string): Promise<RefundRecord[]> {
-    const client = await this.getClient();
+  public async getRefundsForPayment(paymentId: string, transactionClient?: SqlClient): Promise<RefundRecord[]> {
+    const client = transactionClient || await this.getClient();
     const res = await client.query<any>(
       `SELECT * FROM refund_records WHERE original_payment_record_id = $1 ORDER BY refunded_at ASC;`,
       [paymentId]
@@ -3135,8 +3452,8 @@ export class CommercialStore {
     }));
   }
 
-  public async getRefundByIdempotencyKey(idempotencyKey: string): Promise<RefundRecord | undefined> {
-    const client = await this.getClient();
+  public async getRefundByIdempotencyKey(idempotencyKey: string, transactionClient?: SqlClient): Promise<RefundRecord | undefined> {
+    const client = transactionClient || await this.getClient();
     const res = await client.query<any>(`SELECT * FROM refund_records WHERE idempotency_key = $1;`, [idempotencyKey]);
     if (!res.rows[0]) return undefined;
     const r = res.rows[0];
@@ -3166,8 +3483,8 @@ export class CommercialStore {
     }));
   }
 
-  public async saveSettlementAllocation(allocation: SettlementAllocation): Promise<void> {
-    const client = await this.getClient();
+  public async saveSettlementAllocation(allocation: SettlementAllocation, transactionClient?: SqlClient): Promise<void> {
+    const client = transactionClient || await this.getClient();
     await client.query(
       `INSERT INTO settlement_allocations (
         id, payment_record_id, refund_record_id, invoice_id, amount_allocated_cents, allocated_at
@@ -3183,8 +3500,8 @@ export class CommercialStore {
     );
   }
 
-  public async getAllocationsForInvoice(invoiceId: string): Promise<SettlementAllocation[]> {
-    const client = await this.getClient();
+  public async getAllocationsForInvoice(invoiceId: string, transactionClient?: SqlClient): Promise<SettlementAllocation[]> {
+    const client = transactionClient || await this.getClient();
     const res = await client.query<any>(
       `SELECT * FROM settlement_allocations WHERE invoice_id = $1 ORDER BY allocated_at ASC;`,
       [invoiceId]
@@ -3208,22 +3525,33 @@ export class CommercialStore {
     idempotencyKey?: string;
   }): Promise<{ payment: PaymentRecord; allocation?: SettlementAllocation; updatedInvoice?: Invoice }> {
     const client = await this.getClient();
+    return client.transaction(transactionClient => this.recordPaymentTransaction(params, transactionClient));
+  }
+
+  private async recordPaymentTransaction(params: {
+    providerOrganizationId: string;
+    amountCents: number;
+    paymentMethod: PaymentMethod;
+    invoiceId?: string;
+    externalReference?: string;
+    idempotencyKey?: string;
+  }, client: SqlClient): Promise<{ payment: PaymentRecord; allocation?: SettlementAllocation; updatedInvoice?: Invoice }> {
     const now = new Date().toISOString();
     let paymentId = `pay_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
     const idempotencyKey = params.idempotencyKey || `pay:${params.providerOrganizationId}:${Date.now()}`;
 
-    const existing = await this.getPaymentRecordByIdempotencyKey(idempotencyKey);
+    const existing = await this.getPaymentRecordByIdempotencyKey(idempotencyKey, client);
     if (existing) {
       if (existing.providerOrganizationId !== params.providerOrganizationId ||
           existing.amountCents !== params.amountCents || existing.invoiceId !== params.invoiceId) {
         throw Object.assign(new Error('Payment idempotency key was already used with different settlement facts.'), { statusCode: 409 });
       }
       if (existing.status === 'SUCCEEDED') {
-        const allocations = params.invoiceId ? await this.getAllocationsForInvoice(params.invoiceId) : [];
+        const allocations = params.invoiceId ? await this.getAllocationsForInvoice(params.invoiceId, client) : [];
         return {
           payment: existing,
           allocation: allocations.find(item => item.paymentRecordId === existing.id),
-          updatedInvoice: params.invoiceId ? await this.getInvoiceById(params.invoiceId) : undefined
+          updatedInvoice: params.invoiceId ? await this.getInvoiceById(params.invoiceId, client) : undefined
         };
       }
       paymentId = existing.id;
@@ -3243,14 +3571,17 @@ export class CommercialStore {
       createdAt: now
     };
 
-    await this.savePaymentRecord(payment);
+    await this.savePaymentRecord(payment, client);
 
     let allocation: SettlementAllocation | undefined;
     let updatedInvoice: Invoice | undefined;
 
     if (params.invoiceId) {
-      const invoice = await this.getInvoiceById(params.invoiceId);
+      const invoice = await this.getInvoiceById(params.invoiceId, client);
       if (invoice) {
+        if (params.amountCents > invoice.balanceDueCents) {
+          throw Object.assign(new Error('Processor payment exceeds the authoritative invoice balance.'), { statusCode: 409 });
+        }
         const allocId = `alc_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
         allocation = {
           id: allocId,
@@ -3259,10 +3590,10 @@ export class CommercialStore {
           amountAllocatedCents: params.amountCents,
           allocatedAt: now
         };
-        await this.saveSettlementAllocation(allocation);
+        await this.saveSettlementAllocation(allocation, client);
 
         // Recompute invoice balance
-        const allAllocations = await this.getAllocationsForInvoice(invoice.id);
+        const allAllocations = await this.getAllocationsForInvoice(invoice.id, client);
         const netAllocated = allAllocations.reduce((acc, a) => acc + (a.refundRecordId ? -a.amountAllocatedCents : a.amountAllocatedCents), 0);
         const newBalance = Math.max(0, invoice.totalDueCents - netAllocated);
         const newStatus: InvoiceStatus = newBalance === 0 ? 'PAID' : (netAllocated > 0 ? 'PARTIALLY_PAID' : invoice.status);
@@ -3300,25 +3631,34 @@ export class CommercialStore {
     idempotencyKey?: string;
   }): Promise<{ refund: RefundRecord; allocation?: SettlementAllocation; updatedInvoice?: Invoice }> {
     const client = await this.getClient();
+    return client.transaction(transactionClient => this.recordRefundTransaction(params, transactionClient));
+  }
+
+  private async recordRefundTransaction(params: {
+    paymentId: string;
+    amountCents: number;
+    reason: string;
+    idempotencyKey?: string;
+  }, client: SqlClient): Promise<{ refund: RefundRecord; allocation?: SettlementAllocation; updatedInvoice?: Invoice }> {
     if (params.idempotencyKey) {
-      const existing = await this.getRefundByIdempotencyKey(params.idempotencyKey);
+      const existing = await this.getRefundByIdempotencyKey(params.idempotencyKey, client);
       if (existing) {
         if (existing.originalPaymentRecordId !== params.paymentId || existing.amountCents !== params.amountCents) {
           throw Object.assign(new Error('Refund idempotency key was already used with different refund facts.'), { statusCode: 409 });
         }
-        const original = await this.getPaymentRecordById(params.paymentId);
-        const allocations = original?.invoiceId ? await this.getAllocationsForInvoice(original.invoiceId) : [];
+        const original = await this.getPaymentRecordById(params.paymentId, client);
+        const allocations = original?.invoiceId ? await this.getAllocationsForInvoice(original.invoiceId, client) : [];
         return {
           refund: existing,
           allocation: allocations.find(item => item.refundRecordId === existing.id),
-          updatedInvoice: original?.invoiceId ? await this.getInvoiceById(original.invoiceId) : undefined
+          updatedInvoice: original?.invoiceId ? await this.getInvoiceById(original.invoiceId, client) : undefined
         };
       }
     }
-    const payment = await this.getPaymentRecordById(params.paymentId);
+    const payment = await this.getPaymentRecordById(params.paymentId, client);
     if (!payment) throw new Error(`PaymentRecord not found: ${params.paymentId}`);
 
-    const existingRefunds = await this.getRefundsForPayment(payment.id);
+    const existingRefunds = await this.getRefundsForPayment(payment.id, client);
     const priorTotal = existingRefunds.reduce((acc, r) => acc + r.amountCents, 0);
 
     const refund = buildRefundRecord({
@@ -3329,13 +3669,13 @@ export class CommercialStore {
       idempotencyKey: params.idempotencyKey
     });
 
-    await this.saveRefundRecord(refund);
+    await this.saveRefundRecord(refund, client);
 
     let allocation: SettlementAllocation | undefined;
     let updatedInvoice: Invoice | undefined;
 
     if (payment.invoiceId) {
-      const invoice = await this.getInvoiceById(payment.invoiceId);
+      const invoice = await this.getInvoiceById(payment.invoiceId, client);
       if (invoice) {
         const allocId = `alc_ref_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
         allocation = {
@@ -3346,10 +3686,10 @@ export class CommercialStore {
           amountAllocatedCents: refund.amountCents,
           allocatedAt: refund.refundedAt
         };
-        await this.saveSettlementAllocation(allocation);
+        await this.saveSettlementAllocation(allocation, client);
 
         // Recompute invoice balance
-        const allAllocations = await this.getAllocationsForInvoice(invoice.id);
+        const allAllocations = await this.getAllocationsForInvoice(invoice.id, client);
         const netAllocated = allAllocations.reduce((acc, a) => acc + (a.refundRecordId ? -a.amountAllocatedCents : a.amountAllocatedCents), 0);
         const newBalance = Math.max(0, invoice.totalDueCents - netAllocated);
         const newStatus: InvoiceStatus = newBalance === 0 ? 'PAID' : (netAllocated > 0 ? 'PARTIALLY_PAID' : 'ISSUED');

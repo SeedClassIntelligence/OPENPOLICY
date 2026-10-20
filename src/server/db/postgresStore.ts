@@ -1,7 +1,7 @@
 import { PGlite } from '@electric-sql/pglite';
 import fs from 'fs';
 import pg from 'pg';
-import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8, SQL_MIGRATION_V9, SQL_MIGRATION_V10, SQL_MIGRATION_V11, SQL_MIGRATION_V12, SQL_MIGRATION_V13, SQL_MIGRATION_V14, SQL_MIGRATION_V15, SQL_MIGRATION_V16 } from './migrate';
+import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8, SQL_MIGRATION_V9, SQL_MIGRATION_V10, SQL_MIGRATION_V11, SQL_MIGRATION_V12, SQL_MIGRATION_V13, SQL_MIGRATION_V14, SQL_MIGRATION_V15, SQL_MIGRATION_V16, SQL_MIGRATION_V17, SQL_MIGRATION_V18, SQL_MIGRATION_V19, SQL_MIGRATION_V20, SQL_MIGRATION_V21, SQL_MIGRATION_V22 } from './migrate';
 import { buildVerifiedPolicyAndBaseline } from '../../domain/policyEvidenceVerification';
 import {
   ProviderOrganization,
@@ -42,7 +42,57 @@ import {
   PolicyDocumentClassificationResult,
   PolicyNormalizationResult
   ,PolicyFieldCorrection, NormalizedPolicyFieldPath
+  ,CommercialPlanVersion
 } from '../../types/insurance';
+
+export interface CompensationDetermination {
+  id: string;
+  jurisdictionCode: string;
+  insuranceLine: string;
+  chargeType: string;
+  status: 'APPROVED' | 'REVOKED' | 'EXPIRED';
+  effectiveFrom: string;
+  effectiveUntil?: string;
+  authorityReference: string;
+  supportingReference: string;
+  determinationSummary: string;
+  approvedBy: string;
+  createdAt: string;
+  revokedAt?: string;
+  revokeReason?: string;
+  idempotencyKey: string;
+}
+
+export interface ProviderApplication {
+  id: string;
+  firebaseUid: string;
+  applicantName: string;
+  applicantEmail: string;
+  legalName: string;
+  displayName: string;
+  organizationType: ProviderOrganization['organizationType'];
+  jurisdictionCode: string;
+  insuranceLines: string[];
+  producerLicenseNumber?: string;
+  producerNpn?: string;
+  carrierAuthorityReference?: string;
+  requestedPlanCode: string;
+  status: 'SUBMITTED' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED';
+  submittedAt: string;
+  reviewedAt?: string;
+  reviewedBy?: string;
+  reviewReason?: string;
+  providerOrganizationId?: string;
+  providerUserId?: string;
+}
+
+export interface PremiumServiceControl {
+  serviceCode: string; entitlementType: string; status: 'ENABLED'|'DISABLED'; acceptanceReference: string;
+  acceptedAt: string; updatedAt: string; updatedBy: string; changeReason: string;
+}
+
+export type PlatformAdminPermission='PLATFORM_READ'|'PROVIDER_ADMIN'|'COMMERCIAL_ADMIN'|'COMPLIANCE_ADMIN'|'SECURITY_ADMIN';
+export interface PlatformAdminAssignment {firebaseUid:string;adminType:'OWNER'|'STAFF';permissions:PlatformAdminPermission[];status:'ACTIVE'|'DISABLED';createdBy:string;createdAt:string;updatedBy:string;updatedAt:string;changeReason:string;}
 
 export interface SqlClient {
   query<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<{ rows: T[]; rowCount?: number }>;
@@ -131,7 +181,7 @@ class CloudSqlClient implements SqlClient {
 }
 
 /**
- * PostgresStore — Durable PGlite persistence layer for Open Policy marketplace and transaction entities.
+ * PostgresStore — Durable PGlite persistence layer for Open Polici marketplace and transaction entities.
  *
  * This store is the authoritative persistence path for:
  *   - PM-1 Marketplace entities (ProviderOrganization, ProviderUser, ProviderLicense, CarrierRelationship, ProviderAppetite, Competition, ChallengeInvitation, ChallengeParticipation, AuditEvent)
@@ -247,11 +297,35 @@ export class PostgresStore {
         await this.sql.query(
           `INSERT INTO _migrations (name) VALUES ('0016_negotiated_service_charges') ON CONFLICT (name) DO NOTHING;`
         );
+        await this.sql.exec(SQL_MIGRATION_V17);
+        await this.sql.query(
+          `INSERT INTO _migrations (name) VALUES ('0017_premium_provider_services') ON CONFLICT (name) DO NOTHING;`
+        );
+        await this.sql.exec(SQL_MIGRATION_V18);
+        await this.sql.query(
+          `INSERT INTO _migrations (name) VALUES ('0018_processor_settlement_idempotency') ON CONFLICT (name) DO NOTHING;`
+        );
+        await this.sql.exec(SQL_MIGRATION_V19);
+        await this.sql.query(
+          `INSERT INTO _migrations (name) VALUES ('0019_owner_commercial_governance') ON CONFLICT (name) DO NOTHING;`
+        );
+        await this.sql.exec(SQL_MIGRATION_V20);
+        await this.sql.query(
+          `INSERT INTO _migrations (name) VALUES ('0020_premium_service_governance') ON CONFLICT (name) DO NOTHING;`
+        );
+        await this.sql.exec(SQL_MIGRATION_V21);
+        await this.sql.query(
+          `INSERT INTO _migrations (name) VALUES ('0021_platform_admin_authority') ON CONFLICT (name) DO NOTHING;`
+        );
+        await this.sql.exec(SQL_MIGRATION_V22);
+        await this.sql.query(
+          `INSERT INTO _migrations (name) VALUES ('0022_provider_application_intake') ON CONFLICT (name) DO NOTHING;`
+        );
         this.isReady = true;
         console.log(
           this.useCloudSql
-            ? '[Open Policy Postgres] Cloud SQL durable engine initialized'
-            : `[Open Policy Postgres] PostgreSQL 16 durable engine initialized at ${this.dataDir}`
+            ? '[Open Polici Postgres] Cloud SQL durable engine initialized'
+            : `[Open Polici Postgres] PostgreSQL 16 durable engine initialized at ${this.dataDir}`
         );
       } catch (err: any) {
         this.initPromise = null;
@@ -265,6 +339,132 @@ export class PostgresStore {
   public async getPgClient(): Promise<SqlClient> {
     await this.ensureReady();
     return this.sql!;
+  }
+
+  public async listCompensationDeterminations(): Promise<CompensationDetermination[]> {
+    await this.ensureReady();
+    const result = await this.sql!.query<any>(`SELECT * FROM compensation_determinations ORDER BY created_at DESC;`);
+    return result.rows.map(row => ({
+      id: row.id, jurisdictionCode: row.jurisdiction_code, insuranceLine: row.insurance_line,
+      chargeType: row.charge_type, status: row.status, effectiveFrom: row.effective_from,
+      effectiveUntil: row.effective_until || undefined, authorityReference: row.authority_reference,
+      supportingReference: row.supporting_reference, determinationSummary: row.determination_summary,
+      approvedBy: row.approved_by, createdAt: row.created_at, revokedAt: row.revoked_at || undefined,
+      revokeReason: row.revoke_reason || undefined, idempotencyKey: row.idempotency_key
+    }));
+  }
+
+  public async approveCompensationDetermination(input: Omit<CompensationDetermination, 'id' | 'status' | 'approvedBy' | 'createdAt'> & { actorId: string }): Promise<CompensationDetermination> {
+    await this.ensureReady();
+    for (const field of ['jurisdictionCode', 'insuranceLine', 'chargeType', 'authorityReference', 'supportingReference', 'determinationSummary', 'idempotencyKey'] as const) {
+      if (!String(input[field] || '').trim()) throw Object.assign(new Error(`${field} is required.`), { statusCode: 400 });
+    }
+    if (!Number.isFinite(Date.parse(input.effectiveFrom))) throw Object.assign(new Error('effectiveFrom must be a valid timestamp.'), { statusCode: 400 });
+    const now = new Date().toISOString();
+    return this.sql!.transaction(async client => {
+      const existing = await client.query<any>(`SELECT * FROM compensation_determinations WHERE idempotency_key=$1;`, [input.idempotencyKey]);
+      if (existing.rows[0]) {
+        const row = existing.rows[0];
+        return { id:row.id,jurisdictionCode:row.jurisdiction_code,insuranceLine:row.insurance_line,chargeType:row.charge_type,
+          status:row.status,effectiveFrom:row.effective_from,effectiveUntil:row.effective_until||undefined,
+          authorityReference:row.authority_reference,supportingReference:row.supporting_reference,
+          determinationSummary:row.determination_summary,approvedBy:row.approved_by,createdAt:row.created_at,
+          revokedAt:row.revoked_at||undefined,revokeReason:row.revoke_reason||undefined,idempotencyKey:row.idempotency_key };
+      }
+      const id = `cd_${crypto.randomUUID()}`;
+      await client.query(`INSERT INTO compensation_determinations
+        (id,jurisdiction_code,insurance_line,charge_type,status,effective_from,effective_until,authority_reference,supporting_reference,determination_summary,approved_by,created_at,idempotency_key)
+        VALUES ($1,$2,$3,$4,'APPROVED',$5,$6,$7,$8,$9,$10,$11,$12);`,
+        [id,input.jurisdictionCode.toUpperCase(),input.insuranceLine,input.chargeType,input.effectiveFrom,input.effectiveUntil||null,input.authorityReference,input.supportingReference,input.determinationSummary,input.actorId,now,input.idempotencyKey]);
+      await this.appendAuditInTransaction(client,{eventType:'COMPENSATION_DETERMINATION_APPROVED',actorRole:'ADMIN',actorId:input.actorId,
+        details:`Approved ${input.chargeType} compensation determination ${id} for ${input.jurisdictionCode.toUpperCase()}/${input.insuranceLine}; authority ${input.authorityReference}.`});
+      return { ...input, id, status:'APPROVED', approvedBy:input.actorId, createdAt:now, jurisdictionCode:input.jurisdictionCode.toUpperCase() };
+    });
+  }
+
+  public async createGovernedCommercialPlanVersion(input: { planId: string; effectiveFrom: string; billingInterval: CommercialPlanVersion['billingInterval']; recurringFeeCents: number; termsSnapshot: CommercialPlanVersion['termsSnapshot']; actorId: string }): Promise<CommercialPlanVersion> {
+    await this.ensureReady();
+    if (!Number.isFinite(Date.parse(input.effectiveFrom)) || Date.parse(input.effectiveFrom) <= Date.now()) throw Object.assign(new Error('effectiveFrom must be a future timestamp.'), { statusCode: 400 });
+    if (!Number.isInteger(input.recurringFeeCents) || input.recurringFeeCents < 0) throw Object.assign(new Error('recurringFeeCents must be a non-negative integer.'), { statusCode: 400 });
+    return this.sql!.transaction(async client => {
+      const plan = await client.query<{id:string}>(`SELECT id FROM commercial_plans WHERE id=$1 AND status='ACTIVE' FOR UPDATE;`,[input.planId]);
+      if (!plan.rows[0]) throw Object.assign(new Error('Active commercial plan not found.'), { statusCode: 404 });
+      const current = await client.query<{version:number}>(`SELECT version FROM commercial_plan_versions WHERE plan_id=$1 ORDER BY version DESC LIMIT 1;`,[input.planId]);
+      const version = (current.rows[0]?.version || 0) + 1;
+      const now = new Date().toISOString();
+      const record: CommercialPlanVersion = { id:`cpv_${input.planId}_v${version}`,planId:input.planId,version,effectiveFrom:input.effectiveFrom,
+        billingInterval:input.billingInterval,recurringFeeCents:input.recurringFeeCents,currency:'USD',termsSnapshot:input.termsSnapshot,createdAt:now };
+      await client.query(`INSERT INTO commercial_plan_versions (id,plan_id,version,effective_from,effective_until,billing_interval,recurring_fee_cents,currency,terms_snapshot,created_at)
+        VALUES ($1,$2,$3,$4,NULL,$5,$6,'USD',$7,$8);`,[record.id,record.planId,record.version,record.effectiveFrom,record.billingInterval,record.recurringFeeCents,JSON.stringify(record.termsSnapshot),record.createdAt]);
+      await this.appendAuditInTransaction(client,{eventType:'COMMERCIAL_PLAN_VERSION_CREATED',actorRole:'ADMIN',actorId:input.actorId,
+        details:`Created immutable future commercial plan version ${record.id}, effective ${record.effectiveFrom}.`});
+      return record;
+    });
+  }
+
+  public async revokeCompensationDetermination(input: { id: string; actorId: string; reason: string }): Promise<CompensationDetermination> {
+    await this.ensureReady();
+    if (!input.reason.trim()) throw Object.assign(new Error('A revocation reason is required.'), { statusCode: 400 });
+    return this.sql!.transaction(async client => {
+      const current = await client.query<any>(`SELECT * FROM compensation_determinations WHERE id=$1 FOR UPDATE;`,[input.id]);
+      if (!current.rows[0]) throw Object.assign(new Error('Compensation determination not found.'), { statusCode: 404 });
+      if (current.rows[0].status === 'REVOKED') throw Object.assign(new Error('Compensation determination is already revoked.'), { statusCode: 409 });
+      const revokedAt = new Date().toISOString();
+      await client.query(`UPDATE compensation_determinations SET status='REVOKED',revoked_at=$2,revoke_reason=$3 WHERE id=$1;`,[input.id,revokedAt,input.reason.trim()]);
+      await this.appendAuditInTransaction(client,{eventType:'COMPENSATION_DETERMINATION_REVOKED',actorRole:'ADMIN',actorId:input.actorId,
+        details:`Revoked compensation determination ${input.id}: ${input.reason.trim()}`});
+      const row={...current.rows[0],status:'REVOKED',revoked_at:revokedAt,revoke_reason:input.reason.trim()};
+      return { id:row.id,jurisdictionCode:row.jurisdiction_code,insuranceLine:row.insurance_line,chargeType:row.charge_type,status:row.status,
+        effectiveFrom:row.effective_from,effectiveUntil:row.effective_until||undefined,authorityReference:row.authority_reference,
+        supportingReference:row.supporting_reference,determinationSummary:row.determination_summary,approvedBy:row.approved_by,
+        createdAt:row.created_at,revokedAt:row.revoked_at,revokeReason:row.revoke_reason,idempotencyKey:row.idempotency_key };
+    });
+  }
+
+  public async listPremiumServiceControls(): Promise<PremiumServiceControl[]> {
+    await this.ensureReady();
+    const result=await this.sql!.query<any>(`SELECT * FROM premium_service_controls ORDER BY service_code;`);
+    return result.rows.map(row=>({serviceCode:row.service_code,entitlementType:row.entitlement_type,status:row.status,
+      acceptanceReference:row.acceptance_reference,acceptedAt:row.accepted_at,updatedAt:row.updated_at,
+      updatedBy:row.updated_by,changeReason:row.change_reason}));
+  }
+
+  public async changePremiumServiceControl(input:{serviceCode:string;status:'ENABLED'|'DISABLED';actorId:string;reason:string}):Promise<PremiumServiceControl>{
+    await this.ensureReady();
+    if(!['ENABLED','DISABLED'].includes(input.status)) throw Object.assign(new Error('status must be ENABLED or DISABLED.'),{statusCode:400});
+    if(!input.reason.trim()) throw Object.assign(new Error('A change reason is required.'),{statusCode:400});
+    return this.sql!.transaction(async client=>{
+      const current=await client.query<any>(`SELECT * FROM premium_service_controls WHERE service_code=$1 FOR UPDATE;`,[input.serviceCode]);
+      if(!current.rows[0]) throw Object.assign(new Error('Premium service control not found.'),{statusCode:404});
+      const now=new Date().toISOString();
+      await client.query(`UPDATE premium_service_controls SET status=$2,updated_at=$3,updated_by=$4,change_reason=$5 WHERE service_code=$1;`,[input.serviceCode,input.status,now,input.actorId,input.reason.trim()]);
+      await this.appendAuditInTransaction(client,{eventType:'PREMIUM_SERVICE_STATUS_CHANGED',actorRole:'ADMIN',actorId:input.actorId,
+        details:`Changed premium service ${input.serviceCode} from ${current.rows[0].status} to ${input.status}: ${input.reason.trim()}`});
+      const row={...current.rows[0],status:input.status,updated_at:now,updated_by:input.actorId,change_reason:input.reason.trim()};
+      return {serviceCode:row.service_code,entitlementType:row.entitlement_type,status:row.status,acceptanceReference:row.acceptance_reference,
+        acceptedAt:row.accepted_at,updatedAt:row.updated_at,updatedBy:row.updated_by,changeReason:row.change_reason};
+    });
+  }
+
+  private mapPlatformAdmin(row:any):PlatformAdminAssignment{return {firebaseUid:row.firebase_uid,adminType:row.admin_type,permissions:JSON.parse(row.permissions),status:row.status,createdBy:row.created_by,createdAt:row.created_at,updatedBy:row.updated_by,updatedAt:row.updated_at,changeReason:row.change_reason};}
+  public async getPlatformAdminAssignment(firebaseUid:string):Promise<PlatformAdminAssignment|undefined>{await this.ensureReady();const result=await this.sql!.query<any>(`SELECT * FROM platform_admin_assignments WHERE firebase_uid=$1;`,[firebaseUid]);return result.rows[0]?this.mapPlatformAdmin(result.rows[0]):undefined;}
+  public async listPlatformAdminAssignments():Promise<PlatformAdminAssignment[]>{await this.ensureReady();const result=await this.sql!.query<any>(`SELECT * FROM platform_admin_assignments ORDER BY admin_type,created_at;`);return result.rows.map(row=>this.mapPlatformAdmin(row));}
+  public async bootstrapPlatformOwner(firebaseUid:string):Promise<PlatformAdminAssignment>{
+    await this.ensureReady();if(!firebaseUid.trim())throw new Error('OPENPOLICY_OWNER_FIREBASE_UID is required.');const now=new Date().toISOString();
+    await this.sql!.query(`INSERT INTO platform_admin_assignments (firebase_uid,admin_type,permissions,status,created_by,created_at,updated_by,updated_at,change_reason) VALUES ($1,'OWNER',$2,'ACTIVE','system_bootstrap',$3,'system_bootstrap',$3,'Configured owner bootstrap') ON CONFLICT(firebase_uid) DO NOTHING;`,[firebaseUid,JSON.stringify(['PLATFORM_READ','PROVIDER_ADMIN','COMMERCIAL_ADMIN','COMPLIANCE_ADMIN','SECURITY_ADMIN']),now]);
+    return (await this.getPlatformAdminAssignment(firebaseUid))!;
+  }
+  public async upsertPlatformAdminAssignment(input:{firebaseUid:string;adminType:'OWNER'|'STAFF';permissions:PlatformAdminPermission[];status:'ACTIVE'|'DISABLED';actorId:string;reason:string}):Promise<PlatformAdminAssignment>{
+    await this.ensureReady();const allowed:PlatformAdminPermission[]=['PLATFORM_READ','PROVIDER_ADMIN','COMMERCIAL_ADMIN','COMPLIANCE_ADMIN','SECURITY_ADMIN'];
+    if(!input.firebaseUid.trim()||!input.reason.trim())throw Object.assign(new Error('firebaseUid and reason are required.'),{statusCode:400});
+    if(!['OWNER','STAFF'].includes(input.adminType)||!['ACTIVE','DISABLED'].includes(input.status))throw Object.assign(new Error('Invalid administrator type or status.'),{statusCode:400});
+    if(input.permissions.some(permission=>!allowed.includes(permission)))throw Object.assign(new Error('Invalid administrator permission.'),{statusCode:400});
+    return this.sql!.transaction(async client=>{const current=await client.query<any>(`SELECT * FROM platform_admin_assignments WHERE firebase_uid=$1 FOR UPDATE;`,[input.firebaseUid]);
+      if(current.rows[0]?.admin_type==='OWNER'&&(input.adminType!=='OWNER'||input.status!=='ACTIVE')){const owners=await client.query<any>(`SELECT COUNT(*)::int AS count FROM platform_admin_assignments WHERE admin_type='OWNER' AND status='ACTIVE';`);if(Number(owners.rows[0]?.count||0)<=1)throw Object.assign(new Error('The last active platform owner cannot be disabled or demoted.'),{statusCode:409});}
+      const now=new Date().toISOString();const createdBy=current.rows[0]?.created_by||input.actorId;const createdAt=current.rows[0]?.created_at||now;
+      await client.query(`INSERT INTO platform_admin_assignments (firebase_uid,admin_type,permissions,status,created_by,created_at,updated_by,updated_at,change_reason) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(firebase_uid) DO UPDATE SET admin_type=EXCLUDED.admin_type,permissions=EXCLUDED.permissions,status=EXCLUDED.status,updated_by=EXCLUDED.updated_by,updated_at=EXCLUDED.updated_at,change_reason=EXCLUDED.change_reason;`,[input.firebaseUid,input.adminType,JSON.stringify([...new Set(input.permissions)]),input.status,createdBy,createdAt,input.actorId,now,input.reason.trim()]);
+      await this.appendAuditInTransaction(client,{eventType:'PLATFORM_ADMIN_AUTHORITY_CHANGED',actorRole:'ADMIN',actorId:input.actorId,details:`Set administrator ${input.firebaseUid} to ${input.adminType}/${input.status} with permissions ${input.permissions.join(',')}: ${input.reason.trim()}`});
+      return {firebaseUid:input.firebaseUid,adminType:input.adminType,permissions:[...new Set(input.permissions)],status:input.status,createdBy,createdAt,updatedBy:input.actorId,updatedAt:now,changeReason:input.reason.trim()};});
   }
 
 
@@ -805,7 +1005,8 @@ export class PostgresStore {
     const res = await this.sql!.query<{
       id: string; provider_organization_id: string; jurisdiction: string;
       license_number: string; license_type: string; status: string;
-      expiration_date: string; verified_at: string | null;
+      expiration_date: string; verified_at: string | null; provider_user_id: string | null;
+      npn: string | null; verification_source: string | null; verified_by: string | null;
     }>(`SELECT * FROM provider_licenses WHERE provider_organization_id = $1;`, [orgId]);
     return res.rows.map(row => ({
       id: row.id,
@@ -816,7 +1017,12 @@ export class PostgresStore {
       status: row.status as ProviderLicense['status'],
       effectiveDate: row.verified_at || '2025-01-01',
       expirationDate: row.expiration_date,
-      verificationStatus: row.verified_at ? 'VERIFIED' : 'PENDING'
+      verificationStatus: row.verified_at ? 'VERIFIED' : 'PENDING',
+      providerUserId: row.provider_user_id || undefined,
+      npn: row.npn || undefined,
+      verificationSource: row.verification_source || undefined,
+      verifiedAt: row.verified_at || undefined,
+      verifiedBy: row.verified_by || undefined
     }));
   }
 
@@ -973,9 +1179,12 @@ export class PostgresStore {
   }): ChallengeInvitation {
     if (row.payload) {
       const persisted = JSON.parse(row.payload) as ChallengeInvitation;
-      persisted.standbyPosition = Number((row as any).standby_position || persisted.standbyPosition || 0) || undefined;
-      persisted.offerCohort = Number((row as any).offer_cohort || persisted.offerCohort || 0) || undefined;
-      persisted.activatedAt = (row as any).activated_at || persisted.activatedAt;
+      const standbyPosition = Number((row as any).standby_position || persisted.standbyPosition || 0);
+      const offerCohort = Number((row as any).offer_cohort || persisted.offerCohort || 0);
+      const activatedAt = (row as any).activated_at || persisted.activatedAt;
+      if (standbyPosition) persisted.standbyPosition = standbyPosition;
+      if (offerCohort) persisted.offerCohort = offerCohort;
+      if (activatedAt) persisted.activatedAt = activatedAt;
       return persisted;
     }
     return {
@@ -993,9 +1202,9 @@ export class PostgresStore {
       declineReason: (row.decline_reason as ChallengeInvitation['declineReason']) || undefined,
       declineNotes: row.decline_notes || undefined,
       expiresAt: new Date(Date.now() + 48 * 3600 * 1000).toISOString(),
-      standbyPosition: Number((row as any).standby_position || 0) || undefined,
-      offerCohort: Number((row as any).offer_cohort || 0) || undefined,
-      activatedAt: (row as any).activated_at || undefined
+      ...(Number((row as any).standby_position || 0) ? { standbyPosition: Number((row as any).standby_position) } : {}),
+      ...(Number((row as any).offer_cohort || 0) ? { offerCohort: Number((row as any).offer_cohort) } : {}),
+      ...((row as any).activated_at ? { activatedAt: (row as any).activated_at } : {})
     };
   }
 
@@ -1403,6 +1612,141 @@ export class PostgresStore {
     };
   }
 
+  private mapProviderApplication(row: any): ProviderApplication {
+    return {
+      id: row.id, firebaseUid: row.firebase_uid, applicantName: row.applicant_name,
+      applicantEmail: row.applicant_email, legalName: row.legal_name, displayName: row.display_name,
+      organizationType: row.organization_type, jurisdictionCode: row.jurisdiction_code,
+      insuranceLines: JSON.parse(row.insurance_lines || '[]'),
+      producerLicenseNumber: row.producer_license_number || undefined,
+      producerNpn: row.producer_npn || undefined,
+      carrierAuthorityReference: row.carrier_authority_reference || undefined,
+      requestedPlanCode: row.requested_plan_code, status: row.status,
+      submittedAt: row.submitted_at, reviewedAt: row.reviewed_at || undefined,
+      reviewedBy: row.reviewed_by || undefined, reviewReason: row.review_reason || undefined,
+      providerOrganizationId: row.provider_organization_id || undefined,
+      providerUserId: row.provider_user_id || undefined
+    };
+  }
+
+  public async submitProviderApplication(input: Omit<ProviderApplication, 'id' | 'status' | 'submittedAt'>): Promise<ProviderApplication> {
+    await this.ensureReady();
+    const now = new Date().toISOString();
+    const id = `provider_application_${input.firebaseUid}`;
+    const result = await this.sql!.query<any>(
+      `INSERT INTO provider_applications (
+         id,firebase_uid,applicant_name,applicant_email,legal_name,display_name,organization_type,
+         jurisdiction_code,insurance_lines,producer_license_number,producer_npn,carrier_authority_reference,
+         requested_plan_code,status,submitted_at,created_at,updated_at
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'SUBMITTED',$14,$14,$14)
+       ON CONFLICT (firebase_uid) DO UPDATE SET
+         applicant_name=EXCLUDED.applicant_name, applicant_email=EXCLUDED.applicant_email,
+         legal_name=EXCLUDED.legal_name, display_name=EXCLUDED.display_name,
+         organization_type=EXCLUDED.organization_type, jurisdiction_code=EXCLUDED.jurisdiction_code,
+         insurance_lines=EXCLUDED.insurance_lines, producer_license_number=EXCLUDED.producer_license_number,
+         producer_npn=EXCLUDED.producer_npn, carrier_authority_reference=EXCLUDED.carrier_authority_reference,
+         requested_plan_code=EXCLUDED.requested_plan_code, updated_at=EXCLUDED.updated_at
+       WHERE provider_applications.status IN ('SUBMITTED','UNDER_REVIEW')
+       RETURNING *;`,
+      [id,input.firebaseUid,input.applicantName.trim(),input.applicantEmail.trim().toLowerCase(),
+       input.legalName.trim(),input.displayName.trim(),input.organizationType,input.jurisdictionCode,
+       JSON.stringify(input.insuranceLines),input.producerLicenseNumber||null,input.producerNpn||null,
+       input.carrierAuthorityReference||null,input.requestedPlanCode,now]
+    );
+    if (!result.rows[0]) {
+      const existing = await this.getProviderApplicationByFirebaseUid(input.firebaseUid);
+      if (existing) return existing;
+      throw Object.assign(new Error('Provider application could not be submitted.'), { statusCode: 409 });
+    }
+    await this.appendAuditEvent({
+      eventType: 'PROVIDER_APPLICATION_SUBMITTED', actorRole: 'PROVIDER', actorId: input.firebaseUid,
+      details: `Provider application ${id} submitted for ${input.legalName}; requested plan ${input.requestedPlanCode}.`
+    } as any);
+    return this.mapProviderApplication(result.rows[0]);
+  }
+
+  public async getProviderApplicationByFirebaseUid(firebaseUid: string): Promise<ProviderApplication | undefined> {
+    await this.ensureReady();
+    const result = await this.sql!.query<any>(`SELECT * FROM provider_applications WHERE firebase_uid=$1;`, [firebaseUid]);
+    return result.rows[0] ? this.mapProviderApplication(result.rows[0]) : undefined;
+  }
+
+  public async listProviderApplications(): Promise<ProviderApplication[]> {
+    await this.ensureReady();
+    const result = await this.sql!.query<any>(`SELECT * FROM provider_applications ORDER BY submitted_at ASC;`);
+    return result.rows.map(row => this.mapProviderApplication(row));
+  }
+
+  public async reviewProviderApplication(params: {
+    applicationId: string;
+    decision: 'APPROVE' | 'REJECT';
+    actorId: string;
+    reason: string;
+    licenseType?: string;
+    licenseExpirationDate?: string;
+    verificationSource?: string;
+  }): Promise<ProviderApplication> {
+    await this.ensureReady();
+    if (!params.reason.trim()) throw Object.assign(new Error('A review reason is required.'), { statusCode: 400 });
+    return this.sql!.transaction(async client => {
+      const locked = await client.query<any>(`SELECT * FROM provider_applications WHERE id=$1 FOR UPDATE;`, [params.applicationId]);
+      if (!locked.rows[0]) throw Object.assign(new Error('Provider application not found.'), { statusCode: 404 });
+      const current = this.mapProviderApplication(locked.rows[0]);
+      if (current.status === 'APPROVED' || current.status === 'REJECTED') return current;
+      const now = new Date().toISOString();
+      if (params.decision === 'REJECT') {
+        const rejected = await client.query<any>(
+          `UPDATE provider_applications SET status='REJECTED',reviewed_at=$2,reviewed_by=$3,review_reason=$4,updated_at=$2 WHERE id=$1 RETURNING *;`,
+          [current.id, now, params.actorId, params.reason.trim()]
+        );
+        await this.appendAuditInTransaction(client, { eventType: 'PROVIDER_APPLICATION_REJECTED' as any,
+          actorRole: 'ADMIN', actorId: params.actorId,
+          details: `Provider application ${current.id} rejected. Reason: ${params.reason.trim()}` });
+        return this.mapProviderApplication(rejected.rows[0]);
+      }
+      const isDirectCarrier = current.organizationType === 'DIRECT_CARRIER';
+      const authorityNumber = isDirectCarrier ? current.carrierAuthorityReference : current.producerLicenseNumber;
+      const requiredLicenseType = isDirectCarrier ? 'CARRIER_CERTIFICATE_OF_AUTHORITY' : params.licenseType?.trim();
+      if (isDirectCarrier && params.licenseType?.trim() !== requiredLicenseType) {
+        throw Object.assign(new Error('Direct-carrier approval requires licenseType CARRIER_CERTIFICATE_OF_AUTHORITY.'), { statusCode: 400 });
+      }
+      if (!authorityNumber || !requiredLicenseType || !/^\d{4}-\d{2}-\d{2}$/.test(params.licenseExpirationDate || '') || !params.verificationSource?.trim()) {
+        throw Object.assign(new Error('Verified license type, expiration date, and verification source are required for approval.'), { statusCode: 400 });
+      }
+      const organizationId = `org_application_${current.firebaseUid}`;
+      const providerUserId = `provider_user_${current.firebaseUid}`;
+      const licenseId = `provider_license_${current.firebaseUid}`;
+      await client.query(
+        `INSERT INTO provider_organizations (id,legal_name,display_name,organization_type,verification_status,marketplace_status,states,lines_of_business,created_at,verified_at)
+         VALUES ($1,$2,$3,$4,'MARKETPLACE_APPROVED','PENDING',$5,$6,$7,$7)
+         ON CONFLICT (id) DO UPDATE SET legal_name=EXCLUDED.legal_name,display_name=EXCLUDED.display_name,verification_status='MARKETPLACE_APPROVED',marketplace_status='PENDING',verified_at=EXCLUDED.verified_at;`,
+        [organizationId,current.legalName,current.displayName,current.organizationType,JSON.stringify([current.jurisdictionCode]),JSON.stringify(current.insuranceLines),now]
+      );
+      await client.query(
+        `INSERT INTO provider_users (id,organization_id,email,full_name,role,is_active,created_at)
+         VALUES ($1,$2,$3,$4,'OWNER',TRUE,$5)
+         ON CONFLICT (id) DO UPDATE SET organization_id=EXCLUDED.organization_id,email=EXCLUDED.email,full_name=EXCLUDED.full_name,role='OWNER',is_active=TRUE;`,
+        [providerUserId,organizationId,current.applicantEmail,current.applicantName,now]
+      );
+      await client.query(
+        `INSERT INTO provider_licenses (id,provider_organization_id,jurisdiction,license_number,license_type,status,expiration_date,verified_at,provider_user_id,npn,verification_source,verified_by)
+         VALUES ($1,$2,$3,$4,$5,'ACTIVE',$6,$7,$8,$9,$10,$11)
+         ON CONFLICT (id) DO UPDATE SET status='ACTIVE',expiration_date=EXCLUDED.expiration_date,verified_at=EXCLUDED.verified_at,verification_source=EXCLUDED.verification_source,verified_by=EXCLUDED.verified_by;`,
+        [licenseId,organizationId,current.jurisdictionCode,authorityNumber,requiredLicenseType,params.licenseExpirationDate,now,
+         isDirectCarrier ? null : providerUserId,isDirectCarrier ? null : current.producerNpn||null,params.verificationSource.trim(),params.actorId]
+      );
+      const approved = await client.query<any>(
+        `UPDATE provider_applications SET status='APPROVED',reviewed_at=$2,reviewed_by=$3,review_reason=$4,
+         provider_organization_id=$5,provider_user_id=$6,updated_at=$2 WHERE id=$1 RETURNING *;`,
+        [current.id,now,params.actorId,params.reason.trim(),organizationId,providerUserId]
+      );
+      await this.appendAuditInTransaction(client, { eventType: 'PROVIDER_APPLICATION_APPROVED' as any,
+        actorRole: 'ADMIN', actorId: params.actorId,
+        details: `Provider application ${current.id} approved for mapping ${organizationId}/${providerUserId}; marketplace remains PENDING.` });
+      return this.mapProviderApplication(approved.rows[0]);
+    });
+  }
+
   public async saveProviderOrganization(org: ProviderOrganization) {
     await this.ensureReady();
     await this.sql!.query(
@@ -1426,6 +1770,35 @@ export class PostgresStore {
         org.verifiedAt || null
       ]
     );
+  }
+
+  public async changeProviderOrganizationStatus(params: {
+    organizationId: string;
+    marketplaceStatus: ProviderOrganization['marketplaceStatus'];
+    actorId: string;
+    reason: string;
+  }): Promise<ProviderOrganization> {
+    await this.ensureReady();
+    if (!params.reason.trim()) throw Object.assign(new Error('A provider status change reason is required.'), { statusCode: 400 });
+    return this.sql!.transaction(async client => {
+      const result = await client.query<any>(
+        `UPDATE provider_organizations SET marketplace_status=$2 WHERE id=$1 RETURNING *;`,
+        [params.organizationId, params.marketplaceStatus]
+      );
+      if (!result.rows[0]) throw Object.assign(new Error('Provider organization not found.'), { statusCode: 404 });
+      await this.appendAuditInTransaction(client, {
+        eventType: 'PROVIDER_STATUS_CHANGED', actorRole: 'ADMIN', actorId: params.actorId,
+        details: `Provider organization ${params.organizationId} marketplace status changed to ${params.marketplaceStatus}. Reason: ${params.reason.trim()}`
+      });
+      const row = result.rows[0];
+      return {
+        id: row.id, legalName: row.legal_name, displayName: row.display_name,
+        organizationType: row.organization_type, verificationStatus: row.verification_status,
+        marketplaceStatus: row.marketplace_status, states: JSON.parse(row.states),
+        linesOfBusiness: JSON.parse(row.lines_of_business), createdAt: row.created_at,
+        verifiedAt: row.verified_at || undefined
+      } as ProviderOrganization;
+    });
   }
 
   public async saveProviderUser(user: ProviderUser) {
@@ -2934,7 +3307,7 @@ export class PostgresStore {
          VALUES ($1,'SELECTED_OFFER_UNAVAILABLE',$2,$3,$4,FALSE,'CONSUMER',$5,$6,$7)
          ON CONFLICT (id) DO NOTHING;`,
         [`NOTIF-${failure.id}`,'Selected offer cannot be honored as submitted',
-          `The selected provider reported that the selected offer cannot be honored as submitted. Reason: ${failure.reasonCode}. No replacement terms were proposed through Open Policy.`,
+          `The selected provider reported that the selected offer cannot be honored as submitted. Reason: ${failure.reasonCode}. No replacement terms were proposed through Open Polici.`,
           failure.reportedAt,durable.consumerId,`SELECTED_OFFER_CANNOT_BE_HONORED:${failure.id}`,'BINDING_HANDOFF']
       );
       await this.appendAuditInTransaction(client, {
@@ -3832,11 +4205,11 @@ export class PostgresStore {
     // Check if already seeded
     const counts = await this.getTableCounts();
     if (counts['provider_organizations'] > 0) {
-      console.log('[Open Policy Postgres] PM-1 provider data already seeded, skipping.');
+      console.log('[Open Polici Postgres] PM-1 provider data already seeded, skipping.');
       return;
     }
 
-    console.log('[Open Policy Postgres] Seeding canonical PM-1 provider marketplace data...');
+    console.log('[Open Polici Postgres] Seeding canonical PM-1 provider marketplace data...');
 
     // Provider A: Sierra Brokerage Group (NV Personal Auto Eligible)
     await this.saveProviderOrganization({
@@ -4016,7 +4389,7 @@ export class PostgresStore {
       expiresAt: '2026-09-20T14:35:00Z'
     });
 
-    console.log('[Open Policy Postgres] PM-1 canonical provider marketplace data seeded successfully.');
+    console.log('[Open Polici Postgres] PM-1 canonical provider marketplace data seeded successfully.');
   }
 }
 

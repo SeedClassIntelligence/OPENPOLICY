@@ -19,14 +19,17 @@ test('production Firebase configuration fails closed without project and credent
   assert.throws(() => assertProductionAuthConfiguration({ NODE_ENV: 'production' } as NodeJS.ProcessEnv), /FIREBASE_PROJECT_ID/);
   assert.throws(() => assertProductionAuthConfiguration({
     NODE_ENV: 'production', OPENPOLICY_AUTH_MODE: 'firebase', FIREBASE_PROJECT_ID: 'open-policy'
-  } as NodeJS.ProcessEnv), /credentials are required/);
+  } as NodeJS.ProcessEnv), /OPENPOLICY_OWNER_FIREBASE_UID/);
+  assert.throws(() => assertProductionAuthConfiguration({
+    NODE_ENV:'production',OPENPOLICY_AUTH_MODE:'firebase',FIREBASE_PROJECT_ID:'open-policy',OPENPOLICY_OWNER_FIREBASE_UID:'owner-uid'
+  } as NodeJS.ProcessEnv),/credentials are required/);
   assert.doesNotThrow(() => assertProductionAuthConfiguration({
     NODE_ENV: 'production', OPENPOLICY_AUTH_MODE: 'firebase', FIREBASE_PROJECT_ID: 'open-policy',
-    OPENPOLICY_USE_APPLICATION_DEFAULT_CREDENTIALS: 'true'
+    OPENPOLICY_OWNER_FIREBASE_UID:'owner-uid', OPENPOLICY_USE_APPLICATION_DEFAULT_CREDENTIALS: 'true'
   } as NodeJS.ProcessEnv));
   assert.throws(() => assertProductionAuthConfiguration({
     NODE_ENV: 'production', OPENPOLICY_AUTH_MODE: 'firebase', FIREBASE_PROJECT_ID: 'open-policy',
-    FIREBASE_SERVICE_ACCOUNT_JSON: '{not-json}'
+    OPENPOLICY_OWNER_FIREBASE_UID:'owner-uid', FIREBASE_SERVICE_ACCOUNT_JSON: '{not-json}'
   } as NodeJS.ProcessEnv), /not valid JSON/);
 });
 
@@ -75,7 +78,7 @@ test('unknown Firebase profile fails closed as forbidden', async () => {
   const request = { headers: { authorization: 'Bearer valid-token' }, body: {}, query: {} } as unknown as Request;
   const { record, response } = responseRecorder();
   await createRequestIdentityMiddleware(async () => {
-    throw Object.assign(new Error('Authenticated Firebase account has no Open Policy profile.'), { statusCode: 403 });
+    throw Object.assign(new Error('Authenticated Firebase account has no Open Polici profile.'), { statusCode: 403 });
   }, {} as NodeJS.ProcessEnv)(request, response, () => assert.fail('must not continue'));
   assert.equal(record.status, 403);
   assert.equal(record.body.error, 'Forbidden');

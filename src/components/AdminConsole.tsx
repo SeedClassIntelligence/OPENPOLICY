@@ -44,6 +44,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
   const [loading, setLoading] = useState(true);
   const [insuranceLines, setInsuranceLines] = useState<any[]>([]);
   const [jurisdictionLineEntries, setJurisdictionLineEntries] = useState<any[]>([]);
+  const [ownerOverview, setOwnerOverview] = useState<any | null>(null);
   const [filterType, setFilterType] = useState<string>('ALL');
   const [searchTerm, setSearchTerm] = useState<string>('');
   
@@ -74,6 +75,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
   const [financialSummary, setFinancialSummary] = useState<any | null>(null);
   const [additionalSeats, setAdditionalSeats] = useState(0);
   const [additionalJurisdictions, setAdditionalJurisdictions] = useState(0);
+  const [selectedCommercialPlan, setSelectedCommercialPlan] = useState('PLAN_SOLO');
   const [implementationAmount, setImplementationAmount] = useState(2500);
   const [executedAgreementReference, setExecutedAgreementReference] = useState('');
   const [implementationSupportingReference, setImplementationSupportingReference] = useState('');
@@ -84,16 +86,36 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
   const [refundReason, setRefundReason] = useState('Authorized billing correction');
   const [financialBusy, setFinancialBusy] = useState(false);
   const [financialMessage, setFinancialMessage] = useState<string | null>(null);
+  const [providerStatusReason, setProviderStatusReason] = useState('');
+  const [providerStatusBusy, setProviderStatusBusy] = useState<string | null>(null);
+  const [commercialGovernance, setCommercialGovernance] = useState<any | null>(null);
+  const [determinationForm, setDeterminationForm] = useState({ jurisdictionCode: 'NV', insuranceLine: 'PERSONAL_AUTO', authorityReference: '', supportingReference: '', determinationSummary: '', effectiveFrom: new Date().toISOString().slice(0, 10) });
+  const [priceForm, setPriceForm] = useState({ priceBookId: '', effectiveFrom: '', recurringFeeDollars: 99 });
+  const [premiumServiceReason,setPremiumServiceReason]=useState('');
+  const [platformFinancials,setPlatformFinancials]=useState<any|null>(null);
+  const [administratorRegistry,setAdministratorRegistry]=useState<any|null>(null);
+  const [marketplaceOperations,setMarketplaceOperations]=useState<any|null>(null);
+  const [adminForm,setAdminForm]=useState({firebaseUid:'',permissions:['PLATFORM_READ'] as string[],status:'ACTIVE',reason:''});
+  const [providerApplications,setProviderApplications]=useState<any[]>([]);
+  const [applicationActionId,setApplicationActionId]=useState<string|null>(null);
+  const [applicationMessage,setApplicationMessage]=useState<string|null>(null);
+  const [applicationReview,setApplicationReview]=useState({reason:'',licenseType:'PROPERTY_CASUALTY',licenseExpirationDate:'',verificationSource:''});
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [eventsRes, queueRes, verifyRes, linesRes, rolloutRes] = await Promise.all([
+      const [eventsRes, queueRes, verifyRes, linesRes, rolloutRes, overviewRes, governanceRes, platformFinancialsRes, administratorsRes, operationsRes, applicationsRes] = await Promise.all([
         apiFetch('/api/audit-events'),
         apiFetch('/api/admin/review-queue'),
         apiFetch('/api/admin/audit-chain/verify'),
         apiFetch('/api/insurance-lines'),
-        apiFetch('/api/rollout/jurisdiction-lines')
+        apiFetch('/api/rollout/jurisdiction-lines'),
+        apiFetch('/api/admin/overview'),
+        apiFetch('/api/admin/commercial/governance'),
+        apiFetch('/api/admin/commercial/platform-summary'),
+        apiFetch('/api/admin/administrators'),
+        apiFetch('/api/admin/marketplace-operations'),
+        apiFetch('/api/admin/provider-applications')
       ]);
 
       const eventsData = await eventsRes.json();
@@ -101,17 +123,51 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
       const verifyData = await verifyRes.json();
       const linesData = await linesRes.json();
       const rolloutData = await rolloutRes.json();
+      const overviewData = await overviewRes.json();
+      const governanceData = await governanceRes.json();
+      const platformFinancialsData = await platformFinancialsRes.json();
+      const administratorsData = await administratorsRes.json();
+      const operationsData = await operationsRes.json();
+      const applicationsData = await applicationsRes.json();
 
       setAuditEvents(eventsData);
       setReviewQueue(queueData);
       setVerificationResult(verifyData);
       setInsuranceLines(linesData.insuranceLines || []);
       setJurisdictionLineEntries(rolloutData.entries || []);
+      if (overviewRes.ok) setOwnerOverview(overviewData);
+      if (governanceRes.ok) setCommercialGovernance(governanceData);
+      if (platformFinancialsRes.ok) setPlatformFinancials(platformFinancialsData);
+      if (administratorsRes.ok) setAdministratorRegistry(administratorsData);
+      if (operationsRes.ok) setMarketplaceOperations(operationsData);
+      if (applicationsRes.ok) setProviderApplications(Array.isArray(applicationsData) ? applicationsData : []);
     } catch (e) {
       console.error('Failed to load admin audit console data:', e);
     } finally {
       setLoading(false);
     }
+  };
+
+  const reviewProviderApplication = async (applicationId:string, decision:'APPROVE'|'REJECT') => {
+    setApplicationActionId(applicationId); setApplicationMessage(null);
+    try {
+      const response=await apiFetch(`/api/admin/provider-applications/${applicationId}/review`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({decision,...applicationReview})});
+      const data=await response.json(); if(!response.ok) throw new Error(data.error||'Provider application review failed.');
+      setApplicationMessage(`Application ${decision==='APPROVE'?'approved for commercial setup':'rejected'}. No marketplace access was granted.`);
+      await loadData(); onRefreshData();
+    } catch(error:any){setApplicationMessage(error?.message||'Provider application review failed.');}
+    finally{setApplicationActionId(null);}
+  };
+
+  const activateProviderApplication = async (applicationId:string) => {
+    setApplicationActionId(applicationId); setApplicationMessage(null);
+    try {
+      const response=await apiFetch(`/api/admin/provider-applications/${applicationId}/activate`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reason:'Verified provider authority, matching OPEN_POLICY_COMMERCIAL_V2 agreement, and settled membership invoice confirmed by platform administration.'})});
+      const data=await response.json(); if(!response.ok) throw new Error(data.error||'Provider activation failed closed.');
+      setApplicationMessage('Provider marketplace access activated after all authority and payment gates passed.');
+      await loadData(); onRefreshData();
+    } catch(error:any){setApplicationMessage(error?.message||'Provider activation failed closed.');}
+    finally{setApplicationActionId(null);}
   };
 
   useEffect(() => {
@@ -224,7 +280,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
     }
   };
 
-  const activatePremiumAgreement = async () => {
+  const activateCommercialAgreement = async () => {
     if (!financialOrgId.trim()) return;
     setFinancialBusy(true);
     setFinancialMessage(null);
@@ -235,13 +291,13 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
       const response = await apiFetch('/api/admin/commercial/agreements/enroll', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          providerOrganizationId: financialOrgId.trim(), planCode: 'PLAN_OPEN_POLICY_PREMIUM',
+          providerOrganizationId: financialOrgId.trim(), planCode: selectedCommercialPlan,
           customTerms: { selectedRecurringAddOns }
         })
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Commercial agreement could not be activated.');
-      setFinancialMessage('Open Policy Premium agreement activated under platform financial authority.');
+      setFinancialMessage('Commercial agreement activated under platform financial authority.');
       await loadFinancialSummary();
     } catch (error: any) {
       setFinancialMessage(error?.message || 'Commercial agreement could not be activated.');
@@ -296,6 +352,73 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
     }
   };
 
+  const changeProviderStatus = async (organizationId: string, marketplaceStatus: 'ACTIVE' | 'SUSPENDED') => {
+    if (!providerStatusReason.trim()) return;
+    setProviderStatusBusy(organizationId);
+    try {
+      const response = await apiFetch(`/api/admin/providers/${encodeURIComponent(organizationId)}/status`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ marketplaceStatus, reason: providerStatusReason.trim() })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Provider status could not be changed.');
+      setProviderStatusReason('');
+      await loadData();
+    } catch (error: any) {
+      setFinancialMessage(error?.message || 'Provider status could not be changed.');
+    } finally {
+      setProviderStatusBusy(null);
+    }
+  };
+
+  const approveCompensationDetermination = async () => {
+    setFinancialBusy(true); setFinancialMessage(null);
+    try {
+      const response = await apiFetch('/api/admin/commercial/compensation-determinations', {
+        method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({
+          ...determinationForm, chargeType:'AUTHORIZED_CONNECTION',
+          effectiveFrom:`${determinationForm.effectiveFrom}T00:00:00.000Z`,
+          idempotencyKey:`comp:${determinationForm.jurisdictionCode}:${determinationForm.insuranceLine}:${determinationForm.authorityReference}`
+        })
+      });
+      const data=await response.json(); if(!response.ok) throw new Error(data.error||'Determination could not be recorded.');
+      setFinancialMessage('Compensation determination recorded with immutable audit evidence. Charges remain disabled until separately activated.');
+      await loadData();
+    } catch(error:any){setFinancialMessage(error?.message||'Determination could not be recorded.');} finally{setFinancialBusy(false);}
+  };
+
+  const publishFuturePriceVersion = async () => {
+    const plan=commercialGovernance?.plans?.find((item:any)=>item.code===selectedCommercialPlan); if(!plan?.latestVersion) return;
+    setFinancialBusy(true); setFinancialMessage(null);
+    try {
+      const response=await apiFetch(`/api/admin/commercial/plans/${encodeURIComponent(plan.id)}/versions`,{
+        method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+          priceBookId:priceForm.priceBookId,effectiveFrom:`${priceForm.effectiveFrom}T00:00:00.000Z`,
+          recurringFeeCents:Math.round(priceForm.recurringFeeDollars*100),
+          qualifiedEngagementUnitPriceCents:0,
+          authorizedConnectionCentsByInsuranceLine:plan.latestVersion.termsSnapshot.authorizedConnectionCentsByInsuranceLine||{}
+        })
+      });
+      const data=await response.json(); if(!response.ok) throw new Error(data.error||'Price version could not be published.');
+      setFinancialMessage(`Immutable price-book version ${data.version.version} published for future effect.`); await loadData();
+    } catch(error:any){setFinancialMessage(error?.message||'Price version could not be published.');} finally{setFinancialBusy(false);}
+  };
+
+  const changePremiumService=async(serviceCode:string,status:'ENABLED'|'DISABLED')=>{
+    if(!premiumServiceReason.trim()) return;
+    setFinancialBusy(true);setFinancialMessage(null);
+    try{const response=await apiFetch(`/api/admin/commercial/premium-services/${encodeURIComponent(serviceCode)}`,{
+      method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status,reason:premiumServiceReason.trim()})});
+      const data=await response.json();if(!response.ok)throw new Error(data.error||'Premium service status could not be changed.');
+      setPremiumServiceReason('');setFinancialMessage(`${serviceCode} is now ${status.toLowerCase()}.`);await loadData();
+    }catch(error:any){setFinancialMessage(error?.message||'Premium service status could not be changed.');}finally{setFinancialBusy(false);}
+  };
+
+  const saveStaffAdministrator=async()=>{setFinancialBusy(true);setFinancialMessage(null);try{const response=await apiFetch(`/api/admin/administrators/${encodeURIComponent(adminForm.firebaseUid.trim())}`,{
+    method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({adminType:'STAFF',permissions:adminForm.permissions,status:adminForm.status,reason:adminForm.reason.trim()})});
+    const data=await response.json();if(!response.ok)throw new Error(data.error||'Administrator authority could not be saved.');setFinancialMessage('Administrator authority saved with immutable audit evidence.');setAdminForm({firebaseUid:'',permissions:['PLATFORM_READ'],status:'ACTIVE',reason:''});await loadData();
+  }catch(error:any){setFinancialMessage(error?.message||'Administrator authority could not be saved.');}finally{setFinancialBusy(false);}};
+
   // Filtered Events
   const filteredEvents = auditEvents.filter(event => {
     const matchesFilter = 
@@ -334,15 +457,15 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
           <div className="flex items-center space-x-2">
             <span className="text-xs font-mono font-bold bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded border border-amber-500/30 flex items-center space-x-1">
               <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
-              <span>REGULATORY COMPLIANCE & GOVERNANCE • PM-4</span>
+              <span>RESTRICTED OWNER OPERATIONS</span>
             </span>
-            <span className="text-[11px] font-mono text-slate-400">Jurisdiction: NV DOI</span>
+            <span className="text-[11px] font-mono text-slate-400">Server-authoritative control plane</span>
           </div>
           <h2 className="text-xl font-bold text-white mt-1">
-            Section 32/33: Append-Only Audit Trail & Human Review Queue
+            Open Polici Owner Control Center
           </h2>
           <p className="text-xs text-slate-400">
-            Cryptographically chained SHA-256 event ledger, human-in-the-loop review tickets, Merkle tree root verification, and Section 34 regulatory compliance proofs.
+            One protected view of marketplace operations, provider organizations, commercial administration, rollout readiness, reviews and immutable audit evidence.
           </p>
         </div>
 
@@ -367,8 +490,136 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
         </div>
       </div>
 
+      <nav aria-label="Owner console sections" className="sticky top-20 z-20 flex gap-2 overflow-x-auto rounded-xl border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur">
+        {[
+          ['#owner-overview', 'Overview'], ['#owner-marketplace', 'Marketplace'], ['#owner-providers', 'Providers'],
+          ['#owner-commercial', 'Commercial'], ['#owner-security', 'Security'], ['#owner-rollout', 'Markets'],
+          ['#owner-reviews', 'Reviews'], ['#owner-audit', 'Audit']
+        ].map(([href, label]) => (
+          <a key={href} href={href} className="whitespace-nowrap rounded-lg px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-900 hover:text-white">{label}</a>
+        ))}
+      </nav>
+
+      {/* Owner-wide operational overview. Consumer identity count is intentionally
+          not guessed: Firebase identity and PostgreSQL business state remain
+          separate authorities until a dedicated administrative identity index exists. */}
+      <section id="owner-overview" className="scroll-mt-36 rounded-xl border border-slate-200 bg-white p-5 shadow-xs space-y-4">
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-2">
+          <div>
+            <p className="text-[10px] font-mono font-bold uppercase tracking-wider text-emerald-700">Platform overview</p>
+            <h3 className="text-base font-bold text-slate-950">Current durable operating state</h3>
+            <p className="text-xs text-slate-500">Live counts come from PostgreSQL. No dashboard-only business state is created here.</p>
+          </div>
+          <span className="text-[10px] font-mono text-slate-400">{ownerOverview?.generatedAt ? `Updated ${new Date(ownerOverview.generatedAt).toLocaleString()}` : 'Loading authoritative state…'}</span>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3">
+          {[
+            ['Providers', ownerOverview?.counts?.activeProviderOrganizations ?? '—', `${ownerOverview?.counts?.providerOrganizations ?? '—'} total`],
+            ['Provider users', ownerOverview?.counts?.activeProviderUsers ?? '—', `${ownerOverview?.counts?.providerUsers ?? '—'} total`],
+            ['Open opportunities', ownerOverview?.counts?.openCompetitions ?? '—', `${ownerOverview?.counts?.competitions ?? '—'} total`],
+            ['Policies', ownerOverview?.counts?.policies ?? '—', 'durable records'],
+            ['Baselines', ownerOverview?.counts?.verifiedBaselines ?? '—', 'coverage baselines'],
+            ['Handoffs', ownerOverview?.counts?.bindingHandoffs ?? '—', 'authorized lifecycle'],
+            ['Vault items', ownerOverview?.counts?.policyVaultItems ?? '—', 'issued evidence'],
+            ['Reviews', ownerOverview?.counts?.pendingReviews ?? '—', `${ownerOverview?.counts?.auditEvents ?? '—'} audit events`]
+          ].map(([label, value, note]) => (
+            <div key={String(label)} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <span className="block text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</span>
+              <strong className="mt-1 block text-xl text-slate-950">{value}</strong>
+              <span className="text-[10px] text-slate-500">{note}</span>
+            </div>
+          ))}
+        </div>
+        <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-[11px] text-blue-900">
+          Consumer account totals are not shown because Firebase Authentication is the identity authority and the current owner API does not maintain a separate, trustworthy consumer directory. Policy and lifecycle totals above are authoritative PostgreSQL counts.
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 rounded-xl border border-slate-200 p-4">
+          <div><span className="block text-[10px] uppercase text-slate-500">Payment processor</span><strong className="text-sm text-slate-900">Stripe</strong></div>
+          <div><span className="block text-[10px] uppercase text-slate-500">Credentials</span><strong className={ownerOverview?.paymentProcessor?.configured ? 'text-emerald-700' : 'text-amber-700'}>{ownerOverview?.paymentProcessor?.configured ? 'Configured' : 'Not configured'}</strong></div>
+          <div><span className="block text-[10px] uppercase text-slate-500">Secure return URL</span><strong className={ownerOverview?.paymentProcessor?.secureReturnUrl ? 'text-emerald-700' : 'text-amber-700'}>{ownerOverview?.paymentProcessor?.secureReturnUrl ? 'HTTPS ready' : 'Not ready'}</strong></div>
+          <div><span className="block text-[10px] uppercase text-slate-500">Live collections</span><strong className={ownerOverview?.paymentProcessor?.liveCollectionsEnabled ? 'text-rose-700' : 'text-slate-700'}>{ownerOverview?.paymentProcessor?.liveCollectionsEnabled ? 'Enabled' : 'Disabled'}</strong></div>
+        </div>
+        <div id="owner-marketplace" className="scroll-mt-36 space-y-3 border-t border-slate-200 pt-4">
+          <div><h4 className="text-sm font-bold text-slate-950">Marketplace lifecycle operations</h4><p className="text-[11px] text-slate-500">Policy evidence through opportunity, offer, selection and authorized handoff.</p></div>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs">{[
+            ['Policies',marketplaceOperations?.policies?.length],['Opportunities',marketplaceOperations?.opportunities?.length],['Offers',marketplaceOperations?.offers?.length],['Selections',marketplaceOperations?.selections?.length],['Handoffs',marketplaceOperations?.handoffs?.length]
+          ].map(([label,value])=><div key={String(label)} className="rounded-lg border bg-slate-50 p-3"><span className="block text-slate-500">{label}</span><strong>{value??'—'}</strong></div>)}</div>
+          <div className="overflow-x-auto rounded-lg border"><table className="min-w-full text-left text-[11px]"><thead className="bg-slate-50"><tr><th className="px-3 py-2">Opportunity</th><th className="px-3 py-2">Market</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Offers</th><th className="px-3 py-2">Cohort</th></tr></thead><tbody>
+            {(marketplaceOperations?.opportunities||[]).map((item:any)=><tr key={item.id} className="border-t"><td className="px-3 py-2"><strong>{item.referenceNumber}</strong><br/><span className="font-mono text-[10px] text-slate-400">{item.id}</span></td><td className="px-3 py-2">{item.jurisdiction} · {item.insuranceLine}</td><td className="px-3 py-2">{item.status}<br/><span className="text-slate-400">{item.competitionStatus||'No competition'}</span></td><td className="px-3 py-2">{item.offersCount}</td><td className="px-3 py-2">{item.activeOfferCohort||'—'} / {item.maximumActivatedProviders||'—'}</td></tr>)}
+            {!marketplaceOperations?.opportunities?.length&&<tr><td colSpan={5} className="px-3 py-4 text-center text-slate-500">No durable opportunities recorded.</td></tr>}
+          </tbody></table></div>
+        </div>
+        <div id="owner-providers" className="scroll-mt-36 space-y-3 pt-2">
+          <div>
+            <h4 className="text-sm font-bold text-slate-950">Provider application and activation queue</h4>
+            <p className="text-[11px] text-slate-500">Review establishes verified provider mappings only. Marketplace access remains closed until the matching V2 membership agreement and subscription invoice are fully settled.</p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <input value={applicationReview.reason} onChange={event=>setApplicationReview({...applicationReview,reason:event.target.value})} placeholder="Required review reason" className="rounded-lg border bg-white px-3 py-2 text-xs" />
+            <input value={applicationReview.licenseType} onChange={event=>setApplicationReview({...applicationReview,licenseType:event.target.value})} placeholder="Verified license type" className="rounded-lg border bg-white px-3 py-2 text-xs" />
+            <input type="date" value={applicationReview.licenseExpirationDate} onChange={event=>setApplicationReview({...applicationReview,licenseExpirationDate:event.target.value})} className="rounded-lg border bg-white px-3 py-2 text-xs" />
+            <input value={applicationReview.verificationSource} onChange={event=>setApplicationReview({...applicationReview,verificationSource:event.target.value})} placeholder="Authoritative verification source" className="rounded-lg border bg-white px-3 py-2 text-xs" />
+          </div>
+          {applicationMessage&&<div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900">{applicationMessage}</div>}
+          <div className="overflow-x-auto rounded-xl border border-slate-200">
+            <table className="min-w-full divide-y divide-slate-200 text-left text-xs">
+              <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500"><tr><th className="px-3 py-2">Applicant</th><th className="px-3 py-2">Authority evidence</th><th className="px-3 py-2">Requested access</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Controlled action</th></tr></thead>
+              <tbody className="divide-y divide-slate-100">
+                {providerApplications.map((application:any)=><tr key={application.id} className="align-top hover:bg-slate-50">
+                  <td className="px-3 py-2"><strong className="block text-slate-900">{application.displayName||application.legalName}</strong><span className="block text-[10px] text-slate-500">{application.applicantName} · {application.applicantEmail}</span><span className="font-mono text-[10px] text-slate-400">{application.id}</span></td>
+                  <td className="px-3 py-2"><span className="block">{application.organizationType} · {application.jurisdictionCode}</span><span className="block text-[10px] text-slate-500">{application.organizationType==='DIRECT_CARRIER'?(application.carrierAuthorityReference||'Missing carrier authority'):`License ${application.producerLicenseNumber||'missing'}${application.producerNpn?` · NPN ${application.producerNpn}`:''}`}</span></td>
+                  <td className="px-3 py-2"><strong className="block">{application.requestedPlanCode}</strong><span className="text-[10px] text-slate-500">{application.insuranceLines?.join(', ')||'No lines'}</span></td>
+                  <td className="px-3 py-2"><strong>{application.status}</strong>{application.providerOrganizationId&&<><span className="mt-1 block font-mono text-[10px] text-slate-400">{application.providerOrganizationId}</span><button onClick={()=>{setFinancialOrgId(application.providerOrganizationId);setSelectedCommercialPlan(application.requestedPlanCode);setFinancialSummary(null);document.querySelector('#owner-commercial')?.scrollIntoView({behavior:'smooth'});}} className="mt-1 text-[10px] font-bold text-emerald-700 underline">Open commercial setup</button></>}</td>
+                  <td className="px-3 py-2"><div className="flex flex-wrap gap-1">
+                    {['SUBMITTED','UNDER_REVIEW'].includes(application.status)&&<><button disabled={applicationActionId===application.id||!applicationReview.reason.trim()} onClick={()=>reviewProviderApplication(application.id,'REJECT')} className="rounded border border-rose-300 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-800 disabled:opacity-40">Reject</button><button disabled={applicationActionId===application.id||!applicationReview.reason.trim()||!applicationReview.licenseExpirationDate||!applicationReview.verificationSource.trim()} onClick={()=>reviewProviderApplication(application.id,'APPROVE')} className="rounded border border-blue-300 bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-800 disabled:opacity-40">Approve authority</button></>}
+                    {application.status==='APPROVED'&&<button disabled={applicationActionId===application.id||application.organizationType==='DIRECT_CARRIER'} onClick={()=>activateProviderApplication(application.id)} className="rounded border border-emerald-300 bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-800 disabled:opacity-40">Verify payment & activate</button>}
+                  </div>{application.organizationType==='DIRECT_CARRIER'&&<span className="mt-1 block text-[10px] text-amber-700">Carrier activation remains fail-closed pending modeled certificate-of-authority verification.</span>}</td>
+                </tr>)}
+                {!providerApplications.length&&<tr><td colSpan={5} className="px-3 py-4 text-center text-slate-500">No durable provider applications recorded.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+          <div className="border-t border-slate-200 pt-3">
+            <h4 className="text-sm font-bold text-slate-950">Provider organization registry</h4>
+            <p className="text-[11px] text-slate-500">Authoritative marketplace organizations and their current operating status.</p>
+          </div>
+          <div className="overflow-x-auto rounded-xl border border-slate-200">
+            <table className="min-w-full divide-y divide-slate-200 text-left text-xs">
+              <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500"><tr>
+                <th className="px-3 py-2">Organization</th><th className="px-3 py-2">Verification</th><th className="px-3 py-2">Marketplace</th><th className="px-3 py-2">Users</th><th className="px-3 py-2">Jurisdictions</th><th className="px-3 py-2">Lines</th><th className="px-3 py-2">Action</th>
+              </tr></thead>
+              <tbody className="divide-y divide-slate-100">
+                {(ownerOverview?.organizations || []).map((organization: any) => (
+                  <tr key={organization.id} className="hover:bg-slate-50">
+                    <td className="px-3 py-2"><strong className="block text-slate-900">{organization.displayName}</strong><span className="font-mono text-[10px] text-slate-400">{organization.id}</span></td>
+                    <td className="px-3 py-2 text-slate-700">{organization.verificationStatus}</td>
+                    <td className="px-3 py-2 text-slate-700">{organization.marketplaceStatus}</td>
+                    <td className="px-3 py-2 text-slate-700">{organization.userCount}</td>
+                    <td className="px-3 py-2 text-slate-700">{organization.states?.join(', ') || '—'}</td>
+                    <td className="px-3 py-2 text-slate-700">{organization.linesOfBusiness?.join(', ') || '—'}</td>
+                    <td className="px-3 py-2">
+                      {organization.marketplaceStatus === 'ACTIVE' ? (
+                        <button disabled={!providerStatusReason.trim() || providerStatusBusy === organization.id} onClick={() => changeProviderStatus(organization.id, 'SUSPENDED')} className="rounded border border-amber-300 bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-800 disabled:opacity-40">Suspend</button>
+                      ) : organization.marketplaceStatus === 'SUSPENDED' ? (
+                        <button disabled={!providerStatusReason.trim() || providerStatusBusy === organization.id} onClick={() => changeProviderStatus(organization.id, 'ACTIVE')} className="rounded border border-emerald-300 bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-800 disabled:opacity-40">Activate</button>
+                      ) : (
+                        <span className="text-[10px] font-semibold text-slate-500">Use application gate</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <label className="block text-xs font-semibold text-slate-700">Required reason for provider status change
+            <input value={providerStatusReason} onChange={event => setProviderStatusReason(event.target.value)} placeholder="Document the operational or compliance reason" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-xs" />
+          </label>
+          <p className="text-[10px] text-slate-500">Suspension immediately removes marketplace eligibility. Every change is committed with immutable administrator audit evidence.</p>
+        </div>
+      </section>
+
       {/* Owner financial control plane */}
-      <section className="rounded-xl border border-emerald-200 bg-white p-5 shadow-xs space-y-4">
+      <section id="owner-commercial" className="scroll-mt-36 rounded-xl border border-emerald-200 bg-white p-5 shadow-xs space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
             <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-emerald-700">
@@ -378,14 +629,90 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
             <p className="text-xs text-slate-500">Authorized administrators control paid activation. Providers can view terms, invoices and balances, and initiate secure payment only.</p>
           </div>
           <div className="flex gap-2 w-full md:w-auto">
-            <input value={financialOrgId} onChange={event => setFinancialOrgId(event.target.value)}
-              placeholder="Provider organization ID" className="min-w-0 flex-1 md:w-64 rounded-lg border border-slate-300 px-3 py-2 text-xs" />
+            <select value={financialOrgId} onChange={event => { setFinancialOrgId(event.target.value); setFinancialSummary(null); }}
+              className="min-w-0 flex-1 md:w-72 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs">
+              <option value="">Select a provider organization</option>
+              {(ownerOverview?.organizations || []).map((organization: any) => (
+                <option key={organization.id} value={organization.id}>
+                  {organization.displayName} · {organization.marketplaceStatus} · {organization.id}
+                </option>
+              ))}
+            </select>
             <button type="button" onClick={loadFinancialSummary} disabled={financialBusy || !financialOrgId.trim()}
               className="rounded-lg bg-slate-950 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">Inspect</button>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 rounded-xl bg-slate-50 p-4 border border-slate-200">
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          <div className="rounded-xl border border-slate-200 p-4 space-y-3">
+            <div><h4 className="text-sm font-bold text-slate-950">Future price-book version</h4><p className="text-[11px] text-slate-500">Publishes a new immutable version. Existing agreements retain their historical version.</p></div>
+            <div className="grid grid-cols-2 gap-2">
+              <input value={priceForm.priceBookId} onChange={e=>setPriceForm({...priceForm,priceBookId:e.target.value})} placeholder="Price book ID" className="rounded-lg border px-3 py-2 text-xs" />
+              <input type="date" value={priceForm.effectiveFrom} onChange={e=>setPriceForm({...priceForm,effectiveFrom:e.target.value})} className="rounded-lg border px-3 py-2 text-xs" />
+              <label className="text-[11px] text-slate-600">Membership USD<input type="number" min={0} value={priceForm.recurringFeeDollars} onChange={e=>setPriceForm({...priceForm,recurringFeeDollars:Number(e.target.value)})} className="mt-1 w-full rounded-lg border px-3 py-2 text-xs" /></label>
+              <div className="rounded-lg border bg-slate-50 px-3 py-2 text-[11px] text-slate-600"><span className="block">Engagement event</span><strong className="text-slate-950">$0 · fixed by V2</strong></div>
+            </div>
+            <button onClick={publishFuturePriceVersion} disabled={financialBusy||!priceForm.priceBookId||!priceForm.effectiveFrom} className="w-full rounded-lg bg-slate-950 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">Publish immutable future version</button>
+            <p className="text-[10px] text-slate-500">Selected plan: {selectedCommercialPlan} · Compensation activation is never inferred from a price change.</p>
+          </div>
+          <div className="rounded-xl border border-amber-200 bg-amber-50/40 p-4 space-y-3">
+            <div><h4 className="text-sm font-bold text-slate-950">Compensation determination registry</h4><p className="text-[11px] text-slate-500">Records scoped legal/compliance authority. It does not silently activate a charge.</p></div>
+            <div className="grid grid-cols-2 gap-2">
+              <input value={determinationForm.jurisdictionCode} onChange={e=>setDeterminationForm({...determinationForm,jurisdictionCode:e.target.value.toUpperCase()})} placeholder="Jurisdiction" className="rounded-lg border px-3 py-2 text-xs" />
+              <select value={determinationForm.insuranceLine} onChange={e=>setDeterminationForm({...determinationForm,insuranceLine:e.target.value})} className="rounded-lg border px-3 py-2 text-xs">{insuranceLines.map((line:any)=><option key={line.code} value={line.code}>{line.displayName||line.code}</option>)}</select>
+              <input value={determinationForm.authorityReference} onChange={e=>setDeterminationForm({...determinationForm,authorityReference:e.target.value})} placeholder="Authority/counsel reference" className="rounded-lg border px-3 py-2 text-xs" />
+              <input type="date" value={determinationForm.effectiveFrom} onChange={e=>setDeterminationForm({...determinationForm,effectiveFrom:e.target.value})} className="rounded-lg border px-3 py-2 text-xs" />
+              <input value={determinationForm.supportingReference} onChange={e=>setDeterminationForm({...determinationForm,supportingReference:e.target.value})} placeholder="Immutable supporting record" className="col-span-2 rounded-lg border px-3 py-2 text-xs" />
+              <textarea value={determinationForm.determinationSummary} onChange={e=>setDeterminationForm({...determinationForm,determinationSummary:e.target.value})} placeholder="Scope, conditions and conclusion" className="col-span-2 rounded-lg border px-3 py-2 text-xs" />
+            </div>
+            <button onClick={approveCompensationDetermination} disabled={financialBusy||!determinationForm.authorityReference||!determinationForm.supportingReference||!determinationForm.determinationSummary} className="w-full rounded-lg bg-amber-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">Record approved determination</button>
+            <div className="max-h-32 space-y-1 overflow-auto">
+              {(commercialGovernance?.compensationDeterminations||[]).map((item:any)=><div key={item.id} className="rounded border bg-white px-2 py-1.5 text-[10px] text-slate-600"><strong className={item.status==='APPROVED'?'text-emerald-700':'text-rose-700'}>{item.status}</strong> · {item.jurisdictionCode} · {item.insuranceLine}<br/><span className="font-mono">{item.authorityReference}</span></div>)}
+              {!commercialGovernance?.compensationDeterminations?.length&&<p className="text-[10px] text-slate-500">No compensation determinations recorded.</p>}
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-indigo-200 bg-indigo-50/30 p-4 space-y-3">
+          <div><h4 className="text-sm font-bold text-slate-950">Premium service availability</h4><p className="text-[11px] text-slate-500">A global disable blocks new purchase and current use; provider entitlements remain separate and tenant-scoped.</p></div>
+          <input value={premiumServiceReason} onChange={e=>setPremiumServiceReason(e.target.value)} placeholder="Required operational or acceptance reason" className="w-full rounded-lg border bg-white px-3 py-2 text-xs" />
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2">
+            {(commercialGovernance?.premiumServices||[]).map((service:any)=><div key={service.serviceCode} className="rounded-lg border bg-white p-3 text-xs">
+              <div className="font-bold text-slate-900">{service.serviceCode.replace(/_/g,' ')}</div>
+              <div className="mt-1 text-[10px] text-slate-500">Acceptance: {service.acceptanceReference}</div>
+              <div className={`mt-2 font-bold ${service.status==='ENABLED'?'text-emerald-700':'text-rose-700'}`}>{service.status}</div>
+              <button disabled={financialBusy||!premiumServiceReason.trim()} onClick={()=>changePremiumService(service.serviceCode,service.status==='ENABLED'?'DISABLED':'ENABLED')} className="mt-2 w-full rounded border px-2 py-1.5 text-[10px] font-bold disabled:opacity-50">{service.status==='ENABLED'?'Disable service':'Enable accepted service'}</button>
+            </div>)}
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-slate-200 p-4 space-y-3">
+          <div><h4 className="text-sm font-bold text-slate-950">Platform revenue and payment operations</h4><p className="text-[11px] text-slate-500">Aggregated directly from invoices, processor-backed payment records, refunds and the immutable commercial event ledger.</p></div>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs">
+            {[
+              ['Invoiced',platformFinancials?.totals?.invoicedCents],['Collected',platformFinancials?.totals?.collectedCents],
+              ['Outstanding',platformFinancials?.totals?.outstandingCents],['Refunded',platformFinancials?.totals?.refundedCents]
+            ].map(([label,value])=><div key={String(label)} className="rounded-lg border bg-slate-50 p-3"><span className="block text-slate-500">{label}</span><strong>${((Number(value)||0)/100).toFixed(2)}</strong></div>)}
+            <div className="rounded-lg border bg-slate-50 p-3"><span className="block text-slate-500">Payment exceptions</span><strong>{platformFinancials?.totals?.failedPaymentCount||0} failed · {platformFinancials?.totals?.pendingPaymentCount||0} pending</strong></div>
+          </div>
+          <div className="overflow-x-auto rounded-lg border">
+            <table className="min-w-full text-left text-[11px]"><thead className="bg-slate-50 text-slate-500"><tr><th className="px-3 py-2">Revenue event</th><th className="px-3 py-2">Recorded</th><th className="px-3 py-2">Rated value</th></tr></thead><tbody>
+              {(platformFinancials?.revenueEvents||[]).map((item:any)=><tr key={item.eventType} className="border-t"><td className="px-3 py-2 font-mono">{item.eventType}</td><td className="px-3 py-2">{item.eventCount}</td><td className="px-3 py-2">${((item.ratedCents||0)/100).toFixed(2)}</td></tr>)}
+              {!platformFinancials?.revenueEvents?.length&&<tr><td colSpan={3} className="px-3 py-4 text-center text-slate-500">No commercial events recorded yet.</td></tr>}
+            </tbody></table>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-3 rounded-xl bg-slate-50 p-4 border border-slate-200">
+          <label className="text-xs font-semibold text-slate-700">Commercial plan
+            <select value={selectedCommercialPlan} onChange={event=>setSelectedCommercialPlan(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2">
+              <option value="PLAN_SOLO">Solo · $99/month</option>
+              <option value="PLAN_AGENCY">Agency · $249/month</option>
+              <option value="PLAN_OPEN_POLICY_PREMIUM">Premium · $499/month</option>
+              <option value="PLAN_NETWORK">Network · $999/month</option>
+              <option value="PLAN_ENTERPRISE">Enterprise / Direct Carrier · from $1,999/month</option>
+            </select>
+          </label>
           <label className="text-xs font-semibold text-slate-700">Additional producer seats
             <input type="number" min={0} value={additionalSeats} onChange={event => setAdditionalSeats(Math.max(0, Number(event.target.value) || 0))}
               className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" />
@@ -395,9 +722,9 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
               className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" />
           </label>
           <div className="md:col-span-2 flex items-end">
-            <button type="button" onClick={activatePremiumAgreement} disabled={financialBusy || !financialOrgId.trim()}
+            <button type="button" onClick={activateCommercialAgreement} disabled={financialBusy || !financialOrgId.trim()}
               className="w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white disabled:opacity-50">
-              Activate Open Policy Premium under admin authority
+              Activate selected plan under admin authority
             </button>
           </div>
         </div>
@@ -524,11 +851,25 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
               className="w-full rounded-lg bg-rose-600 px-3 py-2.5 text-xs font-bold text-white disabled:opacity-50">Execute processor-first refund</button>
           </div>
         </div>
-        <p className="text-[10px] text-amber-700">Workflow automation, enterprise reporting, API integration and multi-location administration retain their approved prices but remain unavailable for purchase until their delivery surfaces enforce the corresponding entitlement.</p>
+        <p className="text-[10px] text-emerald-700">Workflow automation, enterprise reporting, API integration and multi-location administration are delivered through tenant-scoped, entitlement-enforced provider services.</p>
+      </section>
+
+      <section id="owner-security" className="scroll-mt-36 rounded-xl border border-slate-300 bg-white p-5 shadow-xs space-y-4">
+        <div><p className="text-[10px] font-mono font-bold uppercase tracking-wider text-rose-700">Security governance</p><h3 className="text-base font-bold text-slate-950">Platform administrator authority</h3><p className="text-xs text-slate-500">Firebase authenticates the person. PostgreSQL determines their current administrative permissions on every request.</p></div>
+        {administratorRegistry?<>
+          <div className="overflow-x-auto rounded-lg border"><table className="min-w-full text-left text-[11px]"><thead className="bg-slate-50"><tr><th className="px-3 py-2">Firebase UID</th><th className="px-3 py-2">Type</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Permissions</th></tr></thead><tbody>{administratorRegistry.administrators.map((item:any)=><tr key={item.firebaseUid} className="border-t"><td className="px-3 py-2 font-mono">{item.firebaseUid}</td><td className="px-3 py-2">{item.adminType}</td><td className="px-3 py-2">{item.status}</td><td className="px-3 py-2">{item.permissions.join(', ')}</td></tr>)}</tbody></table></div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 rounded-xl bg-slate-50 p-4">
+            <input value={adminForm.firebaseUid} onChange={e=>setAdminForm({...adminForm,firebaseUid:e.target.value})} placeholder="Existing Firebase UID" className="rounded-lg border px-3 py-2 text-xs" />
+            <select value={adminForm.status} onChange={e=>setAdminForm({...adminForm,status:e.target.value})} className="rounded-lg border px-3 py-2 text-xs"><option>ACTIVE</option><option>DISABLED</option></select>
+            <input value={adminForm.reason} onChange={e=>setAdminForm({...adminForm,reason:e.target.value})} placeholder="Required authority-change reason" className="rounded-lg border px-3 py-2 text-xs" />
+            <div className="md:col-span-3 flex flex-wrap gap-3">{['PLATFORM_READ','PROVIDER_ADMIN','COMMERCIAL_ADMIN','COMPLIANCE_ADMIN','SECURITY_ADMIN'].map(permission=><label key={permission} className="text-[10px] font-bold text-slate-600"><input type="checkbox" checked={adminForm.permissions.includes(permission)} onChange={e=>setAdminForm({...adminForm,permissions:e.target.checked?[...adminForm.permissions,permission]:adminForm.permissions.filter(item=>item!==permission)})} className="mr-1"/>{permission}</label>)}</div>
+            <button onClick={saveStaffAdministrator} disabled={financialBusy||!adminForm.firebaseUid.trim()||!adminForm.reason.trim()} className="md:col-span-3 rounded-lg bg-slate-950 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">Save bounded staff authority</button>
+          </div>
+        </>:<p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">Your current administrator session does not include security-administration authority.</p>}
       </section>
 
       {/* Owner operations: insurance-line and regional rollout oversight. */}
-      <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-6 space-y-4">
+      <div id="owner-rollout" className="scroll-mt-36 bg-white rounded-xl shadow-xs border border-slate-200 p-6 space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-100 pb-4">
           <div className="flex items-start gap-3">
             <div className="p-2 rounded-lg bg-slate-900 text-emerald-400"><Globe2 className="w-5 h-5" /></div>
@@ -670,7 +1011,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
       {/* ========================================================================= */}
       {/* 2. SECTION 32 HUMAN-IN-THE-LOOP REVIEW QUEUE                              */}
       {/* ========================================================================= */}
-      <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-6 space-y-4">
+      <div id="owner-reviews" className="scroll-mt-36 bg-white rounded-xl shadow-xs border border-slate-200 p-6 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
           <div className="flex items-center space-x-2">
             <ShieldAlert className="w-5 h-5 text-amber-600" />
@@ -817,7 +1158,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
       {/* ========================================================================= */}
       {/* 3. APPEND-ONLY CRYPTOGRAPHIC AUDIT TRAIL TABLE (Section 33)              */}
       {/* ========================================================================= */}
-      <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-6 space-y-4">
+      <div id="owner-audit" className="scroll-mt-36 bg-white rounded-xl shadow-xs border border-slate-200 p-6 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
           <div>
             <h3 className="text-base font-bold text-slate-900">

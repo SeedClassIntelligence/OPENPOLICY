@@ -36,7 +36,7 @@ const provider: RequestIdentity = {
   uid: 'provider-a', role: 'PROVIDER', source: 'FIREBASE', providerStatus: 'ACTIVE',
   providerUserId: 'provider-user-a', providerOrganizationId: 'provider-org-a'
 };
-const admin: RequestIdentity = { uid: 'admin-a', role: 'ADMIN', source: 'FIREBASE' };
+const admin: RequestIdentity = { uid: 'admin-a', role: 'ADMIN', adminType:'OWNER', adminPermissions:['PLATFORM_READ','PROVIDER_ADMIN','COMMERCIAL_ADMIN','COMPLIANCE_ADMIN','SECURITY_ADMIN'], source: 'FIREBASE' };
 
 test('public routes do not require identity', () => {
   assert.equal(invoke('GET', '/health').next, true);
@@ -51,6 +51,34 @@ test('financial mutations preserve processor and platform authority boundaries',
   assert.equal(invoke('POST', '/commercial/refunds', admin).next, true);
   assert.equal(invoke('POST', '/commercial/invoices/invoice-a/payment-session', consumer).status, 403);
   assert.equal(invoke('POST', '/commercial/invoices/invoice-a/payment-session', provider).next, true);
+});
+
+test('staff administrator permissions are enforced independently of the ADMIN identity role',()=>{
+  const financialStaff:RequestIdentity={uid:'staff-finance',role:'ADMIN',adminType:'STAFF',adminPermissions:['PLATFORM_READ','COMMERCIAL_ADMIN'],source:'FIREBASE'};
+  assert.equal(invoke('GET','/admin/overview',financialStaff).next,true);
+  assert.equal(invoke('POST','/admin/commercial/agreements/enroll',financialStaff).next,true);
+  assert.equal(invoke('PATCH','/admin/providers/org-a/status',financialStaff).status,403);
+  assert.equal(invoke('PUT','/admin/administrators/staff-b',financialStaff).status,403);
+  assert.equal(invoke('GET','/admin/review-queue',financialStaff).status,403);
+});
+
+test('provider integration APIs require provider identity', () => {
+  assert.equal(invoke('GET', '/integrations/v1/opportunities').status, 401);
+  assert.equal(invoke('GET', '/integrations/v1/opportunities', consumer).status, 403);
+  assert.equal(invoke('GET', '/integrations/v1/opportunities', provider).next, true);
+  assert.equal(invoke('GET', '/integrations/v1/reports/summary', admin).status, 403);
+});
+
+test('provider application intake and review preserve separate authority boundaries', () => {
+  const pendingProvider: RequestIdentity = { uid: 'pending-provider', role: 'PROVIDER', providerStatus: 'PENDING_VERIFICATION', source: 'FIREBASE' };
+  assert.equal(invoke('POST', '/provider-applications/current').status, 401);
+  assert.equal(invoke('POST', '/provider-applications/current', consumer).status, 403);
+  assert.equal(invoke('POST', '/provider-applications/current', pendingProvider).next, true);
+  assert.equal(invoke('GET', '/admin/provider-applications', provider).status, 403);
+  assert.equal(invoke('POST', '/admin/provider-applications/application-a/review', provider).status, 403);
+  assert.equal(invoke('POST', '/admin/provider-applications/application-a/review', admin).next, true);
+  assert.equal(invoke('POST', '/admin/provider-applications/application-a/activate', provider).status, 403);
+  assert.equal(invoke('POST', '/admin/provider-applications/application-a/activate', admin).next, true);
 });
 
 test('sensitive routes reject anonymous callers', () => {

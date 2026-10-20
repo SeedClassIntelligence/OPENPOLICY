@@ -13,6 +13,7 @@ research/
 node_modules/
 dist/
 data/
+output/
 .git/
 .gitignore
 

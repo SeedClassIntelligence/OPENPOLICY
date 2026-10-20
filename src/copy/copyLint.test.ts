@@ -135,16 +135,20 @@ test('consumer acceptance status labels reflect authoritative lifecycle state', 
   assert.match(consumer, /\{submissionWindowOpen && \(/);
   assert.match(consumer, /vaultDocs\.length \+ policyVaultItems\.length/);
   assert.match(consumer, /Vault Records/);
+  assert.match(consumer, /SELECT THIS OFFER/);
+  assert.doesNotMatch(consumer, /SELECT THIS OFFER & BIND/);
+  assert.match(consumer, /Authorized Provider Handoff Dossier/);
+  assert.doesNotMatch(consumer, /authorized to receive your contact information to bind the policy/);
 });
 
-test('landing opt-in reuses the canonical account form and role-routing boundaries', () => {
+test('landing keeps account access in the canonical modal instead of embedding an intrusive form', () => {
   const landing = readFileSync(new URL('../components/LandingPage.tsx', import.meta.url), 'utf8');
   const authModal = readFileSync(new URL('../components/AuthModal.tsx', import.meta.url), 'utf8');
-  const app = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');
-  assert.match(landing, /<AuthModal/);
-  assert.match(landing, /variant="inline"/);
-  assert.match(landing, /onSuccess=\{onAuthSuccess\}/);
-  assert.match(app, /onAuthSuccess=\{handleAuthSuccess\}/);
+  assert.doesNotMatch(landing, /<AuthModal/);
+  assert.doesNotMatch(landing, /variant="inline"/);
+  assert.doesNotMatch(landing, /id="create-account"/);
+  assert.match(landing, /openAuthModal\(\{ initialRole: 'CONSUMER', initialMode: 'SIGN_UP' \}\)/);
+  assert.match(landing, /openAuthModal\(\{ initialRole: 'PROVIDER', initialMode: 'SIGN_UP' \}\)/);
   assert.doesNotMatch(landing, /<form/);
   assert.match(authModal, /variant\?: 'modal' \| 'inline'/);
   assert.match(authModal, /Create Account/);
@@ -159,7 +163,7 @@ test('sign-in provides privacy-preserving Firebase password recovery', () => {
   const authContext = readFileSync(new URL('../context/AuthContext.tsx', import.meta.url), 'utf8');
   assert.match(authContext, /sendPasswordResetEmail/);
   assert.match(authModal, /Forgot password\?/);
-  assert.match(authModal, /If an Open Policy account exists for this email/);
+  assert.match(authModal, /If an Open Polici account exists for this email/);
   assert.doesNotMatch(authModal, /No account exists|Email not found/);
 });
 
@@ -185,7 +189,11 @@ test('provider landing page preserves access, neutrality, and transaction bounda
   assert.match(providerLanding, /From shared contact inquiry to verified policy opportunity/);
   assert.match(providerLanding, /consumer selects an offer and authorizes the handoff/);
   assert.match(providerLanding, /A governed path to earn a consumer-authorized connection/);
-  assert.doesNotMatch(providerLanding, /\$499|\$35|Monthly provider membership|Qualified engagement/);
+  for (const price of ['$99', '$249', '$499', '$999', '$1,999', '$75']) {
+    assert.match(providerLanding, new RegExp(price.replace('$', '\\$')));
+  }
+  assert.match(providerLanding, /Marketplace availability, viewing, engagement, offer submission, and consumer selection carry no separate event charge/);
+  assert.doesNotMatch(providerLanding, /\$35|Qualified engagement/);
   assert.doesNotMatch(providerLanding, /\bbid(?:ding|s)?\b|\bauction(?:ed|ing|s)?\b|\brank(?:ed|ing|s)?\b/i);
 });
 

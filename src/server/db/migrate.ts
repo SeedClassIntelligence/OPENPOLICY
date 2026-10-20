@@ -1257,6 +1257,176 @@ ALTER TABLE invoice_line_items ADD CONSTRAINT chk_invoice_line_source_exclusivit
 );
 `;
 
+export const SQL_MIGRATION_V17 = `
+-- Premium provider services. All records remain tenant-scoped and require an
+-- active commercial entitlement before use.
+CREATE TABLE IF NOT EXISTS provider_workflow_rules (
+  id TEXT PRIMARY KEY,
+  provider_organization_id TEXT NOT NULL REFERENCES provider_organizations(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  jurisdictions TEXT NOT NULL,
+  insurance_lines TEXT NOT NULL,
+  risk_markets TEXT NOT NULL,
+  action TEXT NOT NULL CHECK (action IN ('PRIORITIZE','STANDARD_REVIEW','DO_NOT_PURSUE')),
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_provider_workflow_rules_org
+  ON provider_workflow_rules(provider_organization_id, enabled);
+
+CREATE TABLE IF NOT EXISTS provider_api_credentials (
+  id TEXT PRIMARY KEY,
+  provider_organization_id TEXT NOT NULL REFERENCES provider_organizations(id) ON DELETE CASCADE,
+  label TEXT NOT NULL,
+  token_prefix TEXT NOT NULL,
+  token_hash TEXT NOT NULL UNIQUE,
+  scopes TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('ACTIVE','REVOKED')),
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  last_used_at TEXT,
+  revoked_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_provider_api_credentials_org
+  ON provider_api_credentials(provider_organization_id, status);
+
+CREATE TABLE IF NOT EXISTS provider_locations (
+  id TEXT PRIMARY KEY,
+  provider_organization_id TEXT NOT NULL REFERENCES provider_organizations(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  jurisdiction TEXT NOT NULL,
+  address_line1 TEXT NOT NULL,
+  address_line2 TEXT,
+  city TEXT NOT NULL,
+  postal_code TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('ACTIVE','INACTIVE')),
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(provider_organization_id, name)
+);
+CREATE INDEX IF NOT EXISTS idx_provider_locations_org
+  ON provider_locations(provider_organization_id, status);
+
+CREATE TABLE IF NOT EXISTS provider_location_assignments (
+  provider_organization_id TEXT NOT NULL REFERENCES provider_organizations(id) ON DELETE CASCADE,
+  location_id TEXT NOT NULL REFERENCES provider_locations(id) ON DELETE CASCADE,
+  provider_user_id TEXT NOT NULL REFERENCES provider_users(id) ON DELETE CASCADE,
+  assigned_by TEXT NOT NULL,
+  assigned_at TEXT NOT NULL,
+  PRIMARY KEY(location_id, provider_user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_provider_location_assignments_user
+  ON provider_location_assignments(provider_organization_id, provider_user_id);
+`;
+
+export const SQL_MIGRATION_V18 = `
+-- Processor settlement idempotency. A successful payment may settle an invoice
+-- once, and a confirmed refund may reverse that settlement once. These indexes
+-- make webhook replay/concurrency safety a database invariant.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_settlement_payment_allocation
+  ON settlement_allocations(payment_record_id) WHERE refund_record_id IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_settlement_refund_allocation
+  ON settlement_allocations(refund_record_id) WHERE refund_record_id IS NOT NULL;
+`;
+
+export const SQL_MIGRATION_V19 = `
+-- Owner commercial governance: durable compensation determinations and
+-- immutable, administrator-created price-book versions.
+CREATE TABLE IF NOT EXISTS compensation_determinations (
+  id TEXT PRIMARY KEY,
+  jurisdiction_code TEXT NOT NULL,
+  insurance_line TEXT NOT NULL,
+  charge_type TEXT NOT NULL,
+  status TEXT NOT NULL,
+  effective_from TEXT NOT NULL,
+  effective_until TEXT,
+  authority_reference TEXT NOT NULL,
+  supporting_reference TEXT NOT NULL,
+  determination_summary TEXT NOT NULL,
+  approved_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  revoked_at TEXT,
+  revoke_reason TEXT,
+  idempotency_key TEXT NOT NULL UNIQUE,
+  CHECK (status IN ('APPROVED', 'REVOKED', 'EXPIRED'))
+);
+CREATE INDEX IF NOT EXISTS idx_compensation_determinations_scope
+  ON compensation_determinations(jurisdiction_code, insurance_line, charge_type, status);
+`;
+
+export const SQL_MIGRATION_V20 = `
+-- Platform-wide premium service governance. Delivery remains entitlement
+-- scoped; this registry is the independent owner-controlled availability gate.
+CREATE TABLE IF NOT EXISTS premium_service_controls (
+  service_code TEXT PRIMARY KEY,
+  entitlement_type TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL CHECK (status IN ('ENABLED','DISABLED')),
+  acceptance_reference TEXT NOT NULL,
+  accepted_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  updated_by TEXT NOT NULL,
+  change_reason TEXT NOT NULL
+);
+INSERT INTO premium_service_controls
+  (service_code,entitlement_type,status,acceptance_reference,accepted_at,updated_at,updated_by,change_reason)
+VALUES
+  ('WORKFLOW_AUTOMATION','AUTOMATED_APPETITE_MATCHING','ENABLED','af34e0e','2026-10-14T00:00:00.000Z','2026-10-14T00:00:00.000Z','system_migration','Accepted entitlement-enforced delivery surface'),
+  ('ENTERPRISE_REPORTING','ENTERPRISE_REPORTING','ENABLED','af34e0e','2026-10-14T00:00:00.000Z','2026-10-14T00:00:00.000Z','system_migration','Accepted tenant-scoped reporting delivery surface'),
+  ('API_INTEGRATION','API_ACCESS','ENABLED','af34e0e','2026-10-14T00:00:00.000Z','2026-10-14T00:00:00.000Z','system_migration','Accepted scoped credential delivery surface'),
+  ('MULTI_LOCATION_ADMINISTRATION','MULTI_LOCATION_ADMIN','ENABLED','af34e0e','2026-10-14T00:00:00.000Z','2026-10-14T00:00:00.000Z','system_migration','Accepted tenant-isolated location delivery surface')
+ON CONFLICT (service_code) DO NOTHING;
+`;
+
+export const SQL_MIGRATION_V21 = `
+-- Database-authoritative platform administrator permissions. Firebase proves
+-- identity; this registry defines current administrative authority.
+CREATE TABLE IF NOT EXISTS platform_admin_assignments (
+  firebase_uid TEXT PRIMARY KEY,
+  admin_type TEXT NOT NULL CHECK (admin_type IN ('OWNER','STAFF')),
+  permissions TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('ACTIVE','DISABLED')),
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_by TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  change_reason TEXT NOT NULL
+);
+`;
+
+export const SQL_MIGRATION_V22 = `
+-- Durable provider application intake. Creating an identity or paying never
+-- establishes provider authority; platform review remains an explicit gate.
+CREATE TABLE IF NOT EXISTS provider_applications (
+  id TEXT PRIMARY KEY,
+  firebase_uid TEXT NOT NULL UNIQUE,
+  applicant_name TEXT NOT NULL,
+  applicant_email TEXT NOT NULL,
+  legal_name TEXT NOT NULL,
+  display_name TEXT NOT NULL,
+  organization_type TEXT NOT NULL CHECK (organization_type IN ('INDEPENDENT_AGENCY','BROKERAGE','DIRECT_CARRIER','CAPTIVE_AGENCY','OTHER_AUTHORIZED_PROVIDER')),
+  jurisdiction_code TEXT NOT NULL,
+  insurance_lines TEXT NOT NULL,
+  producer_license_number TEXT,
+  producer_npn TEXT,
+  carrier_authority_reference TEXT,
+  requested_plan_code TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('SUBMITTED','UNDER_REVIEW','APPROVED','REJECTED')),
+  submitted_at TEXT NOT NULL,
+  reviewed_at TEXT,
+  reviewed_by TEXT,
+  review_reason TEXT,
+  provider_organization_id TEXT,
+  provider_user_id TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS provider_applications_status_idx
+  ON provider_applications(status, submitted_at);
+`;
+
 export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR || './data/openpolicy_pg') {
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
@@ -1329,7 +1499,31 @@ export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR ||
     await pglite.query(
       `INSERT INTO _migrations (name) VALUES ('0016_negotiated_service_charges') ON CONFLICT (name) DO NOTHING;`
     );
-    console.log(`[Open Policy DB] Migrations 0001 through 0016 applied successfully.`);
+    await pglite.exec(SQL_MIGRATION_V17);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0017_premium_provider_services') ON CONFLICT (name) DO NOTHING;`
+    );
+    await pglite.exec(SQL_MIGRATION_V18);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0018_processor_settlement_idempotency') ON CONFLICT (name) DO NOTHING;`
+    );
+    await pglite.exec(SQL_MIGRATION_V19);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0019_owner_commercial_governance') ON CONFLICT (name) DO NOTHING;`
+    );
+    await pglite.exec(SQL_MIGRATION_V20);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0020_premium_service_governance') ON CONFLICT (name) DO NOTHING;`
+    );
+    await pglite.exec(SQL_MIGRATION_V21);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0021_platform_admin_authority') ON CONFLICT (name) DO NOTHING;`
+    );
+    await pglite.exec(SQL_MIGRATION_V22);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0022_provider_application_intake') ON CONFLICT (name) DO NOTHING;`
+    );
+    console.log(`[Open Policy DB] Migrations 0001 through 0022 applied successfully.`);
     return pglite;
   } catch (error) {
     console.error(`[Open Policy DB] Migration error:`, error);

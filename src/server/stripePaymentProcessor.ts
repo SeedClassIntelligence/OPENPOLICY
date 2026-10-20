@@ -31,6 +31,19 @@ export function mapStripeIntentStatus(status: Stripe.PaymentIntent.Status): Paym
   return 'PENDING';
 }
 
+/** Processor delivery is not ordered. A terminal success is monotonic and must
+ * never be downgraded by a delayed pending/failure event for the same intent. */
+export function shouldApplyStripePaymentStatus(previous: PaymentStatus | undefined, next: PaymentStatus): boolean {
+  if (previous === 'SUCCEEDED') return next === 'SUCCEEDED';
+  if (previous === 'FAILED') return next === 'SUCCEEDED' || next === 'FAILED';
+  return true;
+}
+
+export function stripeRefundLedgerKey(processorRefundId: string): string {
+  if (!processorRefundId.trim()) throw new Error('Stripe refund identity is required.');
+  return `stripe-refund:${processorRefundId}`;
+}
+
 export function stripePaymentMethod(intent: Stripe.PaymentIntent): PaymentMethod {
   return intent.payment_method_types.includes('us_bank_account') ? 'ACH_TRANSFER' : 'CREDIT_CARD';
 }
@@ -63,7 +76,7 @@ export class StripePaymentProcessor {
         quantity: 1,
         price_data: {
           currency: 'usd', unit_amount: params.amountCents,
-          product_data: { name: `Open Policy invoice ${params.invoiceNumber}` }
+          product_data: { name: `Open Polici invoice ${params.invoiceNumber}` }
         }
       }],
       payment_intent_data: { metadata }, metadata,

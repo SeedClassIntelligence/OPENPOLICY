@@ -45,10 +45,11 @@ import {
 } from './src/domain/pm5ReconciliationEngine';
 import { verifyCryptographicAuditChain, processReviewQueueResolution,
   generateRegulatoryAuditProof } from './src/domain/governanceAuditEngine';
-import { assertProductionAuthConfiguration, attachRequestIdentity, configuredAuthMode, getFirebaseUserProfile } from './src/server/auth/requestIdentity';
+import { assertProductionAuthConfiguration, attachRequestIdentity, configuredAuthMode, getFirebaseUserProfile, updateFirebaseProviderReviewState } from './src/server/auth/requestIdentity';
 import { assertBindingRelationship, assertChallengeRelationship, enforceApiAuthorization } from './src/server/auth/routeAuthorization';
 import { assertDirectSettlementMutationAllowed } from './src/server/paymentCollectionBoundary';
-import { StripePaymentProcessor, mapStripeIntentStatus, stripePaymentMethod, stripeProcessorConfig } from './src/server/stripePaymentProcessor';
+import { StripePaymentProcessor, mapStripeIntentStatus, shouldApplyStripePaymentStatus, stripePaymentMethod, stripeProcessorConfig, stripeRefundLedgerKey } from './src/server/stripePaymentProcessor';
+import { activateApprovedProviderApplication } from './src/server/providerActivation';
 
 import { runComparisonEngineTestSuite } from './src/domain/comparisonEngine.test';
 import { runEligibilityEngineTestSuite } from './src/domain/eligibilityEngine.test';
@@ -62,6 +63,7 @@ import { runPM4AcceptanceTestSuite } from './src/domain/pm4SelectionBinding.test
 import { runPM5DomainTestSuite } from './src/domain/pm5Reconciliation.test';
 import { runCommercialEconomicsTestSuite } from './src/domain/commercialEconomics.test';
 import { commercialStore } from './src/server/db/commercialStore';
+import { premiumServicesStore, type ApiScope } from './src/server/db/premiumServicesStore';
 import { jurisdictionStore } from './src/server/db/jurisdictionStore';
 import { determineJurisdiction } from './src/domain/jurisdictionDetermination';
 import { JurisdictionSignal } from './src/types/jurisdiction';
@@ -92,6 +94,7 @@ import { DocumentAiOcrProvider } from './src/server/documentAiOcrProvider';
 import { extractAndClassifyPolicyDocument } from './src/server/policyDocumentExtraction';
 import { validatePolicyFieldCorrection } from './src/domain/policyFieldCorrection';
 import { canEnterPolicyPipeline, INSURANCE_LINES } from './src/domain/insuranceLineRegistry';
+import { OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2 } from './src/domain/commercialPriceBook';
 import { validatePolicyLineOfferFacts } from './src/domain/policyLineOfferContract';
 import { JURISDICTION_LINE_ROLLOUT_MATRIX } from './src/domain/jurisdictionLineAvailability';
 import type { InsuranceLine } from './src/types/jurisdiction';
@@ -110,6 +113,23 @@ const fixturePersistenceReady = process.env.OPENPOLICY_AUTH_MODE === 'fixture'
 app.use('/api/policy-documents/ingest', express.raw({ type: () => true, limit: '10mb' }));
 app.use('/api/commercial/stripe/webhook', express.raw({ type: 'application/json', limit: '1mb' }));
 app.use(express.json({ limit: '10mb' }));
+app.use('/api/integrations/v1', async (req, res, next) => {
+  try {
+    const authorization = String(req.headers.authorization || '');
+    const token = authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : '';
+    const requiredScope: ApiScope = req.path.startsWith('/reports') ? 'reports:read'
+      : req.path.startsWith('/offers') ? 'offers:read' : 'opportunities:read';
+    const authenticated = await premiumServicesStore.authenticateApiToken(token, requiredScope);
+    req.openPolicyIdentity = {
+      uid: authenticated.providerUserId, providerUserId: authenticated.providerUserId,
+      providerOrganizationId: authenticated.providerOrganizationId,
+      providerStatus: 'ACTIVE', role: 'PROVIDER', source: 'API_CREDENTIAL'
+    };
+    next();
+  } catch (error: any) {
+    res.status(error.statusCode || 401).json({ error: error.message });
+  }
+});
 app.use('/api', async (_req, res, next) => {
   try {
     await fixturePersistenceReady;
@@ -119,6 +139,16 @@ app.use('/api', async (_req, res, next) => {
   }
 });
 app.use('/api', attachRequestIdentity);
+app.use('/api', async (req,res,next)=>{
+  try{
+    if(req.openPolicyIdentity?.role!=='ADMIN')return next();
+    if(req.openPolicyIdentity.source==='FIXTURE')return next();
+    let assignment=await postgresStore.getPlatformAdminAssignment(req.openPolicyIdentity.uid);
+    if(!assignment&&process.env.OPENPOLICY_OWNER_FIREBASE_UID?.trim()===req.openPolicyIdentity.uid){assignment=await postgresStore.bootstrapPlatformOwner(req.openPolicyIdentity.uid);}
+    if(!assignment||assignment.status!=='ACTIVE')return res.status(403).json({error:'Forbidden',message:'Current platform administrator authority is required.'});
+    req.openPolicyIdentity.adminType=assignment.adminType;req.openPolicyIdentity.adminPermissions=assignment.permissions;next();
+  }catch(error:any){res.status(error.statusCode||503).json({error:'Administrative authority unavailable'});}
+});
 app.use('/api', enforceApiAuthorization);
 
 let policyDocumentObjectStore: CloudPolicyDocumentStore | undefined;
@@ -233,6 +263,16 @@ async function getAuthenticatedProviderUserId(req: express.Request): Promise<str
   return user.id;
 }
 
+async function getAuthenticatedProviderAdministrator(req: express.Request) {
+  const organizationId = await getAuthenticatedProviderOrgId(req);
+  const providerUserId = await getAuthenticatedProviderUserId(req);
+  const user = await postgresStore.getProviderUser(providerUserId);
+  if (!user || !['OWNER', 'ADMIN'].includes(user.role)) {
+    throw Object.assign(new Error('Provider owner or administrator authority required.'), { statusCode: 403 });
+  }
+  return { organizationId, providerUserId };
+}
+
 function getAuthenticatedConsumerId(req: express.Request): string {
   const identity = req.openPolicyIdentity;
   if (!identity || identity.role !== 'CONSUMER') {
@@ -303,7 +343,7 @@ app.get('/api/health', async (req, res) => {
   res.json({
     status: 'ok',
     version: '1.0.0',
-    service: 'Open Policy Offer Review Service',
+    service: 'Open Polici Offer Review Service',
     uptime: process.uptime(),
     timestamp: new Date().toISOString()
   });
@@ -451,7 +491,7 @@ app.post('/api/policy-documents/ingest', async (req, res) => {
     if (!canEnterPolicyPipeline(insuranceLine)) {
       return res.status(409).json({
         error: 'INSURANCE_LINE_NOT_AVAILABLE',
-        message: `${insuranceLine} is represented in Open Policy but is not accepted by the policy-processing pipeline yet.`
+        message: `${insuranceLine} is represented in Open Polici but is not accepted by the policy-processing pipeline yet.`
       });
     }
     const document = await ingestPolicyDocument({
@@ -1001,11 +1041,30 @@ app.post('/api/offers/submit', async (req, res) => {
     eventType: 'QUOTE_DISCREPANCY_DETECTED', actorRole: 'SYSTEM', actorId: 'quote_validator',
     details: `Discrepancy detected in offer ${offerData.id}: ${offerData.discrepancyDetails?.join('; ')}`
   });
+  const activeOfferAgreement = await commercialStore.getActiveAgreementForOrg(offerData.providerId);
+  const submissionCapacity = req.openPolicyIdentity?.source === 'FIXTURE' && !activeOfferAgreement
+    ? { allowed: true, isOverage: false, currentUsage: 0, enforcementPolicy: 'HARD_BLOCK' as const,
+        code: 'WITHIN_CAPACITY' as const }
+    : await commercialStore.consumeOfferSubmissionCapacity({
+        providerOrgId: offerData.providerId, challengeId: offerData.challengeId,
+        offerVersionId: initialVersion.id
+      });
+  if (!submissionCapacity.allowed) {
+    return res.status(403).json({
+      error: 'COMMERCIAL_CAPACITY_REACHED',
+      message: submissionCapacity.reason || 'Monthly offer-submission capacity reached.',
+      details: { entitlementType: 'MONTHLY_OFFER_SUBMISSION_CAPACITY',
+        currentUsage: submissionCapacity.currentUsage, limit: submissionCapacity.limit }
+    });
+  }
   try {
     await postgresStore.commitOfferSubmission({
       offer: offerData, version: initialVersion, activity: offerActivity, audits: offerAudits
     });
   } catch (error: any) {
+    if (submissionCapacity.usageRecord && !submissionCapacity.alreadyConsumed) {
+      await commercialStore.releaseUsageRecord(submissionCapacity.usageRecord.id);
+    }
     return res.status(error.statusCode || 400).json({ error: error.message });
   }
   const savedOffer = (await postgresStore.getOffer(offerData.id))!;
@@ -1107,7 +1166,7 @@ app.post('/api/vault/upload', async (req, res) => {
 // 10. Retired legacy simulation routes
 // ==========================================
 app.post('/api/challenges/:id/final-round', async (req, res) => {
-  res.status(410).json({ error: 'Legacy final-round route retired; Open Policy now uses one submission window.' });
+  res.status(410).json({ error: 'Legacy final-round route retired; Open Polici now uses one submission window.' });
 });
 
 app.post('/api/challenges/:id/incumbent-defense', async (req, res) => {
@@ -1154,6 +1213,337 @@ app.get('/api/marketplace/providers', async (req, res) => {
   }
 });
 
+// Owner control-plane read model. This endpoint exposes operational identifiers
+// only to a verified platform administrator so the owner console can select the
+// authoritative organization instead of requiring an error-prone pasted ID.
+app.get('/api/admin/overview', async (_req, res) => {
+  try {
+    const [organizations, providerUsers, competitions, challenges, policies, baselines,
+      handoffs, vaultItems, auditEvents, reviewQueue] = await Promise.all([
+      postgresStore.getProviderOrganizations(),
+      postgresStore.getProviderUsers(),
+      postgresStore.getAllCompetitions(),
+      postgresStore.getChallenges(),
+      postgresStore.getPolicies(),
+      postgresStore.getCoverageBaselines(),
+      postgresStore.getBindingHandoffs(),
+      postgresStore.getPolicyVaultItems(),
+      postgresStore.getAuditEvents(),
+      postgresStore.getReviewQueue()
+    ]);
+    res.json({
+      generatedAt: new Date().toISOString(),
+      paymentProcessor: {
+        provider: 'STRIPE',
+        configured: Boolean(process.env.STRIPE_SECRET_KEY?.trim() && process.env.STRIPE_WEBHOOK_SECRET?.trim() && process.env.APP_URL?.trim()),
+        secretKeyConfigured: Boolean(process.env.STRIPE_SECRET_KEY?.trim()),
+        webhookConfigured: Boolean(process.env.STRIPE_WEBHOOK_SECRET?.trim()),
+        secureReturnUrl: (() => { try { return new URL(process.env.APP_URL || '').protocol === 'https:'; } catch { return false; } })(),
+        liveCollectionsEnabled: process.env.OPENPOLICY_LIVE_COLLECTIONS_ENABLED === 'true'
+      },
+      organizations: organizations.map(org => ({
+        id: org.id,
+        displayName: org.displayName,
+        legalName: org.legalName,
+        organizationType: org.organizationType,
+        verificationStatus: org.verificationStatus,
+        marketplaceStatus: org.marketplaceStatus,
+        states: org.states,
+        linesOfBusiness: org.linesOfBusiness,
+        userCount: providerUsers.filter(user => user.organizationId === org.id).length
+      })),
+      counts: {
+        providerOrganizations: organizations.length,
+        activeProviderOrganizations: organizations.filter(org => org.marketplaceStatus === 'ACTIVE').length,
+        providerUsers: providerUsers.length,
+        activeProviderUsers: providerUsers.filter(user => user.status === 'ACTIVE').length,
+        competitions: competitions.length,
+        openCompetitions: competitions.filter(item => !['CLOSED', 'WITHDRAWN', 'EXPIRED'].includes(String(item.status))).length,
+        policies: policies.length,
+        verifiedBaselines: baselines.length,
+        bindingHandoffs: handoffs.length,
+        policyVaultItems: vaultItems.length,
+        auditEvents: auditEvents.length,
+        pendingReviews: reviewQueue.filter(item => item.status === 'PENDING_REVIEW' || item.status === 'UNDER_INVESTIGATION').length,
+        consumers: null
+      }
+    });
+  } catch (e: any) {
+    res.status(e.statusCode || 500).json({ error: e.message });
+  }
+});
+
+app.get('/api/admin/marketplace-operations',async(_req,res)=>{
+  try{const [policies,challenges,competitions,offers,selections,handoffs]=await Promise.all([postgresStore.getPolicies(),postgresStore.getChallenges(),postgresStore.getAllCompetitions(),postgresStore.getOffers(),postgresStore.getSelections(),postgresStore.getBindingHandoffs()]);
+    res.json({generatedAt:new Date().toISOString(),policies:policies.map(item=>({id:item.id,policyNumber:item.policyNumber,carrier:item.carrier,jurisdiction:item.jurisdiction,insuranceLine:item.insuranceLine||'PERSONAL_AUTO',status:item.status,effectiveDate:item.effectiveDate,expirationDate:item.expirationDate})),
+      opportunities:challenges.map(challenge=>{const competition=competitions.find(item=>item.challengeId===challenge.id);return {id:challenge.id,referenceNumber:challenge.referenceNumber,consumerId:challenge.consumerId,jurisdiction:challenge.jurisdiction,insuranceLine:challenge.insuranceLine||'PERSONAL_AUTO',status:challenge.status,openingTimestamp:challenge.openingTimestamp,closingTimestamp:challenge.closingTimestamp,offersCount:offers.filter(item=>item.challengeId===challenge.id).length,competitionStatus:competition?.status||null,activeOfferCohort:competition?.activeOfferCohort||null,maximumActivatedProviders:competition?.maximumActivatedProviders||null};}),
+      offers:offers.map(item=>({id:item.id,challengeId:item.challengeId,providerOrganizationId:item.providerId,providerName:item.providerName,carrier:item.carrier,status:item.status,insuranceLine:item.insuranceLine||'PERSONAL_AUTO',annualPremium:item.annualPremium,submittedAt:item.submittedAt})),
+      selections:selections.map(item=>({id:item.id,challengeId:item.challengeId,providerOrganizationId:item.providerOrganizationId,carrier:item.carrier,status:item.status,selectedAt:item.selectedAt,annualPremium:item.annualPremium})),
+      handoffs:handoffs.map(item=>({id:item.id,bindingReference:item.bindingReference,challengeId:item.challengeId,providerOrganizationId:item.providerOrganizationId,carrier:item.carrier,status:item.status,createdAt:item.createdAt,updatedAt:item.updatedAt}))});
+  }catch(e:any){res.status(e.statusCode||500).json({error:e.message});}
+});
+
+const V2_PROVIDER_PLAN_CODES: Set<string> = new Set(
+  Object.values(OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.memberships).map(plan => plan.planCode)
+);
+const PROVIDER_ORGANIZATION_TYPES = new Set([
+  'INDEPENDENT_AGENCY','BROKERAGE','DIRECT_CARRIER','CAPTIVE_AGENCY','OTHER_AUTHORIZED_PROVIDER'
+]);
+
+app.get('/api/provider-applications/current', async (req, res) => {
+  try {
+    const application = await postgresStore.getProviderApplicationByFirebaseUid(req.openPolicyIdentity!.uid);
+    if (!application) return res.status(404).json({ error: 'Provider application not found.' });
+    res.json(application);
+  } catch (e: any) {
+    res.status(e.statusCode || 500).json({ error: e.message });
+  }
+});
+
+app.post('/api/provider-applications/current', async (req, res) => {
+  try {
+    const identity = req.openPolicyIdentity!;
+    const organizationType = String(req.body?.organizationType || '').toUpperCase();
+    const jurisdictionCode = String(req.body?.jurisdictionCode || '').toUpperCase();
+    const requestedPlanCode = String(req.body?.requestedPlanCode || '');
+    const insuranceLines: string[] = Array.isArray(req.body?.insuranceLines)
+      ? [...new Set<string>(req.body.insuranceLines.map((line: unknown) => String(line).toUpperCase()))]
+      : [];
+    if (!PROVIDER_ORGANIZATION_TYPES.has(organizationType)) {
+      return res.status(400).json({ error: 'A valid provider organization type is required.' });
+    }
+    if (!/^[A-Z]{2}$/.test(jurisdictionCode)) {
+      return res.status(400).json({ error: 'A two-letter licensing jurisdiction is required.' });
+    }
+    if (!V2_PROVIDER_PLAN_CODES.has(requestedPlanCode)) {
+      return res.status(400).json({ error: 'A valid OPEN_POLICY_COMMERCIAL_V2 membership is required.' });
+    }
+    if (insuranceLines.length === 0 || insuranceLines.some(line => !INSURANCE_LINES.some(item => item.code === line))) {
+      return res.status(400).json({ error: 'At least one recognized insurance line is required.' });
+    }
+    const producerLicenseNumber = String(req.body?.producerLicenseNumber || '').trim();
+    const carrierAuthorityReference = String(req.body?.carrierAuthorityReference || '').trim();
+    if (organizationType === 'DIRECT_CARRIER' && !carrierAuthorityReference) {
+      return res.status(400).json({ error: 'Direct-carrier applications require a certificate-of-authority reference for review.' });
+    }
+    if (organizationType !== 'DIRECT_CARRIER' && !producerLicenseNumber) {
+      return res.status(400).json({ error: 'A producer or entity license number is required.' });
+    }
+    const applicantName = String(req.body?.applicantName || '').trim();
+    const applicantEmail = String(identity.email || req.body?.applicantEmail || '').trim();
+    const legalName = String(req.body?.legalName || '').trim();
+    if (!applicantName || !applicantEmail || !legalName) {
+      return res.status(400).json({ error: 'Applicant name, email, and organization legal name are required.' });
+    }
+    const application = await postgresStore.submitProviderApplication({
+      firebaseUid: identity.uid,
+      applicantName,
+      applicantEmail,
+      legalName,
+      displayName: String(req.body?.displayName || req.body?.legalName || '').trim(),
+      organizationType: organizationType as any,
+      jurisdictionCode,
+      insuranceLines,
+      producerLicenseNumber: producerLicenseNumber || undefined,
+      producerNpn: String(req.body?.producerNpn || '').trim() || undefined,
+      carrierAuthorityReference: carrierAuthorityReference || undefined,
+      requestedPlanCode
+    });
+    res.status(201).json({ application, authorityGranted: false, commercialAgreementActivated: false });
+  } catch (e: any) {
+    res.status(e.statusCode || 500).json({ error: e.message });
+  }
+});
+
+app.get('/api/admin/provider-applications', async (_req, res) => {
+  try { res.json(await postgresStore.listProviderApplications()); }
+  catch (e: any) { res.status(e.statusCode || 500).json({ error: e.message }); }
+});
+
+app.post('/api/admin/provider-applications/:applicationId/review', async (req, res) => {
+  try {
+    const decision = String(req.body?.decision || '').toUpperCase();
+    if (decision !== 'APPROVE' && decision !== 'REJECT') {
+      return res.status(400).json({ error: 'decision must be APPROVE or REJECT.' });
+    }
+    const application = await postgresStore.reviewProviderApplication({
+      applicationId: req.params.applicationId, decision: decision as 'APPROVE' | 'REJECT',
+      actorId: req.openPolicyIdentity!.uid, reason: String(req.body?.reason || ''),
+      licenseType: req.body?.licenseType ? String(req.body.licenseType) : undefined,
+      licenseExpirationDate: req.body?.licenseExpirationDate ? String(req.body.licenseExpirationDate) : undefined,
+      verificationSource: req.body?.verificationSource ? String(req.body.verificationSource) : undefined
+    });
+    if (req.openPolicyIdentity!.source !== 'FIXTURE') {
+      await updateFirebaseProviderReviewState(application.firebaseUid, {
+        providerStatus: application.status === 'REJECTED' ? 'REJECTED' : 'PENDING_VERIFICATION',
+        providerUserId: application.providerUserId,
+        providerOrganizationId: application.providerOrganizationId
+      });
+    }
+    res.json({ success: true, application, marketplaceAccessGranted: false, commercialAgreementActivated: false });
+  } catch (e: any) {
+    res.status(e.statusCode || 500).json({ error: e.message });
+  }
+});
+
+app.post('/api/admin/provider-applications/:applicationId/activate', async (req, res) => {
+  try {
+    const result = await activateApprovedProviderApplication({
+      applicationId: req.params.applicationId,
+      actorId: req.openPolicyIdentity!.uid,
+      reason: String(req.body?.reason || ''),
+      postgresStore,
+      commercialStore,
+      synchronizeIdentity: req.openPolicyIdentity!.source === 'FIXTURE' ? undefined : async application => {
+        await updateFirebaseProviderReviewState(application.firebaseUid, {
+          providerStatus: 'ACTIVE',
+          providerUserId: application.providerUserId,
+          providerOrganizationId: application.providerOrganizationId
+        });
+      }
+    });
+    res.json({ success: true, ...result, marketplaceAccessGranted: true });
+  } catch (e: any) {
+    res.status(e.statusCode || 500).json({ error: e.message });
+  }
+});
+
+app.get('/api/admin/administrators',async(req,res)=>{
+  try{res.json({current:{uid:req.openPolicyIdentity!.uid,adminType:req.openPolicyIdentity!.adminType,permissions:req.openPolicyIdentity!.adminPermissions},administrators:await postgresStore.listPlatformAdminAssignments()});}
+  catch(e:any){res.status(e.statusCode||500).json({error:e.message});}
+});
+app.put('/api/admin/administrators/:uid',async(req,res)=>{
+  try{const assignment=await postgresStore.upsertPlatformAdminAssignment({firebaseUid:req.params.uid,adminType:String(req.body?.adminType||'STAFF').toUpperCase() as any,
+    permissions:Array.isArray(req.body?.permissions)?req.body.permissions:[],status:String(req.body?.status||'ACTIVE').toUpperCase() as any,
+    actorId:req.openPolicyIdentity!.uid,reason:String(req.body?.reason||'')});res.json({success:true,assignment});}
+  catch(e:any){res.status(e.statusCode||500).json({error:e.message});}
+});
+
+app.patch('/api/admin/providers/:organizationId/status', async (req, res) => {
+  try {
+    const marketplaceStatus = String(req.body?.marketplaceStatus || '').toUpperCase();
+    if (!['ACTIVE', 'PENDING', 'SUSPENDED', 'INACTIVE'].includes(marketplaceStatus)) {
+      return res.status(400).json({ error: 'marketplaceStatus must be ACTIVE, PENDING, SUSPENDED, or INACTIVE.' });
+    }
+    const currentOrganization = await postgresStore.getProviderOrganization(req.params.organizationId);
+    if (!currentOrganization) return res.status(404).json({ error: 'Provider organization not found.' });
+    if (marketplaceStatus === 'ACTIVE' && currentOrganization.marketplaceStatus !== 'SUSPENDED') {
+      return res.status(409).json({
+        error: 'Initial provider activation must use the provider-application activation gate after verified authority, a matching V2 agreement, and a settled membership invoice.'
+      });
+    }
+    const organization = await postgresStore.changeProviderOrganizationStatus({
+      organizationId: req.params.organizationId,
+      marketplaceStatus: marketplaceStatus as any,
+      actorId: req.openPolicyIdentity!.uid,
+      reason: String(req.body?.reason || '')
+    });
+    res.json({ success: true, organization });
+  } catch (e: any) {
+    res.status(e.statusCode || 500).json({ error: e.message });
+  }
+});
+
+app.get('/api/admin/commercial/governance', async (_req, res) => {
+  try {
+    const plans = await commercialStore.listActivePlans();
+    const planVersions = await Promise.all(plans.map(plan => commercialStore.getLatestPlanVersion(plan.id)));
+    const [determinations, premiumServices] = await Promise.all([
+      postgresStore.listCompensationDeterminations(), postgresStore.listPremiumServiceControls()
+    ]);
+    res.json({
+      plans: plans.map((plan, index) => ({ ...plan, latestVersion: planVersions[index] || null })),
+      compensationDeterminations: determinations,
+      premiumServices
+    });
+  } catch (e: any) {
+    res.status(e.statusCode || 500).json({ error: e.message });
+  }
+});
+
+app.get('/api/admin/commercial/platform-summary', async (_req,res)=>{
+  try{res.json(await commercialStore.getPlatformFinancialOverview());}
+  catch(e:any){res.status(e.statusCode||500).json({error:e.message});}
+});
+
+app.patch('/api/admin/commercial/premium-services/:serviceCode', async (req, res) => {
+  try {
+    const service = await postgresStore.changePremiumServiceControl({
+      serviceCode:req.params.serviceCode,status:String(req.body?.status||'').toUpperCase() as any,
+      actorId:req.openPolicyIdentity!.uid,reason:String(req.body?.reason||'')
+    });
+    res.json({success:true,service});
+  } catch(e:any){res.status(e.statusCode||500).json({error:e.message});}
+});
+
+app.post('/api/admin/commercial/compensation-determinations', async (req, res) => {
+  try {
+    const determination = await postgresStore.approveCompensationDetermination({
+      jurisdictionCode: String(req.body?.jurisdictionCode || ''),
+      insuranceLine: String(req.body?.insuranceLine || ''),
+      chargeType: String(req.body?.chargeType || 'AUTHORIZED_CONNECTION'),
+      effectiveFrom: String(req.body?.effectiveFrom || ''),
+      effectiveUntil: req.body?.effectiveUntil ? String(req.body.effectiveUntil) : undefined,
+      authorityReference: String(req.body?.authorityReference || ''),
+      supportingReference: String(req.body?.supportingReference || ''),
+      determinationSummary: String(req.body?.determinationSummary || ''),
+      idempotencyKey: String(req.body?.idempotencyKey || ''),
+      actorId: req.openPolicyIdentity!.uid
+    });
+    res.status(201).json({ success: true, determination });
+  } catch (e: any) {
+    res.status(e.statusCode || 500).json({ error: e.message });
+  }
+});
+
+app.post('/api/admin/commercial/compensation-determinations/:id/revoke', async (req, res) => {
+  try {
+    const determination = await postgresStore.revokeCompensationDetermination({
+      id:req.params.id,actorId:req.openPolicyIdentity!.uid,reason:String(req.body?.reason||'')
+    });
+    res.json({ success:true, determination });
+  } catch(e:any) { res.status(e.statusCode||500).json({error:e.message}); }
+});
+
+app.post('/api/admin/commercial/plans/:planId/versions', async (req, res) => {
+  try {
+    const latest = await commercialStore.getLatestPlanVersion(req.params.planId);
+    if (!latest) return res.status(404).json({ error: 'Commercial plan version not found.' });
+    const recurringFeeCents = Number(req.body?.recurringFeeCents);
+    const qualifiedEngagementUnitPriceCents = Number(req.body?.qualifiedEngagementUnitPriceCents);
+    if (qualifiedEngagementUnitPriceCents !== 0) {
+      return res.status(400).json({ error: 'V2 requires qualifiedEngagementUnitPriceCents to remain zero.' });
+    }
+    const connectionPrices = req.body?.authorizedConnectionCentsByInsuranceLine;
+    const priceBookId = String(req.body?.priceBookId || '').trim();
+    if (!priceBookId) return res.status(400).json({ error: 'priceBookId is required.' });
+    if (!connectionPrices || typeof connectionPrices !== 'object' || Array.isArray(connectionPrices) ||
+        Object.values(connectionPrices).some(value => !Number.isInteger(Number(value)) || Number(value) < 0)) {
+      return res.status(400).json({ error: 'authorizedConnectionCentsByInsuranceLine must contain non-negative integer prices.' });
+    }
+    const version = await postgresStore.createGovernedCommercialPlanVersion({
+      planId: req.params.planId,
+      effectiveFrom: String(req.body?.effectiveFrom || ''),
+      billingInterval: latest.billingInterval,
+      recurringFeeCents,
+      // Preserve all existing contractual terms. Price publication does not
+      // activate compensation: that requires a separately approved, scoped
+      // determination and a later explicit activation gate.
+      termsSnapshot: {
+        ...latest.termsSnapshot,
+        priceBookId,
+        qualifiedEngagementUnitPriceCents,
+        authorizedConnectionCentsByInsuranceLine: Object.fromEntries(Object.entries(connectionPrices).map(([key, value]) => [key, Number(value)])),
+        compensationDeterminationApproved: false
+      },
+      actorId: req.openPolicyIdentity!.uid
+    });
+    res.status(201).json({ success: true, version });
+  } catch (e: any) {
+    res.status(e.statusCode || 500).json({ error: e.message });
+  }
+});
+
 // GET /api/marketplace/my-provider — derives org from authenticated session (x-provider-user-id)
 // BLOCKER 2/3 FIX: Server resolves authenticated provider context. Client does not select its own org.
 app.get('/api/marketplace/my-provider', async (req, res) => {
@@ -1166,6 +1556,17 @@ app.get('/api/marketplace/my-provider', async (req, res) => {
     res.json({ org, activeOrgId: orgId, licenses, appetite, carriers });
   } catch (e: any) {
     res.status(e.statusCode || 401).json({ error: e.message });
+  }
+});
+
+app.get('/api/marketplace/my-provider/users', async (req, res) => {
+  try {
+    const actor = await getAuthenticatedProviderAdministrator(req);
+    const users = await postgresStore.getProviderUsers(actor.organizationId);
+    res.json({ users: users.map(user => ({ id: user.id, name: user.name, email: user.email,
+      role: user.role, status: user.status })) });
+  } catch (e: any) {
+    res.status(e.statusCode || 403).json({ error: e.message });
   }
 });
 
@@ -1307,7 +1708,7 @@ app.post('/api/marketplace/invitations/:id/accept', async (req, res) => {
     }
 
     // 2. Commercial Capacity Check & Atomic Consumption
-    const idempotencyKey = `usage:vpo_engagement:${orgId}:${invitationId}`;
+    const idempotencyKey = `usage:active_competition:${orgId}:${invitationId}`;
     const capacityResult = await commercialStore.consumeEngagementCapacity({
       providerOrgId: orgId,
       invitationId,
@@ -1320,9 +1721,9 @@ app.post('/api/marketplace/invitations/:id/accept', async (req, res) => {
         success: false,
         error: 'COMMERCIAL_CAPACITY_REACHED',
         code: 'COMMERCIAL_CAPACITY_REACHED',
-        message: 'Commercial capacity reached: provider organization has exhausted available VPO engagement capacity under its current agreement.',
+        message: 'Commercial capacity reached: provider organization has exhausted its concurrent competition capacity.',
         details: {
-          entitlementType: 'VPO_ENGAGEMENT_CAPACITY',
+          entitlementType: 'ACTIVE_COMPETITION_CAPACITY',
           currentUsage: capacityResult.currentUsage,
           limit: capacityResult.limit,
           enforcementPolicy: capacityResult.enforcementPolicy,
@@ -1629,13 +2030,24 @@ app.post('/api/marketplace/competition/:challengeId/revise-offer/:offerId', asyn
     const qualification=evaluateOfferQualification(revisedOffer,challenge.baseline,provider,relationships);
     revisedOffer.isQualified=qualification.isQualified;revisedOffer.qualifiedAt=qualification.evaluatedAt;revisedOffer.qualificationReasons=qualification.qualificationReasons;revisedOffer.disqualificationReasons=qualification.disqualificationReasons;
     const versionSnapshot=createOfferVersionSnapshot(revisedOffer,req.body.revisedData.revisionReason||`Revised during ${competition.currentRound}`);versionSnapshot.offerId=originalOffer.id;versionSnapshot.versionNumber=version;
-    const revisedOfferCommitted=await postgresStore.commitOfferRevision({original:originalOffer,revised:revisedOffer,version:versionSnapshot,actorId:orgId,activity:{id:`ACT-REV-${originalOffer.id}-v${version}`,competitionId:competition.id,challengeId:challenge.id,timestamp:submittedAt,type:'OFFER_REVISED',actorRole:'PROVIDER',providerOrganizationId:orgId,summary:`Provider updated its ${revisedOffer.carrier} offer`,round:competition.currentRound,metadata:{offerId:revisedOffer.id,version}}});
+    const activeOfferAgreement=await commercialStore.getActiveAgreementForOrg(orgId);
+    const submissionCapacity=req.openPolicyIdentity?.source==='FIXTURE'&&!activeOfferAgreement
+      ? {allowed:true,isOverage:false,currentUsage:0,enforcementPolicy:'HARD_BLOCK' as const,code:'WITHIN_CAPACITY' as const}
+      : await commercialStore.consumeOfferSubmissionCapacity({providerOrgId:orgId,challengeId:challenge.id,offerVersionId:versionSnapshot.id});
+    if(!submissionCapacity.allowed)return res.status(403).json({error:'COMMERCIAL_CAPACITY_REACHED',message:submissionCapacity.reason||'Monthly offer-submission capacity reached.',details:{entitlementType:'MONTHLY_OFFER_SUBMISSION_CAPACITY',currentUsage:submissionCapacity.currentUsage,limit:submissionCapacity.limit}});
+    let revisedOfferCommitted:Offer;
+    try {
+      revisedOfferCommitted=await postgresStore.commitOfferRevision({original:originalOffer,revised:revisedOffer,version:versionSnapshot,actorId:orgId,activity:{id:`ACT-REV-${originalOffer.id}-v${version}`,competitionId:competition.id,challengeId:challenge.id,timestamp:submittedAt,type:'OFFER_REVISED',actorRole:'PROVIDER',providerOrganizationId:orgId,summary:`Provider updated its ${revisedOffer.carrier} offer`,round:competition.currentRound,metadata:{offerId:revisedOffer.id,version}}});
+    } catch(error) {
+      if(submissionCapacity.usageRecord&&!submissionCapacity.alreadyConsumed)await commercialStore.releaseUsageRecord(submissionCapacity.usageRecord.id);
+      throw error;
+    }
 
     // PR-0A shadow: re-evaluate jurisdiction coverage requirements for the revision (D4).
     await inShadow('offer-qualification', () => shadowOfferQualification(revisedOfferCommitted, challenge));
 
     // CE-3: Instrument PROPOSITION_SUBMITTED for revised OfferVersion
-    const versionId = `VER-${revisedOffer.id}-v${revisedOffer.version || 2}`;
+    const versionId = versionSnapshot.id;
     await commercialStore.projectMarketplaceEvent({
       eventType: 'PROPOSITION_SUBMITTED',
       sourceEntityType: 'OFFER_VERSION',
@@ -2071,7 +2483,7 @@ app.post('/api/marketplace/binding/:handoffId/execute-disclosure', async (req, r
 // 5. Retired post-selection negotiation routes. Historical records remain readable.
 for (const retiredPath of ['propose-modification', 'resolve-modification', 'accept-modification', 'reject-modification']) {
   app.post(`/api/marketplace/binding/:handoffId/${retiredPath}`, (_req, res) => {
-    res.status(410).json({ error: 'Post-selection modification negotiation through Open Policy is retired.' });
+    res.status(410).json({ error: 'Post-selection modification negotiation through Open Polici is retired.' });
   });
 }
 
@@ -2569,6 +2981,118 @@ app.get('/api/commercial/entitlements', async (req, res) => {
   }
 });
 
+async function buildEnterpriseReport(providerOrganizationId: string) {
+  await premiumServicesStore.requireEntitlement(providerOrganizationId, 'ENTERPRISE_REPORTING');
+  const [invitations, participations, offers, events, billableEvents, invoices, payments, refunds, balance] = await Promise.all([
+    postgresStore.getInvitationsForOrg(providerOrganizationId),
+    postgresStore.getParticipationsForOrg(providerOrganizationId),
+    postgresStore.getOffers(),
+    commercialStore.getCommercialEventsForOrg(providerOrganizationId, 10_000),
+    commercialStore.getBillableEvents({ providerOrganizationId, limit: 10_000 }),
+    commercialStore.getInvoicesForOrg(providerOrganizationId),
+    commercialStore.getPaymentsForOrg(providerOrganizationId),
+    commercialStore.getRefundsForOrg(providerOrganizationId),
+    commercialStore.getAuthoritativeAccountBalance(providerOrganizationId)
+  ]);
+  const ownOffers = offers.filter(offer => offer.providerId === providerOrganizationId);
+  const eventCounts = events.reduce<Record<string, number>>((counts, event) => {
+    counts[event.eventType] = (counts[event.eventType] || 0) + 1; return counts;
+  }, {});
+  return { providerOrganizationId, generatedAt: new Date().toISOString(),
+    marketplace: { activatedOpportunities: invitations.filter(item => item.status !== 'STANDBY').length,
+      standbyOpportunities: invitations.filter(item => item.status === 'STANDBY').length,
+      engagements: participations.length, offersSubmitted: ownOffers.length, eventCounts },
+    commercial: { grossRatedCents: billableEvents.reduce((sum, item) => sum + item.amountCents, 0),
+      invoices: invoices.length, successfulPayments: payments.filter(item => item.status === 'SUCCEEDED').length,
+      refunds: refunds.length, balance }
+  };
+}
+
+app.get('/api/commercial/premium/report', async (req, res) => {
+  try {
+    const orgId = await getAuthenticatedProviderOrgId(req);
+    res.json({ success: true, report: await buildEnterpriseReport(orgId) });
+  } catch (e: any) { res.status(e.statusCode || 400).json({ error: e.message }); }
+});
+
+app.get('/api/commercial/premium/workflow-rules', async (req, res) => {
+  try { const orgId = await getAuthenticatedProviderOrgId(req);
+    res.json({ success: true, rules: await premiumServicesStore.listWorkflowRules(orgId) });
+  } catch (e: any) { res.status(e.statusCode || 400).json({ error: e.message }); }
+});
+app.post('/api/commercial/premium/workflow-rules', async (req, res) => {
+  try { const actor = await getAuthenticatedProviderAdministrator(req);
+    const rule = await premiumServicesStore.createWorkflowRule({ providerOrganizationId: actor.organizationId,
+      name: req.body?.name || '', jurisdictions: req.body?.jurisdictions || [], insuranceLines: req.body?.insuranceLines || [],
+      riskMarkets: req.body?.riskMarkets || [], action: req.body?.action, actorId: actor.providerUserId });
+    res.status(201).json({ success: true, rule });
+  } catch (e: any) { res.status(e.statusCode || 400).json({ error: e.message }); }
+});
+app.post('/api/commercial/premium/workflow-rules/evaluate', async (req, res) => {
+  try { const orgId = await getAuthenticatedProviderOrgId(req);
+    res.json({ success: true, result: await premiumServicesStore.evaluateWorkflow(orgId, req.body || {}) });
+  } catch (e: any) { res.status(e.statusCode || 400).json({ error: e.message }); }
+});
+
+app.get('/api/commercial/premium/api-credentials', async (req, res) => {
+  try { const actor = await getAuthenticatedProviderAdministrator(req);
+    res.json({ success: true, credentials: await premiumServicesStore.listApiCredentials(actor.organizationId) });
+  } catch (e: any) { res.status(e.statusCode || 400).json({ error: e.message }); }
+});
+app.post('/api/commercial/premium/api-credentials', async (req, res) => {
+  try { const actor = await getAuthenticatedProviderAdministrator(req);
+    const credential = await premiumServicesStore.createApiCredential({ providerOrganizationId: actor.organizationId,
+      label: req.body?.label || '', scopes: req.body?.scopes || [], actorId: actor.providerUserId });
+    res.status(201).json({ success: true, credential });
+  } catch (e: any) { res.status(e.statusCode || 400).json({ error: e.message }); }
+});
+app.post('/api/commercial/premium/api-credentials/:id/revoke', async (req, res) => {
+  try { const actor = await getAuthenticatedProviderAdministrator(req);
+    res.json({ success: true, credential: await premiumServicesStore.revokeApiCredential(actor.organizationId, req.params.id) });
+  } catch (e: any) { res.status(e.statusCode || 400).json({ error: e.message }); }
+});
+
+app.get('/api/commercial/premium/locations', async (req, res) => {
+  try { const orgId = await getAuthenticatedProviderOrgId(req);
+    res.json({ success: true, locations: await premiumServicesStore.listLocations(orgId) });
+  } catch (e: any) { res.status(e.statusCode || 400).json({ error: e.message }); }
+});
+app.post('/api/commercial/premium/locations', async (req, res) => {
+  try { const actor = await getAuthenticatedProviderAdministrator(req);
+    const location = await premiumServicesStore.createLocation({ providerOrganizationId: actor.organizationId,
+      name: req.body?.name || '', jurisdiction: req.body?.jurisdiction || '', addressLine1: req.body?.addressLine1 || '',
+      addressLine2: req.body?.addressLine2, city: req.body?.city || '', postalCode: req.body?.postalCode || '', actorId: actor.providerUserId });
+    res.status(201).json({ success: true, location });
+  } catch (e: any) { res.status(e.statusCode || 400).json({ error: e.message }); }
+});
+app.post('/api/commercial/premium/locations/:id/assign', async (req, res) => {
+  try { const actor = await getAuthenticatedProviderAdministrator(req);
+    const assignment = await premiumServicesStore.assignLocation({ providerOrganizationId: actor.organizationId,
+      locationId: req.params.id, providerUserId: req.body?.providerUserId || '', actorId: actor.providerUserId });
+    res.status(201).json({ success: true, assignment });
+  } catch (e: any) { res.status(e.statusCode || 400).json({ error: e.message }); }
+});
+
+app.get('/api/integrations/v1/opportunities', async (req, res) => {
+  try { const orgId = await getAuthenticatedProviderOrgId(req);
+    const invitations = (await postgresStore.getInvitationsForOrg(orgId)).filter(item => item.status !== 'STANDBY');
+    res.json({ data: invitations.map(item => ({ invitationId: item.id, challengeId: item.challengeId,
+      competitionId: item.competitionId, status: item.status, offerCohort: item.offerCohort,
+      activatedAt: item.activatedAt, expiresAt: item.expiresAt })) });
+  } catch (e: any) { res.status(e.statusCode || 400).json({ error: e.message }); }
+});
+app.get('/api/integrations/v1/offers', async (req, res) => {
+  try { const orgId = await getAuthenticatedProviderOrgId(req);
+    const offers = (await postgresStore.getOffers()).filter(item => item.providerId === orgId);
+    res.json({ data: offers });
+  } catch (e: any) { res.status(e.statusCode || 400).json({ error: e.message }); }
+});
+app.get('/api/integrations/v1/reports/summary', async (req, res) => {
+  try { const orgId = await getAuthenticatedProviderOrgId(req);
+    res.json({ data: await buildEnterpriseReport(orgId) });
+  } catch (e: any) { res.status(e.statusCode || 400).json({ error: e.message }); }
+});
+
 // 5. Explicit Commercial Enrollment Command (CE-2)
 app.post('/api/commercial/agreements/enroll', async (req, res) => {
   // A provider may review plans and its own commercial state, but cannot turn a
@@ -3052,6 +3576,20 @@ app.post('/api/commercial/invoices/generate-draft', async (req, res) => {
   }
 });
 
+// Supplemental usage invoice: rated events only; never duplicates the monthly subscription.
+app.post('/api/commercial/invoices/generate-usage', async (req, res) => {
+  try {
+    const { providerOrganizationId, billingPeriodId, billableEventIds, idempotencyKey } = req.body;
+    if (!providerOrganizationId || !billingPeriodId || !Array.isArray(billableEventIds) || !idempotencyKey) {
+      return res.status(400).json({ error: 'providerOrganizationId, billingPeriodId, billableEventIds and idempotencyKey are required' });
+    }
+    const draft = await commercialStore.generateUsageInvoice({ providerOrganizationId, billingPeriodId, billableEventIds, idempotencyKey });
+    res.status(201).json({ success: true, invoice: draft.invoice, lineItems: draft.lineItems });
+  } catch (e: any) {
+    res.status(e.statusCode || 500).json({ error: e.message });
+  }
+});
+
 // 7. Finalize Invoice
 app.post('/api/commercial/invoices/:id/finalize', async (req, res) => {
   try {
@@ -3102,7 +3640,7 @@ app.post('/api/commercial/payments', async (req, res) => {
 });
 
 // Production processor flow: creates a Stripe-hosted payment session for the
-// exact outstanding balance of a finalized Open Policy invoice. Settlement is
+// exact outstanding balance of a finalized Open Polici invoice. Settlement is
 // recorded only after a signed processor webhook confirms success.
 app.post('/api/commercial/invoices/:id/payment-session', async (req, res) => {
   try {
@@ -3157,11 +3695,14 @@ app.post('/api/commercial/stripe/webhook', async (req, res) => {
       if (!invoiceId || !providerOrganizationId) return res.status(400).json({ error: 'Stripe payment metadata is incomplete.' });
       const invoice = await commercialStore.getInvoiceById(invoiceId);
       if (!invoice || invoice.providerOrganizationId !== providerOrganizationId || intent.currency !== 'usd') {
-        return res.status(409).json({ error: 'Stripe payment does not match an Open Policy invoice.' });
+        return res.status(409).json({ error: 'Stripe payment does not match an Open Polici invoice.' });
       }
       const mappedStatus = mapStripeIntentStatus(intent.status);
       const paymentIdempotencyKey = `stripe-payment:${intent.id}`;
       const previousPayment = await commercialStore.getPaymentRecordByIdempotencyKey(paymentIdempotencyKey);
+      if (!shouldApplyStripePaymentStatus(previousPayment?.status, mappedStatus)) {
+        return res.json({ received: true, eventId: event.id, ignoredAsStale: true });
+      }
       if (mappedStatus === 'SUCCEEDED') {
         const amount = Number(intent.amount_received || intent.amount);
         await commercialStore.recordPayment({
@@ -3208,7 +3749,7 @@ app.post('/api/commercial/stripe/webhook', async (req, res) => {
 // 9. Record Refund
 app.post('/api/commercial/refunds', async (req, res) => {
   try {
-    const { paymentId, amountCents, reason, idempotencyKey } = req.body;
+    const { paymentId, amountCents, reason } = req.body;
     if (!paymentId || !amountCents || !reason) {
       return res.status(400).json({ error: 'paymentId, amountCents, and reason are required' });
     }
@@ -3223,7 +3764,9 @@ app.post('/api/commercial/refunds', async (req, res) => {
     if (processorRefund.status !== 'succeeded') {
       return res.status(202).json({ success: true, pending: true, processorRefundId: processorRefund.id });
     }
-    const refundIdempotencyKey = idempotencyKey || `stripe-refund:${processorRefund.id}`;
+    // Stripe's immutable refund identity—not a caller-selected key—is the only
+    // safe ledger idempotency boundary after processor execution.
+    const refundIdempotencyKey = stripeRefundLedgerKey(processorRefund.id);
     const previousRefund = await commercialStore.getRefundByIdempotencyKey(refundIdempotencyKey);
     const result = await commercialStore.recordRefund({ paymentId, amountCents: Number(amountCents), reason,
       idempotencyKey: refundIdempotencyKey });
@@ -3408,7 +3951,7 @@ app.post('/api/admin/audit-chain/generate-proof', async (req, res) => {
 // ==========================================
 app.get('/api/docs/spec', async (req, res) => {
   res.json({
-    name: 'Open Policy Offer Review API',
+    name: 'Open Polici Offer Review API',
     version: '1.0.0',
     description: 'API specification for current-policy sharing, independent provider offers, factual comparison, consumer selection, and issued-policy reconciliation',
     architecture: {
@@ -3560,7 +4103,7 @@ async function startServer() {
 
   function tryListen(portToTry: number) {
     const server = app.listen(portToTry, '0.0.0.0', () => {
-      console.log(`Open Policy server running on http://localhost:${portToTry}`);
+      console.log(`Open Polici server running on http://localhost:${portToTry}`);
     });
 
     server.on('error', (err: any) => {

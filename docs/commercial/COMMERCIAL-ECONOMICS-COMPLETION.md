@@ -1,5 +1,9 @@
 # Open Policy Commercial Economics Completion Record
 
+> Historical V1 completion record. Current launch pricing and capacity authority is
+> `OPEN-POLICY-COMMERCIAL-PRICING-V2.md`. V1 values below must not be used for new
+> production enrollment.
+
 Date: 2026-10-14
 
 Price book: `OPEN_POLICY_PREMIUM_V1`
@@ -8,9 +12,9 @@ Scope: CE-1 through CE-5 completion audit and implementation
 
 ## Disposition
 
-`NOT COMPLETE — EXTERNAL PAYMENT ACCEPTANCE AND DELIBERATELY UNAVAILABLE SERVICES REMAIN`
+`NOT COMPLETE — EXTERNAL PAYMENT ACCEPTANCE REMAINS`
 
-The executable accounting architecture is connected from authoritative commercial agreement through entitlement/event, rating, invoice, processor-facing payment session, settlement allocation, refund and reconstructed balance. No live charge was initiated. Stripe sandbox collection and refund acceptance still require external credentials and webhook configuration. Four priced service add-ons remain preserved but unavailable for purchase until their product delivery surfaces enforce their entitlements.
+The executable accounting architecture is connected from authoritative commercial agreement through entitlement/event, rating, invoice, processor-facing payment session, settlement allocation, refund and reconstructed balance. No live charge was initiated. Stripe sandbox collection and refund acceptance still require external credentials and webhook configuration. All four priced service add-ons now have tenant-scoped, entitlement-enforced delivery surfaces and provider controls.
 
 ## Revenue coverage matrix
 
@@ -19,16 +23,17 @@ The executable accounting architecture is connected from authoritative commercia
 | $499 monthly membership | Platform-admin activated immutable agreement | Historical plan version creates recurring subscription line | Finalized invoice uses Stripe checkout; signed webhook allocates confirmed payment | Code complete; Stripe sandbox evidence blocked |
 | $49 additional producer seat | Admin-contracted quantity | Recurring add-on line; expands `PROVIDER_SEATS` | Same invoice/payment ledger | Executable |
 | $75 additional jurisdiction | Admin-contracted quantity | Recurring add-on line; expands `JURISDICTION_CAPACITY` | Same invoice/payment ledger | Executable |
-| $199 workflow automation | Price preserved | Purchase is rejected fail-closed | None | Unavailable until workflow capability enforces entitlement |
-| $299 enterprise reporting | Price preserved | Purchase is rejected fail-closed | None | Unavailable until reporting capability enforces entitlement |
-| $499 API integration | Price preserved | Purchase is rejected fail-closed | None | Unavailable until API capability enforces entitlement |
-| $199 multi-location administration | Price preserved | Purchase is rejected fail-closed | None | Unavailable until multi-location capability enforces entitlement |
+| $199 workflow automation | Admin-contracted quantity | Entitlement and recurring invoice line | Same payment ledger | Executable |
+| $299 enterprise reporting | Admin-contracted quantity | Entitlement and recurring invoice line | Same payment ledger | Executable |
+| $499 API integration | Admin-contracted quantity | Entitlement and recurring invoice line | Same payment ledger | Executable |
+| $199 multi-location administration | Admin-contracted quantity | Entitlement and recurring invoice line | Same payment ledger | Executable |
 | $2,500–$10,000 enterprise implementation | Admin records exact executed-agreement amount and supporting reference | Migration 0016 creates an auditable one-time service charge and exactly-once invoice line | Same payment/refund/allocation ledger | Code complete; Stripe sandbox evidence blocked |
 | $35 `VPO_ENGAGED` | Qualified participation, once per provider organization/opportunity | Immutable event → rating → billable event → invoice | Same payment/reconciliation ledger | Executable; external collection evidence blocked |
 | Line-priced `AUTHORIZED_CONNECTION` | Consumer authorization plus successful controlled disclosure | Immutable disclosure-derived event → line-specific rating → invoice | Same payment/reconciliation ledger | Compensation determination required; Medicare non-executable |
 | `BOUND_ACQUISITION` | Verified downstream acquisition evidence | Recorded, independently configurable, V1 unpriced | No V1 charge | Preserved unpriced |
 | `VERIFIED_BOUND_OUTCOME` | Verified reconciliation outcome | Recorded, independently configurable, V1 unpriced | No V1 charge | Preserved unpriced |
 | `BASELINE_ACTIVATED` | Durable baseline activation | Recorded; no independent V1 charge | No V1 charge | Preserved unpriced |
+| Consumer enrollment and policy upload | Consumer action | No commercial event charge | No consumer invoice | Free in V1 |
 
 ## Gaps found and corrected
 
@@ -39,6 +44,19 @@ The executable accounting architecture is connected from authoritative commercia
 5. Negotiated enterprise implementation had a published range but no executed-agreement charge path. Migration 0016 adds exact, authorized, idempotent one-time charges with supporting references and invoice provenance.
 6. Provider statements did not expose payment/refund history. The provider financial view now includes processor payment status, refunds, invoices, credits and reconstructed balance.
 7. The owner/admin console lacked commercial controls. It now supports provider commercial inspection, admin-only premium activation, capacity add-ons and negotiated implementation charges.
+8. The Medicare connection price was registered but not technically fail-closed. V1 rating now returns `INSURANCE_LINE_NOT_OPERATIONAL` while preserving the published $200 price.
+9. The V1 contract now explicitly records consumer price `$0`, every free marketplace event, the $100–$350 connection range, unpriced outcome events and unavailable insurance lines.
+
+## Premium service delivery checkpoint
+
+The four priced services now have durable, tenant-scoped backend delivery boundaries:
+
+- workflow automation: entitlement-gated deterministic opportunity triage rules that do not change marketplace eligibility, ordering, or consumer presentation;
+- enterprise reporting: entitlement-gated marketplace and commercial summaries built only from the authenticated provider organization's records;
+- API integration: one-time-revealed, hash-stored, scoped and revocable provider credentials with tenant-scoped read APIs;
+- multi-location administration: durable office records and producer assignments with cross-organization assignment rejection.
+
+Provider-facing administration is connected in the commercial account portal. The focused HTTP suite verifies entitlement denial, role boundaries, tenant isolation, API scope enforcement, secret non-disclosure, revocation and cross-organization assignment denial.
 
 ## Verification evidence
 
@@ -50,6 +68,8 @@ The executable accounting architecture is connected from authoritative commercia
 - Payment boundary tests: 2/2.
 - Stripe processor tests: 4/4.
 - Route authorization tests: 11/11.
+- Premium service persistence/security tests: 3/3.
+- Premium service HTTP adversarial acceptance: 13/13.
 - Commercial domain tests: 13/13.
 - Canonical validators: all 11 passed.
   - PM-1: 57/57
@@ -72,9 +92,9 @@ The normal `tsx` test launcher on this Windows host failed before loading tests 
 2. Controlled Stripe sandbox evidence for card and eligible ACH payment, failure, retry, signed-webhook replay, processor-first refund, allocation and balance reconciliation.
 3. Approved compensation determination durably attached before any `AUTHORIZED_CONNECTION` charge becomes executable.
 4. Medicare remains price-preserved and non-executable until added to the governed insurance-line registry by separate authorization.
-5. Workflow automation, enterprise reporting, API integration and multi-location administration remain unavailable until their actual product capabilities and entitlement checks are implemented and accepted.
+5. Provider-facing controls and HTTP adversarial acceptance for workflow automation, enterprise reporting, API integration and multi-location administration are complete.
 6. Production smoke-test authorization before any live collection. No live collection is authorized by this record.
 
 ## Revenue leakage conclusion
 
-No revenue leakage percentage is claimed. The audit identified concrete missing or unauthorized paths and corrected the executable accounting gaps above. External processor acceptance and deliberately unavailable product services remain explicit blockers rather than being counted as captured revenue.
+No revenue leakage percentage is claimed. The audit identified concrete missing or unauthorized paths and corrected the executable accounting gaps above. External processor acceptance remains an explicit blocker rather than being counted as captured revenue.

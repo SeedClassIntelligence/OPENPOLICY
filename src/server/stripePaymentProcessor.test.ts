@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mapStripeIntentStatus, StripePaymentProcessor, stripePaymentMethod, stripeProcessorConfig } from './stripePaymentProcessor';
+import { mapStripeIntentStatus, shouldApplyStripePaymentStatus, stripeRefundLedgerKey, StripePaymentProcessor, stripePaymentMethod, stripeProcessorConfig } from './stripePaymentProcessor';
 
 test('Stripe configuration fails closed and production requires HTTPS', () => {
   assert.throws(() => stripeProcessorConfig({ NODE_ENV: 'production' } as NodeJS.ProcessEnv), /STRIPE_SECRET_KEY/);
@@ -18,6 +18,19 @@ test('Stripe asynchronous and terminal states map conservatively', () => {
   assert.equal(mapStripeIntentStatus('requires_action'), 'PENDING');
   assert.equal(mapStripeIntentStatus('canceled'), 'FAILED');
   assert.equal(mapStripeIntentStatus('requires_payment_method'), 'FAILED');
+});
+
+test('out-of-order processor delivery cannot downgrade a terminal payment success', () => {
+  assert.equal(shouldApplyStripePaymentStatus('SUCCEEDED', 'PENDING'), false);
+  assert.equal(shouldApplyStripePaymentStatus('SUCCEEDED', 'FAILED'), false);
+  assert.equal(shouldApplyStripePaymentStatus('FAILED', 'PENDING'), false);
+  assert.equal(shouldApplyStripePaymentStatus('FAILED', 'SUCCEEDED'), true);
+  assert.equal(shouldApplyStripePaymentStatus('PENDING', 'SUCCEEDED'), true);
+});
+
+test('refund ledger idempotency is anchored to immutable processor identity', () => {
+  assert.equal(stripeRefundLedgerKey('re_123'), 'stripe-refund:re_123');
+  assert.throws(() => stripeRefundLedgerKey('  '), /refund identity/);
 });
 
 test('Stripe payment methods map card and US bank debit into the existing ledger vocabulary', () => {

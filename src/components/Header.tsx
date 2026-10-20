@@ -157,6 +157,7 @@ export const Header: React.FC<HeaderProps> = ({
   }, []);
 
   const unreadCount = notifications.filter(n => !n.read).length;
+  const publicAuthRole = publicLandingPath === '/providers' ? 'PROVIDER' : 'CONSUMER';
 
   const handleMarkRead = async (id: string) => {
     try {
@@ -182,10 +183,10 @@ export const Header: React.FC<HeaderProps> = ({
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
               className="flex items-center gap-2 group cursor-pointer focus:outline-none"
-              title="Return to Open Policy Landing Page"
+              title="Return to Open Polici Landing Page"
             >
               <span className="font-black text-lg tracking-tight text-white select-none group-hover:text-emerald-300 transition-colors">
-                OPEN<span className="text-emerald-400 font-black ml-0.5">POLICY</span>
+                OPEN<span className="text-emerald-400 font-black ml-0.5">POLICI</span>
               </span>
               <span className="text-[10px] font-mono font-semibold bg-emerald-950/80 text-emerald-300 border border-emerald-800/60 px-1.5 py-0.5 rounded-full hidden sm:inline-block">
                 v1.0
@@ -440,14 +441,14 @@ export const Header: React.FC<HeaderProps> = ({
               <div className="flex items-center gap-1.5">
                 <button
                   type="button"
-                  onClick={() => openAuthModal({ initialMode: 'SIGN_IN' })}
+                  onClick={() => openAuthModal({ initialMode: 'SIGN_IN', initialRole: publicAuthRole })}
                   className="px-2.5 py-1.5 rounded-lg text-xs text-slate-300 hover:text-white hover:bg-slate-800 transition cursor-pointer font-medium"
                 >
                   Sign In
                 </button>
                 <button
                   type="button"
-                  onClick={() => openAuthModal({ initialMode: 'SIGN_UP', initialRole: 'CONSUMER' })}
+                  onClick={() => openAuthModal({ initialMode: 'SIGN_UP', initialRole: publicAuthRole })}
                   className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow-xs transition cursor-pointer whitespace-nowrap"
                 >
                   Create Account
@@ -504,7 +505,7 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Scrollable Body */}
           <div className="p-5 sm:p-6 overflow-y-auto space-y-4 flex-1">
             <p className="text-sm text-slate-600 leading-relaxed italic border-l-2 border-emerald-500 pl-3">
-              "The policyholder shares the insurance they have and what they currently pay. Providers review that information independently and may send an offer. Open Policy shows the differences without choosing for the policyholder."
+              "The policyholder shares the insurance they have and what they currently pay. Providers review that information independently and may send an offer. Open Polici shows the differences without choosing for the policyholder."
             </p>
 
             <div className="space-y-2 text-sm">

@@ -718,6 +718,11 @@ export interface AuditEvent {
     | 'PROVIDER_REGISTERED'
     | 'PROVIDER_VERIFIED'
     | 'PROVIDER_STATUS_CHANGED'
+    | 'COMPENSATION_DETERMINATION_APPROVED'
+    | 'COMPENSATION_DETERMINATION_REVOKED'
+    | 'COMMERCIAL_PLAN_VERSION_CREATED'
+    | 'PREMIUM_SERVICE_STATUS_CHANGED'
+    | 'PLATFORM_ADMIN_AUTHORITY_CHANGED'
     | 'PROVIDER_MATCH_EVALUATED'
     | 'COMPETITION_CREATED'
     | 'COMPETITION_OPENED'
@@ -1379,6 +1384,8 @@ export interface CommercialPlanTermsSnapshot {
   includedJurisdictions?: number;
   includedVpoCapacity?: number;
   includedEngagementCapacity?: number;
+  includedConcurrentCompetitions?: number;
+  includedMonthlyOfferSubmissions?: number;
   includedAuthorizedConnections?: number;
   authorizedConnectionUnitPriceCents?: number;
   boundAcquisitionUnitPriceCents?: number;
@@ -1429,6 +1436,7 @@ export type EntitlementType =
   | 'VPO_VIEW_CAPACITY'
   | 'VPO_ENGAGEMENT_CAPACITY'
   | 'ACTIVE_COMPETITION_CAPACITY'
+  | 'MONTHLY_OFFER_SUBMISSION_CAPACITY'
   | 'API_ACCESS'
   | 'AUTOMATED_APPETITE_MATCHING'
   | 'MULTI_LOCATION_ADMIN'
@@ -1453,7 +1461,9 @@ export type CommercialUsageType =
   | 'VPO_ENGAGEMENT'
   | 'VPO_VIEW'
   | 'PRODUCER_SEAT'
-  | 'JURISDICTION';
+  | 'JURISDICTION'
+  | 'ACTIVE_COMPETITION'
+  | 'OFFER_SUBMISSION';
 
 export interface CommercialUsageRecord {
   id: string;

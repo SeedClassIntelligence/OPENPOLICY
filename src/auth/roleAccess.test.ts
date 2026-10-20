@@ -45,3 +45,10 @@ test('owner navigation and destructive reset are hidden from non-admin users', (
   assert.match(header, /p\.id === 'ADMIN_AUDIT'.*userRole !== 'ADMIN'/s);
   assert.match(header, /userRole === 'ADMIN'.*reset-canonical-btn/s);
 });
+
+test('public header authentication follows the active consumer or provider landing page', () => {
+  const header = fs.readFileSync(path.join(process.cwd(), 'src/components/Header.tsx'), 'utf8');
+  assert.match(header, /publicLandingPath === '\/providers' \? 'PROVIDER' : 'CONSUMER'/);
+  assert.match(header, /initialMode: 'SIGN_IN', initialRole: publicAuthRole/);
+  assert.match(header, /initialMode: 'SIGN_UP', initialRole: publicAuthRole/);
+});

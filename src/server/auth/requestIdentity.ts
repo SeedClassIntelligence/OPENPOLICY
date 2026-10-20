@@ -5,6 +5,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 
 export type AuthMode = 'firebase' | 'fixture';
 export type IdentityRole = 'CONSUMER' | 'PROVIDER' | 'ADMIN';
+export type AdminPermission = 'PLATFORM_READ'|'PROVIDER_ADMIN'|'COMMERCIAL_ADMIN'|'COMPLIANCE_ADMIN'|'SECURITY_ADMIN';
 
 export interface RequestIdentity {
   uid: string;
@@ -13,7 +14,9 @@ export interface RequestIdentity {
   providerUserId?: string;
   providerOrganizationId?: string;
   providerStatus?: 'PENDING_VERIFICATION' | 'ACTIVE' | 'REJECTED';
-  source: 'FIREBASE' | 'FIXTURE';
+  adminType?: 'OWNER'|'STAFF';
+  adminPermissions?: AdminPermission[];
+  source: 'FIREBASE' | 'FIXTURE' | 'API_CREDENTIAL';
 }
 
 declare global {
@@ -42,6 +45,9 @@ export function assertProductionAuthConfiguration(env: NodeJS.ProcessEnv = proce
   }
   if (!env.FIREBASE_PROJECT_ID?.trim()) {
     throw new Error('FIREBASE_PROJECT_ID is required in production.');
+  }
+  if (!env.OPENPOLICY_OWNER_FIREBASE_UID?.trim()) {
+    throw new Error('OPENPOLICY_OWNER_FIREBASE_UID is required in production.');
   }
 
   const hasServiceAccount = Boolean(env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim());
@@ -95,18 +101,29 @@ export async function getFirebaseUserProfile(uid: string): Promise<Record<string
   return snapshot.exists ? snapshot.data() : undefined;
 }
 
+export async function updateFirebaseProviderReviewState(uid: string, params: {
+  providerStatus: 'PENDING_VERIFICATION' | 'ACTIVE' | 'REJECTED';
+  providerUserId?: string;
+  providerOrganizationId?: string;
+}): Promise<void> {
+  const update: Record<string, unknown> = { providerStatus: params.providerStatus };
+  if (params.providerUserId) update.providerUserId = params.providerUserId;
+  if (params.providerOrganizationId) update.providerOrganizationId = params.providerOrganizationId;
+  await getFirestore(firebaseAdminApp()).collection('users').doc(uid).update(update);
+}
+
 export async function resolveFirebaseIdentity(token: string): Promise<RequestIdentity> {
   const adminApp = firebaseAdminApp();
   const decoded = await getAuth(adminApp).verifyIdToken(token, true);
   const profileSnapshot = await getFirestore(adminApp).collection('users').doc(decoded.uid).get();
   if (!profileSnapshot.exists) {
-    throw Object.assign(new Error('Authenticated Firebase account has no Open Policy profile.'), { statusCode: 403 });
+    throw Object.assign(new Error('Authenticated Firebase account has no Open Polici profile.'), { statusCode: 403 });
   }
 
   const profile = profileSnapshot.data() || {};
   const role = profile.role as IdentityRole | undefined;
   if (!role || !['CONSUMER', 'PROVIDER', 'ADMIN'].includes(role)) {
-    throw Object.assign(new Error('Open Policy profile has no valid account role.'), { statusCode: 403 });
+    throw Object.assign(new Error('Open Polici profile has no valid account role.'), { statusCode: 403 });
   }
 
   return {
@@ -123,7 +140,7 @@ export async function resolveFirebaseIdentity(token: string): Promise<RequestIde
 function resolveFixtureIdentity(req: Request): RequestIdentity {
   const fixtureRole = String(req.headers['x-openpolicy-fixture-role'] || '').toUpperCase();
   if (fixtureRole === 'ADMIN') {
-    return { uid: 'fixture_admin', role: 'ADMIN', source: 'FIXTURE' };
+    return { uid: 'fixture_admin', role: 'ADMIN', adminType:'OWNER', adminPermissions:['PLATFORM_READ','PROVIDER_ADMIN','COMMERCIAL_ADMIN','COMPLIANCE_ADMIN','SECURITY_ADMIN'], source: 'FIXTURE' };
   }
   const providerUserId = String(req.headers['x-provider-user-id'] || req.body?.providerUserId || '').trim();
   if (providerUserId) {
@@ -145,6 +162,10 @@ export function createRequestIdentityMiddleware(
 ) {
   return async function requestIdentityMiddleware(req: Request, res: Response, next: NextFunction) {
   try {
+    if (req.openPolicyIdentity) {
+      next();
+      return;
+    }
     if (configuredAuthMode(env) === 'fixture') {
       req.openPolicyIdentity = resolveFixtureIdentity(req);
       next();

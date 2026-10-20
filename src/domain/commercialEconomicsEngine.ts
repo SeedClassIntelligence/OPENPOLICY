@@ -1,5 +1,5 @@
 /**
- * Open Policy Commercial Economics Engine (CE-1 through CE-4)
+ * Open Polici Commercial Economics Engine (CE-1 through CE-4)
  * 
  * Formal Invariants:
  * 1. COMMERCIAL_NEUTRALITY: No commercial object may be read by comparison,
@@ -46,7 +46,7 @@ import {
   SettlementAllocation,
   ProviderAccountBalance
 } from '../types/insurance';
-import { connectionPriceForInsuranceLine } from './commercialPriceBook';
+import { connectionPriceForInsuranceLine, isOperationalConnectionInsuranceLine } from './commercialPriceBook';
 
 /**
  * Creates a new CommercialAccount for a ProviderOrganization.
@@ -175,6 +175,14 @@ export function deriveEntitlementsFromPlanVersion(params: {
   if (snapshot.includedEngagementCapacity !== undefined) {
     add('VPO_ENGAGEMENT_CAPACITY', snapshot.includedEngagementCapacity);
   }
+  if (snapshot.includedConcurrentCompetitions !== undefined) {
+    add('ACTIVE_COMPETITION_CAPACITY', snapshot.includedConcurrentCompetitions +
+      (selectedQuantity('ADDITIONAL_10_CONCURRENT_COMPETITIONS') * 10));
+  }
+  if (snapshot.includedMonthlyOfferSubmissions !== undefined) {
+    add('MONTHLY_OFFER_SUBMISSION_CAPACITY', snapshot.includedMonthlyOfferSubmissions +
+      (selectedQuantity('ADDITIONAL_100_MONTHLY_OFFER_SUBMISSIONS') * 100));
+  }
 
   // Service add-ons create explicit contractual authority. Product surfaces
   // must still check these entitlements before exposing the corresponding
@@ -185,9 +193,11 @@ export function deriveEntitlementsFromPlanVersion(params: {
     ['API_INTEGRATION', 'API_ACCESS'],
     ['MULTI_LOCATION_ADMINISTRATION', 'MULTI_LOCATION_ADMIN']
   ];
+  const includedServices = Array.isArray(snapshot.includedServices) ? snapshot.includedServices : [];
   for (const [code, entitlementType] of serviceAddOns) {
     const quantity = selectedQuantity(code);
-    if (quantity > 0) add(entitlementType, quantity, defaultPolicy, { recurringAddOnCode: code });
+    if (includedServices.includes(code)) add(entitlementType, 1, defaultPolicy, { includedByMembership: true });
+    else if (quantity > 0) add(entitlementType, quantity, defaultPolicy, { recurringAddOnCode: code });
   }
 
   return entitlements;
@@ -605,7 +615,19 @@ export function rateCommercialEvent(params: {
   switch (event.eventType) {
     case 'AUTHORIZED_CONNECTION': {
       const included = snapshot.includedAuthorizedConnections ?? ((snapshot.rates as any)?.AUTHORIZED_CONNECTION_INCLUDED as number) ?? 0;
-      const linePrice = connectionPriceForInsuranceLine(snapshot, String(event.metadata?.insuranceLine || ''));
+      const insuranceLine = String(event.metadata?.insuranceLine || '');
+      if (insuranceLine && !isOperationalConnectionInsuranceLine(snapshot, insuranceLine)) {
+        return {
+          disposition: 'NOT_RATED', billable: false,
+          commercialEventId: event.id, providerOrganizationId: event.providerOrganizationId,
+          commercialAgreementId: agreement.id, commercialPlanVersionId: planVersion.id,
+          chargeCode: 'AUTHORIZED_CONNECTION_LINE_NOT_OPERATIONAL', quantity: 1,
+          unitPriceCents: 0, amountCents: 0, currency: 'USD',
+          reason: 'The published connection price is registered but this insurance line is not operational.', ratedAt,
+          error: 'INSURANCE_LINE_NOT_OPERATIONAL'
+        };
+      }
+      const linePrice = connectionPriceForInsuranceLine(snapshot, insuranceLine);
       const unitPrice = linePrice ?? rates.AUTHORIZED_CONNECTION_CENTS ?? snapshot.authorizedConnectionUnitPriceCents ?? 0;
 
       if (snapshot.authorizedConnectionCentsByInsuranceLine && linePrice === undefined) {
@@ -1027,7 +1049,7 @@ export function assembleDraftInvoice(params: {
   const { billingPeriod, planVersion, billableEvents, ratingAdjustments } = params;
 
   if (planVersion.currency !== 'USD') {
-    throw new Error(`Unsupported currency: ${planVersion.currency}. Open Policy billing is denominated strictly in USD.`);
+    throw new Error(`Unsupported currency: ${planVersion.currency}. Open Polici billing is denominated strictly in USD.`);
   }
 
   const invoiceId = params.invoiceId || `inv_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
@@ -1158,6 +1180,53 @@ export function assembleDraftInvoice(params: {
     lineItems
   };
 
+  return { invoice, lineItems };
+}
+
+/**
+ * Builds a supplemental invoice for already-rated, unbilled usage events.
+ * This deliberately excludes the recurring subscription so usage created after
+ * the monthly invoice was finalized is not stranded or charged a second $499 fee.
+ */
+export function assembleUsageInvoice(params: {
+  billingPeriod: BillingPeriod;
+  billableEvents: BillableEvent[];
+  invoiceId?: string;
+  invoiceNumber?: string;
+  idempotencyKey: string;
+  now?: string;
+}): { invoice: Invoice; lineItems: InvoiceLineItem[] } {
+  const { billingPeriod, billableEvents } = params;
+  if (!params.idempotencyKey?.trim()) throw new Error('Usage invoice requires an idempotency key');
+  if (billableEvents.length === 0) throw new Error('Usage invoice requires at least one rated event');
+  const invalid = billableEvents.find(event => event.providerOrganizationId !== billingPeriod.providerOrganizationId
+    || event.commercialAgreementId !== billingPeriod.commercialAgreementId || event.status !== 'RATED'
+    || event.currency !== 'USD' || event.amountCents <= 0);
+  if (invalid) throw new Error(`BillableEvent ${invalid.id} is not eligible for this usage invoice`);
+  const now = params.now || new Date().toISOString();
+  const invoiceId = params.invoiceId || `inv_usage_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
+  const invoiceNumber = params.invoiceNumber || `INV-USAGE-${new Date(now).toISOString().slice(0, 10).replaceAll('-', '')}-${Math.floor(1000 + Math.random() * 9000)}`;
+  const lineItems: InvoiceLineItem[] = billableEvents.map(event => ({
+    id: `lin_be_${event.id}_${Math.floor(1000 + Math.random() * 9000)}`,
+    invoiceId,
+    lineType: event.chargeCode.includes('BOUND') || event.chargeCode.includes('OUTCOME') ? 'OUTCOME_CHARGE' : 'USAGE_CHARGE',
+    description: `${event.chargeCode} [Event: ${event.commercialEventId}]`,
+    quantity: event.quantity,
+    unitPriceCents: event.unitPriceCents,
+    amountCents: event.amountCents,
+    billableEventId: event.id,
+    createdAt: now
+  }));
+  const totalDueCents = lineItems.reduce((sum, item) => sum + item.amountCents, 0);
+  const invoice: Invoice = {
+    id: invoiceId, invoiceNumber,
+    providerOrganizationId: billingPeriod.providerOrganizationId,
+    commercialAgreementId: billingPeriod.commercialAgreementId,
+    billingPeriodId: billingPeriod.id,
+    status: 'DRAFT', currency: 'USD', subtotalCents: totalDueCents, taxCents: 0,
+    totalDueCents, balanceDueCents: totalDueCents,
+    idempotencyKey: params.idempotencyKey.trim(), createdAt: now, lineItems
+  };
   return { invoice, lineItems };
 }
 

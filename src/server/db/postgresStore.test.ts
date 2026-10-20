@@ -104,6 +104,32 @@ test('explicit local validator storage remains available when durability is not 
   }
 });
 
+test('owner provider-status changes are transactional and append immutable audit evidence', async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openpolicy-owner-provider-status-'));
+  const store = new PostgresStore(dataDir);
+  try {
+    await store.init();
+    await store.saveProviderOrganization({
+      id: 'org_owner_test', legalName: 'Owner Test LLC', displayName: 'Owner Test',
+      organizationType: 'OTHER_AUTHORIZED_PROVIDER', verificationStatus: 'MARKETPLACE_APPROVED',
+      marketplaceStatus: 'ACTIVE', states: ['NV'], linesOfBusiness: ['PERSONAL_AUTO'],
+      createdAt: new Date().toISOString()
+    });
+    await assert.rejects(() => store.changeProviderOrganizationStatus({
+      organizationId: 'org_owner_test', marketplaceStatus: 'SUSPENDED', actorId: 'admin_test', reason: ''
+    }), /reason is required/);
+    const changed = await store.changeProviderOrganizationStatus({
+      organizationId: 'org_owner_test', marketplaceStatus: 'SUSPENDED', actorId: 'admin_test', reason: 'License review'
+    });
+    assert.equal(changed.marketplaceStatus, 'SUSPENDED');
+    const audits = await store.getAuditEvents();
+    assert.ok(audits.some(event => event.eventType === 'PROVIDER_STATUS_CHANGED' && event.actorId === 'admin_test' && event.details.includes('License review')));
+  } finally {
+    await store.close();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
 test('consumer-controlled offer cohorts activate standby providers atomically and idempotently', async () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openpolicy-offer-cohorts-'));
   const store = new PostgresStore(dataDir);

@@ -243,7 +243,7 @@ export async function runCE3ValidationSuite() {
     // Verify CE-2 usage record also exists without confusing it with CommercialEvent
     const usage = await commercialStore.getUsageForInvitation(invId!);
     assert(!!usage, 'CE-2 CommercialUsageRecord created separately from CommercialEvent');
-    assert(usage?.usageType === 'VPO_ENGAGEMENT', 'Usage record tracks contractual capacity consumption');
+    assert(usage?.usageType === 'ACTIVE_COMPETITION', 'Usage record tracks contractual concurrent-competition capacity');
 
     // 1.4 Initial Proposition Submission -> PROPOSITION_SUBMITTED
     console.log('\n[1.4] Testing PROPOSITION_SUBMITTED on initial offer submission...');

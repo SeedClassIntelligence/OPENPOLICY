@@ -52,6 +52,7 @@ import {
 } from '../types/insurance';
 import { detectQuoteDiscrepancies } from '../domain/policyIntelligence';
 import { apiFetch } from '../services/apiClient';
+import { ProviderPremiumServices } from './ProviderPremiumServices';
 
 interface ProviderPortalProps {
   challenge: Challenge | null;
@@ -1577,7 +1578,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                   <div>
                     <strong className="text-slate-800 font-semibold">Privacy-Preserved Rating Profile:</strong> The consumer's
                     direct identity (legal name, phone number, email, and exact street address) is sealed under
-                    Open Policy progressive disclosure. Use the authorized vehicle characteristics and territory demographics below to rate via your carrier portals.
+                    Open Polici progressive disclosure. Use the authorized vehicle characteristics and territory demographics below to rate via your carrier portals.
                   </div>
                 </div>
 
@@ -2464,6 +2465,9 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
               )}
             </div>
           </div>
+
+          {/* 4. Governed Commercial Value Funnel */}
+          <ProviderPremiumServices providerUserId={authenticatedUserId} entitlements={commercialEntitlements} />
 
           {/* 4. Governed Commercial Value Funnel */}
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
@@ -3395,7 +3399,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
             </div>
 
             <p className="text-xs text-slate-600 leading-relaxed">
-              Use a controlled reason code to report that the selected offer cannot be honored as submitted. Open Policy will notify the policyholder factually. Do not enter or transmit replacement prices or coverage terms here.
+              Use a controlled reason code to report that the selected offer cannot be honored as submitted. Open Polici will notify the policyholder factually. Do not enter or transmit replacement prices or coverage terms here.
             </p>
 
             <div className="space-y-3 text-xs">

@@ -657,13 +657,24 @@ async function runValidation() {
     providerOrganizationId: testOrgId,
     amountCents: 10000,
     paymentMethod: 'CREDIT_CARD',
-    invoiceId: inv2.id
+    invoiceId: inv2.id,
+    idempotencyKey: `ce5-partial-payment:${runUid}`
   });
   assert(partPayRes.payment.status === 'SUCCEEDED', 'Partial payment record saved as SUCCEEDED');
   assert(partPayRes.allocation?.amountAllocatedCents === 10000, 'Allocated 10000 cents to Invoice 2');
   const inv2AfterPart = await commercialStore.getInvoiceById(inv2.id);
   assert(inv2AfterPart?.status === 'PARTIALLY_PAID', 'Invoice status transitioned to PARTIALLY_PAID');
   assert(inv2AfterPart?.balanceDueCents === 19900, 'Remaining balance due decremented to 19900 cents ($199.00)');
+  const replayedPartPay = await commercialStore.recordPayment({
+    providerOrganizationId: testOrgId,
+    amountCents: 10000,
+    paymentMethod: 'CREDIT_CARD',
+    invoiceId: inv2.id,
+    idempotencyKey: `ce5-partial-payment:${runUid}`
+  });
+  const allocationsAfterReplay = await commercialStore.getAllocationsForInvoice(inv2.id);
+  assert(replayedPartPay.payment.id === partPayRes.payment.id && allocationsAfterReplay.filter(a => a.paymentRecordId === partPayRes.payment.id).length === 1,
+    'Processor payment replay returns the original settlement without duplicate allocation');
 
   // Test 31: Subsequent Payment Completes Partial Settlement -> status transitions to PAID
   console.log('Test 31: Subsequent Payment Completes Partial Settlement -> PAID');
@@ -676,17 +687,42 @@ async function runValidation() {
   const inv2AfterFull = await commercialStore.getInvoiceById(inv2.id);
   assert(inv2AfterFull?.status === 'PAID', 'Invoice status transitioned to PAID after final payment');
   assert(inv2AfterFull?.balanceDueCents === 0, 'Remaining balance due is exactly 0 cents');
+  let overpaymentRejected = false;
+  try {
+    await commercialStore.recordPayment({
+      providerOrganizationId: testOrgId,
+      amountCents: 1,
+      paymentMethod: 'CREDIT_CARD',
+      invoiceId: inv2.id,
+      idempotencyKey: `ce5-overpayment:${runUid}`
+    });
+  } catch (error: any) {
+    overpaymentRejected = error.message === 'Processor payment exceeds the authoritative invoice balance.';
+  }
+  assert(overpaymentRejected, 'Overpayment is rejected atomically instead of manufacturing an invoice credit');
+  assert(await commercialStore.getPaymentRecordByIdempotencyKey(`ce5-overpayment:${runUid}`) === undefined,
+    'Rejected overpayment leaves no successful payment record');
 
   // Test 32: Append-Only Refund: Recording a refund creates immutable RefundRecord without mutating original PaymentRecord
   console.log('Test 32: Append-Only Refund: Original PaymentRecord is NOT mutated');
   const refundRes = await commercialStore.recordRefund({
     paymentId: partPayRes.payment.id,
     amountCents: 5000, // Refund $50.00 of the original $100.00
-    reason: 'Duplicate payment adjustment request'
+    reason: 'Duplicate payment adjustment request',
+    idempotencyKey: `ce5-refund:${runUid}`
   });
   assert(refundRes.refund.amountCents === 5000, 'RefundRecord created for 5000 cents');
   const origPaymentCheck = await commercialStore.getPaymentRecordById(partPayRes.payment.id);
   assert(origPaymentCheck?.status === 'SUCCEEDED', 'Invariant Verified: Original PaymentRecord status remains SUCCEEDED (not mutated to REFUNDED)');
+  const replayedRefund = await commercialStore.recordRefund({
+    paymentId: partPayRes.payment.id,
+    amountCents: 5000,
+    reason: 'Duplicate payment adjustment request',
+    idempotencyKey: `ce5-refund:${runUid}`
+  });
+  const refundAllocationsAfterReplay = await commercialStore.getAllocationsForInvoice(inv2.id);
+  assert(replayedRefund.refund.id === refundRes.refund.id && refundAllocationsAfterReplay.filter(a => a.refundRecordId === refundRes.refund.id).length === 1,
+    'Processor refund replay returns the original reversal without duplicate allocation');
 
   // Test 33: Refund Updates Invoice Balance Due
   console.log('Test 33: Refund Updates Invoice Balance Due');

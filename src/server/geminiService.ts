@@ -62,7 +62,7 @@ export async function explainCoverageComparison(
     return fallback;
   }
 
-  const prompt = `You are the plain-language consumer assistant for Open Policy, a policy review platform.
+  const prompt = `You are the plain-language consumer assistant for Open Polici, a policy review platform.
 Explain this insurance offer to the consumer in 2-3 objective, clear sentences without marketing fluff or insurance jargon.
 
 Offer Carrier: ${comparison.carrier}
@@ -90,7 +90,7 @@ Rule: Prominently disclose if coverage was cut. Never praise an offer simply for
       }
     } catch (err: any) {
       const status = err?.status || err?.code || err?.error?.code || 'unknown';
-      console.log(`[Open Policy AI] Model ${model} returned status ${status}; using next fallback.`);
+      console.log(`[Open Polici AI] Model ${model} returned status ${status}; using next fallback.`);
 
       if (model === modelsToTry[0]) {
         // Brief pause before trying secondary model
