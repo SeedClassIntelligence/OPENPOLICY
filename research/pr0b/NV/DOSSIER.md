@@ -36,16 +36,16 @@ Nevada DMV pages may also be needed for proof-of-insurance and financial-respons
 | 5 | Appointments and carrier authority | REVIEW_REQUIRED | 1 | NRS 683A.321 candidate distinguishes agent appointment from broker activity; operational appointment evidence remains open. |
 | 6 | Compensation and broker fees | REVIEW_REQUIRED | 1 | NRS 683A.361 candidate requires independent legal characterization of actual platform conduct. |
 | 7 | Anti-rebating and inducements | RESEARCHED | 1 | NRS 686A.130 candidate; no consumer inducement is implemented by the V2 model. |
-| 8 | Quote and application requirements | NOT_RESEARCHED | 0 | |
+| 8 | Quote and application requirements | REVIEW_REQUIRED | 1 | NAC 679B.715 adverse-underwriting notice candidate extracted; platform/provider event mapping remains open. |
 | 9 | Consumer disclosures | REVIEW_REQUIRED | 1 | NAC 679B.685 information-gathering notice extracted; actor classification and allocation of responsibility remain open. |
-| 10 | Electronic transactions and signatures | RESEARCHED | 0 | NRS 719 and insurance-specific provisions captured; atomic extraction remains pending. |
+| 10 | Electronic transactions and signatures | REVIEW_REQUIRED | 2 | NRS 719 party agreement and retainable/reproducible record candidates extracted; federal and document-specific restrictions remain open. |
 | 11 | Binding | REVIEW_REQUIRED | 1 | NRS 687B.182-.183 candidate covers issuer authority, duration, form and delivery; Open Polici does not itself issue binders. |
 | 12 | Proof of insurance | RESEARCHED | 1 | NRS 690B.023 candidate includes effective and expiration dates and other mandatory evidence fields. |
 | 13 | Policy issuance | RESEARCHED | 1 | Binder-replacement reconciliation candidate also governs the resulting issued policy. |
 | 14 | Replacement and switching | READY_FOR_VERIFICATION | 1 | NRS 687B.184 requires matching binder/policy limits and effective dates and a filed-rate premium for the binder period. |
 | 15 | Cancellation and nonrenewal | READY_FOR_VERIFICATION | 4 | Common notice content plus midterm cancellation, nonrenewal and renewal-change timing candidates extracted; individual cancellation grounds remain a verifier concern. |
 | 16 | Privacy | REVIEW_REQUIRED | 1 | NAC 679B.695 disclosure-authorization candidate extracted; party classification and electronic-signature interaction remain open. |
-| 17 | Records and retention | NOT_RESEARCHED | 0 | |
+| 17 | Records and retention | REVIEW_REQUIRED | 3 | NAC 679B.705/.710 access/correction plus NRS 719.290 electronic-retention method extracted; record-specific periods remain open. |
 | 18 | Required forms | RESEARCHED | 3 | UM rejection, proof-of-insurance and binder-form requirements are represented in existing candidates; carrier-specific forms remain proposition-dependent. |
 | 19 | Insurer and company authority | REVIEW_REQUIRED | 1 | NRS 680A.060 certificate-of-authority candidate; operational lookup and insurance-kind mapping remain open. |
 

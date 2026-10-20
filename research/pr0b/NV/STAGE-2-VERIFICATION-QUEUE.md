@@ -15,6 +15,8 @@ Production effect: **none**
 - `NV-NONRENEWAL-001` — 30-day personal-lines nonrenewal notice and statutory remedy.
 - `NV-RENEWAL-CHANGE-NOTICE-001` — 30-day notice for renewal changes and statutory remedy.
 - `NV-BINDER-REPLACEMENT-001` — binder-to-policy limits, effective date and premium reconciliation.
+- `NV-ELECTRONIC-RECORD-REPRODUCTION-001` — retainable/reproducible electronic writing and recipient storage/printing.
+- `NV-ELECTRONIC-RETENTION-001` — electronic-record integrity, accessibility and reproduction method.
 
 For each rule the verifier must confirm the current official text, July 1, 2018 effective date, moped exception, coverage-code mapping, evaluation date and deterministic pass/fail fixtures.
 
@@ -36,6 +38,10 @@ For each rule the verifier must confirm the current official text, July 1, 2018 
 - `NV-BUSINESS-ENTITY-LICENSE-001` — confirm entity-license and designated-responsible-producer evidence.
 - `NV-INFORMATION-PRACTICES-NOTICE-001` — classify each actor and allocate notice responsibility.
 - `NV-DISCLOSURE-AUTHORIZATION-001` — confirm applicability, full form requirements and electronic-signature treatment.
+- `NV-PERSONAL-INFORMATION-ACCESS-001` — confirm actor classification, business-day computation and response scope.
+- `NV-PERSONAL-INFORMATION-CORRECTION-001` — confirm actor classification, correction/dispute propagation and timing.
+- `NV-ADVERSE-UNDERWRITING-NOTICE-001` — map provider underwriting decisions to platform events without making Open Polici the underwriter.
+- `NV-ELECTRONIC-TRANSACTION-CONSENT-001` — confirm party agreement evidence and federal/document-specific interaction.
 
 ## Verifier attestation
 
