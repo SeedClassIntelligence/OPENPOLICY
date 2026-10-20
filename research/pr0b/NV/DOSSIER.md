@@ -33,21 +33,21 @@ Nevada DMV pages may also be needed for proof-of-insurance and financial-respons
 | 2 | Mandatory offers, elections and rejections | RESEARCHED | 1 | NRS 690B.020 UM candidate requires effective-date and carrier-form verification. |
 | 3 | Producer and agency licensing | REVIEW_REQUIRED | 1 | NRS 683A.201 establishes the license boundary; precise class/entity mapping remains open. |
 | 4 | Lines of authority | NOT_RESEARCHED | 0 | |
-| 5 | Appointments and carrier authority | NOT_RESEARCHED | 0 | |
+| 5 | Appointments and carrier authority | REVIEW_REQUIRED | 1 | NRS 683A.321 candidate distinguishes agent appointment from broker activity; operational appointment evidence remains open. |
 | 6 | Compensation and broker fees | REVIEW_REQUIRED | 1 | NRS 683A.361 candidate requires independent legal characterization of actual platform conduct. |
 | 7 | Anti-rebating and inducements | RESEARCHED | 1 | NRS 686A.130 candidate; no consumer inducement is implemented by the V2 model. |
 | 8 | Quote and application requirements | NOT_RESEARCHED | 0 | |
 | 9 | Consumer disclosures | NOT_RESEARCHED | 0 | |
 | 10 | Electronic transactions and signatures | RESEARCHED | 0 | NRS 719 and insurance-specific provisions captured; atomic extraction remains pending. |
-| 11 | Binding | NOT_RESEARCHED | 0 | |
+| 11 | Binding | REVIEW_REQUIRED | 1 | NRS 687B.182-.183 candidate covers issuer authority, duration, form and delivery; Open Polici does not itself issue binders. |
 | 12 | Proof of insurance | RESEARCHED | 1 | NRS 690B.023 candidate includes effective and expiration dates and other mandatory evidence fields. |
 | 13 | Policy issuance | NOT_RESEARCHED | 0 | |
 | 14 | Replacement and switching | NOT_RESEARCHED | 0 | |
-| 15 | Cancellation and nonrenewal | NOT_RESEARCHED | 0 | |
-| 16 | Privacy | NOT_RESEARCHED | 0 | |
+| 15 | Cancellation and nonrenewal | RESEARCHED | 1 | Common notice delivery/content candidate extracted from NRS 687B.310(6); grounds and timing remain to be atomized. |
+| 16 | Privacy | RESEARCHED | 0 | NAC 679B.842-.874 captured and reviewed; applicability to each licensed party and transaction-specific exceptions require verifier analysis before candidate extraction. |
 | 17 | Records and retention | NOT_RESEARCHED | 0 | |
 | 18 | Required forms | NOT_RESEARCHED | 0 | |
-| 19 | Insurer and company authority | NOT_RESEARCHED | 0 | |
+| 19 | Insurer and company authority | REVIEW_REQUIRED | 1 | NRS 680A.060 certificate-of-authority candidate; operational lookup and insurance-kind mapping remain open. |
 
 `NOT_RESEARCHED` is not `NOT_APPLICABLE`. It means nothing has been examined yet.
 
