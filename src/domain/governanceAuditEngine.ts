@@ -1,5 +1,5 @@
 /**
- * Open Policy Governance, Regulatory Audit & Human-in-the-Loop Review Engine (PM-4)
+ * Open Polici Governance, Regulatory Audit & Human-in-the-Loop Review Engine (PM-4)
  * Compliant with Statutory Transparency, Append-Only Cryptographic Chaining (Section 33),
  * Human Review Escalation (Section 32), and Regulatory Proof Certification (Section 34).
  */
@@ -261,7 +261,7 @@ export function generateRegulatoryAuditProof(
     `Total Chained Blocks: ${verification.totalEvents} blocks audited from genesis`,
     `Merkle Root Seal: ${verification.merkleRoot}`,
     `Epistemic Guarantee: Zero unverified coverage hallucination; strict adherence to Section 40 Product Doctrine.`,
-    `Certified under penalty of administrative revocation by Open Policy Compliance Governance Engine.`
+    `Certified under penalty of administrative revocation by Open Polici Compliance Governance Engine.`
   ].join('\n');
 
   return {
@@ -275,7 +275,7 @@ export function generateRegulatoryAuditProof(
     genesisHash: verification.genesisHash,
     latestBlockHash: verification.latestBlockHash,
     totalAuditedEvents: verification.totalEvents,
-    signedBy: options.auditorName || 'Chief Compliance Officer (Open Policy Systems)',
+    signedBy: options.auditorName || 'Chief Compliance Officer (Open Polici Systems)',
     certifiedAt: now,
     statutoryComplianceAffidavit: statutoryAffidavit
   };

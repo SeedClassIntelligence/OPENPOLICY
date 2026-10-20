@@ -137,14 +137,14 @@ test('consumer acceptance status labels reflect authoritative lifecycle state', 
   assert.match(consumer, /Vault Records/);
 });
 
-test('landing opt-in reuses the canonical account form and role-routing boundaries', () => {
+test('landing keeps account access in the canonical modal instead of embedding an intrusive form', () => {
   const landing = readFileSync(new URL('../components/LandingPage.tsx', import.meta.url), 'utf8');
   const authModal = readFileSync(new URL('../components/AuthModal.tsx', import.meta.url), 'utf8');
-  const app = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');
-  assert.match(landing, /<AuthModal/);
-  assert.match(landing, /variant="inline"/);
-  assert.match(landing, /onSuccess=\{onAuthSuccess\}/);
-  assert.match(app, /onAuthSuccess=\{handleAuthSuccess\}/);
+  assert.doesNotMatch(landing, /<AuthModal/);
+  assert.doesNotMatch(landing, /variant="inline"/);
+  assert.doesNotMatch(landing, /id="create-account"/);
+  assert.match(landing, /openAuthModal\(\{ initialRole: 'CONSUMER', initialMode: 'SIGN_UP' \}\)/);
+  assert.match(landing, /openAuthModal\(\{ initialRole: 'PROVIDER', initialMode: 'SIGN_UP' \}\)/);
   assert.doesNotMatch(landing, /<form/);
   assert.match(authModal, /variant\?: 'modal' \| 'inline'/);
   assert.match(authModal, /Create Account/);
@@ -159,7 +159,7 @@ test('sign-in provides privacy-preserving Firebase password recovery', () => {
   const authContext = readFileSync(new URL('../context/AuthContext.tsx', import.meta.url), 'utf8');
   assert.match(authContext, /sendPasswordResetEmail/);
   assert.match(authModal, /Forgot password\?/);
-  assert.match(authModal, /If an Open Policy account exists for this email/);
+  assert.match(authModal, /If an Open Polici account exists for this email/);
   assert.doesNotMatch(authModal, /No account exists|Email not found/);
 });
 

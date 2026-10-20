@@ -1,5 +1,5 @@
 /**
- * Open Policy Main Application
+ * Open Polici Main Application
  * Consumer-Controlled Insurance Offer Review Platform
  */
 
@@ -80,7 +80,7 @@ function MainApp() {
     const ownerDestination = perspective === 'ADMIN_AUDIT' || perspective === 'TELEMETRY' || perspective === 'ARCHITECTURE_TESTS';
     if (ownerDestination && !canEnterOwnerDestination(userRole, perspective)) {
       if (!isAuthenticated) openAuthModal({ initialMode: 'SIGN_IN' });
-      showToast('Owner operations require an authenticated Open Policy administrator account.');
+      showToast('Owner operations require an authenticated Open Polici administrator account.');
       return;
     }
 
@@ -110,7 +110,7 @@ function MainApp() {
 
     setActivePerspective(perspective);
     const names: Record<ActivePerspective, string> = {
-      LANDING: 'Welcome to Open Policy (Platform Overview & Doctrine)',
+      LANDING: 'Welcome to Open Polici (Platform Overview & Doctrine)',
       CONSUMER: 'Switched to Consumer Perspective (Policyholder Comparison)',
       PROVIDER: 'Switched to Provider Portal (Broker & Quoting Workbench)',
       ADMIN_AUDIT: 'Switched to Audit & Review Queue (Regulatory Compliance)',
@@ -165,7 +165,7 @@ function MainApp() {
       <main className={`flex-1 w-full ${activePerspective === 'LANDING' ? '' : 'max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6'}`}>
         {loading ? (
           <div className="flex items-center justify-center py-24 text-slate-500 text-xs font-mono">
-            Booting Open Policy Engine...
+            Booting Open Polici Engine...
           </div>
         ) : (
           <>
@@ -173,7 +173,6 @@ function MainApp() {
               <LandingPage
                 onNavigateConsumer={() => handlePerspectiveChange('CONSUMER', 'UPLOAD_EXTRACT')}
                 onNavigateProvider={() => handlePerspectiveChange('PROVIDER')}
-                onAuthSuccess={handleAuthSuccess}
                 onNavigateAdmin={() => handlePerspectiveChange('ADMIN_AUDIT')}
                 onNavigateTelemetry={() => handlePerspectiveChange('TELEMETRY')}
                 onNavigateArchitecture={() => handlePerspectiveChange('ARCHITECTURE_TESTS')}
@@ -187,7 +186,7 @@ function MainApp() {
                   {getInsuranceLineDefinition(requestedLine).displayName} processing is not open yet
                 </h2>
                 <p className="text-sm text-slate-600 mt-3 leading-relaxed">
-                  Your account and requested insurance type are recorded. Open Policy will not send this document type through the personal-auto pipeline. Availability requires line-specific document intelligence, regulatory approval, provider authority, and jurisdiction activation.
+                  Your account and requested insurance type are recorded. Open Polici will not send this document type through the personal-auto pipeline. Availability requires line-specific document intelligence, regulatory approval, provider authority, and jurisdiction activation.
                 </p>
               </div>
             )}
@@ -213,7 +212,7 @@ function MainApp() {
                 <p className="text-xs font-mono uppercase tracking-wider text-amber-700">Provider onboarding</p>
                 <h2 className="text-xl font-bold text-slate-900 mt-2">License verification pending</h2>
                 <p className="text-sm text-slate-600 mt-3 leading-relaxed">
-                  Your agency account exists, but the Provider Quoting Desk remains closed until Open Policy verifies the submitted license and activates the provider profile.
+                  Your agency account exists, but the Provider Quoting Desk remains closed until Open Polici verifies the submitted license and activates the provider profile.
                 </p>
               </div>
             )}
@@ -265,7 +264,7 @@ function MainApp() {
         <footer className="w-full bg-slate-900 border-t border-slate-800 py-4 text-center text-xs text-slate-400">
           <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
             <p className="font-mono text-[11px]">
-              Open Policy • Independent Provider Offers • Factual Policy Comparison
+              Open Polici • Independent Provider Offers • Factual Policy Comparison
             </p>
             <div className="flex items-center space-x-3 text-[11px] text-slate-400">
               <span>PostgreSQL Integrity</span>

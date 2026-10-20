@@ -1,5 +1,5 @@
 /**
- * Open Policy Commercial Economics Engine (CE-1 through CE-4)
+ * Open Polici Commercial Economics Engine (CE-1 through CE-4)
  * 
  * Formal Invariants:
  * 1. COMMERCIAL_NEUTRALITY: No commercial object may be read by comparison,
@@ -1049,7 +1049,7 @@ export function assembleDraftInvoice(params: {
   const { billingPeriod, planVersion, billableEvents, ratingAdjustments } = params;
 
   if (planVersion.currency !== 'USD') {
-    throw new Error(`Unsupported currency: ${planVersion.currency}. Open Policy billing is denominated strictly in USD.`);
+    throw new Error(`Unsupported currency: ${planVersion.currency}. Open Polici billing is denominated strictly in USD.`);
   }
 
   const invoiceId = params.invoiceId || `inv_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;

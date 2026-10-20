@@ -41,14 +41,12 @@ import {
 } from 'lucide-react';
 import { ActivePerspective } from './Header';
 import { useAuth } from '../context/AuthContext';
-import { AuthModal } from './AuthModal';
 import { INSURANCE_LINE_REGISTRY } from '../domain/insuranceLineRegistry';
 import { ProviderLandingPage } from './ProviderLandingPage';
 
 interface LandingPageProps {
   onNavigateConsumer: () => void;
   onNavigateProvider: () => void;
-  onAuthSuccess: (role: 'CONSUMER' | 'PROVIDER' | 'ADMIN') => void;
   onNavigateAdmin: () => void;
   onNavigateTelemetry: () => void;
   onNavigateArchitecture: () => void;
@@ -57,14 +55,12 @@ interface LandingPageProps {
 export const LandingPage: React.FC<LandingPageProps> = ({
   onNavigateConsumer,
   onNavigateProvider,
-  onAuthSuccess,
   onNavigateAdmin,
   onNavigateTelemetry,
   onNavigateArchitecture
 }) => {
   const { isAuthenticated, userRole, openAuthModal } = useAuth();
 
-  const [landingSignupRole, setLandingSignupRole] = useState<'CONSUMER' | 'PROVIDER'>('CONSUMER');
   const [publicPage, setPublicPage] = useState<'CONSUMER' | 'PROVIDER'>(() =>
     window.location.pathname === '/providers' ? 'PROVIDER' : 'CONSUMER'
   );
@@ -86,13 +82,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     if (isAuthenticated && userRole === 'CONSUMER') {
       onNavigateConsumer();
     } else {
-      const el = document.getElementById('create-account');
-      if (el) {
-        setLandingSignupRole('CONSUMER');
-        el.scrollIntoView({ behavior: 'smooth' });
-      } else {
-        openAuthModal({ initialRole: 'CONSUMER', initialMode: 'SIGN_UP' });
-      }
+      openAuthModal({ initialRole: 'CONSUMER', initialMode: 'SIGN_UP' });
     }
   };
 
@@ -100,13 +90,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     if (isAuthenticated && userRole === 'PROVIDER') {
       onNavigateProvider();
     } else {
-      const el = document.getElementById('create-account');
-      if (el) {
-        setLandingSignupRole('PROVIDER');
-        el.scrollIntoView({ behavior: 'smooth' });
-      } else {
-        openAuthModal({ initialRole: 'PROVIDER', initialMode: 'SIGN_UP' });
-      }
+      openAuthModal({ initialRole: 'PROVIDER', initialMode: 'SIGN_UP' });
     }
   };
 
@@ -138,7 +122,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       num: '01',
       title: 'Consumer Sovereignty',
       summary: 'The consumer owns the policy, the information, and the decision.',
-      detail: 'Traditional brokers view consumer policy declarations as proprietary contact assets. In Open Policy, the policyholder maintains cryptographic custody of their risk record. Data is never bundled, sold, or shared without express programmatic consent.'
+      detail: 'Traditional brokers view consumer policy declarations as proprietary contact assets. In Open Polici, the policyholder maintains cryptographic custody of their risk record. Data is never bundled, sold, or shared without express programmatic consent.'
     },
     {
       num: '02',
@@ -186,7 +170,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       num: '09',
       title: 'Deterministic Control',
       summary: 'The platform explains the market; the consumer controls the outcome.',
-      detail: 'Open Policy displays factual price and coverage differences without selecting for the consumer. The policyholder may choose an offer or keep the current policy.'
+      detail: 'Open Polici displays factual price and coverage differences without selecting for the consumer. The policyholder may choose an offer or keep the current policy.'
     }
   ];
 
@@ -209,7 +193,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       categoryLabel: 'Privacy & Anti-Spam',
       doctrineTag: 'Doctrine 07 · Progressive Disclosure',
       question: 'Will insurance carriers or contact brokers call, text, or spam my phone number?',
-      answer: 'Open Policy uses Deliberate Progressive Disclosure (Doctrine 07). Providers review only the policy and risk information the consumer authorizes during the submission window. Contact details are not distributed for marketing. When the consumer selects an offer and authorizes handoff, the selected licensed provider receives the information needed to continue the insurance transaction on its own channel.',
+      answer: 'Open Polici uses Deliberate Progressive Disclosure (Doctrine 07). Providers review only the policy and risk information the consumer authorizes during the submission window. Contact details are not distributed for marketing. When the consumer selects an offer and authorizes handoff, the selected licensed provider receives the information needed to continue the insurance transaction on its own channel.',
       keyPoints: [
         'Contact information is not distributed for marketing',
         'Authorized policy information is used during offer review',
@@ -221,7 +205,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       category: 'COMPARISON',
       categoryLabel: 'Coverage Comparison & Traps',
       doctrineTag: 'Doctrine 04 · Protection-Price Separation',
-      question: 'How does Open Policy prevent carriers from cutting coverage to appear cheaper?',
+      question: 'How does Open Polici prevent carriers from cutting coverage to appear cheaper?',
       answer: 'The platform is anchored in Protection-Price Separation (Doctrine 04) and Visible Differences (Doctrine 05). It compares documented offer terms with the verified existing-policy baseline and shows changed limits, deductibles, endorsements, and exclusions beside the price difference. The consumer reviews those facts and decides what to do.',
       keyPoints: [
         '18-point deterministic coverage equivalence audit',
@@ -241,7 +225,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       keyPoints: [
         'Single declarations page upload establishes the immutable baseline',
         'One submission window keeps each provider focused on its own offer',
-        'Open Policy does not prompt providers to change their prices or terms'
+        'Open Polici does not prompt providers to change their prices or terms'
       ],
       actionPrompt: 'Launch Policy Review NV-49281',
       actionTarget: 'CONSUMER'
@@ -265,7 +249,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       categoryLabel: 'Cryptographic Audit Trail',
       doctrineTag: 'Doctrine 09 · Deterministic Control',
       question: 'How does the audit record preserve offer and consent history?',
-      answer: 'Open Policy records sensitive lifecycle events in durable audit history. Offer versions remain immutable, and the selected version, disclosure, and consumer consent can be traced without rewriting earlier evidence.',
+      answer: 'Open Polici records sensitive lifecycle events in durable audit history. Offer versions remain immutable, and the selected version, disclosure, and consumer consent can be traced without rewriting earlier evidence.',
       keyPoints: [
         'Sequential SHA-256 block hashing for all quoting events',
         'Append-only immutable record preventing retroactive tampering',
@@ -278,7 +262,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       categoryLabel: 'Carrier Vetting & Governance',
       doctrineTag: 'Doctrine 08 · Commercial Neutrality',
       question: 'Are participating insurance carriers and brokers licensed and financially rated?',
-      answer: 'Provider access is subject to licensing and organization checks for the applicable jurisdiction. When authoritative financial-strength information is available, Open Policy displays it as factual provider information alongside the submitted offer.',
+      answer: 'Provider access is subject to licensing and organization checks for the applicable jurisdiction. When authoritative financial-strength information is available, Open Polici displays it as factual provider information alongside the submitted offer.',
       keyPoints: [
         'Active State Department of Insurance license verification',
         'Available financial-strength information is shown as provider information',
@@ -293,7 +277,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       categoryLabel: 'Consent & Provider Handoff',
       doctrineTag: 'Consumer-authorized handoff',
       question: 'What happens after I select an offer?',
-      answer: 'Open Policy preserves the exact offer version you selected, records your consent, and provides a controlled handoff. The licensed provider conducts the subsequent insurance transaction, including any application, underwriting, revised terms, binding, and issuance activity on its own channel.',
+      answer: 'Open Polici preserves the exact offer version you selected, records your consent, and provides a controlled handoff. The licensed provider conducts the subsequent insurance transaction, including any application, underwriting, revised terms, binding, and issuance activity on its own channel.',
       keyPoints: [
         'Consumer disclosure and consent are preserved durably',
         'Clear side-by-side comparison of old vs new policy terms',
@@ -306,7 +290,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       categoryLabel: 'Coverage Verification',
       doctrineTag: 'Doctrine 06 · Epistemic Humility',
       question: 'What happens if a carrier\'s quote is missing specific coverage details?',
-      answer: 'Open Policy applies Epistemic Humility (Doctrine 06): missing terms remain unknown rather than being guessed. If an offer document leaves an endorsement, roadside coverage, or glass waiver ambiguous, the platform marks that information as UNVERIFIED for consumer review.',
+      answer: 'Open Polici applies Epistemic Humility (Doctrine 06): missing terms remain unknown rather than being guessed. If an offer document leaves an endorsement, roadside coverage, or glass waiver ambiguous, the platform marks that information as UNVERIFIED for consumer review.',
       keyPoints: [
         'Zero AI hallucination or speculative coverage filling',
         'Ambiguous terms explicitly marked as UNVERIFIED',
@@ -318,8 +302,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       category: 'AUDIT',
       categoryLabel: 'Platform Economics',
       doctrineTag: 'Doctrine 08 · Commercial Neutrality',
-      question: 'How is Open Policy funded if you never sell consumer contact information or accept advertising?',
-      answer: 'Open Policy charges consumers nothing. Participating provider organizations pay published, versioned membership and service charges tied to defined events such as qualified engagement and a consumer-authorized connection. These charges never change provider activation order, offer presentation, or consumer selection.',
+      question: 'How is Open Polici funded if you never sell consumer contact information or accept advertising?',
+      answer: 'Open Polici charges consumers nothing. Participating provider organizations pay published, versioned membership and service charges tied to defined events such as qualified engagement and a consumer-authorized connection. These charges never change provider activation order, offer presentation, or consumer selection.',
       keyPoints: [
         'Zero sponsored results or algorithmic pay-to-play',
         'Qualified engagement and authorized connection remain distinct events',
@@ -331,7 +315,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       category: 'OFFERS',
       categoryLabel: 'Supported Insurance Lines',
       doctrineTag: 'Multi-Line Architecture',
-      question: 'Which lines of insurance can be reviewed on Open Policy?',
+      question: 'Which lines of insurance can be reviewed on Open Polici?',
       answer: 'Personal Auto is the current acceptance-stage document and offer-review pipeline. Homeowners and Renters are in development, and commercial, life, and health lines are represented for governed expansion. A listed insurance type is not available for transactions until its line-specific and jurisdiction-specific gates pass.',
       keyPoints: [
         'Personal Auto: acceptance-stage pipeline',
@@ -396,7 +380,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           {/* Editorial Kicker */}
           <div className="inline-flex items-center space-x-2 text-xs font-mono font-medium text-emerald-400 bg-emerald-950/70 border border-emerald-800/80 px-3.5 py-1.5 rounded-full tracking-wide shadow-inner">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span>Open Policy Protocol v1.0 · Independent Insurance Exchange</span>
+            <span>Open Polici Protocol v1.0 · Independent Insurance Exchange</span>
           </div>
 
           {/* Primary Headline */}
@@ -432,20 +416,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <span>For Providers &amp; Carriers</span>
             </button>
 
-            <a
-              href="#create-account"
-              onClick={(e) => {
-                const el = document.getElementById('create-account');
-                if (el) {
-                  e.preventDefault();
-                  el.scrollIntoView({ behavior: 'smooth' });
-                }
-              }}
+            <button
+              type="button"
+              onClick={() => openAuthModal({ initialRole: 'CONSUMER', initialMode: 'SIGN_UP' })}
               className="w-full sm:w-auto inline-flex items-center justify-center space-x-2 px-5 py-3.5 bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-500/50 text-emerald-300 font-semibold text-sm rounded-xl transition cursor-pointer"
             >
               <UserCheck className="w-4 h-4 text-emerald-400" />
               <span>Create Account</span>
-            </a>
+            </button>
           </div>
 
           {/* Protocol Invariants Bar - Unboxed metadata per frontend design rules */}
@@ -724,7 +702,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   </div>
 
                   <p className="text-[11px] text-rose-800 font-medium">
-                    Open Policy preserves the offer and displays these factual differences. The consumer alone decides whether the price and changed protection are acceptable.
+                    Open Polici preserves the offer and displays these factual differences. The consumer alone decides whether the price and changed protection are acceptable.
                   </p>
                 </div>
               )}
@@ -786,31 +764,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         </div>
       </section>
 
-      {/* 2.5: Canonical Account Creation & Sign-In Gateway */}
-      <section id="create-account" className="scroll-mt-24 space-y-8 bg-gradient-to-b from-white via-slate-50 to-slate-100/80 border border-slate-200 rounded-3xl p-6 sm:p-10 lg:p-12 shadow-xl">
-        <div className="text-center max-w-3xl mx-auto space-y-3">
-          <div className="inline-flex items-center space-x-1.5 text-[10px] font-mono font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full">
-            <ShieldCheck className="w-3 h-3" />
-            <span>Secure Account Access</span>
-          </div>
-          <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">Create or Access Your Open Policy Account</h2>
-          <p className="text-sm text-slate-600 leading-relaxed">Policyholders share their current policy and review provider offers. Licensed providers register for authorized access and independently submit their own offers.</p>
-        </div>
-        <AuthModal
-          variant="inline"
-          initialRole={landingSignupRole}
-          initialMode="SIGN_UP"
-          onSuccess={onAuthSuccess}
-        />
-      </section>
-      {/* 3. The Structural Breakdown: Conventional Model vs. Open Policy */}
+      {/* 3. The Structural Breakdown: Conventional Model vs. Open Polici */}
       <section className="space-y-8">
         <div className="text-center max-w-3xl mx-auto space-y-2">
           <span className="text-xs font-mono font-semibold uppercase tracking-wider text-slate-500">
             Market Structure Analysis
           </span>
           <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
-            Conventional Insurance Shopping vs. Open Policy
+            Conventional Insurance Shopping vs. Open Polici
           </h2>
           <p className="text-sm text-slate-600">
             How consumer-controlled disclosure and factual comparison change the insurance-shopping experience.
@@ -823,7 +784,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <tr className="border-b border-slate-200 bg-slate-50/70 text-xs font-semibold text-slate-600">
                 <th className="py-4 px-6">Dimension</th>
                 <th className="py-4 px-6 text-rose-700 bg-rose-50/40">The Legacy Aggregator Model</th>
-                <th className="py-4 px-6 text-emerald-700 bg-emerald-50/40">The Open Policy Architecture</th>
+                <th className="py-4 px-6 text-emerald-700 bg-emerald-50/40">The Open Polici Architecture</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 text-xs">
@@ -1064,7 +1025,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   Review Price and Coverage as Separate Facts.
                 </h3>
                 <p className="text-sm text-slate-600 leading-relaxed">
-                  The Open Policy comparison engine runs 18 distinct deterministic comparison checks. It classifies each proposal: ADDITIONAL, EQUAL, SLIGHTLY_REDUCED, or SUBSTANTIALLY_CHANGED COVERAGE.
+                  The Open Polici comparison engine runs 18 distinct deterministic comparison checks. It classifies each proposal: ADDITIONAL, EQUAL, SLIGHTLY_REDUCED, or SUBSTANTIALLY_CHANGED COVERAGE.
                 </p>
                 <div className="space-y-2 text-xs text-slate-700">
                   <div className="flex items-center space-x-2">
@@ -1165,7 +1126,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             The 9 Sovereign Doctrines
           </h2>
           <p className="text-sm text-slate-600">
-            The non-negotiable architectural constitution governing every line of code, rating algorithm, and quoting handoff in Open Policy.
+            The non-negotiable architectural constitution governing every line of code, rating algorithm, and quoting handoff in Open Polici.
           </p>
         </div>
 
@@ -1571,7 +1532,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 </div>
                 <div>
                   <div className="font-extrabold text-base tracking-tight text-white leading-none">
-                    OPEN POLICY
+                    OPEN POLICI
                   </div>
                   <div className="font-mono text-[10px] text-emerald-400 tracking-wider font-semibold mt-1">
                     CONSUMER INSURANCE PROTOCOL
@@ -1754,7 +1715,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           {/* Sub-Footer Bar */}
           <div className="pt-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs font-mono text-slate-500">
             <div className="flex flex-col sm:flex-row items-center gap-2 text-center sm:text-left">
-              <span>Open Policy Engine • Consumer Insurance Offer Review Model</span>
+              <span>Open Polici Engine • Consumer Insurance Offer Review Model</span>
               <span className="hidden sm:inline text-slate-700">|</span>
               <span className="text-slate-400">Canonical Baseline NV-49281 Active</span>
             </div>

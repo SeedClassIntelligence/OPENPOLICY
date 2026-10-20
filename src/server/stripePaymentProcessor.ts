@@ -76,7 +76,7 @@ export class StripePaymentProcessor {
         quantity: 1,
         price_data: {
           currency: 'usd', unit_amount: params.amountCents,
-          product_data: { name: `Open Policy invoice ${params.invoiceNumber}` }
+          product_data: { name: `Open Polici invoice ${params.invoiceNumber}` }
         }
       }],
       payment_intent_data: { metadata }, metadata,

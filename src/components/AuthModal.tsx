@@ -147,7 +147,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setLoading(true);
     try {
       await sendPasswordReset(signInEmail);
-      setResetStatus('If an Open Policy account exists for this email, Firebase sent a password-reset link.');
+      setResetStatus('If an Open Polici account exists for this email, Firebase sent a password-reset link.');
     } catch (err: any) {
       if (err?.code === 'auth/invalid-email') {
         setError('Enter a valid account email address.');
@@ -175,7 +175,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </div>
             <div>
               <h2 className="text-sm font-bold tracking-tight text-white leading-none">
-                {mode === 'SIGN_UP' ? 'Create Open Policy Account' : mode === 'SIGN_IN' ? 'Sign In to Open Policy' : 'Instant Demonstration Access'}
+                {mode === 'SIGN_UP' ? 'Create Open Polici Account' : mode === 'SIGN_IN' ? 'Sign In to Open Polici' : 'Instant Demonstration Access'}
               </h2>
               <span className={`font-mono text-[10px] ${role === 'PROVIDER' ? 'text-blue-400' : 'text-emerald-400'}`}>
                 {role === 'PROVIDER' ? 'Licensed Provider & Broker Desk' : 'Sovereign Consumer Identity'}
@@ -461,7 +461,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 </select>
                 {requestedInsuranceLine !== 'PERSONAL_AUTO' && (
                   <p className="text-[11px] leading-relaxed text-amber-700">
-                    This insurance type is represented in Open Policy but is not yet accepted by the live document-processing pipeline. It will not be sent through personal-auto processing.
+                    This insurance type is represented in Open Polici but is not yet accepted by the live document-processing pipeline. It will not be sent through personal-auto processing.
                   </p>
                 )}
               </div>
@@ -495,7 +495,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             /* Provider / Broker Sign Up Form */
             <form onSubmit={handleSubmit} className="space-y-3">
               <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-[11px] leading-5 text-blue-900">
-                This creates a provider application—not marketplace authority. Open Policy must verify the organization, applicable authority, requested line, and commercial activation before the Provider Desk opens.
+                This creates a provider application—not marketplace authority. Open Polici must verify the organization, applicable authority, requested line, and commercial activation before the Provider Desk opens.
               </div>
               <div className="grid grid-cols-2 gap-2.5">
                 <div className="space-y-1">
@@ -621,7 +621,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           <div className="pt-2 border-t border-slate-100 flex items-start space-x-2 text-[11px] text-slate-500 leading-snug shrink-0">
             <Lock className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
             <span>
-              <strong>Zero Telemarketing Selling:</strong> Open Policy uses Deliberate Progressive Disclosure. Contact details are never sold to lead aggregators or spam call centers.
+              <strong>Zero Telemarketing Selling:</strong> Open Polici uses Deliberate Progressive Disclosure. Contact details are never sold to lead aggregators or spam call centers.
             </span>
           </div>
         </div>

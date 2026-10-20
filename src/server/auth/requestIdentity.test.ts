@@ -78,7 +78,7 @@ test('unknown Firebase profile fails closed as forbidden', async () => {
   const request = { headers: { authorization: 'Bearer valid-token' }, body: {}, query: {} } as unknown as Request;
   const { record, response } = responseRecorder();
   await createRequestIdentityMiddleware(async () => {
-    throw Object.assign(new Error('Authenticated Firebase account has no Open Policy profile.'), { statusCode: 403 });
+    throw Object.assign(new Error('Authenticated Firebase account has no Open Polici profile.'), { statusCode: 403 });
   }, {} as NodeJS.ProcessEnv)(request, response, () => assert.fail('must not continue'));
   assert.equal(record.status, 403);
   assert.equal(record.body.error, 'Forbidden');

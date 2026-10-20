@@ -81,10 +81,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setIsDemoUser(false);
         try {
           const profile = await loadUserProfile(user.uid);
-          if (!profile?.role) throw new Error('This account has no Open Policy role profile.');
+          if (!profile?.role) throw new Error('This account has no Open Polici role profile.');
           setUserProfile(profile);
         } catch (e) {
-          console.warn('[Open Policy] Failed to sync user profile:', e);
+          console.warn('[Open Polici] Failed to sync user profile:', e);
           setUserProfile(null);
         }
       } else {
@@ -207,7 +207,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
       if (!applicationResponse.ok) {
         const payload = await applicationResponse.json().catch(() => ({}));
-        throw new Error(payload.error || 'Your identity was created, but the provider application could not be submitted. Sign in and contact Open Policy support.');
+        throw new Error(payload.error || 'Your identity was created, but the provider application could not be submitted. Sign in and contact Open Polici support.');
       }
       setUserProfile(profile);
       setIsDemoUser(false);
@@ -225,7 +225,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const profile = await loadUserProfile(res.user.uid);
       if (!profile?.role) {
         await signOut(auth);
-        throw new Error('This account has no Open Policy role profile. Complete onboarding or contact support.');
+        throw new Error('This account has no Open Polici role profile. Complete onboarding or contact support.');
       }
 
       setUserProfile(profile);
@@ -251,7 +251,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setIsDemoUser(false);
       setAuthModalOpen(false);
     } catch (e: any) {
-      console.warn('[Open Policy Auth] Google popup failed or closed:', e?.message);
+      console.warn('[Open Polici Auth] Google popup failed or closed:', e?.message);
       throw e;
     } finally {
       setLoading(false);
@@ -270,7 +270,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       await signOut(auth);
     } catch (e) {
-      console.warn('[Open Policy] SignOut error:', e);
+      console.warn('[Open Polici] SignOut error:', e);
     }
     setCurrentUser(null);
     setIsDemoUser(false);

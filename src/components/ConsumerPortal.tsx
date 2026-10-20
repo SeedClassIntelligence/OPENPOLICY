@@ -1460,7 +1460,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
               Offers are compared with your current policy line by line.
             </p>
             <p className="text-xs text-slate-400">
-              Open Policy displays each offer’s stated premium and coverage differences from your current policy. You decide whether to select an offer or retain your policy.
+              Open Polici displays each offer’s stated premium and coverage differences from your current policy. You decide whether to select an offer or retain your policy.
             </p>
           </div>
 
@@ -2071,7 +2071,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
               <span className="text-[11px] font-bold text-amber-700 uppercase tracking-wider">Waiting for a provider offer</span>
               <h2 className="text-2xl font-bold text-slate-900 mt-1">No offer is available for field-by-field comparison</h2>
               <p className="text-xs text-slate-600 mt-2 max-w-2xl">
-                Your verified policy baseline is complete. This matrix becomes available after an authorized provider submits a documented offer. Open Policy will then compare that offer with your existing policy field by field.
+                Your verified policy baseline is complete. This matrix becomes available after an authorized provider submits a documented offer. Open Polici will then compare that offer with your existing policy field by field.
               </p>
             </div>
           </div>
@@ -2450,12 +2450,12 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
               <span>Step 7 Preview: Issued Policy Reconciliation</span>
             </div>
             <p className="text-xs text-slate-600 max-w-xl">
-              Once the licensed provider completes the insurance transaction, Open Policy compares the issued declarations page with the selected offer and displays any factual premium, deductible, limit, or coverage differences.
+              Once the licensed provider completes the insurance transaction, Open Polici compares the issued declarations page with the selected offer and displays any factual premium, deductible, limit, or coverage differences.
             </p>
 
             <div className="flex items-start space-x-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900">
               <Clock className="mt-0.5 h-4 w-4 shrink-0 text-blue-700" />
-              <p>The selected licensed provider completes application, underwriting, and issuance outside Open Policy. When issued-policy evidence is provided, return to Reconciliation to review the factual comparison.</p>
+              <p>The selected licensed provider completes application, underwriting, and issuance outside Open Polici. When issued-policy evidence is provided, return to Reconciliation to review the factual comparison.</p>
             </div>
           </div>
         </div>
@@ -2472,7 +2472,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
               <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Issued policy required</span>
               <h2 className="text-2xl font-bold text-slate-900 mt-1">Reconciliation has not started</h2>
               <p className="text-xs text-slate-600 mt-2 max-w-2xl">
-                Reconciliation occurs after you select an offer, authorize the provider handoff, and the licensed provider supplies the issued policy. Open Policy then displays factual differences between the selected offer and the issued policy.
+                Reconciliation occurs after you select an offer, authorize the provider handoff, and the licensed provider supplies the issued policy. Open Polici then displays factual differences between the selected offer and the issued policy.
               </p>
             </div>
           </div>
@@ -2494,7 +2494,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
               Issued Policy Reconciliation & Private Vault
             </h2>
             <p className="text-xs text-slate-600">
-              Open Policy compares the issued policy document with the selected offer and displays the factual differences.
+              Open Polici compares the issued policy document with the selected offer and displays the factual differences.
             </p>
           </div>
 

@@ -181,7 +181,7 @@ class CloudSqlClient implements SqlClient {
 }
 
 /**
- * PostgresStore — Durable PGlite persistence layer for Open Policy marketplace and transaction entities.
+ * PostgresStore — Durable PGlite persistence layer for Open Polici marketplace and transaction entities.
  *
  * This store is the authoritative persistence path for:
  *   - PM-1 Marketplace entities (ProviderOrganization, ProviderUser, ProviderLicense, CarrierRelationship, ProviderAppetite, Competition, ChallengeInvitation, ChallengeParticipation, AuditEvent)
@@ -324,8 +324,8 @@ export class PostgresStore {
         this.isReady = true;
         console.log(
           this.useCloudSql
-            ? '[Open Policy Postgres] Cloud SQL durable engine initialized'
-            : `[Open Policy Postgres] PostgreSQL 16 durable engine initialized at ${this.dataDir}`
+            ? '[Open Polici Postgres] Cloud SQL durable engine initialized'
+            : `[Open Polici Postgres] PostgreSQL 16 durable engine initialized at ${this.dataDir}`
         );
       } catch (err: any) {
         this.initPromise = null;
@@ -3307,7 +3307,7 @@ export class PostgresStore {
          VALUES ($1,'SELECTED_OFFER_UNAVAILABLE',$2,$3,$4,FALSE,'CONSUMER',$5,$6,$7)
          ON CONFLICT (id) DO NOTHING;`,
         [`NOTIF-${failure.id}`,'Selected offer cannot be honored as submitted',
-          `The selected provider reported that the selected offer cannot be honored as submitted. Reason: ${failure.reasonCode}. No replacement terms were proposed through Open Policy.`,
+          `The selected provider reported that the selected offer cannot be honored as submitted. Reason: ${failure.reasonCode}. No replacement terms were proposed through Open Polici.`,
           failure.reportedAt,durable.consumerId,`SELECTED_OFFER_CANNOT_BE_HONORED:${failure.id}`,'BINDING_HANDOFF']
       );
       await this.appendAuditInTransaction(client, {
@@ -4205,11 +4205,11 @@ export class PostgresStore {
     // Check if already seeded
     const counts = await this.getTableCounts();
     if (counts['provider_organizations'] > 0) {
-      console.log('[Open Policy Postgres] PM-1 provider data already seeded, skipping.');
+      console.log('[Open Polici Postgres] PM-1 provider data already seeded, skipping.');
       return;
     }
 
-    console.log('[Open Policy Postgres] Seeding canonical PM-1 provider marketplace data...');
+    console.log('[Open Polici Postgres] Seeding canonical PM-1 provider marketplace data...');
 
     // Provider A: Sierra Brokerage Group (NV Personal Auto Eligible)
     await this.saveProviderOrganization({
@@ -4389,7 +4389,7 @@ export class PostgresStore {
       expiresAt: '2026-09-20T14:35:00Z'
     });
 
-    console.log('[Open Policy Postgres] PM-1 canonical provider marketplace data seeded successfully.');
+    console.log('[Open Polici Postgres] PM-1 canonical provider marketplace data seeded successfully.');
   }
 }
 

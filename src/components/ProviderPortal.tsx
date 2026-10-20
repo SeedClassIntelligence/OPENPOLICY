@@ -1578,7 +1578,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                   <div>
                     <strong className="text-slate-800 font-semibold">Privacy-Preserved Rating Profile:</strong> The consumer's
                     direct identity (legal name, phone number, email, and exact street address) is sealed under
-                    Open Policy progressive disclosure. Use the authorized vehicle characteristics and territory demographics below to rate via your carrier portals.
+                    Open Polici progressive disclosure. Use the authorized vehicle characteristics and territory demographics below to rate via your carrier portals.
                   </div>
                 </div>
 
@@ -3399,7 +3399,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
             </div>
 
             <p className="text-xs text-slate-600 leading-relaxed">
-              Use a controlled reason code to report that the selected offer cannot be honored as submitted. Open Policy will notify the policyholder factually. Do not enter or transmit replacement prices or coverage terms here.
+              Use a controlled reason code to report that the selected offer cannot be honored as submitted. Open Polici will notify the policyholder factually. Do not enter or transmit replacement prices or coverage terms here.
             </p>
 
             <div className="space-y-3 text-xs">

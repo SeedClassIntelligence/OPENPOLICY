@@ -117,13 +117,13 @@ export async function resolveFirebaseIdentity(token: string): Promise<RequestIde
   const decoded = await getAuth(adminApp).verifyIdToken(token, true);
   const profileSnapshot = await getFirestore(adminApp).collection('users').doc(decoded.uid).get();
   if (!profileSnapshot.exists) {
-    throw Object.assign(new Error('Authenticated Firebase account has no Open Policy profile.'), { statusCode: 403 });
+    throw Object.assign(new Error('Authenticated Firebase account has no Open Polici profile.'), { statusCode: 403 });
   }
 
   const profile = profileSnapshot.data() || {};
   const role = profile.role as IdentityRole | undefined;
   if (!role || !['CONSUMER', 'PROVIDER', 'ADMIN'].includes(role)) {
-    throw Object.assign(new Error('Open Policy profile has no valid account role.'), { statusCode: 403 });
+    throw Object.assign(new Error('Open Polici profile has no valid account role.'), { statusCode: 403 });
   }
 
   return {

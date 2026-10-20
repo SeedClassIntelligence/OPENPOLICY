@@ -462,7 +462,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
             <span className="text-[11px] font-mono text-slate-400">Server-authoritative control plane</span>
           </div>
           <h2 className="text-xl font-bold text-white mt-1">
-            Open Policy Owner Control Center
+            Open Polici Owner Control Center
           </h2>
           <p className="text-xs text-slate-400">
             One protected view of marketplace operations, provider organizations, commercial administration, rollout readiness, reviews and immutable audit evidence.

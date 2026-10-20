@@ -135,7 +135,7 @@ export async function syncUserProfile(user: { uid: string; email: string | null;
     return snap.data() as FirestoreUserProfile;
   }
 
-  throw new Error('This account has no Open Policy role profile. Complete the correct consumer or provider onboarding process.');
+  throw new Error('This account has no Open Polici role profile. Complete the correct consumer or provider onboarding process.');
 }
 
 /**
@@ -197,7 +197,7 @@ export async function seedInitialUserChallenge(userId: string, userName: string)
 
     await setDoc(doc(firestore, 'vault', docId), initialDoc);
   } catch (err) {
-    console.warn('[Open Policy] Failed to initialize the policy review for user:', err);
+    console.warn('[Open Polici] Failed to initialize the policy review for user:', err);
   }
 }
 

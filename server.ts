@@ -343,7 +343,7 @@ app.get('/api/health', async (req, res) => {
   res.json({
     status: 'ok',
     version: '1.0.0',
-    service: 'Open Policy Offer Review Service',
+    service: 'Open Polici Offer Review Service',
     uptime: process.uptime(),
     timestamp: new Date().toISOString()
   });
@@ -491,7 +491,7 @@ app.post('/api/policy-documents/ingest', async (req, res) => {
     if (!canEnterPolicyPipeline(insuranceLine)) {
       return res.status(409).json({
         error: 'INSURANCE_LINE_NOT_AVAILABLE',
-        message: `${insuranceLine} is represented in Open Policy but is not accepted by the policy-processing pipeline yet.`
+        message: `${insuranceLine} is represented in Open Polici but is not accepted by the policy-processing pipeline yet.`
       });
     }
     const document = await ingestPolicyDocument({
@@ -1166,7 +1166,7 @@ app.post('/api/vault/upload', async (req, res) => {
 // 10. Retired legacy simulation routes
 // ==========================================
 app.post('/api/challenges/:id/final-round', async (req, res) => {
-  res.status(410).json({ error: 'Legacy final-round route retired; Open Policy now uses one submission window.' });
+  res.status(410).json({ error: 'Legacy final-round route retired; Open Polici now uses one submission window.' });
 });
 
 app.post('/api/challenges/:id/incumbent-defense', async (req, res) => {
@@ -2483,7 +2483,7 @@ app.post('/api/marketplace/binding/:handoffId/execute-disclosure', async (req, r
 // 5. Retired post-selection negotiation routes. Historical records remain readable.
 for (const retiredPath of ['propose-modification', 'resolve-modification', 'accept-modification', 'reject-modification']) {
   app.post(`/api/marketplace/binding/:handoffId/${retiredPath}`, (_req, res) => {
-    res.status(410).json({ error: 'Post-selection modification negotiation through Open Policy is retired.' });
+    res.status(410).json({ error: 'Post-selection modification negotiation through Open Polici is retired.' });
   });
 }
 
@@ -3640,7 +3640,7 @@ app.post('/api/commercial/payments', async (req, res) => {
 });
 
 // Production processor flow: creates a Stripe-hosted payment session for the
-// exact outstanding balance of a finalized Open Policy invoice. Settlement is
+// exact outstanding balance of a finalized Open Polici invoice. Settlement is
 // recorded only after a signed processor webhook confirms success.
 app.post('/api/commercial/invoices/:id/payment-session', async (req, res) => {
   try {
@@ -3695,7 +3695,7 @@ app.post('/api/commercial/stripe/webhook', async (req, res) => {
       if (!invoiceId || !providerOrganizationId) return res.status(400).json({ error: 'Stripe payment metadata is incomplete.' });
       const invoice = await commercialStore.getInvoiceById(invoiceId);
       if (!invoice || invoice.providerOrganizationId !== providerOrganizationId || intent.currency !== 'usd') {
-        return res.status(409).json({ error: 'Stripe payment does not match an Open Policy invoice.' });
+        return res.status(409).json({ error: 'Stripe payment does not match an Open Polici invoice.' });
       }
       const mappedStatus = mapStripeIntentStatus(intent.status);
       const paymentIdempotencyKey = `stripe-payment:${intent.id}`;
@@ -3951,7 +3951,7 @@ app.post('/api/admin/audit-chain/generate-proof', async (req, res) => {
 // ==========================================
 app.get('/api/docs/spec', async (req, res) => {
   res.json({
-    name: 'Open Policy Offer Review API',
+    name: 'Open Polici Offer Review API',
     version: '1.0.0',
     description: 'API specification for current-policy sharing, independent provider offers, factual comparison, consumer selection, and issued-policy reconciliation',
     architecture: {
@@ -4103,7 +4103,7 @@ async function startServer() {
 
   function tryListen(portToTry: number) {
     const server = app.listen(portToTry, '0.0.0.0', () => {
-      console.log(`Open Policy server running on http://localhost:${portToTry}`);
+      console.log(`Open Polici server running on http://localhost:${portToTry}`);
     });
 
     server.on('error', (err: any) => {

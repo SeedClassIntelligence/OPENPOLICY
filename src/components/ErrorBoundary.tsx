@@ -23,7 +23,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('[Open Policy ErrorBoundary caught error]:', error, errorInfo);
+    console.error('[Open Polici ErrorBoundary caught error]:', error, errorInfo);
   }
 
   public handleReset = () => {

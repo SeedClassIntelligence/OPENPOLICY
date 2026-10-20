@@ -471,7 +471,7 @@ export const ArchitectureDocs: React.FC = () => {
               <span className="text-[10px] bg-slate-800 text-emerald-400 px-2 py-0.5 rounded">GitHub Actions</span>
             </div>
             <pre className="text-slate-300 text-[11px] leading-relaxed overflow-x-auto">
-{`name: Open Policy Continuous Delivery
+{`name: Open Polici Continuous Delivery
 
 on:
   push:
