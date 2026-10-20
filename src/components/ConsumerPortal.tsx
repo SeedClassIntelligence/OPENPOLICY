@@ -2202,7 +2202,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
               onClick={() => handleInitiateSelectOffer(selectedComparison.offerId)}
               className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-6 py-2.5 rounded-lg transition shadow-xs"
             >
-              <span>SELECT THIS OFFER & BIND</span>
+              <span>SELECT THIS OFFER</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </div>
@@ -2210,7 +2210,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
       )}
 
       {/* ========================================================================= */}
-      {/* STEP 6: BINDING HANDOFF & PROGRESSIVE DISCLOSURE                          */}
+      {/* STEP 6: AUTHORIZED HANDOFF & PROGRESSIVE DISCLOSURE                       */}
       {/* ========================================================================= */}
       {currentStep === 'BINDING_HANDOFF' && !handoffResult && (
         <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-6 md:p-8 space-y-5">
@@ -2220,7 +2220,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
               <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Selection required</span>
               <h2 className="text-2xl font-bold text-slate-900 mt-1">No provider handoff has been authorized</h2>
               <p className="text-xs text-slate-600 mt-2 max-w-2xl">
-                Binding handoff begins only after you review and select a submitted provider offer. Until then, your identity and contact information remain withheld from providers.
+                An authorized provider handoff begins only after you review and select a submitted provider offer. Until then, your identity and contact information remain withheld from providers.
               </p>
             </div>
           </div>
@@ -2239,11 +2239,11 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
               CONSUMER SELECTION CONFIRMED • SECTION 28 PROGRESSIVE DISCLOSURE LEVEL 1
             </span>
             <h2 className="text-2xl font-bold text-slate-900 mt-1">
-              Licensed Binding Handoff Dossier
+              Authorized Provider Handoff Dossier
             </h2>
             <p className="text-xs text-slate-600">
               You selected <strong className="text-slate-800">{handoffResult.carrier}</strong> through <strong className="text-slate-800">{selectedProviderName}</strong>.
-              Under progressive disclosure rules, only this licensed provider is authorized to receive your contact information to bind the policy.
+              Under progressive disclosure rules, only this licensed provider is authorized to receive the approved information needed to continue the insurance transaction on its own licensed channel.
             </p>
           </div>
 

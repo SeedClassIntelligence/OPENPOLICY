@@ -135,6 +135,10 @@ test('consumer acceptance status labels reflect authoritative lifecycle state', 
   assert.match(consumer, /\{submissionWindowOpen && \(/);
   assert.match(consumer, /vaultDocs\.length \+ policyVaultItems\.length/);
   assert.match(consumer, /Vault Records/);
+  assert.match(consumer, /SELECT THIS OFFER/);
+  assert.doesNotMatch(consumer, /SELECT THIS OFFER & BIND/);
+  assert.match(consumer, /Authorized Provider Handoff Dossier/);
+  assert.doesNotMatch(consumer, /authorized to receive your contact information to bind the policy/);
 });
 
 test('landing keeps account access in the canonical modal instead of embedding an intrusive form', () => {
