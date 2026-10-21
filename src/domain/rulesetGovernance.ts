@@ -19,6 +19,7 @@ export function computeRuleSetContentHash(ruleSet: JurisdictionRuleSet, rules: J
     jurisdictionCode: ruleSet.jurisdictionCode,
     insuranceLine: ruleSet.insuranceLine,
     version: ruleSet.version,
+    publicationScope: ruleSet.publicationScope || 'PRODUCTION_ELIGIBLE',
     rules: [...rules].sort((a, b) => a.id.localeCompare(b.id))
   });
 }

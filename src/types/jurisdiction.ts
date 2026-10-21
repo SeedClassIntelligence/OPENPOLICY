@@ -93,6 +93,7 @@ export interface RegulatorySource {
 
 /** DISCARDED: unpublished work abandoned; its rules are removed, its history is kept. */
 export type RuleSetStatus = 'DRAFT' | 'IN_REVIEW' | 'PUBLISHED' | 'SUPERSEDED' | 'WITHDRAWN' | 'DISCARDED';
+export type RuleSetPublicationScope = 'SANDBOX_ONLY' | 'PRODUCTION_ELIGIBLE';
 
 export interface JurisdictionRuleSet {
   id: string;
@@ -100,6 +101,8 @@ export interface JurisdictionRuleSet {
   insuranceLine: InsuranceLine;
   version: number;
   status: RuleSetStatus;
+  /** SANDBOX_ONLY rules may be published for acceptance but never satisfy production readiness. */
+  publicationScope?: RuleSetPublicationScope;
   supersedesRuleSetId?: string;
   authoredBy: string;
   publishedBy?: string;

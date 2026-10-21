@@ -1452,6 +1452,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS provider_user_invitations_pending_email_idx
   ON provider_user_invitations(provider_organization_id,lower(email)) WHERE status='PENDING';
 `;
 
+export const SQL_MIGRATION_V24 = `
+-- Rules published for sandbox acceptance must remain visibly ineligible for
+-- production readiness even when every executable rule is verified.
+ALTER TABLE jurisdiction_rule_sets
+  ADD COLUMN IF NOT EXISTS publication_scope TEXT NOT NULL DEFAULT 'PRODUCTION_ELIGIBLE';
+ALTER TABLE jurisdiction_rule_sets
+  DROP CONSTRAINT IF EXISTS jurisdiction_rule_sets_publication_scope_check;
+ALTER TABLE jurisdiction_rule_sets
+  ADD CONSTRAINT jurisdiction_rule_sets_publication_scope_check
+  CHECK (publication_scope IN ('SANDBOX_ONLY', 'PRODUCTION_ELIGIBLE'));
+`;
+
 export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR || './data/openpolicy_pg') {
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
@@ -1552,7 +1564,11 @@ export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR ||
     await pglite.query(
       `INSERT INTO _migrations (name) VALUES ('0023_provider_user_invitations') ON CONFLICT (name) DO NOTHING;`
     );
-    console.log(`[Open Policy DB] Migrations 0001 through 0023 applied successfully.`);
+    await pglite.exec(SQL_MIGRATION_V24);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0024_ruleset_publication_scope') ON CONFLICT (name) DO NOTHING;`
+    );
+    console.log(`[Open Policy DB] Migrations 0001 through 0024 applied successfully.`);
     return pglite;
   } catch (error) {
     console.error(`[Open Policy DB] Migration error:`, error);

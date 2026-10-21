@@ -8,7 +8,7 @@ Assessment after completion work: **PARTIALLY — the platform path passes with 
 
 The original no-change audit identified implementation and evidence gaps. Completion work then corrected the bounded gaps, recorded the founder's two-rule disposition, locally published the resulting RulePack in an isolated sandbox, and reran the full acceptance stack. The Windows `uv_os_get_passwd` host defect was isolated with a test-only shim; validator databases were moved into per-suite temporary roots. No production code was weakened to make the host pass.
 
-Final executed evidence: all 11 canonical suites pass; onboarding/activation 43/43; authorization/security 51/51; TypeScript passes; client and server production builds pass. Local RulePack publication produced SHA-256 `ce3a82674fdd45f77021297f293a140706ed64df6bb3f63721dfe76d3b892f7c` and was removed after the run.
+Final executed evidence: all 11 canonical suites pass; onboarding/activation 43/43; authorization/security 51/51; TypeScript passes; client and server production builds pass. The scope-aware local RulePack publication produced SHA-256 `ac732067ac1aa6c753732a5b39c084d6bcafc82830548b3b1aa74ad5239c1078`, was explicitly labeled `SANDBOX_ONLY`, and was removed after the run.
 
 ## Stage results
 

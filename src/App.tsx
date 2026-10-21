@@ -233,6 +233,7 @@ function MainApp() {
                   challenge={challenge}
                   onOfferSubmitted={handleOfferSubmitted}
                   onNavigateToConsumer={() => handlePerspectiveChange('CONSUMER', 'UPLOAD_EXTRACT')}
+                  fixtureProviderUserId={isDemoUser ? userProfile?.id : undefined}
                 />
               </ErrorBoundary>
             )}

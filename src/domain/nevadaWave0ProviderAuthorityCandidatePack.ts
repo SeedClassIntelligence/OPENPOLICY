@@ -31,7 +31,7 @@ export const nevadaWave0ProviderAuthoritySources: RegulatorySource[] = [
 
 export const nevadaWave0ProviderAuthorityCandidateRuleSet: JurisdictionRuleSet = {
   id: NEVADA_WAVE0_RULESET_ID, jurisdictionCode: 'NV', insuranceLine: 'PERSONAL_AUTO', version: 1,
-  status: 'DRAFT', authoredBy: NEVADA_WAVE0_AUTHOR_ID, createdAt: '2026-10-20T00:00:00.000Z'
+  status: 'DRAFT', publicationScope: 'SANDBOX_ONLY', authoredBy: NEVADA_WAVE0_AUTHOR_ID, createdAt: '2026-10-20T00:00:00.000Z'
 };
 
 /** Narrow current-transaction pack, founder-approved for local publication testing only. */

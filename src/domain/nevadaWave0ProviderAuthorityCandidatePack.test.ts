@@ -15,6 +15,7 @@ test('founder-approved pack satisfies publication controls and produces an immut
   assert.deepEqual(validatePublication({ruleSet:inReview,rules,publisherId:NEVADA_WAVE0_FOUNDER_ID}),[]);
   const {published}=publishRuleSet({ruleSet:inReview,rules,publisherId:NEVADA_WAVE0_FOUNDER_ID,publishedAt:'2026-10-20T00:00:00.000Z'});
   assert.equal(published.status,'PUBLISHED');
+  assert.equal(published.publicationScope,'SANDBOX_ONLY');
   assert.ok(published.contentSha256);
   assert.equal(verifyAnchoredContent(published,rules,published.contentSha256!),true);
 });

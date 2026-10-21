@@ -288,6 +288,10 @@ export function runJurisdictionTestSuite(): { total: number; passed: number; fai
   test('MKT-18: a PUBLISHED ruleset with an unverified executable rule is not RULES_VERIFIED', 'Market activation',
     deriveReadiness([rs('PUBLISHED')], rulesFor(rs('PUBLISHED'), false), 'X1', 'PERSONAL_AUTO').readiness === 'RULES_IN_REVIEW' &&
     deriveReadiness([rs('PUBLISHED')], rulesFor(rs('PUBLISHED'), true), 'X1', 'PERSONAL_AUTO').readiness === 'RULES_VERIFIED');
+  const sandboxOnlyPublished = { ...rs('PUBLISHED'), publicationScope: 'SANDBOX_ONLY' as const };
+  test('MKT-18A: SANDBOX_ONLY publication never satisfies production readiness', 'Market activation',
+    deriveReadiness([sandboxOnlyPublished], rulesFor(sandboxOnlyPublished, true), 'X1', 'PERSONAL_AUTO', 'SANDBOX').readiness === 'RULES_VERIFIED' &&
+    deriveReadiness([sandboxOnlyPublished], rulesFor(sandboxOnlyPublished, true), 'X1', 'PERSONAL_AUTO', 'PRODUCTION').readiness === 'RULES_IN_REVIEW');
   test('MKT-19: PROVIDERS_REQUIRED is a projection of verified rules without the provider gate', 'Market activation',
     displayStatus('RULES_VERIFIED', 'INACTIVE', new Set()) === 'PROVIDERS_REQUIRED' &&
     displayStatus('RULES_VERIFIED', 'INACTIVE', new Set(['PROVIDER_AUTHORITY_READY'])) === 'RULES_VERIFIED');
