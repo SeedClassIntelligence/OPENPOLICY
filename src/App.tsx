@@ -18,6 +18,7 @@ import { Challenge, Offer } from './types/insurance';
 import { canEnterMarketplaceDestination, canEnterOwnerDestination, destinationForRole } from './auth/roleAccess';
 import { apiFetch } from './services/apiClient';
 import { canEnterPolicyPipeline, getInsuranceLineDefinition } from './domain/insuranceLineRegistry';
+import { ProviderInvitationAcceptance } from './components/ProviderInvitationAcceptance';
 
 function MainApp() {
   const { isAuthenticated, userRole, userProfile, isDemoUser, loading: authLoading, openAuthModal } = useAuth();
@@ -29,6 +30,8 @@ function MainApp() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const requestedLine = userProfile?.requestedInsuranceLine || 'PERSONAL_AUTO';
   const requestedLineAvailable = canEnterPolicyPipeline(requestedLine);
+  const providerInvitationMatch = window.location.pathname.match(/^\/provider-invitation\/([^/]+)$/);
+
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -72,6 +75,10 @@ function MainApp() {
     setLoading(true);
     void loadData();
   }, [authLoading, isAuthenticated, userRole, userProfile?.id]);
+
+  if (providerInvitationMatch) {
+    return <ProviderInvitationAcceptance token={decodeURIComponent(providerInvitationMatch[1])} />;
+  }
 
   const handlePerspectiveChange = (
     perspective: ActivePerspective, 

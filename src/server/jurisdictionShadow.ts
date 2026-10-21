@@ -300,6 +300,42 @@ export async function shadowProviderAuthority(params: {
   });
 }
 
+/**
+ * Production boundary: only a founder-verified (or founder-designated) and PUBLISHED ruleset
+ * may authorize provider entry. Candidate or absent rules fail closed.
+ */
+export async function requirePublishedProviderAuthority(params: {
+  challenge: Challenge;
+  org: ProviderOrganization;
+  licenses: ProviderLicense[];
+  carrierRelationships: CarrierRelationship[];
+  evaluationDate: string | undefined;
+  providerUserId?: string;
+  carrier?: string;
+  transactionRole?: 'AGENT'|'BROKER';
+}) {
+  await ensureJurisdictionFramework();
+  const insuranceLine = lineOf(params.challenge);
+  const resolved = await jurisdictionStore.resolveEvaluationRuleSet(params.challenge.jurisdiction, insuranceLine);
+  if (resolved.basis !== 'PUBLISHED' || !resolved.ruleSet || resolved.rules.some(rule => rule.verificationStatus !== 'VERIFIED')) {
+    throw Object.assign(new Error(`Provider authority is unavailable: ${params.challenge.jurisdiction}/${insuranceLine} has no fully verified published ruleset.`), {
+      statusCode: 409, code: 'PROVIDER_AUTHORITY_RULES_UNAVAILABLE'
+    });
+  }
+  const authority = evaluateProviderJurisdictionAuthority({
+    org:params.org,licenses:params.licenses,carrierRelationships:params.carrierRelationships,
+    rules:resolved.rules,jurisdictionCode:params.challenge.jurisdiction,insuranceLine,
+    evaluationDate:params.evaluationDate,providerUserId:params.providerUserId,
+    carrier:params.carrier,transactionRole:params.transactionRole
+  });
+  if (authority.outcome !== 'AUTHORIZED') {
+    throw Object.assign(new Error(`Provider authority denied: ${authority.reasons.join(' ')}`), {
+      statusCode: 403, code: `PROVIDER_AUTHORITY_${authority.outcome}`
+    });
+  }
+  return { authority, ruleSetId: resolved.ruleSet.id, ruleSetContentSha256: resolved.contentSha256 };
+}
+
 /** Runs a shadow evaluation without ever letting it affect the caller's response. */
 export async function inShadow<T>(label: string, fn: () => Promise<T>): Promise<T | undefined> {
   try {

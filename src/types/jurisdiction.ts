@@ -148,7 +148,9 @@ export type MachineRule =
   | { kind: 'REQUIRED_COVERAGE'; coverageCode: string }
   | { kind: 'MANDATORY_OFFER'; coverageCode: string; rejectionPermitted: boolean; rejectionEvidence?: 'SIGNED_WRITTEN' | 'PRESCRIBED_FORM'; formSourceId?: string }
   | { kind: 'REQUIRED_NOTICE'; noticeCode: string; formSourceId?: string }
-  | { kind: 'PRODUCER_AUTHORITY'; acceptedLicenseClasses: string[]; entityLicenseRequired: boolean; individualLicenseRequired: boolean; appointmentRequired: boolean }
+  | { kind: 'PRODUCER_AUTHORITY'; acceptedLicenseClasses: string[]; entityLicenseRequired: boolean; individualLicenseRequired: boolean; appointmentRequired: boolean;
+      /** Optional verified rule detail. When present it supersedes the legacy all-transaction boolean. */
+      carrierRelationshipRequirementByTransactionRole?: Partial<Record<'AGENT'|'BROKER', Array<'APPOINTED'|'AUTHORIZED_BROKER'|'DIRECT'|'OTHER'>>> }
   | { kind: 'CARRIER_AUTHORITY'; certificateOfAuthorityRequired: boolean }
   | { kind: 'ELECTRONIC_CONSENT'; electronicSignaturePermitted: boolean; priorEDeliveryConsentRequired: boolean }
   | { kind: 'RECORD_RETENTION'; recordClass: string; minimumYears: number };

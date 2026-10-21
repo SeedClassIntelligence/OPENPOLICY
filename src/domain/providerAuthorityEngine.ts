@@ -28,6 +28,10 @@ export interface ProviderAuthorityInput {
   carrier?: string;
   /** Calendar date of the participation or binding transaction (D10). */
   evaluationDate: string | undefined;
+  /** Exact authenticated producer whose individual authority is being evaluated. */
+  providerUserId?: string;
+  /** Role performed for the carrier-specific transaction. */
+  transactionRole?: 'AGENT' | 'BROKER';
 }
 
 function normalizeCarrier(name: string): string {
@@ -35,7 +39,7 @@ function normalizeCarrier(name: string): string {
 }
 
 export function evaluateProviderJurisdictionAuthority(input: ProviderAuthorityInput): ProviderAuthorityResult {
-  const { org, licenses, carrierRelationships, rules, jurisdictionCode, insuranceLine, carrier, evaluationDate } = input;
+  const { org, licenses, carrierRelationships, rules, jurisdictionCode, insuranceLine, carrier, evaluationDate, providerUserId, transactionRole } = input;
   const base = { providerOrganizationId: org.id, jurisdictionCode };
 
   if (!jurisdictionCode) {
@@ -126,8 +130,12 @@ export function evaluateProviderJurisdictionAuthority(input: ProviderAuthorityIn
       }
     }
     if (req.individualLicenseRequired) {
-      const individual = validLicenses.filter(l => !!l.providerUserId && classOk(l));
-      if (individual.length === 0 && uncertainLicenses.some(l => !!l.providerUserId && classOk(l))) {
+      if (!providerUserId) {
+        indeterminate = true;
+        reasons.push(`${rule.ruleCode}: the authenticated individual producer is unknown.`);
+      } else {
+      const individual = validLicenses.filter(l => l.providerUserId === providerUserId && classOk(l));
+      if (individual.length === 0 && uncertainLicenses.some(l => l.providerUserId === providerUserId && classOk(l))) {
         indeterminate = true;
         reasons.push(`${rule.ruleCode}: only an individual license of uncertain validity on this date could satisfy the requirement.`);
       } else if (individual.length === 0) {
@@ -136,15 +144,25 @@ export function evaluateProviderJurisdictionAuthority(input: ProviderAuthorityIn
       } else {
         reasons.push(`${rule.ruleCode}: individual producer license ${individual[0].licenseNumber} satisfies the requirement.`);
       }
+      }
     }
-    if (req.appointmentRequired) {
+    const roleRequirements = req.carrierRelationshipRequirementByTransactionRole;
+    const requiredRelationshipTypes = transactionRole && roleRequirements
+      ? roleRequirements[transactionRole]
+      : undefined;
+    if (roleRequirements && carrier && !transactionRole) {
+      indeterminate = true;
+      reasons.push(`${rule.ruleCode}: transaction role is required to evaluate carrier relationship authority.`);
+    }
+    if (req.appointmentRequired || (requiredRelationshipTypes && requiredRelationshipTypes.length > 0)) {
       if (!carrier) {
         reasons.push(`${rule.ruleCode}: carrier appointment is evaluated per carrier when an offer is submitted.`);
       } else {
+        const acceptedRelationshipTypes = requiredRelationshipTypes?.length ? requiredRelationshipTypes : ['APPOINTED'];
         const appointed = carrierRelationships.find(
           rel =>
             rel.providerOrganizationId === org.id &&
-            rel.relationshipType === 'APPOINTED' &&
+            acceptedRelationshipTypes.includes(rel.relationshipType) &&
             rel.status === 'ACTIVE' &&
             rel.jurisdiction === jurisdictionCode &&
             rel.lineOfBusiness === insuranceLine &&
@@ -154,7 +172,7 @@ export function evaluateProviderJurisdictionAuthority(input: ProviderAuthorityIn
         );
         if (!appointed) {
           notAuthorized = true;
-          reasons.push(`${rule.ruleCode}: no active ${jurisdictionCode} ${insuranceLine} appointment with carrier '${carrier}'.`);
+          reasons.push(`${rule.ruleCode}: no active ${jurisdictionCode} ${insuranceLine} ${transactionRole || 'appointed'} relationship with carrier '${carrier}'.`);
         } else {
           reasons.push(`${rule.ruleCode}: appointment with '${appointed.carrierName}' in ${jurisdictionCode} verified.`);
         }

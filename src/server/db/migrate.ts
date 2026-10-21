@@ -1427,6 +1427,31 @@ CREATE INDEX IF NOT EXISTS provider_applications_status_idx
   ON provider_applications(status, submitted_at);
 `;
 
+export const SQL_MIGRATION_V23 = `
+-- Provider-controlled team onboarding. Invitation secrets are stored only as
+-- SHA-256 hashes; accepting an invitation links one independently
+-- authenticated Firebase identity to exactly one provider organization.
+CREATE TABLE IF NOT EXISTS provider_user_invitations (
+  id TEXT PRIMARY KEY,
+  provider_organization_id TEXT NOT NULL REFERENCES provider_organizations(id) ON DELETE CASCADE,
+  email TEXT NOT NULL,
+  full_name TEXT NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('ADMIN','AGENT','QUOTER','VIEW_ONLY')),
+  token_hash TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL CHECK (status IN ('PENDING','ACCEPTED','REVOKED','EXPIRED')),
+  expires_at TEXT NOT NULL,
+  invited_by_provider_user_id TEXT NOT NULL REFERENCES provider_users(id),
+  accepted_by_firebase_uid TEXT,
+  accepted_provider_user_id TEXT,
+  created_at TEXT NOT NULL,
+  accepted_at TEXT
+);
+CREATE INDEX IF NOT EXISTS provider_user_invitations_org_status_idx
+  ON provider_user_invitations(provider_organization_id,status,created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS provider_user_invitations_pending_email_idx
+  ON provider_user_invitations(provider_organization_id,lower(email)) WHERE status='PENDING';
+`;
+
 export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR || './data/openpolicy_pg') {
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
@@ -1523,7 +1548,11 @@ export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR ||
     await pglite.query(
       `INSERT INTO _migrations (name) VALUES ('0022_provider_application_intake') ON CONFLICT (name) DO NOTHING;`
     );
-    console.log(`[Open Policy DB] Migrations 0001 through 0022 applied successfully.`);
+    await pglite.exec(SQL_MIGRATION_V23);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0023_provider_user_invitations') ON CONFLICT (name) DO NOTHING;`
+    );
+    console.log(`[Open Policy DB] Migrations 0001 through 0023 applied successfully.`);
     return pglite;
   } catch (error) {
     console.error(`[Open Policy DB] Migration error:`, error);

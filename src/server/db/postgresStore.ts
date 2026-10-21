@@ -1,7 +1,8 @@
 import { PGlite } from '@electric-sql/pglite';
 import fs from 'fs';
 import pg from 'pg';
-import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8, SQL_MIGRATION_V9, SQL_MIGRATION_V10, SQL_MIGRATION_V11, SQL_MIGRATION_V12, SQL_MIGRATION_V13, SQL_MIGRATION_V14, SQL_MIGRATION_V15, SQL_MIGRATION_V16, SQL_MIGRATION_V17, SQL_MIGRATION_V18, SQL_MIGRATION_V19, SQL_MIGRATION_V20, SQL_MIGRATION_V21, SQL_MIGRATION_V22 } from './migrate';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8, SQL_MIGRATION_V9, SQL_MIGRATION_V10, SQL_MIGRATION_V11, SQL_MIGRATION_V12, SQL_MIGRATION_V13, SQL_MIGRATION_V14, SQL_MIGRATION_V15, SQL_MIGRATION_V16, SQL_MIGRATION_V17, SQL_MIGRATION_V18, SQL_MIGRATION_V19, SQL_MIGRATION_V20, SQL_MIGRATION_V21, SQL_MIGRATION_V22, SQL_MIGRATION_V23 } from './migrate';
 import { buildVerifiedPolicyAndBaseline } from '../../domain/policyEvidenceVerification';
 import {
   ProviderOrganization,
@@ -320,6 +321,10 @@ export class PostgresStore {
         await this.sql.exec(SQL_MIGRATION_V22);
         await this.sql.query(
           `INSERT INTO _migrations (name) VALUES ('0022_provider_application_intake') ON CONFLICT (name) DO NOTHING;`
+        );
+        await this.sql.exec(SQL_MIGRATION_V23);
+        await this.sql.query(
+          `INSERT INTO _migrations (name) VALUES ('0023_provider_user_invitations') ON CONFLICT (name) DO NOTHING;`
         );
         this.isReady = true;
         console.log(
@@ -1819,12 +1824,95 @@ export class PostgresStore {
     );
   }
 
+  public async createProviderUserInvitation(params: {
+    providerOrganizationId: string; email: string; fullName: string;
+    role: Exclude<ProviderUser['role'], 'OWNER'>; invitedByProviderUserId: string;
+    expiresInHours?: number;
+  }) {
+    await this.ensureReady();
+    const email = params.email.trim().toLowerCase();
+    if (!email || !params.fullName.trim()) throw Object.assign(new Error('Invitee name and email are required.'), { statusCode: 400 });
+    if (!['ADMIN','AGENT','QUOTER','VIEW_ONLY'].includes(params.role)) throw Object.assign(new Error('Invalid provider user role.'), { statusCode: 400 });
+    const token = randomBytes(32).toString('base64url');
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+    const id = `provider_invite_${randomUUID()}`;
+    const createdAt = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + (params.expiresInHours || 168) * 3_600_000).toISOString();
+    try {
+      await this.sql!.query(
+        `INSERT INTO provider_user_invitations
+         (id,provider_organization_id,email,full_name,role,token_hash,status,expires_at,invited_by_provider_user_id,created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,'PENDING',$7,$8,$9);`,
+        [id,params.providerOrganizationId,email,params.fullName.trim(),params.role,tokenHash,expiresAt,params.invitedByProviderUserId,createdAt]
+      );
+    } catch (error: any) {
+      if (String(error?.message || '').includes('provider_user_invitations_pending_email_idx')) {
+        throw Object.assign(new Error('A pending invitation already exists for this email.'), { statusCode: 409 });
+      }
+      throw error;
+    }
+    return { id, providerOrganizationId: params.providerOrganizationId, email, fullName: params.fullName.trim(), role: params.role,
+      status: 'PENDING' as const, expiresAt, createdAt, token };
+  }
+
+  public async listProviderUserInvitations(providerOrganizationId: string) {
+    await this.ensureReady();
+    const result = await this.sql!.query<any>(
+      `SELECT id,provider_organization_id,email,full_name,role,status,expires_at,invited_by_provider_user_id,
+              accepted_by_firebase_uid,accepted_provider_user_id,created_at,accepted_at
+       FROM provider_user_invitations WHERE provider_organization_id=$1 ORDER BY created_at DESC;`,
+      [providerOrganizationId]
+    );
+    return result.rows.map(row => ({ id:row.id,providerOrganizationId:row.provider_organization_id,email:row.email,
+      fullName:row.full_name,role:row.role,status:row.status,expiresAt:row.expires_at,
+      invitedByProviderUserId:row.invited_by_provider_user_id,acceptedByFirebaseUid:row.accepted_by_firebase_uid||undefined,
+      acceptedProviderUserId:row.accepted_provider_user_id||undefined,createdAt:row.created_at,acceptedAt:row.accepted_at||undefined }));
+  }
+
+  public async acceptProviderUserInvitation(params: { token: string; firebaseUid: string; email: string; displayName?: string }) {
+    await this.ensureReady();
+    const tokenHash = createHash('sha256').update(params.token).digest('hex');
+    return this.sql!.transaction(async client => {
+      const result = await client.query<any>(`SELECT * FROM provider_user_invitations WHERE token_hash=$1 FOR UPDATE;`,[tokenHash]);
+      const invitation = result.rows[0];
+      if (!invitation) throw Object.assign(new Error('Provider invitation not found.'), { statusCode: 404 });
+      if (invitation.status !== 'PENDING') throw Object.assign(new Error('Provider invitation is no longer available.'), { statusCode: 409 });
+      if (Date.parse(invitation.expires_at) <= Date.now()) {
+        await client.query(`UPDATE provider_user_invitations SET status='EXPIRED' WHERE id=$1;`,[invitation.id]);
+        throw Object.assign(new Error('Provider invitation has expired.'), { statusCode: 410 });
+      }
+      if (invitation.email.toLowerCase() !== params.email.trim().toLowerCase()) {
+        throw Object.assign(new Error('Authenticated email does not match the provider invitation.'), { statusCode: 403 });
+      }
+      const existing = await client.query<any>(`SELECT organization_id FROM provider_users WHERE id=$1;`,[`provider_user_${params.firebaseUid}`]);
+      if (existing.rows[0] && existing.rows[0].organization_id !== invitation.provider_organization_id) {
+        throw Object.assign(new Error('Authenticated identity is already linked to another provider organization.'), { statusCode: 409 });
+      }
+      const providerUserId = `provider_user_${params.firebaseUid}`;
+      const acceptedAt = new Date().toISOString();
+      await client.query(
+        `INSERT INTO provider_users(id,organization_id,email,full_name,role,is_active,created_at)
+         VALUES($1,$2,$3,$4,$5,TRUE,$6) ON CONFLICT(id) DO NOTHING;`,
+        [providerUserId,invitation.provider_organization_id,invitation.email,params.displayName?.trim()||invitation.full_name,invitation.role,acceptedAt]
+      );
+      await client.query(
+        `UPDATE provider_user_invitations SET status='ACCEPTED',accepted_by_firebase_uid=$2,
+         accepted_provider_user_id=$3,accepted_at=$4 WHERE id=$1;`,
+        [invitation.id,params.firebaseUid,providerUserId,acceptedAt]
+      );
+      return { invitationId: invitation.id, providerOrganizationId: invitation.provider_organization_id,
+        providerUserId, role: invitation.role as ProviderUser['role'], acceptedAt };
+    });
+  }
+
   public async saveProviderLicense(lic: ProviderLicense) {
     await this.ensureReady();
     await this.sql!.query(
-      `INSERT INTO provider_licenses (id, provider_organization_id, jurisdiction, license_number, license_type, status, expiration_date, verified_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, expiration_date = EXCLUDED.expiration_date;`,
+      `INSERT INTO provider_licenses (id, provider_organization_id, jurisdiction, license_number, license_type, status, expiration_date, verified_at, provider_user_id, npn, verification_source, verified_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+       ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, expiration_date = EXCLUDED.expiration_date,
+         verified_at=EXCLUDED.verified_at,provider_user_id=EXCLUDED.provider_user_id,npn=EXCLUDED.npn,
+         verification_source=EXCLUDED.verification_source,verified_by=EXCLUDED.verified_by;`,
       [
         lic.id,
         lic.providerOrganizationId,
@@ -1833,7 +1921,8 @@ export class PostgresStore {
         lic.licenseType,
         lic.status,
         lic.expirationDate,
-        lic.verificationStatus === 'VERIFIED' ? lic.effectiveDate : null
+        lic.verificationStatus === 'VERIFIED' ? (lic.verifiedAt || lic.effectiveDate) : null,
+        lic.providerUserId || null, lic.npn || null, lic.verificationSource || null, lic.verifiedBy || null
       ]
     );
   }

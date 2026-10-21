@@ -27,7 +27,7 @@
  */
 
 // Must stay the first import: isolates this suite's database before any store is constructed.
-import './lib/isolatedDataDir';
+import { ISOLATED_DATA_ROOT } from './lib/isolatedDataDir';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
@@ -96,7 +96,7 @@ async function runValidation() {
   console.log('Commercial Governance, Entitlement Enforcement & Capacity Consumption');
   console.log('============================================================\n');
 
-  const testDbDir = path.join(process.cwd(), 'data', `test_ce2_${Date.now()}`);
+  const testDbDir = path.join(ISOLATED_DATA_ROOT, `test_ce2_${Date.now()}`);
 
   const server = http.createServer(app);
   await new Promise<void>((resolve) => {

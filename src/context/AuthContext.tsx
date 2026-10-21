@@ -278,6 +278,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const useDemoAccount = (role: 'CONSUMER' | 'PROVIDER' = 'CONSUMER', alias?: string) => {
+    if (!import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO_IDENTITIES !== 'true') {
+      throw new Error('Demonstration identities are disabled outside the explicitly enabled local development environment.');
+    }
     setIsDemoUser(true);
     if (role === 'PROVIDER') {
       setUserProfile({

@@ -45,7 +45,7 @@ import {
 } from './src/domain/pm5ReconciliationEngine';
 import { verifyCryptographicAuditChain, processReviewQueueResolution,
   generateRegulatoryAuditProof } from './src/domain/governanceAuditEngine';
-import { assertProductionAuthConfiguration, attachRequestIdentity, configuredAuthMode, getFirebaseUserProfile, updateFirebaseProviderReviewState } from './src/server/auth/requestIdentity';
+import { assertProductionAuthConfiguration, attachRequestIdentity, configuredAuthMode, getFirebaseUserProfile, linkFirebaseProviderMembership, updateFirebaseProviderReviewState } from './src/server/auth/requestIdentity';
 import { assertBindingRelationship, assertChallengeRelationship, enforceApiAuthorization } from './src/server/auth/routeAuthorization';
 import { assertDirectSettlementMutationAllowed } from './src/server/paymentCollectionBoundary';
 import { StripePaymentProcessor, mapStripeIntentStatus, shouldApplyStripePaymentStatus, stripePaymentMethod, stripeProcessorConfig, stripeRefundLedgerKey } from './src/server/stripePaymentProcessor';
@@ -72,6 +72,7 @@ import {
   inShadow,
   marketEnvironment,
   recordDetermination,
+  requirePublishedProviderAuthority,
   shadowChallengeOpen,
   shadowOfferQualification,
   shadowProviderAuthority,
@@ -271,6 +272,19 @@ async function getAuthenticatedProviderAdministrator(req: express.Request) {
     throw Object.assign(new Error('Provider owner or administrator authority required.'), { statusCode: 403 });
   }
   return { organizationId, providerUserId };
+}
+
+async function getAuthenticatedProviderActor(
+  req: express.Request,
+  allowedRoles: Array<'OWNER' | 'ADMIN' | 'AGENT' | 'QUOTER' | 'VIEW_ONLY'>
+) {
+  const organizationId = await getAuthenticatedProviderOrgId(req);
+  const providerUserId = await getAuthenticatedProviderUserId(req);
+  const user = await postgresStore.getProviderUser(providerUserId);
+  if (!user || !allowedRoles.includes(user.role)) {
+    throw Object.assign(new Error(`Provider role ${user?.role || 'UNKNOWN'} is not authorized for this operation.`), { statusCode: 403 });
+  }
+  return { organizationId, providerUserId, user };
 }
 
 function getAuthenticatedConsumerId(req: express.Request): string {
@@ -971,8 +985,11 @@ app.post('/api/offers/validate-quote', async (req, res) => {
 
 app.post('/api/offers/submit', async (req, res) => {
   const offerData: Offer = req.body;
+  let authenticatedProviderUserId: string;
   try {
-    const authOrgId = await getAuthenticatedProviderOrgId(req);
+    const actor = await getAuthenticatedProviderActor(req, ['OWNER', 'ADMIN', 'AGENT', 'QUOTER']);
+    const authOrgId = actor.organizationId;
+    authenticatedProviderUserId = actor.providerUserId;
     offerData.providerId = authOrgId;
     const org = await postgresStore.getProviderOrganization(authOrgId);
     if (org) {
@@ -1005,6 +1022,24 @@ app.post('/api/offers/submit', async (req, res) => {
   const competitionForOffer = await postgresStore.getCompetitionForChallenge(offerData.challengeId);
   if (!competitionForOffer) return res.status(404).json({ error: 'Offer-submission window not found' });
   const providerForOffer = await postgresStore.getProviderOrganization(offerData.providerId);
+  if (!providerForOffer) return res.status(403).json({ error: 'Provider organization is unavailable.' });
+  const transactionRole = String((req.body as any).transactionRole || (req.openPolicyIdentity?.source==='FIXTURE'?'AGENT':'')).toUpperCase();
+  if (!['AGENT','BROKER'].includes(transactionRole)) {
+    return res.status(400).json({ error: 'transactionRole must be AGENT or BROKER for carrier-specific authority evaluation.' });
+  }
+  try {
+    if(req.openPolicyIdentity?.source!=='FIXTURE'){
+    await requirePublishedProviderAuthority({
+      challenge:challengeForOffer,org:providerForOffer,
+      licenses:await postgresStore.getProviderLicenses(offerData.providerId),
+      carrierRelationships:await postgresStore.getCarrierRelationships(offerData.providerId),
+      evaluationDate:transactionDateOf(offerData.submittedAt),providerUserId:authenticatedProviderUserId!,
+      carrier:offerData.carrier,transactionRole:transactionRole as 'AGENT'|'BROKER'
+    });
+    }
+  } catch (error:any) {
+    return res.status(error.statusCode||403).json({error:error.message,code:error.code});
+  }
   const qualification = evaluateOfferQualification(
     offerData, challengeForOffer.baseline, providerForOffer,
     await postgresStore.getCarrierRelationships(offerData.providerId),
@@ -1549,11 +1584,13 @@ app.post('/api/admin/commercial/plans/:planId/versions', async (req, res) => {
 app.get('/api/marketplace/my-provider', async (req, res) => {
   try {
     const orgId = await getAuthenticatedProviderOrgId(req);
+    const providerUserId = await getAuthenticatedProviderUserId(req);
     const org = await postgresStore.getProviderOrganization(orgId);
+    const user = await postgresStore.getProviderUser(providerUserId);
     const licenses = await postgresStore.getProviderLicenses(orgId);
     const appetite = await postgresStore.getProviderAppetite(orgId);
     const carriers = await postgresStore.getCarrierRelationships(orgId);
-    res.json({ org, activeOrgId: orgId, licenses, appetite, carriers });
+    res.json({ org, user, activeOrgId: orgId, licenses, appetite, carriers });
   } catch (e: any) {
     res.status(e.statusCode || 401).json({ error: e.message });
   }
@@ -1567,6 +1604,49 @@ app.get('/api/marketplace/my-provider/users', async (req, res) => {
       role: user.role, status: user.status })) });
   } catch (e: any) {
     res.status(e.statusCode || 403).json({ error: e.message });
+  }
+});
+
+app.get('/api/marketplace/my-provider/user-invitations', async (req, res) => {
+  try {
+    const actor = await getAuthenticatedProviderAdministrator(req);
+    res.json({ invitations: await postgresStore.listProviderUserInvitations(actor.organizationId) });
+  } catch (e: any) {
+    res.status(e.statusCode || 403).json({ error: e.message });
+  }
+});
+
+app.post('/api/marketplace/my-provider/user-invitations', async (req, res) => {
+  try {
+    const actor = await getAuthenticatedProviderAdministrator(req);
+    const invitation = await postgresStore.createProviderUserInvitation({
+      providerOrganizationId: actor.organizationId,
+      email: String(req.body?.email || ''), fullName: String(req.body?.fullName || ''),
+      role: String(req.body?.role || '').toUpperCase() as any,
+      invitedByProviderUserId: actor.providerUserId
+    });
+    // The raw secret is returned once to the authorized administrator for
+    // delivery through the organization's trusted channel. It is never stored.
+    res.status(201).json({ invitation, acceptancePath: `/provider-invitation/${invitation.token}` });
+  } catch (e: any) {
+    res.status(e.statusCode || 400).json({ error: e.message });
+  }
+});
+
+app.post('/api/marketplace/my-provider/user-invitations/:token/accept', async (req, res) => {
+  try {
+    const identity = req.openPolicyIdentity!;
+    if (!identity.email) return res.status(400).json({ error: 'Authenticated provider email is required.' });
+    const accepted = await postgresStore.acceptProviderUserInvitation({
+      token: req.params.token, firebaseUid: identity.uid, email: identity.email,
+      displayName: String(req.body?.displayName || '') || undefined
+    });
+    if (identity.source !== 'FIXTURE') {
+      await linkFirebaseProviderMembership(identity.uid, accepted);
+    }
+    res.json({ success: true, ...accepted });
+  } catch (e: any) {
+    res.status(e.statusCode || 400).json({ error: e.message });
   }
 });
 
@@ -1670,7 +1750,9 @@ app.post('/api/marketplace/invitations/:id/view', async (req, res) => {
 
 app.post('/api/marketplace/invitations/:id/accept', async (req, res) => {
   try {
-    const orgId = await getAuthenticatedProviderOrgId(req);
+    const actor = await getAuthenticatedProviderActor(req, ['OWNER', 'ADMIN', 'AGENT', 'QUOTER']);
+    const orgId = actor.organizationId;
+    const providerUserId = actor.providerUserId;
     const invitationId = req.params.id;
 
     // 1. Regulatory / Marketplace check: verify invitation exists and belongs to this organization
@@ -1688,23 +1770,21 @@ app.post('/api/marketplace/invitations/:id/accept', async (req, res) => {
       return res.json({ success: true, ...result });
     }
 
-    // PR-0A ordering invariant: provider jurisdictional authority is evaluated before any
-    // commercial capacity is consumed. SHADOW mode records the result and never blocks (D4).
+    // Provider authority is evaluated before commercial capacity is consumed.
+    // Only founder-verified (or founder-designated), published rules can authorize entry.
     const acceptingOrg = await postgresStore.getProviderOrganization(orgId);
     if (acceptingOrg) {
       const acceptanceChallenge = await postgresStore.getChallenge(invitation.challengeId);
       const acceptanceLicenses = await postgresStore.getProviderLicenses(orgId);
       const acceptanceRelationships = await postgresStore.getCarrierRelationships(orgId);
-      await inShadow('authority-acceptance', () => shadowProviderAuthority({
-        invitation,
-        challenge: acceptanceChallenge,
-        org: acceptingOrg,
-        licenses: acceptanceLicenses,
-        carrierRelationships: acceptanceRelationships,
-        legacyEligible: true,
-        evaluationDate: transactionDateOf(new Date().toISOString()),
-        stage: 'ACCEPTANCE'
-      }));
+      if (!acceptanceChallenge) return res.status(404).json({error:'Policy review not found'});
+      if(req.openPolicyIdentity?.source==='FIXTURE') {
+        await inShadow('authority-acceptance',()=>shadowProviderAuthority({invitation,challenge:acceptanceChallenge,
+          org:acceptingOrg,licenses:acceptanceLicenses,carrierRelationships:acceptanceRelationships,
+          legacyEligible:true,evaluationDate:transactionDateOf(new Date().toISOString()),stage:'ACCEPTANCE'}));
+      } else await requirePublishedProviderAuthority({challenge:acceptanceChallenge,org:acceptingOrg,
+          licenses:acceptanceLicenses,carrierRelationships:acceptanceRelationships,
+          evaluationDate:transactionDateOf(new Date().toISOString()),providerUserId});
     }
 
     // 2. Commercial Capacity Check & Atomic Consumption
@@ -2010,7 +2090,8 @@ app.get('/api/marketplace/competition/:challengeId/deadline-status', async (req,
 
 app.post('/api/marketplace/competition/:challengeId/revise-offer/:offerId', async (req, res) => {
   try {
-    const orgId = await getAuthenticatedProviderOrgId(req);
+    const actor = await getAuthenticatedProviderActor(req, ['OWNER', 'ADMIN', 'AGENT', 'QUOTER']);
+    const orgId = actor.organizationId;
     const [originalOffer,competition,challenge]=await Promise.all([postgresStore.getOffer(req.params.offerId),postgresStore.getCompetitionForChallenge(req.params.challengeId),postgresStore.getChallenge(req.params.challengeId)]);
     if(!originalOffer||!competition||!challenge)return res.status(404).json({error:'Offer, submission window, or policy review not found'});
     if(originalOffer.challengeId!==challenge.id)return res.status(400).json({error:'Offer does not belong to this policy review'});
@@ -2027,6 +2108,14 @@ app.post('/api/marketplace/competition/:challengeId/revise-offer/:offerId', asyn
     const version=(originalOffer.version||1)+1;const submittedAt=new Date().toISOString();
     const revisedOffer:Offer={...originalOffer,...req.body.revisedData,id:`OFFER-REV-${Date.now()}`,previousOfferId:originalOffer.id,version,isLatestRevision:true,round:competition.currentRound,submittedAt};
     const [provider,relationships]=await Promise.all([postgresStore.getProviderOrganization(orgId),postgresStore.getCarrierRelationships(orgId)]);
+    const transactionRole = String(req.body.transactionRole || (req.openPolicyIdentity?.source === 'FIXTURE' ? 'AGENT' : '')).toUpperCase();
+    if (!['AGENT', 'BROKER'].includes(transactionRole)) return res.status(400).json({error:'transactionRole must be AGENT or BROKER for carrier-specific authority evaluation.'});
+    if (req.openPolicyIdentity?.source !== 'FIXTURE' && provider) {
+      await requirePublishedProviderAuthority({challenge, org:provider,
+        licenses:await postgresStore.getProviderLicenses(orgId), carrierRelationships:relationships,
+        evaluationDate:transactionDateOf(submittedAt), providerUserId:actor.providerUserId,
+        carrier:revisedOffer.carrier, transactionRole:transactionRole as 'AGENT'|'BROKER'});
+    }
     const qualification=evaluateOfferQualification(revisedOffer,challenge.baseline,provider,relationships);
     revisedOffer.isQualified=qualification.isQualified;revisedOffer.qualifiedAt=qualification.evaluatedAt;revisedOffer.qualificationReasons=qualification.qualificationReasons;revisedOffer.disqualificationReasons=qualification.disqualificationReasons;
     const versionSnapshot=createOfferVersionSnapshot(revisedOffer,req.body.revisedData.revisionReason||`Revised during ${competition.currentRound}`);versionSnapshot.offerId=originalOffer.id;versionSnapshot.versionNumber=version;
@@ -2399,8 +2488,9 @@ app.post('/api/marketplace/binding/:handoffId/execute-disclosure', async (req, r
       return res.status(400).json({ error: 'consentGrantId is required' });
     }
 
-    const providerOrgId = await getAuthenticatedProviderOrgId(req);
-    const providerUserId = await getAuthenticatedProviderUserId(req);
+    const actor = await getAuthenticatedProviderActor(req, ['OWNER', 'ADMIN', 'AGENT']);
+    const providerOrgId = actor.organizationId;
+    const providerUserId = actor.providerUserId;
 
     const handoff = await postgresStore.getBindingHandoff(handoffId);
     if (!handoff) return res.status(404).json({ error: `Binding handoff not found: ${handoffId}` });
@@ -2494,8 +2584,9 @@ app.post('/api/marketplace/binding/:handoffId/cannot-honor', async (req, res) =>
     if (Object.keys(req.body || {}).some(key => !allowedKeys.has(key))) {
       return res.status(400).json({ error: 'Only reasonCode is accepted; revised price, coverage, or terms cannot be transmitted through this endpoint.' });
     }
-    const providerOrgId = await getAuthenticatedProviderOrgId(req);
-    const providerUserId = await getAuthenticatedProviderUserId(req);
+    const actor = await getAuthenticatedProviderActor(req, ['OWNER', 'ADMIN', 'AGENT']);
+    const providerOrgId = actor.organizationId;
+    const providerUserId = actor.providerUserId;
     const handoff = await postgresStore.getBindingHandoff(req.params.handoffId);
     if (!handoff) return res.status(404).json({ error: `Binding handoff not found: ${req.params.handoffId}` });
     const computed = reportSelectedOfferCannotBeHonored({
@@ -2529,7 +2620,7 @@ app.post('/api/marketplace/binding/:handoffId/update-status', async (req, res) =
       return res.status(400).json({ error: 'Binding status updates are limited to APPLICATION_SUBMITTED, UNDERWRITING, and BOUND. Use cannot-honor for an unavailable selected offer.' });
     }
 
-    const providerOrgId = await getAuthenticatedProviderOrgId(req);
+    const providerOrgId = (await getAuthenticatedProviderActor(req, ['OWNER', 'ADMIN', 'AGENT'])).organizationId;
 
     const handoff = await postgresStore.getBindingHandoff(handoffId);
     if (!handoff) return res.status(404).json({ error: `Binding handoff not found: ${handoffId}` });
@@ -2953,7 +3044,7 @@ app.get('/api/commercial/agreement', async (req, res) => {
 // 3. List Available Commercial Plans
 app.get('/api/commercial/plans', async (req, res) => {
   try {
-    const plans = await commercialStore.listActivePlans();
+    const plans = await commercialStore.listEnrollmentPlans(OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.id);
     res.json({ success: true, plans });
   } catch (e: any) {
     res.status(500).json({ error: e.message });

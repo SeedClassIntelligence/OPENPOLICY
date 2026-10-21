@@ -247,6 +247,23 @@ export class CommercialStore {
     }));
   }
 
+  /**
+   * Plans available for new enrollment under one governing price book.
+   * Historical plan records and versions remain immutable and queryable by
+   * administrators, but can never become enrollment choices by being ACTIVE.
+   */
+  public async listEnrollmentPlans(priceBookId: string): Promise<Array<CommercialPlan & { planVersion: CommercialPlanVersion }>> {
+    const plans = await this.listActivePlans();
+    const enrollmentPlans: Array<CommercialPlan & { planVersion: CommercialPlanVersion }> = [];
+    for (const plan of plans) {
+      const version = await this.getLatestPlanVersion(plan.id);
+      if (version?.termsSnapshot?.priceBookId === priceBookId) {
+        enrollmentPlans.push({ ...plan, planVersion: version });
+      }
+    }
+    return enrollmentPlans;
+  }
+
   public async saveCommercialPlanVersion(version: CommercialPlanVersion): Promise<void> {
     const client = await this.getClient();
     await client.query(

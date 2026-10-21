@@ -16,7 +16,7 @@
  */
 
 // Must stay the first import: isolates this suite's database before any store is constructed.
-import './lib/isolatedDataDir';
+import { ISOLATED_DATA_ROOT } from './lib/isolatedDataDir';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
@@ -125,7 +125,7 @@ async function runPM2Validation() {
   // PART 1: PM-2 DURABLE PERSISTENCE RESTART TEST
   // ===========================================================================
   console.log('--- 1. PM-2 DURABLE PERSISTENCE & SCHEMA SURVIVAL TEST ---');
-  const pm2RestartDir = path.resolve('./data/test_pm2_restart_pg');
+  const pm2RestartDir = path.join(ISOLATED_DATA_ROOT, 'test_pm2_restart_pg');
   if (fs.existsSync(pm2RestartDir)) {
     fs.rmSync(pm2RestartDir, { recursive: true, force: true });
   }

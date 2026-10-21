@@ -53,6 +53,7 @@ import {
 import { detectQuoteDiscrepancies } from '../domain/policyIntelligence';
 import { apiFetch } from '../services/apiClient';
 import { ProviderPremiumServices } from './ProviderPremiumServices';
+import { ProviderTeamManagement } from './ProviderTeamManagement';
 
 interface ProviderPortalProps {
   challenge: Challenge | null;
@@ -88,16 +89,9 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
   const [paymentSessionLoadingId, setPaymentSessionLoadingId] = useState<string | null>(null);
   const [paymentSessionError, setPaymentSessionError] = useState<string | null>(null);
   
-  // Multi-Tenant Provider User & Organization state (Blocker 2 & 3 Fix)
-  // Identity derives from authenticated ProviderUser session:
-  // Session -> ProviderUser -> ProviderUser.organizationId -> ProviderOrganization
-  const DEMO_PROVIDER_USERS = [
-    { userId: 'user_sierra_1', userName: 'Alex Morgan', userRole: 'AGENT', orgId: 'org_sierra', orgName: 'Sierra Brokerage Group (NV Auto)' },
-    { userId: 'user_apex_1', userName: 'Sarah Jenkins', userRole: 'AGENT', orgId: 'org_apex', orgName: 'Apex Insurance Services (NV Auto)' },
-    { userId: 'user_buckeye_1', userName: 'Dave Miller', userRole: 'AGENT', orgId: 'org_buckeye', orgName: 'Buckeye State Insurance (OH Auto)' }
-  ];
-
-  const [authenticatedUserId, setAuthenticatedUserId] = useState<string>('user_sierra_1');
+  // Identity is server-derived from the verified Firebase session. The client
+  // cannot select a provider user or organization persona.
+  const [authenticatedUserId, setAuthenticatedUserId] = useState<string>('');
   const [activeOrg, setActiveOrg] = useState<ProviderOrganization | null>(null);
   const [activeUser, setActiveUser] = useState<any | null>(null);
   const [licenses, setLicenses] = useState<ProviderLicense[]>([]);
@@ -107,7 +101,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
   // Opportunities & Competitions state
   const [opportunities, setOpportunities] = useState<OpportunityPreview[]>([]);
   const [competitions, setCompetitions] = useState<any[]>([]);
-  const [selectedChallengeId, setSelectedChallengeId] = useState<string>('CHAL-NV-49281');
+  const [selectedChallengeId, setSelectedChallengeId] = useState<string>('');
   const [workspaceData, setWorkspaceData] = useState<any | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -120,6 +114,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
 
   // Provider Form State for Quoting Workbench
   const [carrier, setCarrier] = useState('Travelers Property Casualty');
+  const [transactionRole, setTransactionRole] = useState<'AGENT'|'BROKER'>('AGENT');
   const [quoteNumber, setQuoteNumber] = useState('TRV-QUOTE-2026-91');
   const [annualPremium, setAnnualPremium] = useState<number>(2380);
   const [collisionDeductible, setCollisionDeductible] = useState<number>(500);
@@ -238,9 +233,12 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
         const activeData = await activeRes.json();
         setActiveOrg(activeData.org);
         setActiveUser(activeData.user || null);
+        setAuthenticatedUserId(activeData.user?.id || '');
         setLicenses(activeData.licenses || []);
         setAppetite(activeData.appetite || null);
         setCarriers(activeData.carriers || []);
+        const firstActiveCarrier = (activeData.carriers || []).find((item:CarrierRelationship)=>item.status==='ACTIVE');
+        setCarrier(firstActiveCarrier?.carrierName || '');
       }
 
       // 2. Fetch opportunities for authenticated provider organization
@@ -717,19 +715,6 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
     loadMarketplaceData();
   }, []);
 
-  // Switch Authenticated Provider User Persona
-  const handleSwitchUser = async (newUserId: string) => {
-    setActionLoading('switch');
-    try {
-      setAuthenticatedUserId(newUserId);
-      await loadMarketplaceData(newUserId);
-    } catch (e) {
-      console.error('Failed switching provider user:', e);
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
   // Accept Opportunity
   const handleAcceptOpportunity = async (invitationId: string) => {
     setActionLoading(invitationId);
@@ -916,7 +901,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
           'Content-Type': 'application/json',
           'x-provider-user-id': authenticatedUserId
         },
-        body: JSON.stringify(newOffer)
+        body: JSON.stringify({ ...newOffer, transactionRole })
       });
 
       if (response.ok) {
@@ -924,6 +909,9 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
         onOfferSubmitted();
         await loadWorkspace(workspaceData.challenge.id);
         setTimeout(() => setSubmissionSuccess(false), 5000);
+      } else {
+        const body = await response.json().catch(() => ({}));
+        setBindingActionError(body.error || 'The offer could not be submitted.');
       }
     } catch (error) {
       console.error('Failed to submit offer:', error);
@@ -938,7 +926,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* 1. Multi-Tenant Provider Organization Switcher Bar */}
+      {/* Authenticated provider organization summary */}
       <div className="bg-slate-900 text-white p-5 rounded-2xl shadow-md border border-slate-800">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div className="flex items-center space-x-3.5">
@@ -948,37 +936,26 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
             <div>
               <div className="flex items-center space-x-2">
                 <span className="text-xs font-mono uppercase tracking-wider text-blue-400 font-semibold">
-                  Provider Organization Persona
+                  Authenticated Provider Organization
                 </span>
                 <span className="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full font-medium">
-                  Multi-Tenant Routing
+                  Tenant-Isolated Session
                 </span>
               </div>
               <h2 className="text-xl font-bold text-white tracking-tight mt-0.5">
                 {activeOrg?.displayName || 'Loading Provider...'}
               </h2>
               <p className="text-xs text-slate-400">
-                {activeOrg?.legalName || 'Licensed Provider'} • {activeOrg?.organizationType ? activeOrg.organizationType.replace('_', ' ') : 'INDEPENDENT AGENCY'} • ID: {activeOrg?.id || 'org_sierra'}
+                {activeOrg?.legalName || 'Licensed Provider'} • {activeOrg?.organizationType ? activeOrg.organizationType.replace('_', ' ') : 'INDEPENDENT AGENCY'} • ID: {activeOrg?.id || 'Unavailable'}
               </p>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            <div className="bg-slate-800/80 border border-slate-700/60 rounded-xl p-1.5 flex items-center space-x-1.5">
-              <span className="text-xs text-slate-400 pl-2 pr-1 font-medium">Authenticated User:</span>
-              <select
-                aria-label="Switch Authenticated Provider User"
-                value={authenticatedUserId}
-                onChange={(e) => handleSwitchUser(e.target.value)}
-                disabled={actionLoading === 'switch'}
-                className="bg-slate-950 text-white text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-700 focus:outline-hidden focus:border-blue-500"
-              >
-                {DEMO_PROVIDER_USERS.map(u => (
-                  <option key={u.userId} value={u.userId}>
-                    {u.userName} ({u.orgName})
-                  </option>
-                ))}
-              </select>
+            <div className="bg-slate-800/80 border border-slate-700/60 rounded-xl px-3 py-2 text-xs">
+              <span className="text-slate-400">Signed in as </span>
+              <strong className="text-white">{activeUser?.name || 'Verified provider user'}</strong>
+              {activeUser?.role && <span className="ml-2 text-blue-300">{activeUser.role}</span>}
             </div>
 
             <button
@@ -2008,7 +1985,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                 )}
 
                 {/* Carrier & Rate */}
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-5 gap-4">
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
                       Appointed Carrier
@@ -2018,13 +1995,17 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                       onChange={(e) => setCarrier(e.target.value)}
                       className="w-full text-xs border border-slate-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
                     >
-                      {carriers.map(c => (
+                      <option value="">Select verified carrier relationship</option>
+                      {carriers.filter(c=>c.status==='ACTIVE').map(c => (
                         <option key={c.id} value={c.carrierName}>{c.carrierName}</option>
                       ))}
-                      <option value="Progressive Northern Insurance">Progressive Northern</option>
-                      <option value="Travelers Property Casualty">Travelers Property Casualty</option>
-                      <option value="Safeco Insurance">Safeco Insurance</option>
-                      <option value="Nationwide Mutual">Nationwide Mutual</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Transaction role</label>
+                    <select value={transactionRole} onChange={e=>setTransactionRole(e.target.value as 'AGENT'|'BROKER')} className="w-full text-xs border border-slate-300 rounded-lg px-3 py-2 bg-white">
+                      <option value="AGENT">Agent for carrier</option><option value="BROKER">Broker for consumer</option>
                     </select>
                   </div>
 
@@ -2306,6 +2287,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
       {/* TAB 5: COMMERCIAL ACCOUNT, ENTITLEMENTS & VALUE FUNNEL (CE-1) */}
       {activeTab === 'ACCOUNT' && (
         <div className="space-y-6">
+          <ProviderTeamManagement />
           {/* 1. Neutrality Invariant Banner */}
           <div className="bg-slate-900 text-white rounded-2xl p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="space-y-1">

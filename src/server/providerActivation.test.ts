@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { CommercialStore } from './db/commercialStore';
+import { OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2 } from '../domain/commercialPriceBook';
 import { PostgresStore } from './db/postgresStore';
 import { activateApprovedProviderApplication } from './providerActivation';
 
@@ -56,6 +57,27 @@ test('provider activation fails closed until authority, matching V2 agreement, a
     assert.equal(activated.organization.marketplaceStatus, 'ACTIVE');
     assert.equal(activated.agreement.id, enrollment.agreement.id);
     assert.equal(identitySynchronizations, 1);
+  } finally {
+    await postgres.close();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('new enrollment catalog exposes only the governing V2 version while retaining V1 history', async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openpolicy-v2-enrollment-'));
+  const postgres = new PostgresStore(dataDir);
+  const commercial = new CommercialStore(postgres);
+  try {
+    await commercial.seedCanonicalPlans();
+    const enrollmentPlans = await commercial.listEnrollmentPlans(OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.id);
+    assert.equal(enrollmentPlans.length, 5);
+    assert.deepEqual(new Set(enrollmentPlans.map(plan => plan.code)), new Set([
+      'PLAN_SOLO', 'PLAN_AGENCY', 'PLAN_OPEN_POLICY_PREMIUM', 'PLAN_NETWORK', 'PLAN_ENTERPRISE'
+    ]));
+    assert.ok(enrollmentPlans.every(plan => plan.planVersion.termsSnapshot.priceBookId === OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.id));
+    const premium = enrollmentPlans.find(plan => plan.code === 'PLAN_OPEN_POLICY_PREMIUM');
+    assert.equal(premium?.planVersion.version, 2);
+    assert.ok(await commercial.getCommercialPlanVersion('cpv_open_policy_premium_v1'), 'immutable V1 version remains queryable');
   } finally {
     await postgres.close();
     fs.rmSync(dataDir, { recursive: true, force: true });
