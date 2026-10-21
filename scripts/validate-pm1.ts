@@ -14,7 +14,7 @@
  */
 
 // Must stay the first import: isolates this suite's database before any store is constructed.
-import './lib/isolatedDataDir';
+import { ISOLATED_DATA_ROOT } from './lib/isolatedDataDir';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
@@ -118,7 +118,7 @@ async function runValidation() {
   // 1. BLOCKER 1: PERSISTENCE RESTART TEST
   // ===========================================================================
   console.log('--- 1. BLOCKER 1: PERSISTENT STORE RESTART TEST ---');
-  const restartTestDir = path.resolve('./data/test_restart_validation_pg');
+  const restartTestDir = path.join(ISOLATED_DATA_ROOT, 'test_restart_validation_pg');
   if (fs.existsSync(restartTestDir)) {
     fs.rmSync(restartTestDir, { recursive: true, force: true });
   }

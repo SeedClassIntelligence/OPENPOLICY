@@ -1,37 +1,25 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { evaluateProviderJurisdictionAuthority } from './providerAuthorityEngine';
+import type { CarrierRelationship, ProviderLicense, ProviderOrganization } from '../types/insurance';
+import type { JurisdictionRule } from '../types/jurisdiction';
 
-const organization = {
-  id: 'org-direct-carrier', legalName: 'Carrier LLC', displayName: 'Carrier',
-  organizationType: 'DIRECT_CARRIER', verificationStatus: 'MARKETPLACE_APPROVED',
-  marketplaceStatus: 'ACTIVE', states: ['NV'], linesOfBusiness: ['PERSONAL_AUTO'],
-  createdAt: '2026-10-18T00:00:00.000Z'
-} as any;
+const org:ProviderOrganization={id:'org',legalName:'Agency',displayName:'Agency',organizationType:'INDEPENDENT_AGENCY',verificationStatus:'MARKETPLACE_APPROVED',marketplaceStatus:'ACTIVE',states:['NV'],linesOfBusiness:['PERSONAL_AUTO'],createdAt:'2026-01-01T00:00:00Z'};
+const license=(userId:string):ProviderLicense=>({id:`lic-${userId}`,providerOrganizationId:'org',providerUserId:userId,jurisdiction:'NV',licenseType:'PROPERTY_CASUALTY',licenseNumber:`NV-${userId}`,status:'ACTIVE',effectiveDate:'2025-01-01',expirationDate:'2027-01-01',verificationStatus:'VERIFIED'});
+const relationship=(type:CarrierRelationship['relationshipType']):CarrierRelationship=>({id:`rel-${type}`,providerOrganizationId:'org',carrierId:'carrier',carrierName:'Test Carrier',jurisdiction:'NV',lineOfBusiness:'PERSONAL_AUTO',relationshipType:type,status:'ACTIVE',effectiveFrom:'2025-01-01'});
+const rule:JurisdictionRule={id:'rule',ruleSetId:'published-rules',ruleCode:'NV.PRODUCER.AUTHORITY',ruleCategory:'PRODUCER_LICENSING',enforcementPoint:'PROVIDER_AUTHORITY',temporalBasis:'transactionDate',requirementText:'Independently verified role-specific provider authority fixture.',effectiveFrom:'2025-01-01',sourceIds:['official'],verificationStatus:'VERIFIED',verifiedBy:'independent-verifier',verifiedAt:'2026-01-01T00:00:00Z',machineRule:{kind:'PRODUCER_AUTHORITY',acceptedLicenseClasses:['PROPERTY_CASUALTY'],entityLicenseRequired:false,individualLicenseRequired:true,appointmentRequired:false,carrierRelationshipRequirementByTransactionRole:{AGENT:['APPOINTED'],BROKER:['AUTHORIZED_BROKER']}}};
+const evaluate=(providerUserId:string|undefined,transactionRole:'AGENT'|'BROKER'|undefined,relationships:CarrierRelationship[])=>evaluateProviderJurisdictionAuthority({org,licenses:[license('producer-a'),license('producer-b')],carrierRelationships:relationships,rules:[rule],jurisdictionCode:'NV',insuranceLine:'PERSONAL_AUTO',carrier:'Test Carrier',evaluationDate:'2026-10-20',providerUserId,transactionRole});
 
-const carrierRule = {
-  id: 'rule-nv-carrier-authority', ruleCode: 'NV-CARRIER-AUTHORITY',
-  enforcementPoint: 'PROVIDER_AUTHORITY', effectiveFrom: '2026-01-01', effectiveTo: undefined,
-  machineRule: { kind: 'CARRIER_AUTHORITY', certificateOfAuthorityRequired: true }
-} as any;
-
-test('direct carrier is denied when a carrier-authority rule requires missing certificate evidence', () => {
-  const result = evaluateProviderJurisdictionAuthority({ organization: undefined, org: organization,
-    licenses: [], carrierRelationships: [], rules: [carrierRule], jurisdictionCode: 'NV',
-    insuranceLine: 'PERSONAL_AUTO', evaluationDate: '2026-10-18' } as any);
-  assert.equal(result.outcome, 'NOT_AUTHORIZED');
-  assert.match(result.reasons.join(' '), /no current verified certificate-of-authority evidence/);
+test('individual licensing is evaluated for the authenticated producer, never any producer in the organization',()=>{
+  assert.equal(evaluate('producer-a','AGENT',[relationship('APPOINTED')]).outcome,'AUTHORIZED');
+  assert.equal(evaluate('producer-missing','AGENT',[relationship('APPOINTED')]).outcome,'NOT_AUTHORIZED');
+  assert.equal(evaluate(undefined,'AGENT',[relationship('APPOINTED')]).outcome,'INDETERMINATE');
 });
 
-test('direct carrier is authorized only from current verified organization-level certificate evidence', () => {
-  const result = evaluateProviderJurisdictionAuthority({ org: organization, carrierRelationships: [],
-    rules: [carrierRule], jurisdictionCode: 'NV', insuranceLine: 'PERSONAL_AUTO', evaluationDate: '2026-10-18',
-    licenses: [{ id: 'coa-nv', providerOrganizationId: organization.id, jurisdiction: 'NV',
-      licenseNumber: 'NV-COA-001', licenseType: 'CARRIER_CERTIFICATE_OF_AUTHORITY', status: 'ACTIVE',
-      expirationDate: '2027-12-31', verificationStatus: 'VERIFIED',
-      verificationSource: 'Nevada Division of Insurance', verifiedBy: 'platform-admin',
-      createdAt: '2026-10-17T00:00:00.000Z' }]
-  } as any);
-  assert.equal(result.outcome, 'AUTHORIZED');
-  assert.match(result.reasons.join(' '), /verified certificate NV-COA-001/);
+test('verified role-specific relationship rule distinguishes agent appointment from broker authorization',()=>{
+  assert.equal(evaluate('producer-a','AGENT',[relationship('APPOINTED')]).outcome,'AUTHORIZED');
+  assert.equal(evaluate('producer-a','AGENT',[relationship('AUTHORIZED_BROKER')]).outcome,'NOT_AUTHORIZED');
+  assert.equal(evaluate('producer-a','BROKER',[relationship('AUTHORIZED_BROKER')]).outcome,'AUTHORIZED');
+  assert.equal(evaluate('producer-a','BROKER',[relationship('APPOINTED')]).outcome,'NOT_AUTHORIZED');
+  assert.equal(evaluate('producer-a',undefined,[relationship('APPOINTED')]).outcome,'INDETERMINATE');
 });

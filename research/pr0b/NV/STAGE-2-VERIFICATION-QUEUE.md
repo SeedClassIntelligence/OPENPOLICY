@@ -1,31 +1,33 @@
-# Nevada Wave 0 — Stage 2 Independent Verification Queue
+# Nevada Wave 0 — Stage 2 Founder Verification Queue
 
 Date prepared: October 20, 2026
 
 Author package: `STAGE-2-CANDIDATE-RULES.json`
 
+Detailed evidence package: `STAGE-2-INDEPENDENT-VERIFICATION-PACKAGE.md`
+
 Production effect: **none**
 
-## Ready for independent verification
+## Ready for founder verification
 
 - `NV-MINIMUM-LIABILITY-001` — $25,000 bodily injury per person.
 - `NV-MINIMUM-LIABILITY-002` — $50,000 bodily injury per crash.
 - `NV-MINIMUM-LIABILITY-003` — $20,000 property damage per crash.
+- `NV-UM-UIM-001` — current-text boundary proposed as October 1, 2021; insurer-form evidence remains a verifier decision.
+- `NV-PROOF-001` — current-text boundary corrected to July 1, 2015; approved form/format evidence remains a verifier decision.
+- `NV-REBATE-001` — unsupported 2023 date corrected to July 1, 2017; benefit-specific exception treatment remains a verifier decision.
+- `NV-RENEWAL-CHANGE-NOTICE-001` — current-text boundary proposed as October 1, 2021; counting and compound-change classification remain verifier decisions.
 - `NV-ELECTRONIC-RECORD-REPRODUCTION-001` — retainable/reproducible electronic writing and recipient storage/printing.
 - `NV-ELECTRONIC-RETENTION-001` — electronic-record integrity, accessibility and reproduction method.
 
 For each rule the verifier must confirm the current official text, the stated effective period, evaluation date, machine interpretation and deterministic pass/fail fixtures. For the three minimum-liability rules, the verifier must also confirm the July 1, 2018 effective date, moped exception and coverage-code mapping.
 
-## Research completed; verifier resolution required
+## Research completed; founder resolution required
 
-- `NV-UM-UIM-001` — confirm effective period and whether a specific insurer rejection form is needed before automation.
-- `NV-PROOF-001` — confirm the effective period of the current consolidated evidence-of-insurance field requirements.
-- `NV-REBATE-001` — confirm the current effective period and whether any consumer benefit proposed by Open Polici invokes an exception.
-- `NV-CANCELLATION-NOTICE-001` — confirm common delivery/content requirements and interaction with each underlying cancellation provision.
-- `NV-MIDTERM-CANCELLATION-001` — confirm the effective period for the protected-period grounds and 10/30-day notice timing.
-- `NV-NONRENEWAL-001` — confirm the effective period for the 30-day personal-lines nonrenewal notice and statutory remedy.
-- `NV-RENEWAL-CHANGE-NOTICE-001` — confirm the effective period for the 30-day renewal-change notice and statutory remedy.
-- `NV-BINDER-REPLACEMENT-001` — confirm the effective period for binder-to-policy limits, effective-date matching and premium reconciliation.
+- `NV-CANCELLATION-NOTICE-001` — proposed current-text boundary is October 1, 2003; confirm interaction with each underlying cancellation provision.
+- `NV-MIDTERM-CANCELLATION-001` — proposed current-text boundary is October 1, 2003; normalize each permissible ground before automated enforcement.
+- `NV-NONRENEWAL-001` — proposed current-text boundary is October 1, 1987; confirm counting, exception evidence and statutory remedy.
+- `NV-BINDER-REPLACEMENT-001` — proposed enactment boundary is October 1, 1983; confirm filed-rate evidence and reconciliation-only treatment.
 
 ## Legal characterization required; must remain blocking
 
@@ -43,6 +45,8 @@ For each rule the verifier must confirm the current official text, the stated ef
 - `NV-ADVERSE-UNDERWRITING-NOTICE-001` — map provider underwriting decisions to platform events without making Open Polici the underwriter.
 - `NV-ELECTRONIC-TRANSACTION-CONSENT-001` — confirm party agreement evidence and federal/document-specific interaction.
 
+Provider authority must be verified as four independent determinations: organization licensing; individual producer licensing and line authority; insurer/carrier authority and relationship; and transaction-role-sensitive appointment or broker placement. No one record may stand in for another.
+
 ## Verifier attestation
 
-The verifier must be an independent qualified human and must record name/identifier, competence, review date, disposition (`VERIFIED`, `REJECTED`, or returned for correction), conditions, and evidence reference. No blank or self-authored attestation may be used to publish a ruleset.
+The verifier is the Open Polici founder or a human reviewer the founder designates. The verifier must record an identifier, review date, disposition (`VERIFIED`, `REJECTED`, or returned for correction), conditions, and evidence reference. Codex remains the authoring and implementation agent and cannot fabricate the human disposition. No outside reviewer is inherently required.

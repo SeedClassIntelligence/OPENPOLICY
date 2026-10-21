@@ -34,6 +34,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   initialRole,
   initialMode
 }) => {
+  const demoIdentitiesEnabled = import.meta.env.DEV && import.meta.env.VITE_ENABLE_DEMO_IDENTITIES === 'true';
   const { 
     authModalOpen, 
     closeAuthModal, 
@@ -192,9 +193,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           )}
         </div>
 
-        {/* Tab Selector (Sign In vs Create Account vs Fast Demo) */}
-        <div className="grid grid-cols-3 p-2 bg-slate-50 border-b border-slate-200 text-xs font-medium shrink-0">
-          <button
+        {/* Production exposes only real account creation and sign in. */}
+        <div className={`grid ${demoIdentitiesEnabled ? 'grid-cols-3' : 'grid-cols-2'} p-2 bg-slate-50 border-b border-slate-200 text-xs font-medium shrink-0`}>
+          {demoIdentitiesEnabled && <button
             type="button"
             onClick={() => { setMode('SIGN_UP'); setError(null); }}
             className={`py-2 text-center rounded-xl transition cursor-pointer ${
@@ -204,7 +205,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             }`}
           >
             Create Account
-          </button>
+          </button>}
           <button
             type="button"
             onClick={() => { setMode('SIGN_IN'); setError(null); }}
@@ -281,7 +282,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </div>
           )}
 
-          {mode === 'DEMO' ? (
+          {mode === 'DEMO' && demoIdentitiesEnabled ? (
             <div className="space-y-4">
               <div className="p-4 bg-emerald-50/70 border border-emerald-200 rounded-2xl space-y-1.5">
                 <div className="flex items-center space-x-2 text-emerald-900 text-xs font-bold">

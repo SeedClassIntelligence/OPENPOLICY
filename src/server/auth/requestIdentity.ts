@@ -112,6 +112,18 @@ export async function updateFirebaseProviderReviewState(uid: string, params: {
   await getFirestore(firebaseAdminApp()).collection('users').doc(uid).update(update);
 }
 
+export async function linkFirebaseProviderMembership(uid: string, params: {
+  providerUserId: string;
+  providerOrganizationId: string;
+}): Promise<void> {
+  await getFirestore(firebaseAdminApp()).collection('users').doc(uid).update({
+    role: 'PROVIDER',
+    providerStatus: 'ACTIVE',
+    providerUserId: params.providerUserId,
+    providerOrganizationId: params.providerOrganizationId
+  });
+}
+
 export async function resolveFirebaseIdentity(token: string): Promise<RequestIdentity> {
   const adminApp = firebaseAdminApp();
   const decoded = await getAuth(adminApp).verifyIdToken(token, true);

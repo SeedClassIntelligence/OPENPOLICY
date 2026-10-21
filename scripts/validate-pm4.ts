@@ -14,7 +14,7 @@
  */
 
 // Must stay the first import: isolates this suite's database before any store is constructed.
-import './lib/isolatedDataDir';
+import { ISOLATED_DATA_ROOT } from './lib/isolatedDataDir';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
@@ -125,7 +125,7 @@ async function runPM4AcceptanceValidation() {
   // --------------------------------------------------------------------------
   console.log('\n--- SECTION 2: PM-4 Relational Schema & Persistence Verification ---');
   
-  const testDbDir = path.join(process.cwd(), 'data', 'test_pm4_pg');
+  const testDbDir = path.join(ISOLATED_DATA_ROOT, 'test_pm4_pg');
   if (fs.existsSync(testDbDir)) {
     fs.rmSync(testDbDir, { recursive: true, force: true });
   }
