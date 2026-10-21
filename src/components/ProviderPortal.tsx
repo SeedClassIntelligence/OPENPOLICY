@@ -59,12 +59,14 @@ interface ProviderPortalProps {
   challenge: Challenge | null;
   onOfferSubmitted: () => void;
   onNavigateToConsumer: () => void;
+  fixtureProviderUserId?: string;
 }
 
 export const ProviderPortal: React.FC<ProviderPortalProps> = ({
   challenge,
   onOfferSubmitted,
-  onNavigateToConsumer
+  onNavigateToConsumer,
+  fixtureProviderUserId
 }) => {
   // Navigation tabs in Provider Experience
   const [activeTab, setActiveTab] = useState<'OPPORTUNITIES' | 'MY_COMPETITIONS' | 'WORKSPACE' | 'PROFILE' | 'ACCOUNT'>('OPPORTUNITIES');
@@ -91,7 +93,10 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
   
   // Identity is server-derived from the verified Firebase session. The client
   // cannot select a provider user or organization persona.
-  const [authenticatedUserId, setAuthenticatedUserId] = useState<string>('');
+  // Production identity is always derived server-side from the Firebase token.
+  // The optional fixture id exists only for the explicitly enabled local demo
+  // boundary, where no Firebase session is created.
+  const [authenticatedUserId, setAuthenticatedUserId] = useState<string>(fixtureProviderUserId || '');
   const [activeOrg, setActiveOrg] = useState<ProviderOrganization | null>(null);
   const [activeUser, setActiveUser] = useState<any | null>(null);
   const [licenses, setLicenses] = useState<ProviderLicense[]>([]);
@@ -222,7 +227,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
   // Load Marketplace state using authenticated provider user session
   const loadMarketplaceData = async (targetUserId?: string) => {
     setLoading(true);
-    const userIdToUse = targetUserId || authenticatedUserId;
+    const userIdToUse = targetUserId || authenticatedUserId || fixtureProviderUserId || '';
     const authHeaders = { 'x-provider-user-id': userIdToUse };
     try {
       // 1. Fetch authenticated provider info derived server-side
