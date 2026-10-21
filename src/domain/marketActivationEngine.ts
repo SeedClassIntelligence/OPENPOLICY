@@ -85,13 +85,17 @@ export function deriveReadiness(
   ruleSets: JurisdictionRuleSet[],
   rulesByRuleSet: Map<string, JurisdictionRule[]>,
   jurisdictionCode: string,
-  insuranceLine: InsuranceLine
+  insuranceLine: InsuranceLine,
+  environment: MarketEnvironment = 'PRODUCTION'
 ): { readiness: RegulatoryReadiness; publishedRuleSet?: JurisdictionRuleSet } {
   const own = ruleSets.filter(r => r.jurisdictionCode === jurisdictionCode && r.insuranceLine === insuranceLine);
   if (own.length === 0) return { readiness: 'NOT_CONFIGURED' };
 
   const published = own.filter(r => r.status === 'PUBLISHED').sort((a, b) => b.version - a.version)[0];
   if (published) {
+    if (environment === 'PRODUCTION' && published.publicationScope === 'SANDBOX_ONLY') {
+      return { readiness: 'RULES_IN_REVIEW', publishedRuleSet: published };
+    }
     const rules = rulesByRuleSet.get(published.id) || [];
     const executable = rules.filter(r => r.machineRule !== null);
     const allVerified = executable.length > 0 && executable.every(r => r.verificationStatus === 'VERIFIED');

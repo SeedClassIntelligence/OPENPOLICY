@@ -2,7 +2,7 @@ import { PGlite } from '@electric-sql/pglite';
 import fs from 'fs';
 import pg from 'pg';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8, SQL_MIGRATION_V9, SQL_MIGRATION_V10, SQL_MIGRATION_V11, SQL_MIGRATION_V12, SQL_MIGRATION_V13, SQL_MIGRATION_V14, SQL_MIGRATION_V15, SQL_MIGRATION_V16, SQL_MIGRATION_V17, SQL_MIGRATION_V18, SQL_MIGRATION_V19, SQL_MIGRATION_V20, SQL_MIGRATION_V21, SQL_MIGRATION_V22, SQL_MIGRATION_V23 } from './migrate';
+import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8, SQL_MIGRATION_V9, SQL_MIGRATION_V10, SQL_MIGRATION_V11, SQL_MIGRATION_V12, SQL_MIGRATION_V13, SQL_MIGRATION_V14, SQL_MIGRATION_V15, SQL_MIGRATION_V16, SQL_MIGRATION_V17, SQL_MIGRATION_V18, SQL_MIGRATION_V19, SQL_MIGRATION_V20, SQL_MIGRATION_V21, SQL_MIGRATION_V22, SQL_MIGRATION_V23, SQL_MIGRATION_V24 } from './migrate';
 import { buildVerifiedPolicyAndBaseline } from '../../domain/policyEvidenceVerification';
 import {
   ProviderOrganization,
@@ -325,6 +325,10 @@ export class PostgresStore {
         await this.sql.exec(SQL_MIGRATION_V23);
         await this.sql.query(
           `INSERT INTO _migrations (name) VALUES ('0023_provider_user_invitations') ON CONFLICT (name) DO NOTHING;`
+        );
+        await this.sql.exec(SQL_MIGRATION_V24);
+        await this.sql.query(
+          `INSERT INTO _migrations (name) VALUES ('0024_ruleset_publication_scope') ON CONFLICT (name) DO NOTHING;`
         );
         this.isReady = true;
         console.log(

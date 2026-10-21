@@ -145,6 +145,7 @@ export class JurisdictionStore {
       insuranceLine: r.insurance_line,
       version: r.version,
       status: r.status,
+      publicationScope: r.publication_scope || 'PRODUCTION_ELIGIBLE',
       supersedesRuleSetId: r.supersedes_rule_set_id ?? undefined,
       authoredBy: r.authored_by,
       publishedBy: r.published_by ?? undefined,
@@ -178,6 +179,7 @@ export class JurisdictionStore {
     jurisdictionCode: string;
     insuranceLine: InsuranceLine;
     authoredBy: string;
+    publicationScope?: 'SANDBOX_ONLY' | 'PRODUCTION_ELIGIBLE';
     id?: string;
     createdAt?: string;
   }): Promise<JurisdictionRuleSet> {
@@ -192,13 +194,14 @@ export class JurisdictionStore {
       insuranceLine: params.insuranceLine,
       version: (max.rows[0]?.v ?? 0) + 1,
       status: 'DRAFT',
+      publicationScope: params.publicationScope || 'PRODUCTION_ELIGIBLE',
       authoredBy: params.authoredBy,
       createdAt: params.createdAt || new Date().toISOString()
     };
     await c.query(
-      `INSERT INTO jurisdiction_rule_sets (id, jurisdiction_code, insurance_line, version, status, authored_by, created_at)
-       VALUES ($1, $2, $3, $4, 'DRAFT', $5, $6)`,
-      [ruleSet.id, ruleSet.jurisdictionCode, ruleSet.insuranceLine, ruleSet.version, ruleSet.authoredBy, ruleSet.createdAt]
+      `INSERT INTO jurisdiction_rule_sets (id, jurisdiction_code, insurance_line, version, status, publication_scope, authored_by, created_at)
+       VALUES ($1, $2, $3, $4, 'DRAFT', $5, $6, $7)`,
+      [ruleSet.id, ruleSet.jurisdictionCode, ruleSet.insuranceLine, ruleSet.version, ruleSet.publicationScope, ruleSet.authoredBy, ruleSet.createdAt]
     );
     await this.recordReview(ruleSet.id, 'CREATED', params.authoredBy);
     return ruleSet;
@@ -442,7 +445,7 @@ export class JurisdictionStore {
     const sets = await this.getRuleSets(key.jurisdictionCode, key.insuranceLine);
     const rulesBySet = new Map<string, JurisdictionRule[]>();
     for (const s of sets) rulesBySet.set(s.id, await this.getRules(s.id));
-    const { readiness } = deriveReadiness(sets, rulesBySet, key.jurisdictionCode, key.insuranceLine);
+    const { readiness } = deriveReadiness(sets, rulesBySet, key.jurisdictionCode, key.insuranceLine, key.environment);
     const gates = activeGates(await this.getGateAttestations(key), key);
     return { key, state, suspensionAction, readiness, gates: [...gates], displayStatus: displayStatus(readiness, state, gates) };
   }

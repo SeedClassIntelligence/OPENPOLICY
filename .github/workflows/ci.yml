@@ -38,3 +38,12 @@ jobs:
       # A different, reproducible order on every run proves suites stay independent.
       - name: Validators (seeded shuffle)
         run: npm run validate -- --order shuffle --seed ${{ github.run_number }}
+
+      - name: Nevada RulePack sandbox publication acceptance
+        env:
+          OPENPOLICY_MARKET_ENVIRONMENT: SANDBOX
+          OPENPOLICY_DATA_DIR: ${{ runner.temp }}/openpolicy-nevada-rulepack-${{ github.run_id }}
+        run: npx tsx scripts/acceptance-nevada-wave0-rulepack.ts
+
+      - name: Premium services HTTP acceptance
+        run: npx tsx scripts/validate-premium-services.ts
