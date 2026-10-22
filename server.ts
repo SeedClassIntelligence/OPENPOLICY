@@ -98,6 +98,7 @@ import { canEnterPolicyPipeline, INSURANCE_LINES } from './src/domain/insuranceL
 import { OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2 } from './src/domain/commercialPriceBook';
 import { validatePolicyLineOfferFacts } from './src/domain/policyLineOfferContract';
 import { JURISDICTION_LINE_ROLLOUT_MATRIX } from './src/domain/jurisdictionLineAvailability';
+import { confirmConsumerDefinedCoverageRequest } from './src/domain/consumerDefinedCoverageRequest';
 import type { InsuranceLine } from './src/types/jurisdiction';
 
 export const app = express();
@@ -717,6 +718,31 @@ app.post('/api/policies/:id/verify', async (req, res) => {
 // ==========================================
 // 3. Coverage Baseline API
 // ==========================================
+app.post('/api/consumer-defined-coverage-requests/confirm', async (req, res) => {
+  let consumerId: string;
+  try {
+    consumerId = getAuthenticatedConsumerId(req);
+  } catch (error: any) {
+    return res.status(error.statusCode || 401).json({ error: error.message });
+  }
+  try {
+    const baseline = confirmConsumerDefinedCoverageRequest({
+      consumerId,
+      jurisdiction: req.body?.jurisdiction,
+      insuranceLine: req.body?.insuranceLine,
+      desiredEffectiveDate: req.body?.desiredEffectiveDate,
+      riskFacts: req.body?.riskFacts || {},
+      requestedCoverage: req.body?.requestedCoverage || [],
+      privateBudget: req.body?.privateBudget,
+      attested: req.body?.attested === true
+    });
+    await postgresStore.saveConsumerDefinedCoverageRequest(baseline);
+    return res.status(201).json({ success: true, baseline });
+  } catch (error: any) {
+    return res.status(400).json({ error: error.message || 'The coverage request could not be confirmed.' });
+  }
+});
+
 app.post('/api/baselines/create', async (req, res) => {
   const { policyId, verifiedBy } = req.body;
   const policy = await postgresStore.getPolicy(policyId);

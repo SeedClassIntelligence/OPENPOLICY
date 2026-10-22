@@ -1464,6 +1464,25 @@ ALTER TABLE jurisdiction_rule_sets
   CHECK (publication_scope IN ('SANDBOX_ONLY', 'PRODUCTION_ELIGIBLE'));
 `;
 
+export const SQL_MIGRATION_V25 = `
+CREATE TABLE IF NOT EXISTS consumer_defined_coverage_requests (
+  id TEXT PRIMARY KEY,
+  request_series_id TEXT NOT NULL,
+  consumer_id TEXT NOT NULL,
+  version INTEGER NOT NULL CHECK (version > 0),
+  jurisdiction TEXT NOT NULL,
+  insurance_line TEXT NOT NULL,
+  confirmed_at TEXT NOT NULL,
+  supersedes_baseline_id TEXT,
+  content_sha256 TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  UNIQUE (request_series_id, version),
+  UNIQUE (content_sha256)
+);
+CREATE INDEX IF NOT EXISTS idx_consumer_defined_requests_owner
+  ON consumer_defined_coverage_requests (consumer_id, confirmed_at);
+`;
+
 export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR || './data/openpolicy_pg') {
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
@@ -1568,7 +1587,11 @@ export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR ||
     await pglite.query(
       `INSERT INTO _migrations (name) VALUES ('0024_ruleset_publication_scope') ON CONFLICT (name) DO NOTHING;`
     );
-    console.log(`[Open Policy DB] Migrations 0001 through 0024 applied successfully.`);
+    await pglite.exec(SQL_MIGRATION_V25);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0025_consumer_defined_coverage_requests') ON CONFLICT (name) DO NOTHING;`
+    );
+    console.log(`[Open Policy DB] Migrations 0001 through 0025 applied successfully.`);
     return pglite;
   } catch (error) {
     console.error(`[Open Policy DB] Migration error:`, error);

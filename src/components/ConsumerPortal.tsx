@@ -65,6 +65,7 @@ import { apiFetch } from '../services/apiClient';
 import type { InsuranceLine } from '../types/jurisdiction';
 import { getInsuranceLineDefinition } from '../domain/insuranceLineRegistry';
 import { getPolicyReviewFields } from '../domain/policyLineReviewFields';
+import { ConsumerDefinedCoverageRequestForm } from './ConsumerDefinedCoverageRequestForm';
 
 interface ConsumerPortalProps {
   insuranceLine: InsuranceLine;
@@ -135,6 +136,13 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
   const [verifiedBaseline, setVerifiedBaseline] = useState<{ policyId:string; baselineId:string } | null>(null);
   const [flowActionPending, setFlowActionPending] = useState(false);
   const [flowActionError, setFlowActionError] = useState<string | null>(null);
+  const [intakeOrigin, setIntakeOrigin] = useState<'VERIFIED_EXISTING_POLICY' | 'CONSUMER_DEFINED_COVERAGE_REQUEST' | null>(
+    userProfile?.consumerIntakeOrigin || null
+  );
+
+  useEffect(() => {
+    if (userProfile?.consumerIntakeOrigin) setIntakeOrigin(userProfile.consumerIntakeOrigin);
+  }, [userProfile?.consumerIntakeOrigin]);
 
   const insuranceLineDefinition = getInsuranceLineDefinition(insuranceLine);
   const reviewFields = getPolicyReviewFields(insuranceLine);
@@ -1091,9 +1099,34 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
       {/* ========================================================================= */}
       {/* STEP 1: UPLOAD POLICY                                                     */}
       {/* ========================================================================= */}
-      {currentStep === 'UPLOAD_EXTRACT' && (
+      {currentStep === 'UPLOAD_EXTRACT' && !intakeOrigin && (
+        <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs md:p-8">
+          <p className="text-xs font-bold uppercase tracking-wider text-emerald-700">Start your insurance request</p>
+          <h2 className="mt-2 text-2xl font-bold text-slate-900">Which describes you?</h2>
+          <p className="mt-1 text-sm text-slate-600">Your answer determines only how your baseline is created. Both paths enter the same provider marketplace.</p>
+          <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+            <button type="button" onClick={() => setIntakeOrigin('VERIFIED_EXISTING_POLICY')} className="rounded-2xl border-2 border-slate-200 p-6 text-left transition hover:border-emerald-500 hover:bg-emerald-50/40">
+              <FileCheck2 className="h-7 w-7 text-emerald-600" />
+              <span className="mt-4 block text-lg font-bold text-slate-900">I have insurance now</span>
+              <span className="mt-2 block text-sm leading-6 text-slate-600">Upload the policy you have. Confirm the extracted facts, then review independent provider offers.</span>
+            </button>
+            <button type="button" onClick={() => setIntakeOrigin('CONSUMER_DEFINED_COVERAGE_REQUEST')} className="rounded-2xl border-2 border-slate-200 p-6 text-left transition hover:border-emerald-500 hover:bg-emerald-50/40">
+              <ShieldCheck className="h-7 w-7 text-emerald-600" />
+              <span className="mt-4 block text-lg font-bold text-slate-900">I need new insurance</span>
+              <span className="mt-2 block text-sm leading-6 text-slate-600">Enter the facts and coverage preferences you want providers to consider. Open Polici does not choose or recommend terms.</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {currentStep === 'UPLOAD_EXTRACT' && intakeOrigin === 'CONSUMER_DEFINED_COVERAGE_REQUEST' && (
+        <ConsumerDefinedCoverageRequestForm insuranceLine={insuranceLine} onUseExistingPolicy={() => setIntakeOrigin('VERIFIED_EXISTING_POLICY')} />
+      )}
+
+      {currentStep === 'UPLOAD_EXTRACT' && intakeOrigin === 'VERIFIED_EXISTING_POLICY' && (
         <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-6 md:p-8 space-y-6">
           <div className="max-w-2xl">
+            <button type="button" onClick={() => setIntakeOrigin(null)} className="mb-3 text-xs font-semibold text-slate-500 hover:text-slate-900">← Change how I’m starting</button>
             <h2 className="text-2xl font-bold text-slate-900 tracking-tight">
               Share Your Policy Once
             </h2>

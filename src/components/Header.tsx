@@ -112,13 +112,15 @@ export const Header: React.FC<HeaderProps> = ({
   onReset,
   activeChallengeRef = '#NV-49281'
 }) => {
-  const { userProfile, userRole, isAuthenticated, isDemoUser, openAuthModal } = useAuth();
+  const { userProfile, userRole, isAuthenticated, isDemoUser, openAuthModal, signOutUser } = useAuth();
   const [notifications, setNotifications] = useState<PlatformNotification[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showDoctrineModal, setShowDoctrineModal] = useState(false);
   const [showPerspectiveMenu, setShowPerspectiveMenu] = useState(false);
+  const [showAccountMenu, setShowAccountMenu] = useState(false);
   const [publicLandingPath, setPublicLandingPath] = useState(() => window.location.pathname);
   const perspectiveMenuRef = useRef<HTMLDivElement>(null);
+  const accountMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const syncPublicLandingPath = () => setPublicLandingPath(window.location.pathname);
@@ -131,12 +133,25 @@ export const Header: React.FC<HeaderProps> = ({
       if (perspectiveMenuRef.current && !perspectiveMenuRef.current.contains(e.target as Node)) {
         setShowPerspectiveMenu(false);
       }
+      if (accountMenuRef.current && !accountMenuRef.current.contains(e.target as Node)) {
+        setShowAccountMenu(false);
+      }
     };
-    if (showPerspectiveMenu) {
+    if (showPerspectiveMenu || showAccountMenu) {
       document.addEventListener('mousedown', handleClickOutside);
     }
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showPerspectiveMenu]);
+  }, [showPerspectiveMenu, showAccountMenu]);
+
+  const showPublicLanding = (page: 'CONSUMER' | 'PROVIDER') => {
+    const path = page === 'PROVIDER' ? '/providers' : '/consumers';
+    window.history.pushState({}, '', path);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    setPublicLandingPath(path);
+    setActivePerspective('LANDING');
+    setShowPerspectiveMenu(false);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   const fetchNotifications = async () => {
     try {
@@ -179,6 +194,9 @@ export const Header: React.FC<HeaderProps> = ({
               type="button"
               id="brand-home-btn"
               onClick={() => {
+                window.history.pushState({}, '', '/consumers');
+                window.dispatchEvent(new PopStateEvent('popstate'));
+                setPublicLandingPath('/consumers');
                 setActivePerspective('LANDING');
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
@@ -241,7 +259,9 @@ export const Header: React.FC<HeaderProps> = ({
                       id={buttonId}
                       type="button"
                       onClick={() => {
-                        setActivePerspective(p.id);
+                        if (p.id === 'CONSUMER') showPublicLanding('CONSUMER');
+                        else if (p.id === 'PROVIDER') showPublicLanding('PROVIDER');
+                        else setActivePerspective(p.id);
                         setShowPerspectiveMenu(false);
                         window.scrollTo({ top: 0, behavior: 'smooth' });
                       }}
@@ -295,7 +315,9 @@ export const Header: React.FC<HeaderProps> = ({
                         key={p.id}
                         type="button"
                         onClick={() => {
-                          setActivePerspective(p.id);
+                          if (p.id === 'CONSUMER') showPublicLanding('CONSUMER');
+                          else if (p.id === 'PROVIDER') showPublicLanding('PROVIDER');
+                          else setActivePerspective(p.id);
                           setShowPerspectiveMenu(false);
                           window.scrollTo({ top: 0, behavior: 'smooth' });
                         }}
@@ -417,10 +439,12 @@ export const Header: React.FC<HeaderProps> = ({
 
             {/* User Account / Identity Badge */}
             {isAuthenticated ? (
+              <div className="relative" ref={accountMenuRef}>
               <button
                 type="button"
-                onClick={() => openAuthModal()}
-                title={isDemoUser ? "Using Demo Profile — Click to Manage Account" : "Signed in as " + userProfile?.displayName}
+                onClick={() => setShowAccountMenu(open => !open)}
+                aria-expanded={showAccountMenu}
+                title={isDemoUser ? "Using Demo Profile — Open account menu" : "Signed in as " + userProfile?.displayName}
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-xs text-slate-200 border border-slate-700 transition cursor-pointer"
               >
                 <div className="w-4 h-4 rounded-full bg-emerald-500 text-slate-950 font-bold text-[9px] flex items-center justify-center shrink-0">
@@ -436,7 +460,23 @@ export const Header: React.FC<HeaderProps> = ({
                 ) : (
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
                 )}
+                <ChevronDown className="h-3 w-3 text-slate-400" />
               </button>
+              {showAccountMenu && (
+                <div className="absolute right-0 mt-2 w-56 overflow-hidden rounded-xl border border-slate-200 bg-white text-slate-900 shadow-2xl z-[70]">
+                  <div className="border-b border-slate-100 px-4 py-3">
+                    <p className="truncate text-xs font-bold">{userProfile?.displayName || 'Open Polici account'}</p>
+                    <p className="truncate text-[10px] text-slate-500">{userProfile?.email}</p>
+                  </div>
+                  <button type="button" onClick={() => { setShowAccountMenu(false); const destination = userRole === 'PROVIDER' ? 'PROVIDER' : userRole === 'ADMIN' ? 'ADMIN_AUDIT' : 'CONSUMER'; if (destination === 'CONSUMER') window.history.pushState({}, '', '/account'); if (destination === 'PROVIDER') window.history.pushState({}, '', '/provider-account'); setActivePerspective(destination); }} className="w-full px-4 py-3 text-left text-xs font-semibold hover:bg-slate-50">
+                    Open my {userRole === 'PROVIDER' ? 'Provider Desk' : userRole === 'ADMIN' ? 'Admin Console' : 'Consumer Account'}
+                  </button>
+                  <button type="button" onClick={async () => { setShowAccountMenu(false); await signOutUser(); showPublicLanding('CONSUMER'); }} className="w-full border-t border-slate-100 px-4 py-3 text-left text-xs font-semibold text-red-700 hover:bg-red-50">
+                    Sign out
+                  </button>
+                </div>
+              )}
+              </div>
             ) : (
               <div className="flex items-center gap-1.5">
                 <button

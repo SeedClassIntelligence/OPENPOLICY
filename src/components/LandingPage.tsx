@@ -72,7 +72,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   }, []);
 
   const navigatePublicPage = (page: 'CONSUMER' | 'PROVIDER') => {
-    const path = page === 'PROVIDER' ? '/providers' : '/';
+    const path = page === 'PROVIDER' ? '/providers' : '/consumers';
     window.history.pushState({}, '', path);
     setPublicPage(page);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -393,7 +393,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
           {/* Subtitle */}
           <p className="text-base sm:text-lg text-slate-300 max-w-2xl mx-auto leading-relaxed">
-            Share the policy you currently have, verify the extracted coverage baseline, and allow eligible licensed providers to independently decide whether to submit their own offers.
+            Upload the policy you have or define the new insurance you are looking for. Eligible licensed providers independently decide what they can offer, and you decide what to pursue.
           </p>
 
           {/* Primary Action Buttons */}
@@ -403,7 +403,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               onClick={handleStartPolicyReviewClick}
               className="w-full sm:w-auto inline-flex items-center justify-center space-x-2 px-6 py-3.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm rounded-xl shadow-lg shadow-emerald-500/20 transition-all cursor-pointer transform hover:-translate-y-0.5 active:translate-y-0"
             >
-              <span>Start Policy Review</span>
+              <span>Create My Free Consumer Account</span>
               <ArrowRight className="w-4 h-4" />
             </button>
 

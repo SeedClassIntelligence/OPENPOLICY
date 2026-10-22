@@ -30,7 +30,7 @@ export interface AuthContextType {
   openAuthModal: (options?: { initialRole?: 'CONSUMER' | 'PROVIDER'; initialMode?: 'SIGN_IN' | 'SIGN_UP' | 'DEMO' } | any) => void;
   closeAuthModal: () => void;
   signUpWithEmail: (email: string, pass: string, name: string) => Promise<UserRole>;
-  signUpAsConsumer: (name: string, email: string, pass: string, state?: string, currentCarrier?: string, requestedInsuranceLine?: InsuranceLine) => Promise<UserRole>;
+  signUpAsConsumer: (name: string, email: string, pass: string, state?: string, currentCarrier?: string, requestedInsuranceLine?: InsuranceLine, consumerIntakeOrigin?: 'VERIFIED_EXISTING_POLICY' | 'CONSUMER_DEFINED_COVERAGE_REQUEST') => Promise<UserRole>;
   signUpAsProvider: (name: string, agencyName: string, license: string, state: string, email: string, pass: string,
     organizationType: string, requestedPlanCode: string, insuranceLines: InsuranceLine[], producerNpn?: string,
     carrierAuthorityReference?: string) => Promise<UserRole>;
@@ -133,7 +133,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     pass: string, 
     state?: string, 
     currentCarrier?: string,
-    requestedInsuranceLine: InsuranceLine = 'PERSONAL_AUTO'
+    requestedInsuranceLine: InsuranceLine = 'PERSONAL_AUTO',
+    consumerIntakeOrigin: 'VERIFIED_EXISTING_POLICY' | 'CONSUMER_DEFINED_COVERAGE_REQUEST' = 'VERIFIED_EXISTING_POLICY'
   ): Promise<UserRole> => {
     setLoading(true);
     try {
@@ -149,6 +150,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         state: state || 'NV',
         currentCarrier: currentCarrier?.trim() || undefined,
         requestedInsuranceLine,
+        consumerIntakeOrigin,
         createdAt: new Date().toISOString()
       };
 

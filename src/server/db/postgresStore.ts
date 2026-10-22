@@ -2,7 +2,8 @@ import { PGlite } from '@electric-sql/pglite';
 import fs from 'fs';
 import pg from 'pg';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8, SQL_MIGRATION_V9, SQL_MIGRATION_V10, SQL_MIGRATION_V11, SQL_MIGRATION_V12, SQL_MIGRATION_V13, SQL_MIGRATION_V14, SQL_MIGRATION_V15, SQL_MIGRATION_V16, SQL_MIGRATION_V17, SQL_MIGRATION_V18, SQL_MIGRATION_V19, SQL_MIGRATION_V20, SQL_MIGRATION_V21, SQL_MIGRATION_V22, SQL_MIGRATION_V23, SQL_MIGRATION_V24 } from './migrate';
+import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8, SQL_MIGRATION_V9, SQL_MIGRATION_V10, SQL_MIGRATION_V11, SQL_MIGRATION_V12, SQL_MIGRATION_V13, SQL_MIGRATION_V14, SQL_MIGRATION_V15, SQL_MIGRATION_V16, SQL_MIGRATION_V17, SQL_MIGRATION_V18, SQL_MIGRATION_V19, SQL_MIGRATION_V20, SQL_MIGRATION_V21, SQL_MIGRATION_V22, SQL_MIGRATION_V23, SQL_MIGRATION_V24, SQL_MIGRATION_V25 } from './migrate';
+import type { ConsumerDefinedCoverageRequestBaseline } from '../../domain/consumerDefinedCoverageRequest';
 import { buildVerifiedPolicyAndBaseline } from '../../domain/policyEvidenceVerification';
 import {
   ProviderOrganization,
@@ -329,6 +330,10 @@ export class PostgresStore {
         await this.sql.exec(SQL_MIGRATION_V24);
         await this.sql.query(
           `INSERT INTO _migrations (name) VALUES ('0024_ruleset_publication_scope') ON CONFLICT (name) DO NOTHING;`
+        );
+        await this.sql.exec(SQL_MIGRATION_V25);
+        await this.sql.query(
+          `INSERT INTO _migrations (name) VALUES ('0025_consumer_defined_coverage_requests') ON CONFLICT (name) DO NOTHING;`
         );
         this.isReady = true;
         console.log(
@@ -2640,6 +2645,39 @@ export class PostgresStore {
       `SELECT payload FROM coverage_baselines WHERE id = $1;`, [id]
     );
     return res.rows[0] ? JSON.parse(res.rows[0].payload) as CoverageBaseline : undefined;
+  }
+
+  public async saveConsumerDefinedCoverageRequest(
+    baseline: ConsumerDefinedCoverageRequestBaseline
+  ): Promise<void> {
+    await this.ensureReady();
+    await this.sql!.transaction(async client => {
+      await client.query(
+        `INSERT INTO consumer_defined_coverage_requests
+          (id,request_series_id,consumer_id,version,jurisdiction,insurance_line,confirmed_at,supersedes_baseline_id,content_sha256,payload)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+         ON CONFLICT (id) DO NOTHING;`,
+        [baseline.id, baseline.requestSeriesId, baseline.consumerId, baseline.version,
+         baseline.jurisdiction, baseline.insuranceLine, baseline.confirmedAt,
+         baseline.supersedesBaselineId || null, baseline.contentSha256, JSON.stringify(baseline)]
+      );
+      await this.appendAuditInTransaction(client, {
+        eventType: 'BASELINE_CREATED', actorRole: 'CONSUMER', actorId: baseline.consumerId,
+        details: `Consumer-defined coverage request ${baseline.id} version ${baseline.version} confirmed`
+      });
+    });
+  }
+
+  public async getConsumerDefinedCoverageRequest(
+    id: string,
+    consumerId: string
+  ): Promise<ConsumerDefinedCoverageRequestBaseline | undefined> {
+    await this.ensureReady();
+    const result = await this.sql!.query<{ payload: string }>(
+      `SELECT payload FROM consumer_defined_coverage_requests WHERE id=$1 AND consumer_id=$2;`,
+      [id, consumerId]
+    );
+    return result.rows[0] ? JSON.parse(result.rows[0].payload) as ConsumerDefinedCoverageRequestBaseline : undefined;
   }
 
   /** @deprecated Historical records only. New challenges never write this table. */
