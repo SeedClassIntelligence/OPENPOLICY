@@ -32,6 +32,22 @@ function MainApp() {
   const requestedLineAvailable = canEnterPolicyPipeline(requestedLine);
   const providerInvitationMatch = window.location.pathname.match(/^\/provider-invitation\/([^/]+)$/);
 
+  useEffect(() => {
+    const syncRoute = () => {
+      const path = window.location.pathname;
+      if (path === '/' || path === '/consumers' || path === '/providers') {
+        setActivePerspective('LANDING');
+      } else if (path === '/account' && isAuthenticated && userRole === 'CONSUMER') {
+        setActivePerspective('CONSUMER');
+      } else if (path === '/provider-account' && isAuthenticated && userRole === 'PROVIDER') {
+        setActivePerspective('PROVIDER');
+      }
+    };
+    syncRoute();
+    window.addEventListener('popstate', syncRoute);
+    return () => window.removeEventListener('popstate', syncRoute);
+  }, [isAuthenticated, userRole]);
+
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -94,7 +110,7 @@ function MainApp() {
     // Before authentication, the Consumer and Provider tabs select the matching
     // public landing experience. Authenticated users retain direct portal access.
     if (!isAuthenticated && (perspective === 'CONSUMER' || perspective === 'PROVIDER')) {
-      const path = perspective === 'PROVIDER' ? '/providers' : '/';
+      const path = perspective === 'PROVIDER' ? '/providers' : '/consumers';
       window.history.pushState({}, '', path);
       window.dispatchEvent(new PopStateEvent('popstate'));
       setActivePerspective('LANDING');
@@ -116,6 +132,8 @@ function MainApp() {
     }
 
     setActivePerspective(perspective);
+    if (perspective === 'CONSUMER') window.history.pushState({}, '', '/account');
+    if (perspective === 'PROVIDER') window.history.pushState({}, '', '/provider-account');
     const names: Record<ActivePerspective, string> = {
       LANDING: 'Welcome to Open Polici (Platform Overview & Doctrine)',
       CONSUMER: 'Switched to Consumer Perspective (Policyholder Comparison)',
@@ -133,9 +151,11 @@ function MainApp() {
       setActivePerspective('ADMIN_AUDIT');
       showToast('Owner identity loaded. Administrative controls are available.');
     } else if (role === 'PROVIDER') {
+      window.history.pushState({}, '', '/provider-account');
       setActivePerspective('PROVIDER');
       showToast('Provider identity loaded. License verification determines desk access.');
     } else {
+      window.history.pushState({}, '', '/account');
       setConsumerInitialStep('UPLOAD_EXTRACT');
       setActivePerspective('CONSUMER');
       showToast('Authenticated as Policyholder. Ready to upload declarations page.');

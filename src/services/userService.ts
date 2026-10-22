@@ -68,6 +68,7 @@ export interface FirestoreUserProfile {
   licenseNumber?: string;
   state?: string;
   currentCarrier?: string;
+  consumerIntakeOrigin?: 'VERIFIED_EXISTING_POLICY' | 'CONSUMER_DEFINED_COVERAGE_REQUEST';
   providerStatus?: 'PENDING_VERIFICATION' | 'ACTIVE' | 'REJECTED';
   requestedInsuranceLine?: import('../types/jurisdiction').InsuranceLine;
 }

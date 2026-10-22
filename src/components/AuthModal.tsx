@@ -58,6 +58,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [consumerState, setConsumerState] = useState('NV');
   const [currentCarrier, setCurrentCarrier] = useState('');
   const [requestedInsuranceLine, setRequestedInsuranceLine] = useState<InsuranceLine>('PERSONAL_AUTO');
+  const [consumerIntakeOrigin, setConsumerIntakeOrigin] = useState<'VERIFIED_EXISTING_POLICY' | 'CONSUMER_DEFINED_COVERAGE_REQUEST'>('VERIFIED_EXISTING_POLICY');
 
   // Provider form state
   const [agentName, setAgentName] = useState('');
@@ -106,7 +107,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             throw new Error('Please enter your full name or preferred alias.');
           }
           const createdRole = await signUpAsConsumer(
-            consumerName, consumerEmail, consumerPassword, consumerState, currentCarrier, requestedInsuranceLine
+            consumerName, consumerEmail, consumerPassword, consumerState,
+            consumerIntakeOrigin === 'VERIFIED_EXISTING_POLICY' ? currentCarrier : '',
+            requestedInsuranceLine, consumerIntakeOrigin
           );
           if (onSuccess) onSuccess(createdRole);
         } else {
@@ -392,6 +395,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           ) : role === 'CONSUMER' ? (
             /* Consumer Sign Up Form */
             <form onSubmit={handleSubmit} className="space-y-3">
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-slate-700">How are you starting?</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => setConsumerIntakeOrigin('VERIFIED_EXISTING_POLICY')}
+                    className={`rounded-xl border p-3 text-left transition ${consumerIntakeOrigin === 'VERIFIED_EXISTING_POLICY' ? 'border-emerald-500 bg-emerald-50 text-emerald-950' : 'border-slate-200 bg-white text-slate-600'}`}>
+                    <span className="block text-xs font-bold">I have insurance</span>
+                    <span className="mt-1 block text-[10px] leading-4">Upload and confirm the policy you have.</span>
+                  </button>
+                  <button type="button" onClick={() => setConsumerIntakeOrigin('CONSUMER_DEFINED_COVERAGE_REQUEST')}
+                    className={`rounded-xl border p-3 text-left transition ${consumerIntakeOrigin === 'CONSUMER_DEFINED_COVERAGE_REQUEST' ? 'border-emerald-500 bg-emerald-50 text-emerald-950' : 'border-slate-200 bg-white text-slate-600'}`}>
+                    <span className="block text-xs font-bold">I need insurance</span>
+                    <span className="mt-1 block text-[10px] leading-4">Tell providers what you are looking for.</span>
+                  </button>
+                </div>
+              </div>
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-slate-700">Full Name or Alias</label>
                 <div className="relative">
@@ -435,7 +453,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   </select>
                 </div>
 
-                <div className="space-y-1">
+                {consumerIntakeOrigin === 'VERIFIED_EXISTING_POLICY' && <div className="space-y-1">
                   <label className="text-xs font-semibold text-slate-700">Current Carrier (Opt.)</label>
                   <input
                     type="text"
@@ -444,7 +462,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     placeholder="e.g. GEICO, State Farm"
                     className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-emerald-500"
                   />
-                </div>
+                </div>}
               </div>
 
               <div className="space-y-1">
@@ -488,7 +506,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 disabled={loading}
                 className="w-full mt-2 py-3 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 font-bold text-xs rounded-xl shadow-md transition cursor-pointer flex items-center justify-center space-x-2"
               >
-                <span>{loading ? 'Creating Account...' : 'Create Policyholder Account'}</span>
+                <span>{loading ? 'Creating Account...' : 'Create My Free Consumer Account'}</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
             </form>
