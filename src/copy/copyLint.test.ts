@@ -200,7 +200,7 @@ test('provider landing page preserves access, neutrality, and transaction bounda
 test('public consumer and provider tabs route to their landing experiences before authentication', () => {
   const app = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');
   const header = readFileSync(new URL('../components/Header.tsx', import.meta.url), 'utf8');
-  assert.match(app, /perspective === 'PROVIDER' \? '\/providers' : '\/'/);
+  assert.match(app, /perspective === 'PROVIDER' \? '\/providers' : '\/consumers'/);
   assert.match(app, /window\.setTimeout\(\(\) => window\.scrollTo\(\{ top: 0/);
   assert.doesNotMatch(app, /document\.getElementById\('create-account'\)\?\.scrollIntoView/);
   assert.match(app, /window\.dispatchEvent\(new PopStateEvent\('popstate'\)\)/);
