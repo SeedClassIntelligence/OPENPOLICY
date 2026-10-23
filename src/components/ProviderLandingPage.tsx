@@ -1,7 +1,8 @@
 import React from 'react';
 import {
   ArrowRight, BadgeCheck, Building2, Check, Eye, FileCheck2,
-  Lock, ShieldCheck, Users, X
+  LayoutDashboard, Lock, ReceiptText, ShieldCheck, SlidersHorizontal,
+  Users, X
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -137,6 +138,62 @@ export const ProviderLandingPage: React.FC<ProviderLandingPageProps> = ({
                 </div>
               </article>
             ))}
+          </div>
+        </section>
+
+        <section className="space-y-10">
+          <div className="mx-auto max-w-3xl text-center">
+            <p className="font-mono text-xs font-bold uppercase tracking-wider text-emerald-700">Your provider operating system</p>
+            <h2 className="mt-3 text-3xl font-extrabold tracking-tight">Run the opportunity from one provider command center</h2>
+            <p className="mt-4 text-sm leading-6 text-slate-600">Open Polici does more than place an opportunity in front of your organization. Your private, tenant-isolated dashboard gives authorized team members one operating view from eligibility and appetite through offer submission, consumer-authorized connection, account activity, and settlement evidence.</p>
+          </div>
+
+          <div className="overflow-hidden rounded-3xl border border-slate-800 bg-slate-950 text-white shadow-2xl">
+            <div className="border-b border-slate-800 p-6 sm:p-8">
+              <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex items-center gap-4">
+                  <span className="flex h-12 w-12 items-center justify-center rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-300"><Building2 className="h-6 w-6"/></span>
+                  <div>
+                    <p className="font-mono text-[10px] font-bold uppercase tracking-wider text-emerald-400">Authenticated provider organization</p>
+                    <h3 className="mt-1 text-xl font-bold">Provider Command Center</h3>
+                    <p className="mt-1 text-xs text-slate-400">Organization-scoped access · Licensed users · Controlled consumer disclosure</p>
+                  </div>
+                </div>
+                <span className="w-fit rounded-full border border-emerald-700 bg-emerald-950 px-3 py-1.5 text-xs font-semibold text-emerald-300">Tenant-isolated session</span>
+              </div>
+            </div>
+
+            <div className="grid border-b border-slate-800 sm:grid-cols-2 lg:grid-cols-5">
+              {['Opportunities', 'Offer Reviews', 'Offer Workspace', 'Appetite & Licensing', 'Commercial & Membership'].map((tab, index) => (
+                <div key={tab} className={`border-slate-800 px-4 py-4 text-center text-xs font-semibold sm:border-r ${index === 0 ? 'bg-emerald-500/10 text-emerald-300' : 'text-slate-400'}`}>{tab}</div>
+              ))}
+            </div>
+
+            <div className="grid gap-4 p-6 sm:p-8 md:grid-cols-2 xl:grid-cols-3">
+              {[
+                [LayoutDashboard, 'Opportunity command center', 'Review appetite-matched opportunities, invitation status, authorized policy or request facts, submission windows, and active work without exposing consumer contact information before authorization.'],
+                [FileCheck2, 'Offer workspace and evidence', 'Prepare, submit, revise, retain, or withdraw your organization’s own documented offers. Keep offer history, document versions, deadlines, and activity evidence together.'],
+                [ShieldCheck, 'Controlled connection workflow', 'Receive the selected connection only after consumer authorization. Retrieve the authorized dossier, record binding and issuance outcomes, and reconcile expected terms against issued terms.'],
+                [SlidersHorizontal, 'Appetite, licensing, and authority', 'Manage organization details, licensed jurisdictions, insurance-line appetite, authority status, and the operating criteria that determine which opportunities your organization may review.'],
+                [Users, 'Membership and capacity', 'See plan status, producer-seat capacity, jurisdiction capacity, opportunity concurrency, submission usage, and the commercial agreement governing your organization.'],
+                [ReceiptText, 'Commercial account and settlement', 'Inspect Commercial V2 events, rated line items, adjustments, invoices, payments, refunds, credits, balances, and settlement records—with secure payment available for eligible finalized invoices.']
+              ].map(([Icon, title, description]) => {
+                const DashboardIcon = Icon as React.ComponentType<{ className?: string }>;
+                return (
+                  <article key={title as string} className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+                    <DashboardIcon className="h-6 w-6 text-emerald-400"/>
+                    <h3 className="mt-4 text-base font-bold text-white">{title as string}</h3>
+                    <p className="mt-2 text-xs leading-5 text-slate-400">{description as string}</p>
+                  </article>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="grid gap-5 lg:grid-cols-3">
+            <article className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><p className="font-mono text-xs font-bold uppercase tracking-wider text-emerald-700">Operational control</p><h3 className="mt-3 text-lg font-bold">Your team manages its own work</h3><p className="mt-2 text-sm leading-6 text-slate-600">Move from a new opportunity to documented review, submission, selected connection, and outcome reporting without rebuilding the record across disconnected tools.</p></article>
+            <article className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><p className="font-mono text-xs font-bold uppercase tracking-wider text-emerald-700">Organizational separation</p><h3 className="mt-3 text-lg font-bold">Your activity stays inside your organization</h3><p className="mt-2 text-sm leading-6 text-slate-600">Provider identity, users, authority, offers, connections, capacity, and commercial records remain organization-scoped. Other providers’ prices, terms, and activity remain unavailable.</p></article>
+            <article className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><p className="font-mono text-xs font-bold uppercase tracking-wider text-emerald-700">Financial accountability</p><h3 className="mt-3 text-lg font-bold">Trace activity through settlement</h3><p className="mt-2 text-sm leading-6 text-slate-600">See the evidence behind account charges and balances instead of receiving an unexplained total. Commercial events remain distinct from invoices, payments, adjustments, and later policy outcomes.</p></article>
           </div>
         </section>
 
