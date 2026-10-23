@@ -1146,11 +1146,12 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                   {/* Stage 1 Anonymized Ratings Grid */}
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 bg-slate-50 p-4 rounded-xl text-xs">
                     <div>
-                      <span className="text-slate-400 uppercase block font-semibold text-[10px]">Current Annual Premium</span>
-                      <span className="text-base font-bold text-slate-900">
-                        ${opp.currentAnnualPremium.toLocaleString()}/yr
-                      </span>
-                      <span className="text-slate-500 block">(${opp.currentMonthlyPremium}/mo)</span>
+                      <span className="text-slate-400 uppercase block font-semibold text-[10px]">{opp.baselineOrigin === 'CONSUMER_DEFINED_COVERAGE_REQUEST' ? 'Baseline Origin' : 'Current Annual Premium'}</span>
+                      {opp.baselineOrigin === 'CONSUMER_DEFINED_COVERAGE_REQUEST' ? (
+                        <><span className="text-base font-bold text-slate-900">Consumer request</span><span className="text-slate-500 block">No current premium supplied</span></>
+                      ) : (
+                        <><span className="text-base font-bold text-slate-900">${opp.currentAnnualPremium.toLocaleString()}/yr</span><span className="text-slate-500 block">(${opp.currentMonthlyPremium}/mo)</span></>
+                      )}
                     </div>
 
                     <div>
@@ -1164,9 +1165,9 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                     <div>
                       <span className="text-slate-400 uppercase block font-semibold text-[10px]">Protection Baseline</span>
                       <span className="font-semibold text-slate-800 block text-xs">
-                        100k/300k BI • $100k PD
+                        {opp.baselineOrigin === 'CONSUMER_DEFINED_COVERAGE_REQUEST' ? (opp.requestedCoverageSummary || 'No specific terms requested') : '100k/300k BI • $100k PD'}
                       </span>
-                      <span className="text-slate-500 text-[11px]">$500 Coll • $250 Comp</span>
+                      <span className="text-slate-500 text-[11px]">{opp.baselineOrigin === 'CONSUMER_DEFINED_COVERAGE_REQUEST' ? 'Consumer-stated terms only' : '$500 Coll • $250 Comp'}</span>
                     </div>
 
                     <div>
@@ -1267,7 +1268,9 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                         </span>
                       </div>
                       <h4 className="text-base font-bold text-slate-900 mt-1">
-                        {c.challenge.baseline?.vehicle ? `${c.challenge.baseline.vehicle.year} ${c.challenge.baseline.vehicle.make} ${c.challenge.baseline.vehicle.model}` : 'Personal Auto Policy'}
+                        {c.challenge.baselineOrigin === 'CONSUMER_DEFINED_COVERAGE_REQUEST'
+                          ? `${c.challenge.consumerDefinedRequest?.riskFacts?.vehicleYear || ''} ${c.challenge.consumerDefinedRequest?.riskFacts?.vehicleMake || ''} ${c.challenge.consumerDefinedRequest?.riskFacts?.vehicleModel || 'Consumer-defined personal auto request'}`.trim()
+                          : c.challenge.baseline?.vehicle ? `${c.challenge.baseline.vehicle.year} ${c.challenge.baseline.vehicle.make} ${c.challenge.baseline.vehicle.model}` : 'Personal Auto Policy'}
                       </h4>
                     </div>
 
@@ -1291,8 +1294,8 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
 
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-3.5 rounded-xl text-xs">
                     <div>
-                      <span className="text-slate-400 block text-[10px] uppercase font-bold">Current Annual Premium</span>
-                      <span className="font-bold text-slate-800">${c.challenge.baseline?.baselineAnnualPremium}/yr</span>
+                      <span className="text-slate-400 block text-[10px] uppercase font-bold">{c.challenge.baselineOrigin === 'CONSUMER_DEFINED_COVERAGE_REQUEST' ? 'Baseline Origin' : 'Current Annual Premium'}</span>
+                      <span className="font-bold text-slate-800">{c.challenge.baselineOrigin === 'CONSUMER_DEFINED_COVERAGE_REQUEST' ? 'Consumer-defined request' : `$${c.challenge.baseline?.baselineAnnualPremium}/yr`}</span>
                     </div>
                     <div>
                       <span className="text-slate-400 block text-[10px] uppercase font-bold">Territory</span>
@@ -1567,19 +1570,23 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                 {/* Rating Factors Grid */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 bg-slate-50/80 p-4 rounded-xl text-xs">
                   <div>
-                    <span className="text-slate-400 uppercase block font-semibold text-[10px]">Current Annual Premium</span>
+                    <span className="text-slate-400 uppercase block font-semibold text-[10px]">{workspaceData.challenge.baselineOrigin === 'CONSUMER_DEFINED_COVERAGE_REQUEST' ? 'Requested Start Date' : 'Current Annual Premium'}</span>
                     <span className="text-base font-bold text-slate-900">
-                      ${workspaceData.baseline.baselineAnnualPremium.toLocaleString()}/yr
+                      {workspaceData.challenge.baselineOrigin === 'CONSUMER_DEFINED_COVERAGE_REQUEST'
+                        ? workspaceData.challenge.consumerDefinedRequest?.desiredEffectiveDate
+                        : `$${workspaceData.baseline.baselineAnnualPremium.toLocaleString()}/yr`}
                     </span>
-                    <span className="text-slate-500 block">(${workspaceData.baseline.baselineMonthlyPremium}/mo)</span>
+                    <span className="text-slate-500 block">{workspaceData.challenge.baselineOrigin === 'CONSUMER_DEFINED_COVERAGE_REQUEST' ? 'No current premium supplied' : `($${workspaceData.baseline.baselineMonthlyPremium}/mo)`}</span>
                   </div>
 
                   <div>
                     <span className="text-slate-400 uppercase block font-semibold text-[10px]">Vehicle Specs</span>
                     <span className="font-bold text-slate-800 block">
-                      {workspaceData.authorizedRatingInfo.vehicle.year} {workspaceData.authorizedRatingInfo.vehicle.make} {workspaceData.authorizedRatingInfo.vehicle.model}
+                      {workspaceData.authorizedRatingInfo.vehicle
+                        ? `${workspaceData.authorizedRatingInfo.vehicle.year} ${workspaceData.authorizedRatingInfo.vehicle.make} ${workspaceData.authorizedRatingInfo.vehicle.model}`
+                        : `${workspaceData.challenge.consumerDefinedRequest?.riskFacts?.vehicleYear || ''} ${workspaceData.challenge.consumerDefinedRequest?.riskFacts?.vehicleMake || ''} ${workspaceData.challenge.consumerDefinedRequest?.riskFacts?.vehicleModel || ''}`.trim() || 'Not stated'}
                     </span>
-                    <span className="text-slate-500">Garaged: {workspaceData.authorizedRatingInfo.vehicle.garagingZip} (NV)</span>
+                    <span className="text-slate-500">Garaged: {workspaceData.authorizedRatingInfo.vehicle?.garagingZip || workspaceData.challenge.consumerDefinedRequest?.riskFacts?.garagingZip || 'Not stated'} (NV)</span>
                   </div>
 
                   <div>
@@ -1593,30 +1600,30 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                   <div>
                     <span className="text-slate-400 uppercase block font-semibold text-[10px]">Annual Usage</span>
                     <span className="font-semibold text-slate-800 block">
-                      {workspaceData.authorizedRatingInfo.vehicle.annualMileage?.toLocaleString()} miles/yr
+                      {workspaceData.authorizedRatingInfo.vehicle?.annualMileage?.toLocaleString() || 'Not stated'}{workspaceData.authorizedRatingInfo.vehicle?.annualMileage ? ' miles/yr' : ''}
                     </span>
-                    <span className="text-slate-500">{workspaceData.authorizedRatingInfo.vehicle.usage}</span>
+                    <span className="text-slate-500">{workspaceData.authorizedRatingInfo.vehicle?.usage || 'Consumer did not state a preference'}</span>
                   </div>
                 </div>
 
                 {/* Baseline Coverages Reference */}
                 <div className="p-4 bg-blue-50/50 rounded-xl border border-blue-100 text-xs">
                   <span className="font-bold text-blue-900 block mb-2">
-                    Current Policy Reference Terms (For Factual Comparison):
+                    {workspaceData.challenge.baselineOrigin === 'CONSUMER_DEFINED_COVERAGE_REQUEST' ? 'Consumer-Requested Terms (For Factual Comparison):' : 'Current Policy Reference Terms (For Factual Comparison):'}
                   </span>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-slate-700">
-                    <span className="bg-white p-2 rounded border border-blue-200/60 font-medium">
-                      BI: 100k/300k
-                    </span>
-                    <span className="bg-white p-2 rounded border border-blue-200/60 font-medium">
-                      PD: $100,000
-                    </span>
-                    <span className="bg-white p-2 rounded border border-blue-200/60 font-medium">
-                      Collision: $500 Deductible
-                    </span>
-                    <span className="bg-white p-2 rounded border border-blue-200/60 font-medium">
-                      Comprehensive: $250 Deductible
-                    </span>
+                    {workspaceData.challenge.baselineOrigin === 'CONSUMER_DEFINED_COVERAGE_REQUEST'
+                      ? workspaceData.challenge.consumerDefinedRequest?.requestedCoverage?.map((term: any) => (
+                          <span key={term.fieldCode} className="bg-white p-2 rounded border border-blue-200/60 font-medium">
+                            {term.label}: {term.preference === 'REQUESTED' ? String(term.requestedValue) : 'No preference stated'}
+                          </span>
+                        ))
+                      : <>
+                          <span className="bg-white p-2 rounded border border-blue-200/60 font-medium">BI: 100k/300k</span>
+                          <span className="bg-white p-2 rounded border border-blue-200/60 font-medium">PD: $100,000</span>
+                          <span className="bg-white p-2 rounded border border-blue-200/60 font-medium">Collision: $500 Deductible</span>
+                          <span className="bg-white p-2 rounded border border-blue-200/60 font-medium">Comprehensive: $250 Deductible</span>
+                        </>}
                   </div>
                 </div>
               </div>

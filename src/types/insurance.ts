@@ -247,6 +247,27 @@ export interface CoverageBaseline {
   verifiedBy: string;
   /** Historical records without this discriminator are personal auto. */
   insuranceLine?: import('./jurisdiction').InsuranceLine;
+  /** Additive origin discriminator. Historical records are verified existing policies. */
+  baselineOrigin?: 'VERIFIED_EXISTING_POLICY' | 'CONSUMER_DEFINED_COVERAGE_REQUEST';
+  /** Source request identity only; private budget and consumer identity are never copied here. */
+  consumerDefinedRequestId?: string;
+}
+
+export interface ConsumerDefinedRequestMarketplaceSnapshot {
+  baselineId: string;
+  baselineOrigin: 'CONSUMER_DEFINED_COVERAGE_REQUEST';
+  version: number;
+  jurisdiction: string;
+  insuranceLine: import('./jurisdiction').InsuranceLine;
+  desiredEffectiveDate: string;
+  riskFacts: Readonly<Record<string, string | number | boolean>>;
+  requestedCoverage: ReadonlyArray<{
+    fieldCode: string;
+    label: string;
+    preference: 'REQUESTED' | 'NO_PREFERENCE_STATED';
+    requestedValue?: string | number | boolean;
+  }>;
+  contentSha256: string;
 }
 
 /** @deprecated Historical evidence only. New challenges cannot accept consumer-authored terms. */
@@ -287,6 +308,10 @@ export interface Challenge {
   consumerId: string;
   coverageBaselineId: string;
   baseline: CoverageBaseline;
+  /** Historical records without this field originated from an uploaded policy. */
+  baselineOrigin?: 'VERIFIED_EXISTING_POLICY' | 'CONSUMER_DEFINED_COVERAGE_REQUEST';
+  /** Provider-safe request snapshot; deliberately excludes identity and private budget. */
+  consumerDefinedRequest?: ConsumerDefinedRequestMarketplaceSnapshot;
   qualificationStandardVersion?: string;
   legacyRequirements?: LegacyConsumerRequirements;
   jurisdiction: string;
@@ -1145,8 +1170,10 @@ export interface OpportunityPreview {
   jurisdiction: string;
   lineOfBusiness: string;
   vehicleSummary: string; // e.g. "2024 Toyota Camry" (no VINs)
+  baselineOrigin?: 'VERIFIED_EXISTING_POLICY' | 'CONSUMER_DEFINED_COVERAGE_REQUEST';
   currentAnnualPremium: number;
   currentMonthlyPremium: number;
+  requestedCoverageSummary?: string;
   coverageBaselineStatus: 'VERIFIED';
   renewalDaysRemaining: number;
   consumerRequirementsSummary: string;

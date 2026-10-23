@@ -6,9 +6,10 @@ import type { InsuranceLine } from '../types/jurisdiction';
 interface Props {
   insuranceLine: InsuranceLine;
   onUseExistingPolicy: () => void;
+  onMarketplaceStarted: () => void | Promise<void>;
 }
 
-export const ConsumerDefinedCoverageRequestForm: React.FC<Props> = ({ insuranceLine, onUseExistingPolicy }) => {
+export const ConsumerDefinedCoverageRequestForm: React.FC<Props> = ({ insuranceLine, onUseExistingPolicy, onMarketplaceStarted }) => {
   const [desiredEffectiveDate, setDesiredEffectiveDate] = useState('');
   const [vehicleYear, setVehicleYear] = useState('');
   const [vehicleMake, setVehicleMake] = useState('');
@@ -23,6 +24,26 @@ export const ConsumerDefinedCoverageRequestForm: React.FC<Props> = ({ insuranceL
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmedId, setConfirmedId] = useState<string | null>(null);
+  const [launching, setLaunching] = useState(false);
+
+  const launchMarketplace = async () => {
+    if (!confirmedId) return;
+    setError(null);
+    setLaunching(true);
+    try {
+      const response = await apiFetch('/api/challenges/create', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ consumerDefinedRequestId: confirmedId })
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.message || payload.error || 'The request could not be shared with providers.');
+      await Promise.resolve(onMarketplaceStarted());
+    } catch (caught: any) {
+      setError(caught?.message || 'The request could not be shared with providers.');
+    } finally {
+      setLaunching(false);
+    }
+  };
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -63,6 +84,10 @@ export const ConsumerDefinedCoverageRequestForm: React.FC<Props> = ({ insuranceL
       <h2 className="mt-3 text-xl font-bold text-slate-900">Your coverage request is confirmed</h2>
       <p className="mt-2 text-sm text-slate-600">Open Polici preserved exactly what you entered. Providers determine what they can offer; Open Polici does not recommend or alter your requested terms.</p>
       <p className="mt-4 font-mono text-xs text-emerald-900">Request {confirmedId}</p>
+      {error && <p role="alert" className="mt-4 text-sm font-semibold text-red-700">{error}</p>}
+      <button type="button" onClick={launchMarketplace} disabled={launching} className="mt-6 inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-6 py-3 text-sm font-bold text-white disabled:opacity-50">
+        <ShieldCheck className="h-4 w-4" /><span>{launching ? 'Sharing securely…' : 'Share My Request With Eligible Providers'}</span><ArrowRight className="h-4 w-4" />
+      </button>
     </div>
   );
 
