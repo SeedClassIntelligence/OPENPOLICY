@@ -1,8 +1,8 @@
 import React from 'react';
 import {
-  ArrowRight, BadgeCheck, Building2, Check, Eye, FileCheck2,
-  LayoutDashboard, Lock, ReceiptText, ShieldCheck, SlidersHorizontal,
-  Users, X
+  ArrowRight, BadgeCheck, Briefcase, Building2, Check, ChevronLeft,
+  ChevronRight, Eye, FileCheck2,
+  Lock, ReceiptText, ShieldCheck, SlidersHorizontal, Users, X
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -26,14 +26,56 @@ const COMMERCIAL_TIERS = [
   ['Enterprise / Direct Carrier', 'From $1,999', '30 seats · 10 jurisdictions', '500 concurrent opportunities · 2,500 offers/month']
 ] as const;
 
+const DASHBOARD_SLIDES = [
+  ['Opportunities', 'Find work that fits your authority and appetite', 'Review privacy-preserving opportunity facts, timing, jurisdiction, requested protection, and invitation status before deciding whether your organization will participate.'],
+  ['Offer Reviews', 'Keep every active policy review organized', 'See accepted opportunities, submission status, deadlines, and your organization’s activity without seeing another provider’s identity, terms, or activity.'],
+  ['Offer Workspace', 'Build and document the offer in one workspace', 'Work from the authorized baseline, manage your own offer versions and supporting documents, and preserve the evidence behind every submitted term.'],
+  ['Appetite & Licensing', 'Control where and what your organization can review', 'Maintain organization details, jurisdiction licenses, insurance-line authority, and appetite criteria that determine eligibility for opportunities.'],
+  ['Commercial & Membership', 'See capacity, charges, invoices, and settlement evidence', 'Track membership capacity, Commercial V2 activity, rated line items, adjustments, invoices, payments, refunds, credits, and account balances.']
+] as const;
+
 export const ProviderLandingPage: React.FC<ProviderLandingPageProps> = ({
   onBackToPolicyholders, onEnterProviderDesk
 }) => {
+  const [dashboardSlide, setDashboardSlide] = React.useState(0);
   const { isAuthenticated, userRole, openAuthModal } = useAuth();
   const startProvider = () => {
     if (isAuthenticated && userRole === 'PROVIDER') onEnterProviderDesk();
     else openAuthModal({ initialRole: 'PROVIDER', initialMode: 'SIGN_UP' });
   };
+  const previousDashboardSlide = () => setDashboardSlide(current => (current + DASHBOARD_SLIDES.length - 1) % DASHBOARD_SLIDES.length);
+  const nextDashboardSlide = () => setDashboardSlide(current => (current + 1) % DASHBOARD_SLIDES.length);
+
+  const dashboardPreview = (() => {
+    if (dashboardSlide === 0) return (
+      <div className="space-y-4">
+        <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-xs leading-5 text-blue-950"><strong className="block text-sm">Privacy-preserving opportunity distribution</strong>Opportunity access reflects jurisdiction, active appetite, insurance line, authorization, and available capacity. Consumer contact details remain withheld.</div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4"><div className="flex gap-2"><span className="rounded-md border border-blue-200 bg-blue-50 px-2 py-1 font-mono text-xs font-bold text-blue-800">NV-49281</span><span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-bold">Nevada · Personal Auto</span></div><span className="text-xs text-slate-500">Window closes in 42 hours</span></div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-4"><div className="rounded-xl bg-slate-50 p-3"><span className="text-[10px] font-bold uppercase text-slate-400">Baseline origin</span><strong className="mt-1 block text-xs">Existing policy</strong></div><div className="rounded-xl bg-slate-50 p-3"><span className="text-[10px] font-bold uppercase text-slate-400">Risk vehicle</span><strong className="mt-1 block text-xs">2022 Toyota Camry</strong></div><div className="rounded-xl bg-slate-50 p-3"><span className="text-[10px] font-bold uppercase text-slate-400">Protection baseline</span><strong className="mt-1 block text-xs">100/300 · $500 Coll.</strong></div><div className="rounded-xl bg-slate-50 p-3"><span className="text-[10px] font-bold uppercase text-slate-400">Invitation</span><strong className="mt-1 block text-emerald-700">Available</strong></div></div>
+          <div className="mt-4 flex justify-end gap-2"><span className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold">Decline</span><span className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white">Accept & Review Policy</span></div>
+        </div>
+      </div>
+    );
+    if (dashboardSlide === 1) return (
+      <div className="space-y-3">
+        <div className="flex items-center justify-between"><h4 className="font-bold text-slate-900">Active Policy Reviews</h4><span className="text-xs text-slate-500">3 active reviews</span></div>
+        {[['POLICY REVIEW-1042', '2022 Toyota Camry', 'Offer submitted', '18 hours remaining'], ['POLICY REVIEW-1038', '2021 Ford F-150', 'Documents requested', '31 hours remaining'], ['POLICY REVIEW-1029', 'Consumer-defined auto request', 'Review in progress', '44 hours remaining']].map(([ref, subject, status, timing]) => <div key={ref} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center"><div><span className="rounded border border-blue-200 bg-blue-50 px-2 py-1 font-mono text-[10px] font-bold text-blue-700">{ref}</span><h5 className="mt-2 font-bold text-slate-900">{subject}</h5><p className="mt-1 text-xs text-slate-500">{status} · {timing}</p></div><span className="w-fit rounded-lg bg-slate-950 px-3 py-2 text-xs font-semibold text-white">Open Workspace</span></div></div>)}
+      </div>
+    );
+    if (dashboardSlide === 2) return (
+      <div className="grid gap-4 lg:grid-cols-[1fr_.9fr]">
+        <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between border-b border-slate-100 pb-3"><div><span className="font-mono text-[10px] font-bold text-blue-700">POLICY REVIEW-1042</span><h4 className="font-bold">Authorized baseline</h4></div><span className="rounded-full bg-emerald-100 px-2 py-1 text-[10px] font-bold text-emerald-800">SUBMISSION OPEN</span></div><div className="grid grid-cols-2 gap-3 text-xs"><div className="rounded-xl bg-slate-50 p-3"><span className="text-slate-400">Current annual premium</span><strong className="mt-1 block text-base">$2,964</strong></div><div className="rounded-xl bg-slate-50 p-3"><span className="text-slate-400">Policy term</span><strong className="mt-1 block text-base">6 months</strong></div><div className="rounded-xl bg-slate-50 p-3"><span className="text-slate-400">Bodily injury</span><strong className="mt-1 block">100k / 300k</strong></div><div className="rounded-xl bg-slate-50 p-3"><span className="text-slate-400">Deductible</span><strong className="mt-1 block">$500 collision</strong></div></div><div className="rounded-xl border border-slate-200 p-3 text-xs"><strong>Document evidence</strong><span className="mt-1 block text-slate-500">Declarations page · Version 3 · Consumer confirmed</span></div></div>
+        <div className="rounded-2xl bg-slate-950 p-5 text-white shadow-sm"><span className="font-mono text-[10px] font-bold uppercase tracking-wider text-emerald-400">Your offer</span><div className="mt-4 space-y-3"><div className="rounded-xl border border-slate-700 bg-slate-900 p-3 text-xs"><span className="text-slate-400">Annual premium</span><strong className="mt-1 block text-xl">$2,580</strong></div><div className="grid grid-cols-2 gap-3"><div className="rounded-xl border border-slate-700 bg-slate-900 p-3 text-xs"><span className="text-slate-400">BI limits</span><strong className="mt-1 block">100k / 300k</strong></div><div className="rounded-xl border border-slate-700 bg-slate-900 p-3 text-xs"><span className="text-slate-400">Status</span><strong className="mt-1 block text-emerald-300">Draft v2</strong></div></div><div className="rounded-lg bg-emerald-500 px-3 py-2 text-center text-xs font-bold text-slate-950">Submit documented offer</div><p className="text-[10px] leading-4 text-slate-500">Only your organization’s offer history is visible here.</p></div></div>
+      </div>
+    );
+    if (dashboardSlide === 3) return (
+      <div className="grid gap-4 lg:grid-cols-2"><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center gap-3 border-b border-slate-100 pb-4"><Building2 className="h-6 w-6 text-blue-600"/><div><h4 className="font-bold">Silver State Insurance Group</h4><p className="text-xs text-slate-500">Independent Agency · Active</p></div></div><div className="mt-4 space-y-3 text-xs">{[['Nevada producer authority', 'Active'], ['Personal auto insurance line', 'Authorized'], ['Carrier relationships', '3 active'], ['Marketplace account', 'Eligible']].map(([label, value]) => <div key={label} className="flex items-center justify-between rounded-xl bg-slate-50 p-3"><span className="text-slate-600">{label}</span><strong className="text-emerald-700">{value}</strong></div>)}</div></div><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center gap-3 border-b border-slate-100 pb-4"><SlidersHorizontal className="h-6 w-6 text-emerald-600"/><div><h4 className="font-bold">Underwriting appetite</h4><p className="text-xs text-slate-500">Criteria used for opportunity eligibility</p></div></div><div className="mt-4 grid grid-cols-2 gap-3 text-xs"><div className="rounded-xl bg-slate-50 p-3"><span className="text-slate-400">Jurisdiction</span><strong className="mt-1 block">Nevada</strong></div><div className="rounded-xl bg-slate-50 p-3"><span className="text-slate-400">Insurance line</span><strong className="mt-1 block">Personal Auto</strong></div><div className="rounded-xl bg-slate-50 p-3"><span className="text-slate-400">Vehicle years</span><strong className="mt-1 block">2015–2026</strong></div><div className="rounded-xl bg-slate-50 p-3"><span className="text-slate-400">Operating capacity</span><strong className="mt-1 block">18 available</strong></div></div></div></div>
+    );
+    return (
+      <div className="space-y-4"><div className="grid gap-3 sm:grid-cols-4">{[['Plan', 'Agency'], ['Seats', '2 / 3'], ['Opportunities', '12 / 20'], ['Account balance', '$75.00']].map(([label, value]) => <div key={label} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><span className="text-[10px] font-bold uppercase text-slate-400">{label}</span><strong className="mt-2 block text-lg text-slate-900">{value}</strong></div>)}</div><div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"><div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-3"><div><h4 className="font-bold">Invoices & Settlement Ledger</h4><p className="text-xs text-slate-500">Finalized statements and processor-confirmed activity</p></div><ReceiptText className="h-5 w-5 text-indigo-600"/></div><div className="grid grid-cols-[1.2fr_.8fr_.7fr_.8fr] border-b border-slate-100 px-4 py-2 text-[10px] font-bold uppercase text-slate-400"><span>Invoice</span><span>Status</span><span className="text-right">Total</span><span className="text-right">Balance</span></div>{[['OP-2026-1048', 'PAID', '$75.00', '$0.00'], ['OP-2026-1057', 'FINALIZED', '$90.00', '$90.00']].map(([invoice, status, total, balance]) => <div key={invoice} className="grid grid-cols-[1.2fr_.8fr_.7fr_.8fr] px-4 py-3 text-xs"><strong className="font-mono text-indigo-700">{invoice}</strong><span className={status === 'PAID' ? 'font-bold text-emerald-700' : 'font-bold text-blue-700'}>{status}</span><span className="text-right font-mono">{total}</span><span className="text-right font-mono font-bold">{balance}</span></div>)}</div></div>
+    );
+  })();
 
   return (
     <div className="w-full bg-slate-50 text-slate-900">
@@ -144,56 +186,19 @@ export const ProviderLandingPage: React.FC<ProviderLandingPageProps> = ({
         <section className="space-y-10">
           <div className="mx-auto max-w-3xl text-center">
             <p className="font-mono text-xs font-bold uppercase tracking-wider text-emerald-700">Your provider operating system</p>
-            <h2 className="mt-3 text-3xl font-extrabold tracking-tight">Run the opportunity from one provider command center</h2>
-            <p className="mt-4 text-sm leading-6 text-slate-600">Open Polici does more than place an opportunity in front of your organization. Your private, tenant-isolated dashboard gives authorized team members one operating view from eligibility and appetite through offer submission, consumer-authorized connection, account activity, and settlement evidence.</p>
+            <h2 className="mt-3 text-3xl font-extrabold tracking-tight">See the actual workspace your organization will use</h2>
+            <p className="mt-4 text-sm leading-6 text-slate-600">Explore each major provider-dashboard area below. These are interface examples derived from the working provider experience—not generic feature cards.</p>
           </div>
 
-          <div className="overflow-hidden rounded-3xl border border-slate-800 bg-slate-950 text-white shadow-2xl">
-            <div className="border-b border-slate-800 p-6 sm:p-8">
-              <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-                <div className="flex items-center gap-4">
-                  <span className="flex h-12 w-12 items-center justify-center rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-300"><Building2 className="h-6 w-6"/></span>
-                  <div>
-                    <p className="font-mono text-[10px] font-bold uppercase tracking-wider text-emerald-400">Authenticated provider organization</p>
-                    <h3 className="mt-1 text-xl font-bold">Provider Command Center</h3>
-                    <p className="mt-1 text-xs text-slate-400">Organization-scoped access · Licensed users · Controlled consumer disclosure</p>
-                  </div>
-                </div>
-                <span className="w-fit rounded-full border border-emerald-700 bg-emerald-950 px-3 py-1.5 text-xs font-semibold text-emerald-300">Tenant-isolated session</span>
-              </div>
+          <div className="overflow-hidden rounded-3xl border border-slate-800 bg-slate-950 shadow-2xl">
+            <div className="flex flex-col gap-5 border-b border-slate-800 p-6 text-white sm:p-8 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex items-center gap-4"><span className="flex h-12 w-12 items-center justify-center rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-300"><Building2 className="h-6 w-6"/></span><div><p className="font-mono text-[10px] font-bold uppercase tracking-wider text-emerald-400">Dashboard preview {dashboardSlide + 1} of {DASHBOARD_SLIDES.length}</p><h3 className="mt-1 text-xl font-bold">{DASHBOARD_SLIDES[dashboardSlide][0]}</h3></div></div>
+              <div className="flex gap-2"><button type="button" aria-label="Previous dashboard preview" onClick={previousDashboardSlide} className="rounded-xl border border-slate-700 p-3 text-slate-300 hover:border-emerald-500 hover:text-emerald-300"><ChevronLeft className="h-5 w-5"/></button><button type="button" aria-label="Next dashboard preview" onClick={nextDashboardSlide} className="rounded-xl border border-slate-700 p-3 text-slate-300 hover:border-emerald-500 hover:text-emerald-300"><ChevronRight className="h-5 w-5"/></button></div>
             </div>
-
-            <div className="grid border-b border-slate-800 sm:grid-cols-2 lg:grid-cols-5">
-              {['Opportunities', 'Offer Reviews', 'Offer Workspace', 'Appetite & Licensing', 'Commercial & Membership'].map((tab, index) => (
-                <div key={tab} className={`border-slate-800 px-4 py-4 text-center text-xs font-semibold sm:border-r ${index === 0 ? 'bg-emerald-500/10 text-emerald-300' : 'text-slate-400'}`}>{tab}</div>
-              ))}
+            <div className="grid gap-0 lg:grid-cols-[.34fr_.66fr]">
+              <div className="border-b border-slate-800 p-6 text-white sm:p-8 lg:border-b-0 lg:border-r"><p className="font-mono text-xs font-bold uppercase tracking-wider text-emerald-400">{DASHBOARD_SLIDES[dashboardSlide][0]}</p><h3 className="mt-4 text-2xl font-bold">{DASHBOARD_SLIDES[dashboardSlide][1]}</h3><p className="mt-4 text-sm leading-7 text-slate-400">{DASHBOARD_SLIDES[dashboardSlide][2]}</p><div className="mt-8 flex flex-wrap gap-2">{DASHBOARD_SLIDES.map((slide, index) => <button type="button" key={slide[0]} aria-label={`Show ${slide[0]} preview`} onClick={() => setDashboardSlide(index)} className={`h-2.5 rounded-full transition-all ${dashboardSlide === index ? 'w-8 bg-emerald-400' : 'w-2.5 bg-slate-700 hover:bg-slate-500'}`}/>)}</div></div>
+              <div className="bg-slate-100 p-4 sm:p-7"><div className="mb-4 flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3"><div className="flex items-center gap-3"><span className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-950 text-emerald-400"><Briefcase className="h-4 w-4"/></span><div><strong className="block text-xs text-slate-900">Silver State Insurance Group</strong><span className="text-[10px] text-slate-500">Illustrative interface example · No consumer data</span></div></div><span className="hidden rounded-full bg-emerald-100 px-2 py-1 text-[10px] font-bold text-emerald-800 sm:block">ACTIVE</span></div>{dashboardPreview}</div>
             </div>
-
-            <div className="grid gap-4 p-6 sm:p-8 md:grid-cols-2 xl:grid-cols-3">
-              {[
-                [LayoutDashboard, 'Opportunity command center', 'Review appetite-matched opportunities, invitation status, authorized policy or request facts, submission windows, and active work without exposing consumer contact information before authorization.'],
-                [FileCheck2, 'Offer workspace and evidence', 'Prepare, submit, revise, retain, or withdraw your organization’s own documented offers. Keep offer history, document versions, deadlines, and activity evidence together.'],
-                [ShieldCheck, 'Controlled connection workflow', 'Receive the selected connection only after consumer authorization. Retrieve the authorized dossier, record binding and issuance outcomes, and reconcile expected terms against issued terms.'],
-                [SlidersHorizontal, 'Appetite, licensing, and authority', 'Manage organization details, licensed jurisdictions, insurance-line appetite, authority status, and the operating criteria that determine which opportunities your organization may review.'],
-                [Users, 'Membership and capacity', 'See plan status, producer-seat capacity, jurisdiction capacity, opportunity concurrency, submission usage, and the commercial agreement governing your organization.'],
-                [ReceiptText, 'Commercial account and settlement', 'Inspect Commercial V2 events, rated line items, adjustments, invoices, payments, refunds, credits, balances, and settlement records—with secure payment available for eligible finalized invoices.']
-              ].map(([Icon, title, description]) => {
-                const DashboardIcon = Icon as React.ComponentType<{ className?: string }>;
-                return (
-                  <article key={title as string} className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
-                    <DashboardIcon className="h-6 w-6 text-emerald-400"/>
-                    <h3 className="mt-4 text-base font-bold text-white">{title as string}</h3>
-                    <p className="mt-2 text-xs leading-5 text-slate-400">{description as string}</p>
-                  </article>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="grid gap-5 lg:grid-cols-3">
-            <article className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><p className="font-mono text-xs font-bold uppercase tracking-wider text-emerald-700">Operational control</p><h3 className="mt-3 text-lg font-bold">Your team manages its own work</h3><p className="mt-2 text-sm leading-6 text-slate-600">Move from a new opportunity to documented review, submission, selected connection, and outcome reporting without rebuilding the record across disconnected tools.</p></article>
-            <article className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><p className="font-mono text-xs font-bold uppercase tracking-wider text-emerald-700">Organizational separation</p><h3 className="mt-3 text-lg font-bold">Your activity stays inside your organization</h3><p className="mt-2 text-sm leading-6 text-slate-600">Provider identity, users, authority, offers, connections, capacity, and commercial records remain organization-scoped. Other providers’ prices, terms, and activity remain unavailable.</p></article>
-            <article className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><p className="font-mono text-xs font-bold uppercase tracking-wider text-emerald-700">Financial accountability</p><h3 className="mt-3 text-lg font-bold">Trace activity through settlement</h3><p className="mt-2 text-sm leading-6 text-slate-600">See the evidence behind account charges and balances instead of receiving an unexplained total. Commercial events remain distinct from invoices, payments, adjustments, and later policy outcomes.</p></article>
           </div>
         </section>
 
