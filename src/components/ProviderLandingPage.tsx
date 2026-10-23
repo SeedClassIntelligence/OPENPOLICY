@@ -19,11 +19,11 @@ const STEPS = [
 ] as const;
 
 const COMMERCIAL_TIERS = [
-  ['Solo', '$99', '1 seat · 1 jurisdiction', '5 concurrent opportunities · 25 offers/month'],
-  ['Agency', '$249', '3 seats · 2 jurisdictions', '20 concurrent opportunities · 100 offers/month'],
-  ['Premium', '$499', '5 seats · 3 jurisdictions', '60 concurrent opportunities · 300 offers/month'],
-  ['Network', '$999', '15 seats · 5 jurisdictions', '200 concurrent opportunities · 1,000 offers/month'],
-  ['Enterprise / Direct Carrier', 'From $1,999', '30 seats · 10 jurisdictions', '500 concurrent opportunities · 2,500 offers/month']
+  ['Solo', '$99', '1 seat · 1 jurisdiction', '5 concurrent opportunities · 25 offers/month', 'PLAN_SOLO'],
+  ['Agency', '$249', '3 seats · 2 jurisdictions', '20 concurrent opportunities · 100 offers/month', 'PLAN_AGENCY'],
+  ['Premium', '$499', '5 seats · 3 jurisdictions', '60 concurrent opportunities · 300 offers/month', 'PLAN_OPEN_POLICY_PREMIUM'],
+  ['Network', '$999', '15 seats · 5 jurisdictions', '200 concurrent opportunities · 1,000 offers/month', 'PLAN_NETWORK'],
+  ['Enterprise / Direct Carrier', 'From $1,999', '30 seats · 10 jurisdictions', '500 concurrent opportunities · 2,500 offers/month', 'PLAN_ENTERPRISE']
 ] as const;
 
 const DASHBOARD_SLIDES = [
@@ -41,7 +41,11 @@ export const ProviderLandingPage: React.FC<ProviderLandingPageProps> = ({
   const { isAuthenticated, userRole, openAuthModal } = useAuth();
   const startProvider = () => {
     if (isAuthenticated && userRole === 'PROVIDER') onEnterProviderDesk();
-    else openAuthModal({ initialRole: 'PROVIDER', initialMode: 'SIGN_UP' });
+    else document.getElementById('provider-pricing')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+  const selectMembership = (planCode: string) => {
+    if (isAuthenticated && userRole === 'PROVIDER') onEnterProviderDesk();
+    else openAuthModal({ initialRole: 'PROVIDER', initialMode: 'SIGN_UP', initialPlanCode: planCode });
   };
   const previousDashboardSlide = () => setDashboardSlide(current => (current + DASHBOARD_SLIDES.length - 1) % DASHBOARD_SLIDES.length);
   const nextDashboardSlide = () => setDashboardSlide(current => (current + 1) % DASHBOARD_SLIDES.length);
@@ -95,7 +99,7 @@ export const ProviderLandingPage: React.FC<ProviderLandingPageProps> = ({
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <button onClick={startProvider} className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-500 px-6 py-3.5 text-sm font-bold text-slate-950 hover:bg-emerald-400">
-                {isAuthenticated && userRole === 'PROVIDER' ? 'Open Provider Desk' : 'Apply for Provider Access'}
+                {isAuthenticated && userRole === 'PROVIDER' ? 'Open Provider Desk' : 'View Membership Plans'}
                 <ArrowRight className="h-4 w-4" />
               </button>
               <button onClick={() => openAuthModal({ initialRole: 'PROVIDER', initialMode: 'SIGN_IN' })} className="rounded-xl border border-slate-700 bg-slate-900 px-6 py-3.5 text-sm font-semibold text-white hover:bg-slate-800">
@@ -198,28 +202,6 @@ export const ProviderLandingPage: React.FC<ProviderLandingPageProps> = ({
           </div>
         </section>
 
-        <section id="provider-pricing" className="space-y-8">
-          <div className="mx-auto max-w-3xl text-center">
-            <p className="font-mono text-xs font-bold uppercase tracking-wider text-emerald-700">Provider membership</p>
-            <h2 className="mt-3 text-3xl font-extrabold tracking-tight">Choose operating capacity that matches your organization</h2>
-            <p className="mt-4 text-sm leading-6 text-slate-600">Membership purchases organizational software capacity, producer seats, jurisdiction capacity, opportunity concurrency, and offer-submission capacity. It does not purchase insurance authority or preferential marketplace treatment.</p>
-          </div>
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-            {COMMERCIAL_TIERS.map(([name, price, scope, capacity]) => (
-              <article key={name} className="flex flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                <h3 className="text-base font-bold text-slate-950">{name}</h3>
-                <div className="mt-3 text-3xl font-extrabold text-emerald-700">{price}</div>
-                <div className="text-xs text-slate-500">per month</div>
-                <p className="mt-5 text-xs font-semibold text-slate-700">{scope}</p>
-                <p className="mt-2 text-xs leading-5 text-slate-500">{capacity}</p>
-              </article>
-            ))}
-          </div>
-          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-sm leading-6 text-slate-700">
-            Provider applications remain subject to organization, licensing, jurisdiction, insurance-line, carrier-relationship, commercial, capacity, and production controls. Membership activation does not override a missing authority requirement.
-          </div>
-        </section>
-
         <section className="space-y-8">
           <div className="mx-auto max-w-3xl text-center">
             <p className="font-mono text-xs font-bold uppercase tracking-wider text-emerald-700">Consumer-authorized connection pricing</p>
@@ -313,11 +295,28 @@ export const ProviderLandingPage: React.FC<ProviderLandingPageProps> = ({
           </div>
         </section>
 
-        <section className="rounded-3xl border border-emerald-200 bg-emerald-50 p-8 text-center sm:p-12">
-          <h2 className="text-3xl font-extrabold">Build your Open Polici provider presence</h2>
-          <p className="mx-auto mt-3 max-w-2xl text-sm leading-6 text-slate-600">Apply for the membership and operating capacity that fits your organization. Establish your producers, jurisdictions, insurance lines, carrier relationships, appetite, and commercial account before marketplace access begins.</p>
-          <button onClick={startProvider} className="mt-7 inline-flex items-center gap-2 rounded-xl bg-slate-950 px-6 py-3.5 text-sm font-bold text-white hover:bg-slate-800">Start Provider Application <ArrowRight className="h-4 w-4"/></button>
-          <p className="mx-auto mt-5 max-w-2xl text-xs leading-5 text-slate-500">Applying does not automatically create marketplace authority. Access begins only after the required organization, licensing, commercial, capacity, and production controls are satisfied.</p>
+        <section id="provider-pricing" className="space-y-8 rounded-3xl border border-emerald-200 bg-emerald-50 p-6 sm:p-10">
+          <div className="mx-auto max-w-3xl text-center">
+            <p className="font-mono text-xs font-bold uppercase tracking-wider text-emerald-700">Provider membership</p>
+            <h2 className="mt-3 text-3xl font-extrabold tracking-tight">Choose your monthly marketplace membership</h2>
+            <p className="mt-4 text-sm leading-6 text-slate-600">The monthly membership pays for access to the Open Polici provider marketplace and the operating capacity shown below. Select a Commercial V2 plan before creating your provider application. Licensing and carrier authority are verified separately before marketplace activation.</p>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+            {COMMERCIAL_TIERS.map(([name, price, scope, capacity, planCode]) => (
+              <article key={name} className="flex flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <h3 className="text-base font-bold text-slate-950">{name}</h3>
+                <div className="mt-3 text-3xl font-extrabold text-emerald-700">{price}</div>
+                <div className="text-xs font-semibold text-slate-500">monthly membership</div>
+                <p className="mt-5 text-xs font-semibold text-slate-700">{scope}</p>
+                <p className="mt-2 text-xs leading-5 text-slate-500">{capacity}</p>
+                <button type="button" onClick={() => selectMembership(planCode)} className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-3 text-xs font-bold text-white hover:bg-slate-800">Choose {name} Membership <ArrowRight className="h-4 w-4"/></button>
+              </article>
+            ))}
+          </div>
+          <div className="rounded-2xl border border-emerald-200 bg-white p-5 text-sm leading-6 text-slate-700">
+            <strong className="block text-slate-950">Membership and connection charges are different.</strong>
+            Your monthly membership provides marketplace access and operating capacity after activation. It does not create an insurance license, carrier appointment, or marketplace preference. The separate line-specific connection fee shown above is charged only when a consumer selects your offer, authorizes disclosure, and the controlled connection completes.
+          </div>
         </section>
       </main>
     </div>

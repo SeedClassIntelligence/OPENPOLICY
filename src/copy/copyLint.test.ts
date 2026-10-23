@@ -189,6 +189,10 @@ test('provider landing page preserves access, neutrality, and transaction bounda
   assert.match(providerLanding, /From shared contact record to structured insurance opportunity/);
   assert.match(providerLanding, /consumer selects an offer and authorizes the handoff/);
   assert.match(providerLanding, /Marketplace activity is free\. A qualifying connection is not/);
+  assert.match(providerLanding, /View Membership Plans/);
+  assert.match(providerLanding, /initialPlanCode: planCode/);
+  assert.match(providerLanding, /Choose \{name\} Membership/);
+  assert.doesNotMatch(providerLanding, /Build your Open Polici provider presence/);
   for (const price of ['$99', '$249', '$499', '$999', '$1,999', '$75']) {
     assert.match(providerLanding, new RegExp(price.replace('$', '\\$')));
   }
