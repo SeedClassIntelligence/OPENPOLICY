@@ -50,6 +50,7 @@ import { assertBindingRelationship, assertChallengeRelationship, enforceApiAutho
 import { assertDirectSettlementMutationAllowed } from './src/server/paymentCollectionBoundary';
 import { StripePaymentProcessor, mapStripeIntentStatus, shouldApplyStripePaymentStatus, stripePaymentMethod, stripeProcessorConfig, stripeRefundLedgerKey } from './src/server/stripePaymentProcessor';
 import { activateApprovedProviderApplication } from './src/server/providerActivation';
+import { getProviderMembershipState, prepareProviderMembership } from './src/server/providerMembership';
 
 import { runComparisonEngineTestSuite } from './src/domain/comparisonEngine.test';
 import { runEligibilityEngineTestSuite } from './src/domain/eligibilityEngine.test';
@@ -175,6 +176,51 @@ let stripePaymentProcessor: StripePaymentProcessor | undefined;
 function getStripePaymentProcessor(): StripePaymentProcessor {
   stripePaymentProcessor ||= new StripePaymentProcessor(stripeProcessorConfig());
   return stripePaymentProcessor;
+}
+
+async function createStripeInvoicePaymentSession(input: {
+  providerOrganizationId: string;
+  invoiceId: string;
+  actorId: string;
+}) {
+  const invoice = await commercialStore.getInvoiceById(input.invoiceId);
+  if (!invoice || invoice.providerOrganizationId !== input.providerOrganizationId) {
+    throw Object.assign(new Error('Invoice not found'), { statusCode: 404 });
+  }
+  if (!['FINALIZED', 'ISSUED', 'PARTIALLY_PAID', 'PAST_DUE'].includes(invoice.status)) {
+    throw Object.assign(new Error('Only a finalized invoice with an outstanding balance can be paid.'), { statusCode: 409 });
+  }
+  if (invoice.balanceDueCents <= 0) {
+    throw Object.assign(new Error('Invoice has no outstanding balance.'), { statusCode: 409 });
+  }
+  const account = await commercialStore.getCommercialAccountByOrgId(input.providerOrganizationId);
+  if (!account) throw Object.assign(new Error('Commercial account is not configured.'), { statusCode: 409 });
+  const organization = await postgresStore.getProviderOrganization(input.providerOrganizationId);
+  if (!organization) throw Object.assign(new Error('Provider organization is not configured.'), { statusCode: 409 });
+  const processor = getStripePaymentProcessor();
+  let customerId = account.externalBillingCustomerRef;
+  if (!customerId) {
+    const customer = await processor.createCustomer({
+      providerOrganizationId: input.providerOrganizationId,
+      name: organization.displayName
+    });
+    customerId = customer.id;
+    await commercialStore.saveCommercialAccount({
+      ...account, externalBillingCustomerRef: customerId, updatedAt: new Date().toISOString()
+    });
+  }
+  const session = await processor.createInvoicePaymentSession({
+    customerId,
+    invoiceId: invoice.id,
+    invoiceNumber: invoice.invoiceNumber,
+    providerOrganizationId: input.providerOrganizationId,
+    amountCents: invoice.balanceDueCents
+  });
+  await postgresStore.appendAuditEvent({
+    eventType: 'PAYMENT_SESSION_CREATED', actorRole: 'PROVIDER', actorId: input.actorId,
+    details: `Stripe checkout session ${session.id} created for invoice ${invoice.id} and ${invoice.balanceDueCents} USD cents.`
+  });
+  return { invoice, session };
 }
 
 // Provider and consumer identity is attached by verified Firebase ID token.
@@ -1370,9 +1416,33 @@ app.get('/api/provider-applications/current', async (req, res) => {
   try {
     const application = await postgresStore.getProviderApplicationByFirebaseUid(req.openPolicyIdentity!.uid);
     if (!application) return res.status(404).json({ error: 'Provider application not found.' });
-    res.json(application);
+    res.json(await getProviderMembershipState({ application, commercialStore }));
   } catch (e: any) {
     res.status(e.statusCode || 500).json({ error: e.message });
+  }
+});
+
+app.post('/api/provider-applications/current/membership-payment-session', async (req, res) => {
+  try {
+    const identity = req.openPolicyIdentity!;
+    const application = await postgresStore.getProviderApplicationByFirebaseUid(identity.uid);
+    if (!application || application.status !== 'APPROVED' || !application.providerOrganizationId) {
+      return res.status(409).json({ error: 'Provider authority must be approved before membership payment.' });
+    }
+    const state = await getProviderMembershipState({ application, commercialStore });
+    if (!state.invoice || !state.paymentRequired || !state.agreementId) {
+      return res.status(409).json({ error: state.paymentComplete
+        ? 'The membership invoice is already paid.'
+        : 'The approved membership invoice is not ready.' });
+    }
+    const { session } = await createStripeInvoicePaymentSession({
+      providerOrganizationId: application.providerOrganizationId,
+      invoiceId: state.invoice.id,
+      actorId: identity.uid
+    });
+    res.status(201).json({ success: true, checkoutSessionId: session.id, checkoutUrl: session.url });
+  } catch (e: any) {
+    res.status(e.statusCode || 502).json({ error: e.message, code: e.code });
   }
 });
 
@@ -1479,6 +1549,25 @@ app.post('/api/admin/provider-applications/:applicationId/activate', async (req,
       }
     });
     res.json({ success: true, ...result, marketplaceAccessGranted: true });
+  } catch (e: any) {
+    res.status(e.statusCode || 500).json({ error: e.message });
+  }
+});
+
+app.post('/api/admin/provider-applications/:applicationId/prepare-membership', async (req, res) => {
+  try {
+    const state = await prepareProviderMembership({
+      applicationId: req.params.applicationId,
+      postgresStore,
+      commercialStore
+    });
+    await postgresStore.appendAuditEvent({
+      eventType: 'PROVIDER_MEMBERSHIP_INVOICE_PREPARED',
+      actorRole: 'ADMIN',
+      actorId: req.openPolicyIdentity!.uid,
+      details: `Prepared ${state.application.requestedPlanCode} membership invoice ${state.invoice?.id} for provider application ${state.application.id}. Marketplace access remains closed pending settlement and explicit activation.`
+    });
+    res.status(201).json({ success: true, ...state });
   } catch (e: any) {
     res.status(e.statusCode || 500).json({ error: e.message });
   }
@@ -3790,33 +3879,10 @@ app.post('/api/commercial/payments', async (req, res) => {
 app.post('/api/commercial/invoices/:id/payment-session', async (req, res) => {
   try {
     const orgId = await getAuthenticatedProviderOrgId(req);
-    const invoice = await commercialStore.getInvoiceById(req.params.id);
-    if (!invoice || invoice.providerOrganizationId !== orgId) {
-      return res.status(404).json({ error: 'Invoice not found' });
-    }
-    if (!['FINALIZED', 'ISSUED', 'PARTIALLY_PAID', 'PAST_DUE'].includes(invoice.status)) {
-      return res.status(409).json({ error: 'Only a finalized invoice with an outstanding balance can be paid.' });
-    }
-    if (invoice.balanceDueCents <= 0) return res.status(409).json({ error: 'Invoice has no outstanding balance.' });
-
-    const account = await commercialStore.getCommercialAccountByOrgId(orgId);
-    if (!account) return res.status(409).json({ error: 'Commercial account is not configured.' });
-    const organization = await postgresStore.getProviderOrganization(orgId);
-    if (!organization) return res.status(409).json({ error: 'Provider organization is not configured.' });
-    const processor = getStripePaymentProcessor();
-    let customerId = account.externalBillingCustomerRef;
-    if (!customerId) {
-      const customer = await processor.createCustomer({ providerOrganizationId: orgId, name: organization.displayName });
-      customerId = customer.id;
-      await commercialStore.saveCommercialAccount({ ...account, externalBillingCustomerRef: customerId, updatedAt: new Date().toISOString() });
-    }
-    const session = await processor.createInvoicePaymentSession({
-      customerId, invoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber,
-      providerOrganizationId: orgId, amountCents: invoice.balanceDueCents
-    });
-    await postgresStore.appendAuditEvent({
-      eventType: 'PAYMENT_SESSION_CREATED', actorRole: 'PROVIDER', actorId: orgId,
-      details: `Stripe checkout session ${session.id} created for invoice ${invoice.id} and ${invoice.balanceDueCents} USD cents.`
+    const { session } = await createStripeInvoicePaymentSession({
+      providerOrganizationId: orgId,
+      invoiceId: req.params.id,
+      actorId: req.openPolicyIdentity!.uid
     });
     res.status(201).json({ success: true, checkoutSessionId: session.id, checkoutUrl: session.url });
   } catch (e: any) {
