@@ -11,10 +11,10 @@ interface ProviderLandingPageProps {
 }
 
 const STEPS = [
-  ['1', 'Verify the organization', 'Open Polici verifies the provider organization, users, licenses, carrier relationships, jurisdictions, and insurance lines before opportunity access.'],
-  ['2', 'Review authorized policy facts', 'Activated providers see the verified policy and risk information authorized for the opportunity—not consumer contact details or another provider’s offer.'],
-  ['3', 'Submit an independent offer', 'Your organization determines the price, coverage, and terms it is willing and authorized to offer during the open submission window.'],
-  ['4', 'Connect only by consumer choice', 'If the consumer selects your documented offer and authorizes disclosure, Open Polici creates a controlled connection. Your licensed channel handles subsequent insurance activity.']
+  ['1', 'Establish your organization', 'Complete organization onboarding, producer management, licensing, carrier relationships, jurisdictions, insurance-line authority, and Commercial V2 enrollment.'],
+  ['2', 'Configure your appetite', 'Define the jurisdictions, insurance lines, risk characteristics, and operating capacity your organization is prepared to evaluate.'],
+  ['3', 'Review and submit', 'Activated providers review authorized opportunity facts and independently decide whether to send their own documented offers during the open window.'],
+  ['4', 'Earn the authorized connection', 'If the consumer selects your offer and authorizes disclosure, Open Polici completes the controlled connection. The licensed provider conducts the subsequent insurance transaction.']
 ] as const;
 
 const COMMERCIAL_TIERS = [
@@ -45,14 +45,14 @@ export const ProviderLandingPage: React.FC<ProviderLandingPageProps> = ({
               ← Policyholder experience
             </button>
             <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-emerald-800 bg-emerald-950/70 px-3 py-1.5 font-mono text-xs text-emerald-300">
-              <Building2 className="h-3.5 w-3.5" /> Provider and carrier participation
+              <Building2 className="h-3.5 w-3.5" /> Provider and carrier marketplace · Consumer-authorized connections
             </div>
             <h1 className="max-w-4xl text-4xl font-extrabold leading-tight tracking-tight sm:text-5xl lg:text-6xl">
-              Verified policy opportunities.
-              <span className="block bg-gradient-to-r from-emerald-400 to-cyan-300 bg-clip-text text-transparent">Independent offers. Consumer-authorized connections.</span>
+              Stop chasing shared contact lists.
+              <span className="block bg-gradient-to-r from-emerald-400 to-cyan-300 bg-clip-text text-transparent">Start reviewing structured insurance opportunities.</span>
             </h1>
             <p className="mt-6 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg">
-              Open Polici gives licensed providers a structured way to review authorized policy information and submit their own documented offers—without buying consumer contact lists or seeing other providers’ terms.
+              Consumers come to Open Polici with either an existing policy they want to compare or a coverage request they created themselves. Your organization reviews the authorized facts, decides whether the opportunity fits its appetite, and submits its own documented offer. The consumer reviews before choosing whether to connect.
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <button onClick={startProvider} className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-500 px-6 py-3.5 text-sm font-bold text-slate-950 hover:bg-emerald-400">
@@ -63,6 +63,7 @@ export const ProviderLandingPage: React.FC<ProviderLandingPageProps> = ({
                 Provider Sign In
               </button>
             </div>
+            <p className="mt-5 max-w-2xl text-xs leading-5 text-slate-400">Built for licensed producers, agencies, brokerages, networks, and direct carriers seeking consumer-initiated opportunities—not another speed-to-dial contact list.</p>
           </div>
 
           <div className="rounded-3xl border border-slate-700 bg-slate-900/90 p-6 shadow-2xl sm:p-8">
@@ -76,17 +77,56 @@ export const ProviderLandingPage: React.FC<ProviderLandingPageProps> = ({
               ))}
             </div>
             <div className="mt-7 rounded-2xl border border-slate-700 bg-slate-950 p-4 text-xs leading-5 text-slate-400">
-              Being eligible or waiting in standby does not provide policy access. Access begins only after activation, and payment never changes provider order or consumer presentation.
+              Payment does not establish insurance authority or opportunity eligibility, and payment never changes provider order or consumer presentation. Standby status does not provide opportunity access.
             </div>
           </div>
         </div>
       </section>
 
       <main className="mx-auto max-w-7xl space-y-24 px-4 py-20 sm:px-6 lg:px-8">
+        <section className="space-y-10">
+          <div className="mx-auto max-w-3xl text-center">
+            <p className="font-mono text-xs font-bold uppercase tracking-wider text-emerald-700">A different acquisition model</p>
+            <h2 className="mt-3 text-3xl font-extrabold tracking-tight">Move your organization closer to the consumer’s actual decision</h2>
+          </div>
+          <div className="grid overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl lg:grid-cols-2">
+            <div className="p-8 sm:p-10">
+              <p className="font-mono text-xs font-bold uppercase tracking-wider text-rose-600">The conventional shared-contact model</p>
+              <h3 className="mt-3 text-2xl font-bold">Pay first. Call fast. Rebuild the file.</h3>
+              <p className="mt-4 text-sm leading-7 text-slate-600">A name and phone number can arrive before the consumer has organized current coverage, reviewed your terms, or chosen to hear from you. Your team races to make contact, repeats basic intake work, and may reach someone who never expected multiple calls.</p>
+            </div>
+            <div className="bg-slate-950 p-8 text-white sm:p-10">
+              <p className="font-mono text-xs font-bold uppercase tracking-wider text-emerald-400">The Open Polici opportunity</p>
+              <h3 className="mt-3 text-2xl font-bold">Review first. Submit second. Connect by consumer choice.</h3>
+              <p className="mt-4 text-sm leading-7 text-slate-300">The consumer establishes the starting point before provider review. Open Polici structures either an existing-policy baseline or a consumer-defined coverage request. Eligible providers independently review the authorized facts and decide whether to send an offer. Contact information remains controlled until the consumer selects an offer and authorizes the handoff.</p>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-10">
+          <div className="mx-auto max-w-3xl text-center">
+            <p className="font-mono text-xs font-bold uppercase tracking-wider text-emerald-700">Two opportunity origins</p>
+            <h2 className="mt-3 text-3xl font-extrabold tracking-tight">One marketplace. Two sources of consumer intent.</h2>
+            <p className="mt-4 text-sm leading-6 text-slate-600">Both pathways use the same provider eligibility, appetite, submission-window, consumer-selection, consent, disclosure, and Commercial V2 controls.</p>
+          </div>
+          <div className="grid gap-6 lg:grid-cols-2">
+            <article className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
+              <p className="font-mono text-xs font-bold uppercase tracking-wider text-emerald-700">Existing-policy opportunities</p>
+              <h3 className="mt-3 text-2xl font-bold">Start with the coverage already in place</h3>
+              <p className="mt-4 text-sm leading-7 text-slate-600">The consumer uploads an active policy, reviews the extracted information, and confirms a structured baseline. Activated providers evaluate the authorized policy and risk facts against their appetite.</p>
+            </article>
+            <article className="rounded-3xl border border-slate-800 bg-slate-900 p-8 text-white shadow-sm">
+              <p className="font-mono text-xs font-bold uppercase tracking-wider text-cyan-300">Consumer-defined coverage requests</p>
+              <h3 className="mt-3 text-2xl font-bold">Start with what the consumer says they need</h3>
+              <p className="mt-4 text-sm leading-7 text-slate-300">A consumer without current coverage states the insurance line, desired effective date, relevant risk facts, and any coverage preferences they choose to provide. Open Polici preserves that request without prescribing coverage. Eligible providers decide what they can offer.</p>
+            </article>
+          </div>
+        </section>
+
         <section>
           <div className="mx-auto mb-10 max-w-3xl text-center">
             <p className="font-mono text-xs font-bold uppercase tracking-wider text-emerald-700">How participation works</p>
-            <h2 className="mt-3 text-3xl font-extrabold tracking-tight">One governed path from verification to connection</h2>
+            <h2 className="mt-3 text-3xl font-extrabold tracking-tight">From verified authority to consumer-authorized connection</h2>
           </div>
           <div className="grid gap-4 md:grid-cols-2">
             {STEPS.map(([number, title, description]) => (
@@ -103,8 +143,8 @@ export const ProviderLandingPage: React.FC<ProviderLandingPageProps> = ({
         <section id="provider-pricing" className="space-y-8">
           <div className="mx-auto max-w-3xl text-center">
             <p className="font-mono text-xs font-bold uppercase tracking-wider text-emerald-700">Provider membership</p>
-            <h2 className="mt-3 text-3xl font-extrabold tracking-tight">Choose capacity that matches your organization</h2>
-            <p className="mt-4 text-sm leading-6 text-slate-600">Provider access is paid and activated only after organization, licensing, jurisdiction, and insurance-line verification. Membership never purchases preferential placement or cohort position.</p>
+            <h2 className="mt-3 text-3xl font-extrabold tracking-tight">Choose operating capacity that matches your organization</h2>
+            <p className="mt-4 text-sm leading-6 text-slate-600">Membership purchases organizational software capacity, producer seats, jurisdiction capacity, opportunity concurrency, and offer-submission capacity. It does not purchase insurance authority or preferential marketplace treatment.</p>
           </div>
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
             {COMMERCIAL_TIERS.map(([name, price, scope, capacity]) => (
@@ -118,7 +158,36 @@ export const ProviderLandingPage: React.FC<ProviderLandingPageProps> = ({
             ))}
           </div>
           <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-sm leading-6 text-slate-700">
-            Marketplace availability, viewing, engagement, offer submission, and consumer selection carry no separate event charge. A line-specific fee applies only after the consumer selects an offer, authorizes disclosure, and the controlled connection succeeds. Personal auto is $75; other insurance lines remain subject to their production and compensation gates. Optional capacity and operational services are priced separately.
+            Provider applications remain subject to organization, licensing, jurisdiction, insurance-line, carrier-relationship, commercial, capacity, and production controls. Membership activation does not override a missing authority requirement.
+          </div>
+        </section>
+
+        <section className="space-y-8">
+          <div className="mx-auto max-w-3xl text-center">
+            <p className="font-mono text-xs font-bold uppercase tracking-wider text-emerald-700">Consumer-authorized connection pricing</p>
+            <h2 className="mt-3 text-3xl font-extrabold tracking-tight">Marketplace activity is free. A qualifying connection is not.</h2>
+            <p className="mt-4 text-sm leading-6 text-slate-600">Opportunity availability, viewing, offer submission, consumer review, consumer selection by itself, and standby status carry no separate event charge. A line-specific transaction fee applies only after the complete connection conditions are satisfied.</p>
+          </div>
+          <div className="grid gap-6 lg:grid-cols-[.85fr_1.15fr]">
+            <div className="rounded-3xl border border-slate-200 bg-white p-7 shadow-sm">
+              <h3 className="text-xl font-bold">Published connection fees</h3>
+              <div className="mt-5 divide-y divide-slate-100">
+                {[
+                  ['Personal auto', '$75'], ['Homeowners', '$90'], ['Renters', '$40'],
+                  ['Individual health / ACA', '$90'], ['Term life', '$150'],
+                  ['Commercial general liability', '$200'], ['Business owners policy', '$200'],
+                  ['Commercial auto / trucking', '$225']
+                ].map(([line, fee]) => <div key={line} className="flex items-center justify-between gap-4 py-3 text-sm"><span className="text-slate-700">{line}</span><span className="font-bold text-emerald-700">{fee}</span></div>)}
+              </div>
+              <p className="mt-5 text-xs leading-5 text-slate-500">A published price does not mean an insurance line is operational. Each line remains subject to its own production and compensation gates.</p>
+            </div>
+            <div className="rounded-3xl bg-slate-950 p-7 text-white shadow-sm">
+              <h3 className="text-xl font-bold">When the transaction fee applies</h3>
+              <ul className="mt-5 space-y-4 text-sm text-slate-300">
+                {['The provider organization is eligible and activated', 'The organization submitted the offer the consumer selected', 'The consumer explicitly selected that offer', 'The consumer authorized controlled disclosure', 'The controlled connection completed successfully', 'The event is recorded once without duplication', 'Applicable compensation and insurance-line gates are satisfied'].map(item => <li key={item} className="flex gap-3"><Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400"/>{item}</li>)}
+              </ul>
+              <p className="mt-6 rounded-2xl border border-slate-700 bg-slate-900 p-4 text-xs leading-5 text-slate-400">Commercial V2 does not add a percentage of premium or a separate fee merely because a policy is later reported bound. The authorized connection remains distinct from later outcome records.</p>
+            </div>
           </div>
         </section>
 
@@ -146,8 +215,8 @@ export const ProviderLandingPage: React.FC<ProviderLandingPageProps> = ({
         <section className="space-y-8">
           <div className="mx-auto max-w-3xl text-center">
             <p className="font-mono text-xs font-bold uppercase tracking-wider text-emerald-700">A different provider opportunity</p>
-            <h2 className="mt-3 text-3xl font-extrabold tracking-tight">From shared contact inquiry to verified policy opportunity</h2>
-            <p className="mt-4 text-sm leading-6 text-slate-600">Open Polici is not a contact list. It organizes a consumer-authorized opportunity around policy evidence, provider authority, documented offers, factual comparison, and a deliberate connection chosen by the consumer.</p>
+            <h2 className="mt-3 text-3xl font-extrabold tracking-tight">From shared contact record to structured insurance opportunity</h2>
+            <p className="mt-4 text-sm leading-6 text-slate-600">Open Polici is not a contact list. It organizes a consumer-initiated opportunity around structured facts, provider authority, documented offers, factual comparison, and a deliberate connection chosen by the consumer.</p>
           </div>
           <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl">
             <div className="grid grid-cols-[minmax(8rem,.65fr)_1fr_1fr] border-b border-slate-200 bg-slate-100 text-xs font-bold sm:text-sm">
@@ -156,13 +225,15 @@ export const ProviderLandingPage: React.FC<ProviderLandingPageProps> = ({
               <div className="border-l border-emerald-200 bg-emerald-50 p-4 text-emerald-900 sm:p-5">Open Polici</div>
             </div>
             {[
-              ['Consumer readiness', 'An inquiry may arrive before the consumer has organized current-policy information.', 'The consumer has shared a current policy and confirmed the extracted coverage baseline.'],
-              ['Opportunity information', 'Information may be limited to contact details and a short questionnaire.', 'An activated provider reviews authorized policy facts and relevant risk information without receiving early contact access.'],
-              ['Provider access', 'The same inquiry may be distributed broadly and immediately.', 'Access is limited by organization status, licensing, carrier authority, jurisdiction, insurance line, capacity, and cohort activation.'],
-              ['Offer process', 'Follow-up begins with calls, messages, or separate intake before a documented offer exists.', 'The provider independently prepares and submits its own documented offer during the open window.'],
-              ['Consumer review', 'The consumer may have to assemble and compare responses across separate channels.', 'Open Polici displays factual price and coverage differences against the verified existing-policy baseline.'],
-              ['Connection', 'Contact information may be distributed before the consumer chooses a provider.', 'Identity and connection details are disclosed only after the consumer selects an offer and authorizes the handoff.'],
-              ['After selection', 'The handoff path and evidence may vary by source.', 'The licensed provider conducts the subsequent insurance transaction on its own channel while Open Polici preserves selection, consent, and reconciliation evidence.']
+              ['Consumer starting point', 'Often a short form and a contact record.', 'An existing-policy baseline or consumer-defined coverage request.'],
+              ['Provider access', 'Contact details may be distributed immediately.', 'Eligibility and cohort activation precede opportunity access.'],
+              ['Contact timing', 'Several organizations may begin outreach before selection.', 'The consumer reviews offers before authorizing one connection.'],
+              ['Opportunity context', 'Provider intake may begin after contact.', 'Authorized facts are structured before provider review.'],
+              ['Provider decision', 'Fit is determined during outreach and repeated intake.', 'The organization evaluates the opportunity against its configured appetite.'],
+              ['Offer process', 'Responses may arrive across separate channels.', 'Documented offers enter one controlled review experience.'],
+              ['Provider visibility', 'Distribution and other provider activity may be unclear.', 'Each provider sees only its own activity and authorized opportunity facts.'],
+              ['Commercial trigger', 'A provider may pay for access to the contact record.', 'The transaction fee follows a qualifying consumer-authorized connection.'],
+              ['Subsequent transaction', 'The handoff path varies by source.', 'The licensed provider owns application, advice, underwriting, binding, and issuance.']
             ].map(([label, conventional, openPolicy]) => (
               <div key={label} className="grid grid-cols-[minmax(8rem,.65fr)_1fr_1fr] border-b border-slate-100 text-xs leading-5 last:border-b-0 sm:text-sm sm:leading-6">
                 <div className="p-4 font-bold text-slate-900 sm:p-5">{label}</div>
@@ -175,9 +246,9 @@ export const ProviderLandingPage: React.FC<ProviderLandingPageProps> = ({
 
         <section className="rounded-3xl bg-slate-900 p-8 text-white sm:p-12">
           <div className="grid gap-10 lg:grid-cols-[1fr_1.1fr] lg:items-center">
-            <div><p className="font-mono text-xs uppercase tracking-wider text-emerald-400">What the opportunity represents</p><h2 className="mt-3 text-3xl font-extrabold">A governed path to earn a consumer-authorized connection.</h2><p className="mt-4 text-sm leading-6 text-slate-300">Providers do not purchase the consumer’s decision. They receive a controlled opportunity to evaluate verified policy information, determine what they can offer, document it, and be considered on the facts.</p></div>
+            <div><p className="font-mono text-xs uppercase tracking-wider text-emerald-400">Marketplace neutrality</p><h2 className="mt-3 text-3xl font-extrabold">Stand on the offer you can actually deliver.</h2><p className="mt-4 text-sm leading-6 text-slate-300">Commercial payment cannot purchase marketplace preference. Open Polici does not disclose another provider’s offer, provide a target price, operate revision rounds, or choose a provider for the consumer.</p></div>
             <div className="grid gap-3 sm:grid-cols-2">
-              {['Verified existing-policy baseline', 'Authorized policy and risk facts', 'Independent documented offer', 'Factual consumer comparison', 'Consumer-controlled continuation', 'Consumer-authorized provider connection'].map(item => (
+              {['Existing-policy or consumer-defined baseline', 'Authorized opportunity facts', 'Independent documented offer', 'Factual consumer comparison', 'Explicit selection and authorization', 'Provider-owned insurance transaction'].map(item => (
                 <div key={item} className="flex items-start gap-3 rounded-2xl border border-slate-700 bg-slate-950 p-4 text-sm text-slate-200"><Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400"/><span>{item}</span></div>
               ))}
             </div>
@@ -185,9 +256,10 @@ export const ProviderLandingPage: React.FC<ProviderLandingPageProps> = ({
         </section>
 
         <section className="rounded-3xl border border-emerald-200 bg-emerald-50 p-8 text-center sm:p-12">
-          <h2 className="text-3xl font-extrabold">Ready to apply for provider access?</h2>
-          <p className="mx-auto mt-3 max-w-2xl text-sm leading-6 text-slate-600">Submit the organization application and provider information for verification. A provider account is not activated for marketplace access until authority checks and commercial enrollment are complete.</p>
-          <button onClick={startProvider} className="mt-7 inline-flex items-center gap-2 rounded-xl bg-slate-950 px-6 py-3.5 text-sm font-bold text-white hover:bg-slate-800">Apply for provider access <ArrowRight className="h-4 w-4"/></button>
+          <h2 className="text-3xl font-extrabold">Build your Open Polici provider presence</h2>
+          <p className="mx-auto mt-3 max-w-2xl text-sm leading-6 text-slate-600">Apply for the membership and operating capacity that fits your organization. Establish your producers, jurisdictions, insurance lines, carrier relationships, appetite, and commercial account before marketplace access begins.</p>
+          <button onClick={startProvider} className="mt-7 inline-flex items-center gap-2 rounded-xl bg-slate-950 px-6 py-3.5 text-sm font-bold text-white hover:bg-slate-800">Start Provider Application <ArrowRight className="h-4 w-4"/></button>
+          <p className="mx-auto mt-5 max-w-2xl text-xs leading-5 text-slate-500">Applying does not automatically create marketplace authority. Access begins only after the required organization, licensing, commercial, capacity, and production controls are satisfied.</p>
         </section>
       </main>
     </div>
