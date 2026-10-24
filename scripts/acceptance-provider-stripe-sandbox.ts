@@ -26,13 +26,17 @@ async function run() {
       applicantEmail: 'sandbox-provider@openpolicy.test', legalName: 'Open Policy Sandbox Agency LLC',
       displayName: 'Open Policy Sandbox Agency', organizationType: 'INDEPENDENT_AGENCY',
       jurisdictionCode: 'NV', insuranceLines: ['PERSONAL_AUTO'], producerLicenseNumber: 'SANDBOX-NV-001',
-      producerNpn: '0000000', requestedPlanCode: 'PLAN_SOLO'
+      producerNpn: '0000000', organizationLicenseNumber: 'SANDBOX-ORG-NV-001', transactionRole: 'BROKER', requestedPlanCode: 'PLAN_SOLO'
     });
     const approved = await postgres.reviewProviderApplication({ applicationId: application.id, decision: 'APPROVE',
       actorId: 'sandbox-admin', reason: 'Sandbox authority fixture verified.', licenseType: 'PROPERTY_CASUALTY',
       licenseExpirationDate: '2027-12-31', verificationSource: 'SANDBOX_ACCEPTANCE_FIXTURE',
       verificationSourceUrl: 'https://pdb.nipr.com/test-fixture/open-polici', verificationRecordId: 'SANDBOX-NV-001',
-      verificationEvidence: '{"license":"SANDBOX-NV-001","status":"ACTIVE","sandboxFixture":true}' });
+      verificationEvidence: '{"subjectType":"INDIVIDUAL_LICENSE","legalName":"Open Policy Sandbox Provider","jurisdiction":"NV","authorityNumber":"SANDBOX-NV-001","sourceRecordId":"SANDBOX-NV-001","status":"ACTIVE","expirationDate":"2027-12-31","qualifications":["PROPERTY","CASUALTY"],"npn":"0000000","sandboxFixture":true}',
+      organizationVerificationSourceUrl: 'https://pdb.nipr.com/test-fixture/open-polici',
+      organizationVerificationRecordId: 'SANDBOX-ORG-NV-001',
+      organizationLicenseExpirationDate: '2027-12-31',
+      organizationVerificationEvidence: '{"subjectType":"ORGANIZATION_LICENSE","legalName":"Open Policy Sandbox Agency LLC","jurisdiction":"NV","authorityNumber":"SANDBOX-ORG-NV-001","sourceRecordId":"SANDBOX-ORG-NV-001","status":"ACTIVE","expirationDate":"2027-12-31","qualifications":["PROPERTY","CASUALTY"],"sandboxFixture":true}' });
     const enrollment = await commercial.enrollCommercialAgreement({ providerOrgId: approved.providerOrganizationId!,
       planId: approved.requestedPlanCode, actorRole: 'ADMIN' });
     const now = new Date().toISOString();

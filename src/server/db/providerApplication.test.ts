@@ -57,7 +57,7 @@ test('direct-carrier application requires independently verified certificate evi
       applicationId: application.id, decision: 'APPROVE', actorId: 'admin-owner', reason: 'Attempted review',
       verificationSource: 'Nevada DOI', licenseType: 'CARRIER', licenseExpirationDate: '2027-12-31',
       verificationSourceUrl: 'https://doi.nv.gov/licensing/lookup', verificationRecordId: 'NV-COA-REVIEW-REFERENCE',
-      verificationEvidence: '{"certificate":"NV-COA-REVIEW-REFERENCE","status":"ACTIVE"}'
+      verificationEvidence: '{"subjectType":"CARRIER_AUTHORITY","legalName":"Example Carrier","jurisdiction":"NV","authorityNumber":"NV-COA-REVIEW-REFERENCE","sourceRecordId":"NV-COA-REVIEW-REFERENCE","status":"ACTIVE","expirationDate":"2027-12-31"}'
     }), /CARRIER_CERTIFICATE_OF_AUTHORITY/);
     const approved = await store.reviewProviderApplication({
       applicationId: application.id, decision: 'APPROVE', actorId: 'admin-owner',
@@ -65,7 +65,7 @@ test('direct-carrier application requires independently verified certificate evi
       verificationSource: 'Nevada Division of Insurance certificate lookup',
       licenseType: 'CARRIER_CERTIFICATE_OF_AUTHORITY', licenseExpirationDate: '2027-12-31',
       verificationSourceUrl: 'https://doi.nv.gov/licensing/lookup', verificationRecordId: 'NV-COA-REVIEW-REFERENCE',
-      verificationEvidence: '{"certificate":"NV-COA-REVIEW-REFERENCE","status":"ACTIVE"}'
+      verificationEvidence: '{"subjectType":"CARRIER_AUTHORITY","legalName":"Example Carrier","jurisdiction":"NV","authorityNumber":"NV-COA-REVIEW-REFERENCE","sourceRecordId":"NV-COA-REVIEW-REFERENCE","status":"ACTIVE","expirationDate":"2027-12-31"}'
     });
     assert.equal(approved.status, 'APPROVED');
     const licenses = await store.getProviderLicenses(approved.providerOrganizationId!);
@@ -97,26 +97,30 @@ test('administrator review creates pending mappings atomically without marketpla
       reason: 'Applicant attempts to approve their own authority.', licenseType: 'PROPERTY_CASUALTY',
       licenseExpirationDate: '2027-12-31', verificationSource: 'Nevada DOI producer lookup',
       verificationSourceUrl: 'https://doi.nv.gov/licensing/lookup', verificationRecordId: 'NV-REVIEWED-1',
-      verificationEvidence: '{"license":"NV-REVIEWED-1","status":"ACTIVE","npn":"1234567"}',
+      verificationEvidence: '{"subjectType":"INDIVIDUAL_LICENSE","legalName":"Reviewed Owner","jurisdiction":"NV","authorityNumber":"NV-REVIEWED-1","sourceRecordId":"NV-REVIEWED-1","status":"ACTIVE","expirationDate":"2027-12-31","qualifications":["PROPERTY","CASUALTY"],"npn":"1234567"}',
       organizationVerificationSourceUrl: 'https://doi.nv.gov/licensing/lookup',
       organizationVerificationRecordId: 'NV-ORG-REVIEWED-1',
-      organizationVerificationEvidence: '{"license":"NV-ORG-REVIEWED-1","status":"ACTIVE","npn":"7654321"}',
+      organizationLicenseExpirationDate: '2027-12-31',
+      organizationVerificationEvidence: '{"subjectType":"ORGANIZATION_LICENSE","legalName":"Reviewed Agency LLC","jurisdiction":"NV","authorityNumber":"NV-ORG-REVIEWED-1","sourceRecordId":"NV-ORG-REVIEWED-1","status":"ACTIVE","expirationDate":"2027-12-31","qualifications":["PROPERTY","CASUALTY"],"npn":"7654321"}',
       relationshipVerificationSourceUrl: 'https://doi.nv.gov/licensing/lookup',
       relationshipVerificationRecordId: 'NV-APPOINTMENT-99999',
-      relationshipVerificationEvidence: '{"carrier":"Example Carrier","naic":"99999","status":"ACTIVE"}'
+      relationshipExpirationDate: '2027-12-31',
+      relationshipVerificationEvidence: '{"subjectType":"CARRIER_RELATIONSHIP","carrierName":"Example Carrier","jurisdiction":"NV","authorityNumber":"99999","sourceRecordId":"NV-APPOINTMENT-99999","status":"ACTIVE","expirationDate":"2027-12-31","insuranceLine":"PERSONAL_AUTO"}'
     }), /other than the applicant/);
     const approved = await store.reviewProviderApplication({
       applicationId: application.id, decision: 'APPROVE', actorId: 'admin-owner',
       reason: 'License evidence verified for intake mapping.', licenseType: 'PROPERTY_CASUALTY',
       licenseExpirationDate: '2027-12-31', verificationSource: 'Nevada DOI producer lookup',
       verificationSourceUrl: 'https://doi.nv.gov/licensing/lookup', verificationRecordId: 'NV-REVIEWED-1',
-      verificationEvidence: '{"license":"NV-REVIEWED-1","status":"ACTIVE","npn":"1234567"}',
+      verificationEvidence: '{"subjectType":"INDIVIDUAL_LICENSE","legalName":"Reviewed Owner","jurisdiction":"NV","authorityNumber":"NV-REVIEWED-1","sourceRecordId":"NV-REVIEWED-1","status":"ACTIVE","expirationDate":"2027-12-31","qualifications":["PROPERTY","CASUALTY"],"npn":"1234567"}',
       organizationVerificationSourceUrl: 'https://doi.nv.gov/licensing/lookup',
       organizationVerificationRecordId: 'NV-ORG-REVIEWED-1',
-      organizationVerificationEvidence: '{"license":"NV-ORG-REVIEWED-1","status":"ACTIVE","npn":"7654321"}',
+      organizationLicenseExpirationDate: '2027-12-31',
+      organizationVerificationEvidence: '{"subjectType":"ORGANIZATION_LICENSE","legalName":"Reviewed Agency LLC","jurisdiction":"NV","authorityNumber":"NV-ORG-REVIEWED-1","sourceRecordId":"NV-ORG-REVIEWED-1","status":"ACTIVE","expirationDate":"2027-12-31","qualifications":["PROPERTY","CASUALTY"],"npn":"7654321"}',
       relationshipVerificationSourceUrl: 'https://doi.nv.gov/licensing/lookup',
       relationshipVerificationRecordId: 'NV-APPOINTMENT-99999',
-      relationshipVerificationEvidence: '{"carrier":"Example Carrier","naic":"99999","status":"ACTIVE"}'
+      relationshipExpirationDate: '2027-12-31',
+      relationshipVerificationEvidence: '{"subjectType":"CARRIER_RELATIONSHIP","carrierName":"Example Carrier","jurisdiction":"NV","authorityNumber":"99999","sourceRecordId":"NV-APPOINTMENT-99999","status":"ACTIVE","expirationDate":"2027-12-31","insuranceLine":"PERSONAL_AUTO"}'
     });
     assert.equal(approved.status, 'APPROVED');
     assert.ok(approved.providerOrganizationId);

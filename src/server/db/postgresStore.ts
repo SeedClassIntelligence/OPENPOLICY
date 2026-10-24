@@ -4,7 +4,7 @@ import pg from 'pg';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8, SQL_MIGRATION_V9, SQL_MIGRATION_V10, SQL_MIGRATION_V11, SQL_MIGRATION_V12, SQL_MIGRATION_V13, SQL_MIGRATION_V14, SQL_MIGRATION_V15, SQL_MIGRATION_V16, SQL_MIGRATION_V17, SQL_MIGRATION_V18, SQL_MIGRATION_V19, SQL_MIGRATION_V20, SQL_MIGRATION_V21, SQL_MIGRATION_V22, SQL_MIGRATION_V23, SQL_MIGRATION_V24, SQL_MIGRATION_V25, SQL_MIGRATION_V26, SQL_MIGRATION_V27 } from './migrate';
 import type { ConsumerDefinedCoverageRequestBaseline } from '../../domain/consumerDefinedCoverageRequest';
-import { authorityEvidenceSha256, nextAuthorityReviewDate, normalizeEvidencePayload, resolveAuthoritySource, type ProviderAuthorityEvidence } from '../../domain/providerAuthorityVerification';
+import { assertAuthorityEvidenceMatches, authorityEvidenceSha256, nextAuthorityReviewDate, normalizeEvidencePayload, resolveAuthoritySource, type ProviderAuthorityEvidence } from '../../domain/providerAuthorityVerification';
 import { buildVerifiedPolicyAndBaseline } from '../../domain/policyEvidenceVerification';
 import {
   ProviderOrganization,
@@ -1777,9 +1777,11 @@ export class PostgresStore {
     organizationVerificationSourceUrl?: string;
     organizationVerificationRecordId?: string;
     organizationVerificationEvidence?: unknown;
+    organizationLicenseExpirationDate?: string;
     relationshipVerificationSourceUrl?: string;
     relationshipVerificationRecordId?: string;
     relationshipVerificationEvidence?: unknown;
+    relationshipExpirationDate?: string;
   }): Promise<ProviderApplication> {
     await this.ensureReady();
     if (!params.reason.trim()) throw Object.assign(new Error('A review reason is required.'), { statusCode: 400 });
@@ -1813,6 +1815,17 @@ export class PostgresStore {
         throw Object.assign(new Error('Authority evidence must be verified by an administrator other than the applicant.'), { statusCode: 409 });
       }
       const source = resolveAuthoritySource(current.jurisdictionCode, params.verificationSourceUrl);
+      assertAuthorityEvidenceMatches({
+        payload: params.verificationEvidence,
+        subjectType: isDirectCarrier ? 'CARRIER_AUTHORITY' : 'INDIVIDUAL_LICENSE',
+        legalName: isDirectCarrier ? current.legalName : current.applicantName,
+        jurisdiction: current.jurisdictionCode,
+        authorityNumber,
+        sourceRecordId: params.verificationRecordId,
+        npn: isDirectCarrier ? undefined : current.producerNpn,
+        expirationDate: params.licenseExpirationDate,
+        requiredQualifications: isDirectCarrier ? undefined : [requiredLicenseType]
+      });
       const evidencePayload = normalizeEvidencePayload(params.verificationEvidence);
       const evidenceSha256 = authorityEvidenceSha256(evidencePayload);
       const organizationId = `org_application_${current.firebaseUid}`;
@@ -1841,10 +1854,20 @@ export class PostgresStore {
       );
       if (!isDirectCarrier) {
         if (!current.organizationLicenseNumber || !params.organizationVerificationSourceUrl?.trim() ||
-            !params.organizationVerificationRecordId?.trim()) {
+            !params.organizationVerificationRecordId?.trim() ||
+            !/^\d{4}-\d{2}-\d{2}$/.test(params.organizationLicenseExpirationDate || '')) {
           throw Object.assign(new Error('Separate authoritative organization-license evidence is required.'), { statusCode: 400 });
         }
         const organizationSource = resolveAuthoritySource(current.jurisdictionCode, params.organizationVerificationSourceUrl);
+        assertAuthorityEvidenceMatches({
+          payload: params.organizationVerificationEvidence,
+          subjectType: 'ORGANIZATION_LICENSE', legalName: current.legalName,
+          jurisdiction: current.jurisdictionCode, authorityNumber: current.organizationLicenseNumber,
+          sourceRecordId: params.organizationVerificationRecordId,
+          npn: current.organizationNpn,
+          expirationDate: params.organizationLicenseExpirationDate,
+          requiredQualifications: current.insuranceLines[0] === 'PERSONAL_AUTO' ? ['PROPERTY', 'CASUALTY'] : undefined
+        });
         const organizationPayload = normalizeEvidencePayload(params.organizationVerificationEvidence);
         const organizationEvidenceId = `authority_evidence_${randomUUID()}`;
         await client.query(
@@ -1852,17 +1875,26 @@ export class PostgresStore {
            VALUES ($1,$2,$3,NULL,'ORGANIZATION_LICENSE',$4,$5,$6,$7,$8,$9,$10,$11,'VERIFIED',$12,$13,$14,$15,$16,$17);`,
           [organizationEvidenceId,current.id,organizationId,current.jurisdictionCode,current.insuranceLines[0]||null,
            current.organizationLicenseNumber,organizationSource.name,params.organizationVerificationSourceUrl.trim(),
-           params.organizationVerificationRecordId.trim(),params.verificationRetrievedAt||now,params.licenseExpirationDate,
+           params.organizationVerificationRecordId.trim(),params.verificationRetrievedAt||now,params.organizationLicenseExpirationDate,
            authorityEvidenceSha256(organizationPayload),organizationPayload,current.firebaseUid,params.actorId,now,
-           nextAuthorityReviewDate(now,params.licenseExpirationDate)]
+           nextAuthorityReviewDate(now,params.organizationLicenseExpirationDate)]
         );
       }
       if (current.transactionRole === 'AGENT') {
         if (!current.claimedCarrierName || !params.relationshipVerificationSourceUrl?.trim() ||
-            !params.relationshipVerificationRecordId?.trim()) {
+            !params.relationshipVerificationRecordId?.trim() ||
+            !/^\d{4}-\d{2}-\d{2}$/.test(params.relationshipExpirationDate || '')) {
           throw Object.assign(new Error('Separate authoritative carrier-appointment evidence is required for an agent transaction.'), { statusCode: 400 });
         }
         const relationshipSource = resolveAuthoritySource(current.jurisdictionCode, params.relationshipVerificationSourceUrl);
+        assertAuthorityEvidenceMatches({
+          payload: params.relationshipVerificationEvidence,
+          subjectType: 'CARRIER_RELATIONSHIP', carrierName: current.claimedCarrierName,
+          jurisdiction: current.jurisdictionCode,
+          authorityNumber: current.claimedCarrierNaicCode || current.claimedCarrierName,
+          sourceRecordId: params.relationshipVerificationRecordId,
+          expirationDate: params.relationshipExpirationDate, insuranceLine: current.insuranceLines[0]
+        });
         const relationshipPayload = normalizeEvidencePayload(params.relationshipVerificationEvidence);
         await client.query(
           `INSERT INTO provider_authority_evidence (id,application_id,provider_organization_id,provider_user_id,subject_type,jurisdiction,insurance_line,authority_number,source_name,source_url,source_record_id,retrieved_at,expiration_date,status,evidence_sha256,evidence_payload,submitted_by,verified_by,verified_at,next_review_at)
@@ -1870,8 +1902,8 @@ export class PostgresStore {
           [`authority_evidence_${randomUUID()}`,current.id,organizationId,providerUserId,current.jurisdictionCode,
            current.insuranceLines[0]||null,current.claimedCarrierNaicCode||current.claimedCarrierName,
            relationshipSource.name,params.relationshipVerificationSourceUrl.trim(),params.relationshipVerificationRecordId.trim(),
-           params.verificationRetrievedAt||now,params.licenseExpirationDate,authorityEvidenceSha256(relationshipPayload),
-           relationshipPayload,current.firebaseUid,params.actorId,now,nextAuthorityReviewDate(now,params.licenseExpirationDate)]
+           params.verificationRetrievedAt||now,params.relationshipExpirationDate,authorityEvidenceSha256(relationshipPayload),
+           relationshipPayload,current.firebaseUid,params.actorId,now,nextAuthorityReviewDate(now,params.relationshipExpirationDate)]
         );
       }
       await client.query(

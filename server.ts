@@ -1571,9 +1571,11 @@ app.post('/api/admin/provider-applications/:applicationId/review', async (req, r
       organizationVerificationSourceUrl: req.body?.organizationVerificationSourceUrl ? String(req.body.organizationVerificationSourceUrl) : undefined,
       organizationVerificationRecordId: req.body?.organizationVerificationRecordId ? String(req.body.organizationVerificationRecordId) : undefined,
       organizationVerificationEvidence: req.body?.organizationVerificationEvidence,
+      organizationLicenseExpirationDate: req.body?.organizationLicenseExpirationDate ? String(req.body.organizationLicenseExpirationDate) : undefined,
       relationshipVerificationSourceUrl: req.body?.relationshipVerificationSourceUrl ? String(req.body.relationshipVerificationSourceUrl) : undefined,
       relationshipVerificationRecordId: req.body?.relationshipVerificationRecordId ? String(req.body.relationshipVerificationRecordId) : undefined,
-      relationshipVerificationEvidence: req.body?.relationshipVerificationEvidence
+      relationshipVerificationEvidence: req.body?.relationshipVerificationEvidence,
+      relationshipExpirationDate: req.body?.relationshipExpirationDate ? String(req.body.relationshipExpirationDate) : undefined
     });
     if (req.openPolicyIdentity!.source !== 'FIXTURE') {
       await updateFirebaseProviderReviewState(application.firebaseUid, {

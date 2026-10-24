@@ -32,10 +32,11 @@ test('provider activation fails closed until authority, matching V2 agreement, a
       applicationId: application.id, decision: 'APPROVE', actorId: 'admin-owner', reason: 'Verified authority.',
       licenseType: 'PROPERTY_CASUALTY', licenseExpirationDate: '2027-12-31', verificationSource: 'Nevada DOI producer lookup',
       verificationSourceUrl: 'https://doi.nv.gov/licensing/lookup', verificationRecordId: 'NV-ACTIVATION-001',
-      verificationEvidence: '{"license":"NV-ACTIVATION-001","status":"ACTIVE","fixture":true}',
+      verificationEvidence: '{"subjectType":"INDIVIDUAL_LICENSE","legalName":"Activation Owner","jurisdiction":"NV","authorityNumber":"NV-ACTIVATE-1","sourceRecordId":"NV-ACTIVATION-001","status":"ACTIVE","expirationDate":"2027-12-31","qualifications":["PROPERTY","CASUALTY"],"npn":"7654321","fixture":true}',
       organizationVerificationSourceUrl: 'https://doi.nv.gov/licensing/lookup',
       organizationVerificationRecordId: 'NV-ORG-ACTIVATE-1',
-      organizationVerificationEvidence: '{"license":"NV-ORG-ACTIVATE-1","status":"ACTIVE","fixture":true}'
+      organizationLicenseExpirationDate: '2027-12-31',
+      organizationVerificationEvidence: '{"subjectType":"ORGANIZATION_LICENSE","legalName":"Activation Agency LLC","jurisdiction":"NV","authorityNumber":"NV-ORG-ACTIVATE-1","sourceRecordId":"NV-ORG-ACTIVATE-1","status":"ACTIVE","expirationDate":"2027-12-31","qualifications":["PROPERTY","CASUALTY"],"npn":"ORG-7654321","fixture":true}'
     });
     assert.equal((await postgres.getProviderOrganization(approved.providerOrganizationId!))?.marketplaceStatus, 'PENDING');
     await assert.rejects(activate(), /active V2 commercial agreement/);
@@ -119,7 +120,7 @@ test('direct carrier activates only after verified certificate, matching V2 agre
       licenseType: 'CARRIER_CERTIFICATE_OF_AUTHORITY', licenseExpirationDate: '2027-12-31',
       verificationSource: 'Nevada Division of Insurance certificate lookup',
       verificationSourceUrl: 'https://doi.nv.gov/licensing/lookup', verificationRecordId: 'NV-COA-2026-001',
-      verificationEvidence: '{"certificate":"NV-COA-2026-001","status":"ACTIVE","fixture":true}'
+      verificationEvidence: '{"subjectType":"CARRIER_AUTHORITY","legalName":"Verified Carrier Inc.","jurisdiction":"NV","authorityNumber":"NV-COA-2026-001","sourceRecordId":"NV-COA-2026-001","status":"ACTIVE","expirationDate":"2027-12-31","fixture":true}'
     });
     const enrollment = await commercial.enrollCommercialAgreement({
       providerOrgId: approved.providerOrganizationId!, planId: 'PLAN_ENTERPRISE', actorRole: 'ADMIN'
