@@ -36,6 +36,7 @@ const rules: RouteRule[] = [
   { methods: ['POST'], pattern: /^\/commercial\/payments$/, roles: ['ADMIN'], adminPermission:'COMMERCIAL_ADMIN' },
   { methods: ['POST'], pattern: /^\/commercial\/refunds$/, roles: ['ADMIN'], adminPermission:'COMMERCIAL_ADMIN' },
   { pattern: /^\/admin\/administrators(?:\/[^/]+)?$/, roles: ['ADMIN'], adminPermission:'SECURITY_ADMIN' },
+  { pattern: /^\/admin\/provider-applications(?:\/[^/]+\/(?:review|prepare-membership|activate))?$/, roles: ['ADMIN'], adminPermission:'PROVIDER_ADMIN' },
   { pattern: /^\/admin\/providers(?:\/[^/]+\/status)?$/, roles: ['ADMIN'], adminPermission:'PROVIDER_ADMIN' },
   { pattern: /^\/admin\/commercial\/compensation-determinations/, roles: ['ADMIN'], adminPermission:'COMPLIANCE_ADMIN' },
   { pattern: /^\/admin\/commercial\//, roles: ['ADMIN'], adminPermission:'COMMERCIAL_ADMIN' },
@@ -56,7 +57,7 @@ const rules: RouteRule[] = [
   { methods: ['POST'], pattern: /^\/marketplace\/binding\/[^/]+\/(?:grant-consent|revoke-consent|resolve-modification|accept-modification|reject-modification|consumer-verify)$/, roles: ['CONSUMER'] },
 
   { pattern: /^\/marketplace\/(?:my-provider|active-provider|opportunities|invitations\/|competitions|workspace\/)/, roles: ['PROVIDER'] },
-  { pattern: /^\/provider-applications\/current$/, roles: ['PROVIDER'] },
+  { pattern: /^\/provider-applications\/current(?:\/membership-payment-session)?$/, roles: ['PROVIDER'] },
   { methods: ['GET'], pattern: /^\/marketplace\/competition\/[^/]+\/offer-status$/, roles: ['PROVIDER'] },
   { methods: ['POST'], pattern: /^\/offers\/submit$/, roles: ['PROVIDER'] },
   { pattern: /^\/commercial\//, roles: ['PROVIDER'] },

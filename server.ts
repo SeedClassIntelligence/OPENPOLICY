@@ -50,6 +50,7 @@ import { assertBindingRelationship, assertChallengeRelationship, enforceApiAutho
 import { assertDirectSettlementMutationAllowed } from './src/server/paymentCollectionBoundary';
 import { StripePaymentProcessor, mapStripeIntentStatus, shouldApplyStripePaymentStatus, stripePaymentMethod, stripeProcessorConfig, stripeRefundLedgerKey } from './src/server/stripePaymentProcessor';
 import { activateApprovedProviderApplication } from './src/server/providerActivation';
+import { getProviderMembershipState, prepareProviderMembership } from './src/server/providerMembership';
 
 import { runComparisonEngineTestSuite } from './src/domain/comparisonEngine.test';
 import { runEligibilityEngineTestSuite } from './src/domain/eligibilityEngine.test';
@@ -98,7 +99,7 @@ import { canEnterPolicyPipeline, INSURANCE_LINES } from './src/domain/insuranceL
 import { OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2 } from './src/domain/commercialPriceBook';
 import { validatePolicyLineOfferFacts } from './src/domain/policyLineOfferContract';
 import { JURISDICTION_LINE_ROLLOUT_MATRIX } from './src/domain/jurisdictionLineAvailability';
-import { confirmConsumerDefinedCoverageRequest } from './src/domain/consumerDefinedCoverageRequest';
+import { confirmConsumerDefinedCoverageRequest, consumerRequestToMarketplaceBaseline, projectConsumerRequestForMarketplace } from './src/domain/consumerDefinedCoverageRequest';
 import type { InsuranceLine } from './src/types/jurisdiction';
 
 export const app = express();
@@ -175,6 +176,51 @@ let stripePaymentProcessor: StripePaymentProcessor | undefined;
 function getStripePaymentProcessor(): StripePaymentProcessor {
   stripePaymentProcessor ||= new StripePaymentProcessor(stripeProcessorConfig());
   return stripePaymentProcessor;
+}
+
+async function createStripeInvoicePaymentSession(input: {
+  providerOrganizationId: string;
+  invoiceId: string;
+  actorId: string;
+}) {
+  const invoice = await commercialStore.getInvoiceById(input.invoiceId);
+  if (!invoice || invoice.providerOrganizationId !== input.providerOrganizationId) {
+    throw Object.assign(new Error('Invoice not found'), { statusCode: 404 });
+  }
+  if (!['FINALIZED', 'ISSUED', 'PARTIALLY_PAID', 'PAST_DUE'].includes(invoice.status)) {
+    throw Object.assign(new Error('Only a finalized invoice with an outstanding balance can be paid.'), { statusCode: 409 });
+  }
+  if (invoice.balanceDueCents <= 0) {
+    throw Object.assign(new Error('Invoice has no outstanding balance.'), { statusCode: 409 });
+  }
+  const account = await commercialStore.getCommercialAccountByOrgId(input.providerOrganizationId);
+  if (!account) throw Object.assign(new Error('Commercial account is not configured.'), { statusCode: 409 });
+  const organization = await postgresStore.getProviderOrganization(input.providerOrganizationId);
+  if (!organization) throw Object.assign(new Error('Provider organization is not configured.'), { statusCode: 409 });
+  const processor = getStripePaymentProcessor();
+  let customerId = account.externalBillingCustomerRef;
+  if (!customerId) {
+    const customer = await processor.createCustomer({
+      providerOrganizationId: input.providerOrganizationId,
+      name: organization.displayName
+    });
+    customerId = customer.id;
+    await commercialStore.saveCommercialAccount({
+      ...account, externalBillingCustomerRef: customerId, updatedAt: new Date().toISOString()
+    });
+  }
+  const session = await processor.createInvoicePaymentSession({
+    customerId,
+    invoiceId: invoice.id,
+    invoiceNumber: invoice.invoiceNumber,
+    providerOrganizationId: input.providerOrganizationId,
+    amountCents: invoice.balanceDueCents
+  });
+  await postgresStore.appendAuditEvent({
+    eventType: 'PAYMENT_SESSION_CREATED', actorRole: 'PROVIDER', actorId: input.actorId,
+    details: `Stripe checkout session ${session.id} created for invoice ${invoice.id} and ${invoice.balanceDueCents} USD cents.`
+  });
+  return { invoice, session };
 }
 
 // Provider and consumer identity is attached by verified Firebase ID token.
@@ -785,15 +831,23 @@ app.post('/api/challenges/create', async (req, res) => {
   } catch (e: any) {
     return res.status(e.statusCode || 401).json({ error: e.message });
   }
-  const { baselineId } = req.body;
+  const { baselineId, consumerDefinedRequestId } = req.body;
   if (Object.prototype.hasOwnProperty.call(req.body, 'requirements')) {
     return res.status(400).json({
       error: 'Terms are taken from your verified policy and cannot be set.'
     });
   }
-  const baseline = await postgresStore.getCoverageBaseline(baselineId);
+  if ((!baselineId && !consumerDefinedRequestId) || (baselineId && consumerDefinedRequestId)) {
+    return res.status(400).json({ error: 'Provide exactly one verified policy baseline or confirmed consumer-defined request.' });
+  }
+  const consumerDefinedRequest = consumerDefinedRequestId
+    ? await postgresStore.getConsumerDefinedCoverageRequest(consumerDefinedRequestId, consumerId)
+    : undefined;
+  const baseline = consumerDefinedRequest
+    ? consumerRequestToMarketplaceBaseline(consumerDefinedRequest)
+    : await postgresStore.getCoverageBaseline(baselineId);
   if (!baseline) {
-    return res.status(404).json({ error: 'Coverage baseline not found' });
+    return res.status(404).json({ error: consumerDefinedRequestId ? 'Confirmed coverage request not found' : 'Coverage baseline not found' });
   }
 
   const challengeId = `CHAL-${Date.now()}`;
@@ -802,13 +856,16 @@ app.post('/api/challenges/create', async (req, res) => {
   // PR-0A: the governing jurisdiction comes from evidence, never a default or a ZIP prefix.
   // The policy's stated state is the evidence; the baseline's copy is a cross-check, so a
   // disagreement surfaces as CONFLICT.
-  const sourcePolicy = await postgresStore.getPolicy(baseline.policyId);
+  const sourcePolicy = consumerDefinedRequest ? undefined : await postgresStore.getPolicy(baseline.policyId);
   const signals: JurisdictionSignal[] = [];
   if (sourcePolicy?.jurisdiction) {
     signals.push({ signal: 'POLICY_STATED_STATE', value: sourcePolicy.jurisdiction, evidenceRef: `policy:${sourcePolicy.id}` });
   }
   if (baseline.jurisdiction) {
-    signals.push({ signal: 'POLICY_STATED_STATE', value: baseline.jurisdiction, evidenceRef: `baseline:${baseline.id}` });
+    signals.push({
+      signal: 'POLICY_STATED_STATE', value: baseline.jurisdiction,
+      evidenceRef: consumerDefinedRequest ? `consumer-request:${consumerDefinedRequest.id}` : `baseline:${baseline.id}`
+    });
   }
   const determination = determineJurisdiction({
     id: `JDET-${challengeId}`,
@@ -840,8 +897,10 @@ app.post('/api/challenges/create', async (req, res) => {
     id: challengeId,
     referenceNumber: `POLICY REVIEW #${jurisdiction}-${Math.floor(10000 + Math.random() * 90000)}`,
     consumerId,
-    coverageBaselineId: baselineId,
+    coverageBaselineId: baseline.id,
     baseline,
+    baselineOrigin: consumerDefinedRequest ? 'CONSUMER_DEFINED_COVERAGE_REQUEST' : 'VERIFIED_EXISTING_POLICY',
+    consumerDefinedRequest: consumerDefinedRequest ? projectConsumerRequestForMarketplace(consumerDefinedRequest) : undefined,
     qualificationStandardVersion: CURRENT_QUALIFICATION_STANDARD.version,
     jurisdiction,
     insuranceLine: baseline.insuranceLine || 'PERSONAL_AUTO',
@@ -917,7 +976,9 @@ app.post('/api/challenges/create', async (req, res) => {
     if (initiallyActivated) openingNotifications.push({
       id: `NOTIF-${challenge.id}-${org.id}`, type: 'OPPORTUNITY_RECEIVED',
       title: 'New Shared Policy Opportunity',
-      message: `New verified ${challenge.jurisdiction} ${(challenge.insuranceLine || 'PERSONAL_AUTO').replaceAll('_', ' ').toLowerCase()} opportunity: ${challenge.referenceNumber}. Current premium: $${challenge.baseline.baselineAnnualPremium}/yr.`,
+      message: challenge.baselineOrigin === 'CONSUMER_DEFINED_COVERAGE_REQUEST'
+        ? `New consumer-defined ${challenge.jurisdiction} ${(challenge.insuranceLine || 'PERSONAL_AUTO').replaceAll('_', ' ').toLowerCase()} opportunity: ${challenge.referenceNumber}.`
+        : `New verified ${challenge.jurisdiction} ${(challenge.insuranceLine || 'PERSONAL_AUTO').replaceAll('_', ' ').toLowerCase()} opportunity: ${challenge.referenceNumber}. Current premium: $${challenge.baseline.baselineAnnualPremium}/yr.`,
       timestamp: openingTimestamp, read: false, recipientType: 'PROVIDER_ORGANIZATION',
       recipientProviderOrganizationId: org.id, createdFromEvent: `INVITATION:${invitation.id}`,
       actionTarget: 'OPPORTUNITIES'
@@ -1355,9 +1416,33 @@ app.get('/api/provider-applications/current', async (req, res) => {
   try {
     const application = await postgresStore.getProviderApplicationByFirebaseUid(req.openPolicyIdentity!.uid);
     if (!application) return res.status(404).json({ error: 'Provider application not found.' });
-    res.json(application);
+    res.json(await getProviderMembershipState({ application, commercialStore }));
   } catch (e: any) {
     res.status(e.statusCode || 500).json({ error: e.message });
+  }
+});
+
+app.post('/api/provider-applications/current/membership-payment-session', async (req, res) => {
+  try {
+    const identity = req.openPolicyIdentity!;
+    const application = await postgresStore.getProviderApplicationByFirebaseUid(identity.uid);
+    if (!application || application.status !== 'APPROVED' || !application.providerOrganizationId) {
+      return res.status(409).json({ error: 'Provider authority must be approved before membership payment.' });
+    }
+    const state = await getProviderMembershipState({ application, commercialStore });
+    if (!state.invoice || !state.paymentRequired || !state.agreementId) {
+      return res.status(409).json({ error: state.paymentComplete
+        ? 'The membership invoice is already paid.'
+        : 'The approved membership invoice is not ready.' });
+    }
+    const { session } = await createStripeInvoicePaymentSession({
+      providerOrganizationId: application.providerOrganizationId,
+      invoiceId: state.invoice.id,
+      actorId: identity.uid
+    });
+    res.status(201).json({ success: true, checkoutSessionId: session.id, checkoutUrl: session.url });
+  } catch (e: any) {
+    res.status(e.statusCode || 502).json({ error: e.message, code: e.code });
   }
 });
 
@@ -1464,6 +1549,25 @@ app.post('/api/admin/provider-applications/:applicationId/activate', async (req,
       }
     });
     res.json({ success: true, ...result, marketplaceAccessGranted: true });
+  } catch (e: any) {
+    res.status(e.statusCode || 500).json({ error: e.message });
+  }
+});
+
+app.post('/api/admin/provider-applications/:applicationId/prepare-membership', async (req, res) => {
+  try {
+    const state = await prepareProviderMembership({
+      applicationId: req.params.applicationId,
+      postgresStore,
+      commercialStore
+    });
+    await postgresStore.appendAuditEvent({
+      eventType: 'PROVIDER_MEMBERSHIP_INVOICE_PREPARED',
+      actorRole: 'ADMIN',
+      actorId: req.openPolicyIdentity!.uid,
+      details: `Prepared ${state.application.requestedPlanCode} membership invoice ${state.invoice?.id} for provider application ${state.application.id}. Marketplace access remains closed pending settlement and explicit activation.`
+    });
+    res.status(201).json({ success: true, ...state });
   } catch (e: any) {
     res.status(e.statusCode || 500).json({ error: e.message });
   }
@@ -1736,11 +1840,22 @@ app.get('/api/marketplace/opportunities', async (req, res) => {
         referenceNumber: challenge.referenceNumber,
         market: `${challenge.jurisdiction === 'NV' ? 'Nevada' : challenge.jurisdiction} Personal Auto`,
         jurisdiction: challenge.jurisdiction, lineOfBusiness: 'PERSONAL_AUTO',
-        vehicleSummary: challenge.baseline?.vehicle ? `${challenge.baseline.vehicle.year} ${challenge.baseline.vehicle.make} ${challenge.baseline.vehicle.model}` : 'Personal Vehicle',
+        vehicleSummary: challenge.baseline?.vehicle
+          ? `${challenge.baseline.vehicle.year} ${challenge.baseline.vehicle.make} ${challenge.baseline.vehicle.model}`
+          : challenge.consumerDefinedRequest
+            ? `${challenge.consumerDefinedRequest.riskFacts.vehicleYear || ''} ${challenge.consumerDefinedRequest.riskFacts.vehicleMake || ''} ${challenge.consumerDefinedRequest.riskFacts.vehicleModel || 'Personal Vehicle'}`.trim()
+            : 'Personal Vehicle',
+        baselineOrigin: challenge.baselineOrigin,
         currentAnnualPremium: challenge.baseline?.baselineAnnualPremium || 0,
         currentMonthlyPremium: challenge.baseline?.baselineMonthlyPremium || 0,
+        requestedCoverageSummary: challenge.consumerDefinedRequest?.requestedCoverage
+          .filter(term => term.preference === 'REQUESTED')
+          .map(term => `${term.label}: ${String(term.requestedValue)}`)
+          .join(' • '),
         coverageBaselineStatus: 'VERIFIED', renewalDaysRemaining: renewalDays,
-        consumerRequirementsSummary: "Offers are compared with the consumer's current policy line by line.",
+        consumerRequirementsSummary: challenge.baselineOrigin === 'CONSUMER_DEFINED_COVERAGE_REQUEST'
+          ? "Offers are compared factually with the consumer's stated request. Unstated terms are not treated as preferences."
+          : "Offers are compared with the consumer's current policy line by line.",
         competitionClosesAt: competition.closesAt, invitedProvidersCount: challengeInvitations.length,
         participatingProvidersCount: participations.filter(participation => participation.status !== 'WITHDRAWN').length,
         invitationStatus: invitation.status, viewedAt: invitation.viewedAt
@@ -1919,9 +2034,11 @@ app.get('/api/marketplace/workspace/:challengeId', async (req, res) => {
     if (!competition) return res.status(404).json({ error: `Competition not found for challenge ${challengeId}` });
     const baseline = { ...challenge.baseline, verifiedBy: 'Verified Policyholder', vehicle: challenge.baseline.vehicle ? { ...challenge.baseline.vehicle, vin: challenge.baseline.vehicle.vin ? `***${challenge.baseline.vehicle.vin.slice(-4)}` : '***MASKED***' } : undefined };
     const workspace = {
-      challenge: { id: challenge.id, referenceNumber: challenge.referenceNumber, jurisdiction: challenge.jurisdiction, status: challenge.status, openingTimestamp: challenge.openingTimestamp, closingTimestamp: challenge.closingTimestamp },
+      challenge: { id: challenge.id, referenceNumber: challenge.referenceNumber, jurisdiction: challenge.jurisdiction, status: challenge.status, openingTimestamp: challenge.openingTimestamp, closingTimestamp: challenge.closingTimestamp, baselineOrigin: challenge.baselineOrigin, consumerDefinedRequest: challenge.consumerDefinedRequest },
       competition: { id: competition.id, currentRound: competition.currentRound, status: competition.status, openedAt: competition.openedAt, closesAt: competition.closesAt, participantCount: participations.filter(item => item.status !== 'WITHDRAWN').length, invitedCount: invitations.length },
-      consumerObjective: "Compare the provider's documented offer with the consumer's verified existing policy.",
+      consumerObjective: challenge.baselineOrigin === 'CONSUMER_DEFINED_COVERAGE_REQUEST'
+        ? "Prepare an independent offer responsive to the consumer's stated request without treating unstated terms as recommendations."
+        : "Compare the provider's documented offer with the consumer's verified existing policy.",
       baseline, qualificationStandardVersion: challenge.qualificationStandardVersion || CURRENT_QUALIFICATION_STANDARD.version,
       authorizedRatingInfo: { vehicle: challenge.baseline.vehicle ? { year: challenge.baseline.vehicle.year, make: challenge.baseline.vehicle.make, model: challenge.baseline.vehicle.model, usage: challenge.baseline.vehicle.usage, annualMileage: challenge.baseline.vehicle.annualMileage, garagingZip: challenge.baseline.vehicle.garagingZip, ownership: challenge.baseline.vehicle.ownership } : undefined, driverInfo: { primaryDriverAgeBracket: '35-49', licenseState: challenge.jurisdiction, yearsLicensed: '15+' }, currentPolicyTerm: { effectiveDate: challenge.baseline.effectiveDate, expirationDate: challenge.baseline.expirationDate, termMonths: 12 } },
       participation, myOffers: offers.filter(offer => offer.providerId === orgId),
@@ -3762,33 +3879,10 @@ app.post('/api/commercial/payments', async (req, res) => {
 app.post('/api/commercial/invoices/:id/payment-session', async (req, res) => {
   try {
     const orgId = await getAuthenticatedProviderOrgId(req);
-    const invoice = await commercialStore.getInvoiceById(req.params.id);
-    if (!invoice || invoice.providerOrganizationId !== orgId) {
-      return res.status(404).json({ error: 'Invoice not found' });
-    }
-    if (!['FINALIZED', 'ISSUED', 'PARTIALLY_PAID', 'PAST_DUE'].includes(invoice.status)) {
-      return res.status(409).json({ error: 'Only a finalized invoice with an outstanding balance can be paid.' });
-    }
-    if (invoice.balanceDueCents <= 0) return res.status(409).json({ error: 'Invoice has no outstanding balance.' });
-
-    const account = await commercialStore.getCommercialAccountByOrgId(orgId);
-    if (!account) return res.status(409).json({ error: 'Commercial account is not configured.' });
-    const organization = await postgresStore.getProviderOrganization(orgId);
-    if (!organization) return res.status(409).json({ error: 'Provider organization is not configured.' });
-    const processor = getStripePaymentProcessor();
-    let customerId = account.externalBillingCustomerRef;
-    if (!customerId) {
-      const customer = await processor.createCustomer({ providerOrganizationId: orgId, name: organization.displayName });
-      customerId = customer.id;
-      await commercialStore.saveCommercialAccount({ ...account, externalBillingCustomerRef: customerId, updatedAt: new Date().toISOString() });
-    }
-    const session = await processor.createInvoicePaymentSession({
-      customerId, invoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber,
-      providerOrganizationId: orgId, amountCents: invoice.balanceDueCents
-    });
-    await postgresStore.appendAuditEvent({
-      eventType: 'PAYMENT_SESSION_CREATED', actorRole: 'PROVIDER', actorId: orgId,
-      details: `Stripe checkout session ${session.id} created for invoice ${invoice.id} and ${invoice.balanceDueCents} USD cents.`
+    const { session } = await createStripeInvoicePaymentSession({
+      providerOrganizationId: orgId,
+      invoiceId: req.params.id,
+      actorId: req.openPolicyIdentity!.uid
     });
     res.status(201).json({ success: true, checkoutSessionId: session.id, checkoutUrl: session.url });
   } catch (e: any) {

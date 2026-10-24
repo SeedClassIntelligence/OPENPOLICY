@@ -359,7 +359,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
   };
 
   // Policy & Baseline state
-  const [activePolicy, setActivePolicy] = useState<Policy | null>(challenge ? {
+  const [activePolicy, setActivePolicy] = useState<Policy | null>(challenge && challenge.baselineOrigin !== 'CONSUMER_DEFINED_COVERAGE_REQUEST' ? {
     id: challenge.baseline.policyId,
     policyNumber: '4928-1029-41-01',
     carrier: challenge.baseline.carrier,
@@ -498,6 +498,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
     if (!activeBaseline) return [];
     return offers.map(o => compareOfferAgainstBaseline(activeBaseline, o));
   }, [activeBaseline, offers]);
+  const isConsumerDefinedRequest = challenge?.baselineOrigin === 'CONSUMER_DEFINED_COVERAGE_REQUEST';
 
   const selectedComparison = activeComparisons.find(c => c.offerId === selectedOfferId) || activeComparisons[0];
 
@@ -1120,7 +1121,14 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
       )}
 
       {currentStep === 'UPLOAD_EXTRACT' && intakeOrigin === 'CONSUMER_DEFINED_COVERAGE_REQUEST' && (
-        <ConsumerDefinedCoverageRequestForm insuranceLine={insuranceLine} onUseExistingPolicy={() => setIntakeOrigin('VERIFIED_EXISTING_POLICY')} />
+        <ConsumerDefinedCoverageRequestForm
+          insuranceLine={insuranceLine}
+          onUseExistingPolicy={() => setIntakeOrigin('VERIFIED_EXISTING_POLICY')}
+          onMarketplaceStarted={async () => {
+            await Promise.resolve(onRefreshData());
+            setCurrentStep('COMPETITION_ROOM');
+          }}
+        />
       )}
 
       {currentStep === 'UPLOAD_EXTRACT' && intakeOrigin === 'VERIFIED_EXISTING_POLICY' && (
@@ -1882,21 +1890,23 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
             {/* CURRENT POLICY BASELINE */}
             <div className="bg-slate-900 text-white rounded-xl p-5 border border-slate-800 flex flex-col justify-between shadow-md relative overflow-hidden">
               <div className="absolute top-0 right-0 bg-slate-800 text-[10px] font-mono text-slate-400 px-2.5 py-1 rounded-bl">
-                CURRENT BASELINE
+                {isConsumerDefinedRequest ? 'REQUESTED BASELINE' : 'CURRENT BASELINE'}
               </div>
 
               <div>
-                <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">Your Existing Policy</p>
+                <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">{isConsumerDefinedRequest ? 'Your Stated Request' : 'Your Existing Policy'}</p>
                 <h3 className="text-lg font-bold text-white mt-1">
-                  {challenge?.baseline.carrier || 'GEICO Advantage'}
+                  {isConsumerDefinedRequest ? 'Consumer-defined terms' : (challenge?.baseline.carrier || 'Existing carrier')}
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  {challenge?.baseline.vehicle
+                  {isConsumerDefinedRequest
+                    ? `Desired start: ${challenge?.consumerDefinedRequest?.desiredEffectiveDate || challenge?.baseline.effectiveDate}`
+                    : challenge?.baseline.vehicle
                     ? `${challenge.baseline.vehicle.year} ${challenge.baseline.vehicle.make} ${challenge.baseline.vehicle.model}`
                     : 'Vehicle details not verified'}
                 </p>
 
-                <div className="my-5 p-3 rounded-lg bg-slate-800/80 border border-slate-700/60">
+                {!isConsumerDefinedRequest && <div className="my-5 p-3 rounded-lg bg-slate-800/80 border border-slate-700/60">
                   <div className="text-3xl font-extrabold text-white">
                     ${challenge?.baseline.baselineMonthlyPremium || 247}
                     <span className="text-xs font-normal text-slate-400">/mo</span>
@@ -1904,7 +1914,11 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                   <div className="text-xs text-slate-400 font-mono mt-0.5">
                     ${challenge?.baseline.baselineAnnualPremium.toLocaleString() || '2,964'}/year
                   </div>
-                </div>
+                </div>}
+
+                {isConsumerDefinedRequest && <div className="my-5 rounded-lg border border-slate-700/60 bg-slate-800/80 p-3 text-xs leading-5 text-slate-300">
+                  No current-policy premium exists. Provider prices are displayed as submitted, without a savings claim.
+                </div>}
 
                 <div className="space-y-2 text-xs border-t border-slate-800 pt-3">
                   {challenge?.baseline.coverages?.length ? challenge.baseline.coverages.map(coverage => (
@@ -1919,7 +1933,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
               </div>
 
               <div className="mt-6 pt-3 border-t border-slate-800/80 text-[11px] text-slate-400 text-center font-mono">
-                Current Policy Reference
+                {isConsumerDefinedRequest ? 'Consumer Request Reference' : 'Current Policy Reference'}
               </div>
             </div>
 
@@ -1997,9 +2011,13 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                       </div>
                       <div className="flex items-center justify-between text-xs mt-1">
                         <span className="text-slate-500 font-mono">${comp.offerAnnualPremium.toLocaleString()}/yr</span>
-                        <span className="font-bold text-emerald-700 bg-emerald-100/60 px-1.5 py-0.2 rounded text-[11px]">
-                          ${Math.abs(comp.annualPremiumDifference).toLocaleString()}/yr {comp.annualPremiumDifference >= 0 ? 'lower' : 'higher'}
-                        </span>
+                        {isConsumerDefinedRequest ? (
+                          <span className="font-bold text-slate-600 bg-slate-200/70 px-1.5 py-0.2 rounded text-[11px]">Provider-stated price</span>
+                        ) : (
+                          <span className="font-bold text-emerald-700 bg-emerald-100/60 px-1.5 py-0.2 rounded text-[11px]">
+                            ${Math.abs(comp.annualPremiumDifference).toLocaleString()}/yr {comp.annualPremiumDifference >= 0 ? 'lower' : 'higher'}
+                          </span>
+                        )}
                       </div>
                     </div>
 
@@ -2008,7 +2026,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                       {comp.classification === 'BASELINE_MATCH' && (
                         <div className="p-2.5 rounded bg-emerald-50 text-emerald-800 text-[11px] leading-tight flex items-start space-x-1.5">
                           <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                          <span>Exact protection match across all verified coverage categories.</span>
+                          <span>{isConsumerDefinedRequest ? 'Matches every coverage preference you stated.' : 'Exact protection match across all verified coverage categories.'}</span>
                         </div>
                       )}
 
@@ -2033,7 +2051,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                             <span>Coverage Differences</span>
                           </div>
                           <p className="text-[11px] text-rose-800 font-medium">
-                            This lower-priced offer states these coverage differences:
+                            {isConsumerDefinedRequest ? 'This offer differs from the coverage preferences you stated:' : 'This lower-priced offer states these coverage differences:'}
                           </p>
                           {comp.materialReductions.map((r, i) => (
                             <div key={i} className="text-rose-700 pl-3 font-semibold">

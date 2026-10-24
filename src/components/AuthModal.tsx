@@ -40,6 +40,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     closeAuthModal, 
     authModalInitialRole,
     authModalInitialMode,
+    authModalInitialPlanCode,
     signInWithEmail, 
     sendPasswordReset,
     signUpAsConsumer,
@@ -68,7 +69,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [providerEmail, setProviderEmail] = useState('');
   const [providerPassword, setProviderPassword] = useState('');
   const [providerOrganizationType, setProviderOrganizationType] = useState('INDEPENDENT_AGENCY');
-  const [providerPlanCode, setProviderPlanCode] = useState('PLAN_SOLO');
+  const [providerPlanCode, setProviderPlanCode] = useState(authModalInitialPlanCode || 'PLAN_SOLO');
   const [providerInsuranceLine, setProviderInsuranceLine] = useState<InsuranceLine>('PERSONAL_AUTO');
   const [providerNpn, setProviderNpn] = useState('');
   const [carrierAuthorityReference, setCarrierAuthorityReference] = useState('');
@@ -85,10 +86,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     if (authModalOpen || isInline) {
       setMode(initialMode || authModalInitialMode || 'SIGN_UP');
       setRole(initialRole || authModalInitialRole || 'CONSUMER');
+      setProviderPlanCode(authModalInitialPlanCode || 'PLAN_SOLO');
       setError(null);
       setResetStatus(null);
     }
-  }, [authModalOpen, authModalInitialRole, authModalInitialMode, initialMode, initialRole, isInline]);
+  }, [authModalOpen, authModalInitialRole, authModalInitialMode, authModalInitialPlanCode, initialMode, initialRole, isInline]);
 
   if (!isInline && !authModalOpen) return null;
 

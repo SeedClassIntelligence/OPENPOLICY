@@ -303,9 +303,12 @@ export function compareOfferAgainstBaseline(
   baseline: CoverageBaseline,
   offer: Offer
 ): OfferComparison {
+  const isConsumerRequest = baseline.baselineOrigin === 'CONSUMER_DEFINED_COVERAGE_REQUEST';
   const currentAnnual = baseline.baselineAnnualPremium;
   const offerAnnual = offer.annualPremium;
-  const annualPremiumDifference = currentAnnual - offerAnnual;
+  // A consumer-defined request has no current-policy price. Zero is a sentinel,
+  // not a price and must never produce a fake savings or increase calculation.
+  const annualPremiumDifference = isConsumerRequest ? 0 : currentAnnual - offerAnnual;
   const monthlyPremiumDifference = Math.round(annualPremiumDifference / 12);
 
   // Compare every coverage in baseline
@@ -324,7 +327,17 @@ export function compareOfferAgainstBaseline(
   // Check any additional coverages in offer not in baseline
   for (const oItem of offerCoverages) {
     if (!processedCodes.has(oItem.code)) {
-      const comp = compareCoverageItem(undefined, oItem);
+      const comp = isConsumerRequest ? {
+        fieldCode: oItem.code,
+        fieldName: oItem.name,
+        category: oItem.category,
+        baselineValueFormatted: 'No preference stated',
+        offerValueFormatted: oItem.deductible !== undefined ? `Included ($${oItem.deductible} ded)` : 'Provider-stated term',
+        result: 'DIFFERENT' as const,
+        explanation: 'The consumer did not state a preference for this term. It is shown factually and is not rated better or worse.',
+        isMaterialReduction: false,
+        isMaterialImprovement: false
+      } : compareCoverageItem(undefined, oItem);
       fieldComparisons.push(comp);
     }
   }
@@ -347,13 +360,17 @@ export function compareOfferAgainstBaseline(
     summaryHeadline = 'Unverified details or quote document discrepancies require human review.';
   } else if (materialReductions.length > 0) {
     classification = 'COVERAGE_CHANGED';
-    summaryHeadline = `${materialReductions.length} protection element${materialReductions.length > 1 ? 's were' : ' was'} reduced or eliminated.`;
+    summaryHeadline = isConsumerRequest
+      ? `${materialReductions.length} provider term${materialReductions.length > 1 ? 's differ' : ' differs'} from the consumer's stated request.`
+      : `${materialReductions.length} protection element${materialReductions.length > 1 ? 's were' : ' was'} reduced or eliminated.`;
   } else if (materialImprovements.length > 0) {
     classification = 'BASELINE_PLUS';
     summaryHeadline = `Equal or superior coverage on all terms, plus ${materialImprovements.length} material upgrade${materialImprovements.length > 1 ? 's' : ''}.`;
   } else {
     classification = 'BASELINE_MATCH';
-    summaryHeadline = `Exact coverage parity across all verified protection categories.`;
+    summaryHeadline = isConsumerRequest
+      ? 'The documented offer matches every coverage preference the consumer stated.'
+      : `Exact coverage parity across all verified protection categories.`;
   }
 
   return {

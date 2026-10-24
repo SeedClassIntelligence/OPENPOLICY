@@ -19,6 +19,7 @@ import { canEnterMarketplaceDestination, canEnterOwnerDestination, destinationFo
 import { apiFetch } from './services/apiClient';
 import { canEnterPolicyPipeline, getInsuranceLineDefinition } from './domain/insuranceLineRegistry';
 import { ProviderInvitationAcceptance } from './components/ProviderInvitationAcceptance';
+import { ProviderOnboardingStatus } from './components/ProviderOnboardingStatus';
 
 function MainApp() {
   const { isAuthenticated, userRole, userProfile, isDemoUser, loading: authLoading, openAuthModal } = useAuth();
@@ -235,13 +236,7 @@ function MainApp() {
             )}
 
             {activePerspective === 'PROVIDER' && userRole === 'PROVIDER' && !isDemoUser && userProfile?.providerStatus !== 'ACTIVE' && (
-              <div className="max-w-2xl mx-auto bg-white border border-amber-200 rounded-3xl p-8 shadow-sm">
-                <p className="text-xs font-mono uppercase tracking-wider text-amber-700">Provider onboarding</p>
-                <h2 className="text-xl font-bold text-slate-900 mt-2">License verification pending</h2>
-                <p className="text-sm text-slate-600 mt-3 leading-relaxed">
-                  Your agency account exists, but the Provider Quoting Desk remains closed until Open Polici verifies the submitted license and activates the provider profile.
-                </p>
-              </div>
+              <ProviderOnboardingStatus />
             )}
 
             {activePerspective === 'PROVIDER' && (isDemoUser || userProfile?.providerStatus === 'ACTIVE') && (

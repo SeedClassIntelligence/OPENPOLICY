@@ -290,6 +290,30 @@ export function runComparisonEngineTestSuite(): {
     'Ensures cheap price never masks coverage reductions'
   );
 
+  const requestBaseline: CoverageBaseline = {
+    ...dummyBaseline,
+    id: 'request-baseline', policyId: 'consumer-request-1',
+    carrier: 'Consumer-defined coverage request',
+    baselineAnnualPremium: 0, baselineMonthlyPremium: 0,
+    baselineOrigin: 'CONSUMER_DEFINED_COVERAGE_REQUEST',
+    coverages: [baseBI]
+  };
+  const requestOffer: Offer = {
+    ...matchOffer, id: 'off-request', annualPremium: 1800, monthlyPremium: 150,
+    coverages: [baseBI, baseRental]
+  };
+  const requestComparison = compareOfferAgainstBaseline(requestBaseline, requestOffer);
+  test(
+    'Consumer-defined request must not manufacture premium savings or rank an unstated provider term as better',
+    'Consumer-Defined Baseline Integrity',
+    requestComparison.annualPremiumDifference === 0
+      && requestComparison.materialImprovements.length === 0
+      && requestComparison.fieldComparisons.some(field => field.fieldCode === 'RENTAL_REIMBURSEMENT' && field.result === 'DIFFERENT'),
+    `${requestComparison.annualPremiumDifference}:${requestComparison.materialImprovements.length}`,
+    '0:0',
+    'A new-insurance consumer has no current-policy price and no unstated suitability preference.'
+  );
+
   const passedCount = results.filter(r => r.passed).length;
   return {
     total: results.length,

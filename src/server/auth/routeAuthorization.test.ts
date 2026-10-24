@@ -71,9 +71,14 @@ test('provider integration APIs require provider identity', () => {
 
 test('provider application intake and review preserve separate authority boundaries', () => {
   const pendingProvider: RequestIdentity = { uid: 'pending-provider', role: 'PROVIDER', providerStatus: 'PENDING_VERIFICATION', source: 'FIREBASE' };
+  const providerAdmin: RequestIdentity = { uid: 'provider-admin', role: 'ADMIN', adminType: 'STAFF', adminPermissions: ['PROVIDER_ADMIN'], source: 'FIREBASE' };
+  const readOnlyAdmin: RequestIdentity = { uid: 'read-only-admin', role: 'ADMIN', adminType: 'STAFF', adminPermissions: ['PLATFORM_READ'], source: 'FIREBASE' };
   assert.equal(invoke('POST', '/provider-applications/current').status, 401);
   assert.equal(invoke('POST', '/provider-applications/current', consumer).status, 403);
   assert.equal(invoke('POST', '/provider-applications/current', pendingProvider).next, true);
+  assert.equal(invoke('POST', '/provider-applications/current/membership-payment-session', pendingProvider).next, true);
+  assert.equal(invoke('POST', '/admin/provider-applications/application-1/prepare-membership', providerAdmin).next, true);
+  assert.equal(invoke('POST', '/admin/provider-applications/application-1/prepare-membership', readOnlyAdmin).status, 403);
   assert.equal(invoke('GET', '/admin/provider-applications', provider).status, 403);
   assert.equal(invoke('POST', '/admin/provider-applications/application-a/review', provider).status, 403);
   assert.equal(invoke('POST', '/admin/provider-applications/application-a/review', admin).next, true);

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   confirmConsumerDefinedCoverageRequest,
+  consumerRequestToMarketplaceBaseline,
   projectConsumerRequestForMarketplace,
   reviseConsumerDefinedCoverageRequest,
   validateConsumerDefinedCoverageRequest,
@@ -58,4 +59,17 @@ test('marketplace projection excludes identity and private budget', () => {
   assert.equal('consumerId' in projection, false);
   assert.equal('privateBudget' in projection, false);
   assert.equal(projection.requestedCoverage.length, 2);
+});
+
+test('creates a marketplace-compatible baseline without inventing unstated coverage or a current premium', () => {
+  const request = confirmConsumerDefinedCoverageRequest(input, { requestSeriesId: 'CDR-4', id: 'CDR-4-V1' });
+  const baseline = consumerRequestToMarketplaceBaseline(request);
+  assert.equal(baseline.baselineOrigin, 'CONSUMER_DEFINED_COVERAGE_REQUEST');
+  assert.equal(baseline.consumerDefinedRequestId, request.id);
+  assert.equal(baseline.baselineAnnualPremium, 0);
+  assert.equal(baseline.coverages.length, 1);
+  assert.equal(baseline.coverages[0].code, 'BODILY_INJURY');
+  assert.equal(baseline.coverages.some(item => item.code === 'COLLISION'), false);
+  assert.equal('privateBudget' in baseline, false);
+  assert.equal('consumerId' in baseline, false);
 });

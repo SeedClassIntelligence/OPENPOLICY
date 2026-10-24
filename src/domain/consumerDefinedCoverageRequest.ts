@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { InsuranceLine, UsJurisdictionCode } from '../types/jurisdiction';
+import type { CoverageBaseline, CoverageItem } from '../types/insurance';
 
 export const CONSUMER_DEFINED_REQUEST_SCHEMA_VERSION = 'CDCR-1' as const;
 
@@ -159,5 +160,65 @@ export function projectConsumerRequestForMarketplace(baseline: ConsumerDefinedCo
     riskFacts: baseline.riskFacts,
     requestedCoverage: baseline.requestedCoverage,
     contentSha256: baseline.contentSha256
+  });
+}
+
+function numericParts(value: unknown): number[] {
+  return String(value ?? '').match(/[\d,]+/g)?.map(part => Number(part.replaceAll(',', ''))).filter(Number.isFinite) || [];
+}
+
+/**
+ * Compatibility baseline for the existing marketplace and offer-validation engines.
+ * It contains only consumer-requested terms. "No preference stated" never becomes
+ * a fabricated exclusion, limit, deductible, or coverage recommendation.
+ */
+export function consumerRequestToMarketplaceBaseline(
+  request: ConsumerDefinedCoverageRequestBaseline
+): CoverageBaseline {
+  const coverages: CoverageItem[] = [];
+  for (const term of request.requestedCoverage) {
+    if (term.preference !== 'REQUESTED') continue;
+    const values = numericParts(term.requestedValue);
+    const code = term.fieldCode as CoverageItem['code'];
+    const base = {
+      id: `${request.id}-${term.fieldCode}`,
+      code,
+      name: term.label,
+      isIncluded: true,
+      notes: 'Consumer-requested term; not an existing-policy term.'
+    };
+    if (code === 'BODILY_INJURY' || code === 'UM_UIM') {
+      coverages.push({ ...base, category: 'LIABILITY', perPersonLimit: values[0], perAccidentLimit: values[1] });
+      continue;
+    }
+    if (code === 'PROPERTY_DAMAGE') {
+      coverages.push({ ...base, category: 'LIABILITY', propertyLimit: values[0] });
+      continue;
+    }
+    if (code === 'COLLISION' || code === 'COMPREHENSIVE') {
+      coverages.push({ ...base, category: 'PHYSICAL_DAMAGE', deductible: values[0] });
+      continue;
+    }
+    coverages.push({ ...base, category: 'ADDITIONAL' });
+  }
+  const effective = new Date(request.desiredEffectiveDate);
+  const expiration = new Date(effective);
+  expiration.setUTCFullYear(expiration.getUTCFullYear() + 1);
+  return Object.freeze({
+    id: `MBL-${request.id}`,
+    policyId: request.id,
+    version: request.version,
+    carrier: 'Consumer-defined coverage request',
+    effectiveDate: request.desiredEffectiveDate,
+    expirationDate: expiration.toISOString().slice(0, 10),
+    baselineAnnualPremium: 0,
+    baselineMonthlyPremium: 0,
+    jurisdiction: request.jurisdiction,
+    coverages: Object.freeze(coverages) as unknown as CoverageItem[],
+    verifiedAt: request.confirmedAt,
+    verifiedBy: 'Consumer attestation',
+    insuranceLine: request.insuranceLine,
+    baselineOrigin: 'CONSUMER_DEFINED_COVERAGE_REQUEST',
+    consumerDefinedRequestId: request.id
   });
 }
