@@ -156,7 +156,8 @@ function resolveFixtureIdentity(req: Request): RequestIdentity {
   }
   const providerUserId = String(req.headers['x-provider-user-id'] || req.body?.providerUserId || '').trim();
   if (providerUserId) {
-    return { uid: providerUserId, providerUserId, role: 'PROVIDER', providerStatus: 'ACTIVE', source: 'FIXTURE' };
+    const email = String(req.headers['x-openpolicy-fixture-email'] || '').trim() || undefined;
+    return { uid: providerUserId, email, providerUserId, role: 'PROVIDER', providerStatus: 'ACTIVE', source: 'FIXTURE' };
   }
 
   const consumerId = String(

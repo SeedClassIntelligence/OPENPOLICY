@@ -2299,7 +2299,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
       {/* TAB 5: COMMERCIAL ACCOUNT, ENTITLEMENTS & VALUE FUNNEL (CE-1) */}
       {activeTab === 'ACCOUNT' && (
         <div className="space-y-6">
-          <ProviderTeamManagement />
+          <ProviderTeamManagement providerUserId={authenticatedUserId} />
           {/* 1. Neutrality Invariant Banner */}
           <div className="bg-slate-900 text-white rounded-2xl p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="space-y-1">

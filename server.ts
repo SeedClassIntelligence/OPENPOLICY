@@ -3217,7 +3217,9 @@ app.get('/api/commercial/plans', async (req, res) => {
 app.get('/api/commercial/entitlements', async (req, res) => {
   try {
     const orgId = await getAuthenticatedProviderOrgId(req);
-    const entitlements = await commercialStore.getEntitlementsForOrg(orgId);
+    const agreement = await commercialStore.getActiveAgreementForOrg(orgId);
+    const entitlements = (await commercialStore.getEntitlementsForOrg(orgId))
+      .filter(entitlement => entitlement.commercialAgreementId === agreement?.id);
     const enriched = await Promise.all(
       entitlements.map(async (ent) => {
         const usageCount = await commercialStore.getUsageCountForEntitlement(ent.id, orgId);
@@ -4297,6 +4299,17 @@ async function startServer() {
       await synchronizeFixturePersistence();
     }
     await commercialStore.seedCanonicalPlans();
+    if (process.env.OPENPOLICY_AUTH_MODE === 'fixture') {
+      await commercialStore.seedTestCommercialAgreements();
+      if (process.env.OPENPOLICY_SEAT_DEMO === 'true' && process.env.NODE_ENV !== 'production') {
+        await postgresStore.saveProviderUser({ id:'user_sierra_1', organizationId:'org_sierra',
+          name:'Alex Morgan', email:'alex@sierrabrokerage.com', role:'OWNER', status:'ACTIVE' });
+        await commercialStore.enrollCommercialAgreement({ providerOrgId:'org_sierra', planId:'PLAN_AGENCY',
+          actorRole:'ADMIN', customTerms:{ includedProducerSeats:3, includedJurisdictions:2,
+            includedConcurrentCompetitions:20, includedMonthlyOfferSubmissions:100,
+            capacityEnforcementPolicy:'HARD_BLOCK' } });
+      }
+    }
     await ensureJurisdictionFramework();
   } catch (err: any) {
     console.warn('[PostgresStore Initialization Warning]:', err?.message || err);

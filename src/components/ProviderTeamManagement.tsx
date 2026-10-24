@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { apiFetch } from '../services/apiClient';
 
-export const ProviderTeamManagement: React.FC = () => {
+export const ProviderTeamManagement: React.FC<{ providerUserId?: string }> = ({ providerUserId }) => {
   const [users,setUsers]=useState<any[]>([]);
   const [invitations,setInvitations]=useState<any[]>([]);
   const [seatCapacity,setSeatCapacity]=useState<{active:number;limit:number;available:number;enforcementPolicy:string}|null>(null);
@@ -10,9 +10,10 @@ export const ProviderTeamManagement: React.FC = () => {
 
   const load=async()=>{
     setMessage('');
+    const headers = providerUserId ? { 'x-provider-user-id': providerUserId } : undefined;
     const [usersResponse,invitationsResponse]=await Promise.all([
-      apiFetch('/api/marketplace/my-provider/users'),
-      apiFetch('/api/marketplace/my-provider/user-invitations')
+      apiFetch('/api/marketplace/my-provider/users',{headers}),
+      apiFetch('/api/marketplace/my-provider/user-invitations',{headers})
     ]);
     if(!usersResponse.ok||!invitationsResponse.ok){
       const body=await (!usersResponse.ok?usersResponse:invitationsResponse).json().catch(()=>({}));
@@ -27,7 +28,7 @@ export const ProviderTeamManagement: React.FC = () => {
   const invite=async(event:React.FormEvent<HTMLFormElement>)=>{
     event.preventDefault();setMessage('');setAcceptanceLink('');
     const form=new FormData(event.currentTarget);
-    const response=await apiFetch('/api/marketplace/my-provider/user-invitations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    const response=await apiFetch('/api/marketplace/my-provider/user-invitations',{method:'POST',headers:{'Content-Type':'application/json',...(providerUserId?{'x-provider-user-id':providerUserId}:{})},body:JSON.stringify({
       fullName:form.get('fullName'),email:form.get('email'),role:form.get('role')
     })});
     const body=await response.json().catch(()=>({}));

@@ -15,6 +15,29 @@ test('fixture identity is explicitly selected and forbidden in production', () =
   );
 });
 
+test('fixture provider identity can carry the invitation email only in explicit fixture mode', async () => {
+  const request = {
+    headers: {
+      'x-provider-user-id': 'fixture-provider-user',
+      'x-openpolicy-fixture-email': 'producer@example.test'
+    },
+    body: {},
+    query: {}
+  } as unknown as Request;
+  const { response } = responseRecorder();
+  let nextCalled = false;
+
+  await createRequestIdentityMiddleware(
+    async () => { throw new Error('Firebase verification must not run in fixture mode'); },
+    { OPENPOLICY_AUTH_MODE: 'fixture', NODE_ENV: 'test' } as NodeJS.ProcessEnv
+  )(request, response, () => { nextCalled = true; });
+
+  assert.equal(nextCalled, true);
+  assert.equal(request.openPolicyIdentity?.providerUserId, 'fixture-provider-user');
+  assert.equal(request.openPolicyIdentity?.email, 'producer@example.test');
+  assert.equal(request.openPolicyIdentity?.source, 'FIXTURE');
+});
+
 test('production Firebase configuration fails closed without project and credential configuration', () => {
   assert.throws(() => assertProductionAuthConfiguration({ NODE_ENV: 'production' } as NodeJS.ProcessEnv), /FIREBASE_PROJECT_ID/);
   assert.throws(() => assertProductionAuthConfiguration({
