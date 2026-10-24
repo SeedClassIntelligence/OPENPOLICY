@@ -54,13 +54,17 @@ test('direct-carrier application requires independently verified certificate evi
     assert.equal(application.providerOrganizationId, undefined);
     await assert.rejects(() => store.reviewProviderApplication({
       applicationId: application.id, decision: 'APPROVE', actorId: 'admin-owner', reason: 'Attempted review',
-      verificationSource: 'Nevada DOI', licenseType: 'CARRIER', licenseExpirationDate: '2027-12-31'
+      verificationSource: 'Nevada DOI', licenseType: 'CARRIER', licenseExpirationDate: '2027-12-31',
+      verificationSourceUrl: 'https://doi.nv.gov/licensing/lookup', verificationRecordId: 'NV-COA-REVIEW-REFERENCE',
+      verificationEvidence: '{"certificate":"NV-COA-REVIEW-REFERENCE","status":"ACTIVE"}'
     }), /CARRIER_CERTIFICATE_OF_AUTHORITY/);
     const approved = await store.reviewProviderApplication({
       applicationId: application.id, decision: 'APPROVE', actorId: 'admin-owner',
       reason: 'Nevada certificate of authority independently verified.',
       verificationSource: 'Nevada Division of Insurance certificate lookup',
-      licenseType: 'CARRIER_CERTIFICATE_OF_AUTHORITY', licenseExpirationDate: '2027-12-31'
+      licenseType: 'CARRIER_CERTIFICATE_OF_AUTHORITY', licenseExpirationDate: '2027-12-31',
+      verificationSourceUrl: 'https://doi.nv.gov/licensing/lookup', verificationRecordId: 'NV-COA-REVIEW-REFERENCE',
+      verificationEvidence: '{"certificate":"NV-COA-REVIEW-REFERENCE","status":"ACTIVE"}'
     });
     assert.equal(approved.status, 'APPROVED');
     const licenses = await store.getProviderLicenses(approved.providerOrganizationId!);
@@ -85,10 +89,19 @@ test('administrator review creates pending mappings atomically without marketpla
       organizationType: 'INDEPENDENT_AGENCY', jurisdictionCode: 'NV', insuranceLines: ['PERSONAL_AUTO'],
       producerLicenseNumber: 'NV-REVIEWED-1', producerNpn: '1234567', requestedPlanCode: 'PLAN_SOLO'
     });
+    await assert.rejects(() => store.reviewProviderApplication({
+      applicationId: application.id, decision: 'APPROVE', actorId: application.firebaseUid,
+      reason: 'Applicant attempts to approve their own authority.', licenseType: 'PROPERTY_CASUALTY',
+      licenseExpirationDate: '2027-12-31', verificationSource: 'Nevada DOI producer lookup',
+      verificationSourceUrl: 'https://doi.nv.gov/licensing/lookup', verificationRecordId: 'NV-REVIEWED-1',
+      verificationEvidence: '{"license":"NV-REVIEWED-1","status":"ACTIVE","npn":"1234567"}'
+    }), /other than the applicant/);
     const approved = await store.reviewProviderApplication({
       applicationId: application.id, decision: 'APPROVE', actorId: 'admin-owner',
       reason: 'License evidence verified for intake mapping.', licenseType: 'PROPERTY_CASUALTY',
-      licenseExpirationDate: '2027-12-31', verificationSource: 'Nevada DOI producer lookup'
+      licenseExpirationDate: '2027-12-31', verificationSource: 'Nevada DOI producer lookup',
+      verificationSourceUrl: 'https://doi.nv.gov/licensing/lookup', verificationRecordId: 'NV-REVIEWED-1',
+      verificationEvidence: '{"license":"NV-REVIEWED-1","status":"ACTIVE","npn":"1234567"}'
     });
     assert.equal(approved.status, 'APPROVED');
     assert.ok(approved.providerOrganizationId);
@@ -100,6 +113,14 @@ test('administrator review creates pending mappings atomically without marketpla
     assert.equal(organization?.verificationStatus, 'MARKETPLACE_APPROVED');
     assert.equal(user?.role, 'OWNER');
     assert.equal(licenses[0]?.verificationStatus, 'VERIFIED');
+    assert.ok(licenses[0]?.authorityEvidenceId);
+    const evidence = await store.getProviderAuthorityEvidence(approved.providerOrganizationId!);
+    assert.equal(evidence.length, 1);
+    assert.equal(evidence[0].id, licenses[0].authorityEvidenceId);
+    assert.equal(evidence[0].authorityNumber, 'NV-REVIEWED-1');
+    assert.equal(evidence[0].status, 'VERIFIED');
+    assert.equal(evidence[0].evidenceSha256.length, 64);
+    assert.notEqual(evidence[0].submittedBy, evidence[0].verifiedBy);
     const retry = await store.reviewProviderApplication({
       applicationId: application.id, decision: 'APPROVE', actorId: 'admin-owner', reason: 'retry'
     });

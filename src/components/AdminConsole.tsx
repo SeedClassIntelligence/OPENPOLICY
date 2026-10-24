@@ -97,14 +97,18 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
   const [marketplaceOperations,setMarketplaceOperations]=useState<any|null>(null);
   const [adminForm,setAdminForm]=useState({firebaseUid:'',permissions:['PLATFORM_READ'] as string[],status:'ACTIVE',reason:''});
   const [providerApplications,setProviderApplications]=useState<any[]>([]);
+  const [providerAuthorityEvidence,setProviderAuthorityEvidence]=useState<any[]>([]);
   const [applicationActionId,setApplicationActionId]=useState<string|null>(null);
   const [applicationMessage,setApplicationMessage]=useState<string|null>(null);
-  const [applicationReview,setApplicationReview]=useState({reason:'',licenseType:'PROPERTY_CASUALTY',licenseExpirationDate:'',verificationSource:''});
+  const [applicationReview,setApplicationReview]=useState({
+    reason:'',licenseType:'PROPERTY_CASUALTY',licenseExpirationDate:'',verificationSource:'Nevada Division of Insurance',
+    verificationSourceUrl:'https://doi.nv.gov/',verificationRecordId:'',verificationEvidence:'',verificationRetrievedAt:new Date().toISOString()
+  });
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [eventsRes, queueRes, verifyRes, linesRes, rolloutRes, overviewRes, governanceRes, platformFinancialsRes, administratorsRes, operationsRes, applicationsRes] = await Promise.all([
+      const [eventsRes, queueRes, verifyRes, linesRes, rolloutRes, overviewRes, governanceRes, platformFinancialsRes, administratorsRes, operationsRes, applicationsRes, authorityEvidenceRes] = await Promise.all([
         apiFetch('/api/audit-events'),
         apiFetch('/api/admin/review-queue'),
         apiFetch('/api/admin/audit-chain/verify'),
@@ -115,7 +119,8 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
         apiFetch('/api/admin/commercial/platform-summary'),
         apiFetch('/api/admin/administrators'),
         apiFetch('/api/admin/marketplace-operations'),
-        apiFetch('/api/admin/provider-applications')
+        apiFetch('/api/admin/provider-applications'),
+        apiFetch('/api/admin/provider-authority-evidence')
       ]);
 
       const eventsData = await eventsRes.json();
@@ -129,6 +134,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
       const administratorsData = await administratorsRes.json();
       const operationsData = await operationsRes.json();
       const applicationsData = await applicationsRes.json();
+      const authorityEvidenceData = await authorityEvidenceRes.json();
 
       setAuditEvents(eventsData);
       setReviewQueue(queueData);
@@ -141,6 +147,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
       if (administratorsRes.ok) setAdministratorRegistry(administratorsData);
       if (operationsRes.ok) setMarketplaceOperations(operationsData);
       if (applicationsRes.ok) setProviderApplications(Array.isArray(applicationsData) ? applicationsData : []);
+      if (authorityEvidenceRes.ok) setProviderAuthorityEvidence(Array.isArray(authorityEvidenceData) ? authorityEvidenceData : []);
     } catch (e) {
       console.error('Failed to load admin audit console data:', e);
     } finally {
@@ -565,11 +572,15 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
             <h4 className="text-sm font-bold text-slate-950">Provider application and activation queue</h4>
             <p className="text-[11px] text-slate-500">Review establishes verified provider mappings only. Marketplace access remains closed until the matching V2 membership agreement and subscription invoice are fully settled.</p>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
             <input value={applicationReview.reason} onChange={event=>setApplicationReview({...applicationReview,reason:event.target.value})} placeholder="Required review reason" className="rounded-lg border bg-white px-3 py-2 text-xs" />
             <input value={applicationReview.licenseType} onChange={event=>setApplicationReview({...applicationReview,licenseType:event.target.value})} placeholder="Verified license type" className="rounded-lg border bg-white px-3 py-2 text-xs" />
             <input type="date" value={applicationReview.licenseExpirationDate} onChange={event=>setApplicationReview({...applicationReview,licenseExpirationDate:event.target.value})} className="rounded-lg border bg-white px-3 py-2 text-xs" />
             <input value={applicationReview.verificationSource} onChange={event=>setApplicationReview({...applicationReview,verificationSource:event.target.value})} placeholder="Authoritative verification source" className="rounded-lg border bg-white px-3 py-2 text-xs" />
+            <input value={applicationReview.verificationSourceUrl} onChange={event=>setApplicationReview({...applicationReview,verificationSourceUrl:event.target.value})} placeholder="HTTPS source URL (Nevada DOI, NIPR, or Sircon)" className="rounded-lg border bg-white px-3 py-2 text-xs" />
+            <input value={applicationReview.verificationRecordId} onChange={event=>setApplicationReview({...applicationReview,verificationRecordId:event.target.value})} placeholder="Registry record / lookup ID" className="rounded-lg border bg-white px-3 py-2 text-xs" />
+            <textarea value={applicationReview.verificationEvidence} onChange={event=>setApplicationReview({...applicationReview,verificationEvidence:event.target.value})} placeholder="Paste the authoritative registry result or normalized evidence snapshot (minimum 20 characters)." className="min-h-24 rounded-lg border bg-white px-3 py-2 text-xs md:col-span-2" />
+            <p className="text-[10px] text-slate-500 md:col-span-2">Approval stores an immutable SHA-256 evidence record and schedules re-verification. Payment alone never establishes marketplace authority.</p>
           </div>
           {applicationMessage&&<div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900">{applicationMessage}</div>}
           <div className="overflow-x-auto rounded-xl border border-slate-200">
@@ -578,13 +589,13 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
               <tbody className="divide-y divide-slate-100">
                 {providerApplications.map((application:any)=><tr key={application.id} className="align-top hover:bg-slate-50">
                   <td className="px-3 py-2"><strong className="block text-slate-900">{application.displayName||application.legalName}</strong><span className="block text-[10px] text-slate-500">{application.applicantName} · {application.applicantEmail}</span><span className="font-mono text-[10px] text-slate-400">{application.id}</span></td>
-                  <td className="px-3 py-2"><span className="block">{application.organizationType} · {application.jurisdictionCode}</span><span className="block text-[10px] text-slate-500">{application.organizationType==='DIRECT_CARRIER'?(application.carrierAuthorityReference||'Missing carrier authority'):`License ${application.producerLicenseNumber||'missing'}${application.producerNpn?` · NPN ${application.producerNpn}`:''}`}</span></td>
+                  <td className="px-3 py-2"><span className="block">{application.organizationType} · {application.jurisdictionCode}</span><span className="block text-[10px] text-slate-500">{application.organizationType==='DIRECT_CARRIER'?(application.carrierAuthorityReference||'Missing carrier authority'):`License ${application.producerLicenseNumber||'missing'}${application.producerNpn?` · NPN ${application.producerNpn}`:''}`}</span>{providerAuthorityEvidence.filter((item:any)=>item.applicationId===application.id).map((item:any)=><span key={item.id} className="mt-1 block text-[10px] text-emerald-700"><a href={item.sourceUrl} target="_blank" rel="noreferrer" className="font-bold underline">{item.sourceName} · {item.sourceRecordId}</a><br/><span className="font-mono text-[9px] text-slate-400">SHA-256 {item.evidenceSha256.slice(0,16)}… · recheck {item.nextReviewAt.slice(0,10)}</span></span>)}</td>
                   <td className="px-3 py-2"><strong className="block">{application.requestedPlanCode}</strong><span className="text-[10px] text-slate-500">{application.insuranceLines?.join(', ')||'No lines'}</span></td>
                   <td className="px-3 py-2"><strong>{application.status}</strong>{application.providerOrganizationId&&<><span className="mt-1 block font-mono text-[10px] text-slate-400">{application.providerOrganizationId}</span><button onClick={()=>{setFinancialOrgId(application.providerOrganizationId);setSelectedCommercialPlan(application.requestedPlanCode);setFinancialSummary(null);document.querySelector('#owner-commercial')?.scrollIntoView({behavior:'smooth'});}} className="mt-1 text-[10px] font-bold text-emerald-700 underline">Open commercial setup</button></>}</td>
                   <td className="px-3 py-2"><div className="flex flex-wrap gap-1">
-                    {['SUBMITTED','UNDER_REVIEW'].includes(application.status)&&<><button disabled={applicationActionId===application.id||!applicationReview.reason.trim()} onClick={()=>reviewProviderApplication(application.id,'REJECT')} className="rounded border border-rose-300 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-800 disabled:opacity-40">Reject</button><button disabled={applicationActionId===application.id||!applicationReview.reason.trim()||!applicationReview.licenseExpirationDate||!applicationReview.verificationSource.trim()} onClick={()=>reviewProviderApplication(application.id,'APPROVE')} className="rounded border border-blue-300 bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-800 disabled:opacity-40">Approve authority</button></>}
-                    {application.status==='APPROVED'&&<><button disabled={applicationActionId===application.id} onClick={()=>prepareProviderMembership(application.id)} className="rounded border border-blue-300 bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-800 disabled:opacity-40">Prepare membership checkout</button><button disabled={applicationActionId===application.id||application.organizationType==='DIRECT_CARRIER'} onClick={()=>activateProviderApplication(application.id)} className="rounded border border-emerald-300 bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-800 disabled:opacity-40">Verify payment & activate</button></>}
-                  </div>{application.organizationType==='DIRECT_CARRIER'&&<span className="mt-1 block text-[10px] text-amber-700">Carrier activation remains fail-closed pending modeled certificate-of-authority verification.</span>}</td>
+                    {['SUBMITTED','UNDER_REVIEW'].includes(application.status)&&<><button disabled={applicationActionId===application.id||!applicationReview.reason.trim()} onClick={()=>reviewProviderApplication(application.id,'REJECT')} className="rounded border border-rose-300 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-800 disabled:opacity-40">Reject</button><button disabled={applicationActionId===application.id||!applicationReview.reason.trim()||!applicationReview.licenseExpirationDate||!applicationReview.verificationSourceUrl.trim()||!applicationReview.verificationRecordId.trim()||applicationReview.verificationEvidence.trim().length<20} onClick={()=>reviewProviderApplication(application.id,'APPROVE')} className="rounded border border-blue-300 bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-800 disabled:opacity-40">Approve authority</button></>}
+                    {application.status==='APPROVED'&&<><button disabled={applicationActionId===application.id} onClick={()=>prepareProviderMembership(application.id)} className="rounded border border-blue-300 bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-800 disabled:opacity-40">Prepare membership checkout</button><button disabled={applicationActionId===application.id} onClick={()=>activateProviderApplication(application.id)} className="rounded border border-emerald-300 bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-800 disabled:opacity-40">Verify evidence, payment & activate</button></>}
+                  </div></td>
                 </tr>)}
                 {!providerApplications.length&&<tr><td colSpan={5} className="px-3 py-4 text-center text-slate-500">No durable provider applications recorded.</td></tr>}
               </tbody>

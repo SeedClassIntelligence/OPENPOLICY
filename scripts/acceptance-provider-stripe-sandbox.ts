@@ -30,7 +30,9 @@ async function run() {
     });
     const approved = await postgres.reviewProviderApplication({ applicationId: application.id, decision: 'APPROVE',
       actorId: 'sandbox-admin', reason: 'Sandbox authority fixture verified.', licenseType: 'PROPERTY_CASUALTY',
-      licenseExpirationDate: '2027-12-31', verificationSource: 'SANDBOX_ACCEPTANCE_FIXTURE' });
+      licenseExpirationDate: '2027-12-31', verificationSource: 'SANDBOX_ACCEPTANCE_FIXTURE',
+      verificationSourceUrl: 'https://pdb.nipr.com/test-fixture/open-polici', verificationRecordId: 'SANDBOX-NV-001',
+      verificationEvidence: '{"license":"SANDBOX-NV-001","status":"ACTIVE","sandboxFixture":true}' });
     const enrollment = await commercial.enrollCommercialAgreement({ providerOrgId: approved.providerOrganizationId!,
       planId: approved.requestedPlanCode, actorRole: 'ADMIN' });
     const now = new Date().toISOString();

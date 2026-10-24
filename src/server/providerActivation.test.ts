@@ -29,7 +29,9 @@ test('provider activation fails closed until authority, matching V2 agreement, a
     await assert.rejects(activate(), /must be approved/);
     const approved = await postgres.reviewProviderApplication({
       applicationId: application.id, decision: 'APPROVE', actorId: 'admin-owner', reason: 'Verified authority.',
-      licenseType: 'PROPERTY_CASUALTY', licenseExpirationDate: '2027-12-31', verificationSource: 'Nevada DOI producer lookup'
+      licenseType: 'PROPERTY_CASUALTY', licenseExpirationDate: '2027-12-31', verificationSource: 'Nevada DOI producer lookup',
+      verificationSourceUrl: 'https://doi.nv.gov/licensing/lookup', verificationRecordId: 'NV-ACTIVATION-001',
+      verificationEvidence: '{"license":"NV-ACTIVATION-001","status":"ACTIVE","fixture":true}'
     });
     assert.equal((await postgres.getProviderOrganization(approved.providerOrganizationId!))?.marketplaceStatus, 'PENDING');
     await assert.rejects(activate(), /active V2 commercial agreement/);
@@ -86,10 +88,12 @@ test('new enrollment catalog exposes only the governing V2 version while retaini
 
 test('direct-carrier activation fails closed without a current independently verified certificate', async () => {
   const fakeApplication = { id: 'carrier-app', status: 'APPROVED', organizationType: 'DIRECT_CARRIER',
-    providerOrganizationId: 'org-carrier', providerUserId: 'user-carrier' } as any;
+    providerOrganizationId: 'org-carrier', providerUserId: 'user-carrier', jurisdictionCode: 'NV',
+    carrierAuthorityReference: 'NV-COA-MISSING' } as any;
   await assert.rejects(activateApprovedProviderApplication({ applicationId: fakeApplication.id, actorId: 'admin', reason: 'test',
-    postgresStore: { listProviderApplications: async () => [fakeApplication], getProviderLicenses: async () => [] } as any,
-    commercialStore: {} as any }), /verified carrier certificate-of-authority/);
+    postgresStore: { listProviderApplications: async () => [fakeApplication], getProviderLicenses: async () => [],
+      getProviderAuthorityEvidence: async () => [] } as any,
+    commercialStore: {} as any }), /authoritative evidence/);
 });
 
 test('direct carrier activates only after verified certificate, matching V2 agreement, and settled subscription', async () => {
@@ -109,7 +113,9 @@ test('direct carrier activates only after verified certificate, matching V2 agre
       applicationId: application.id, decision: 'APPROVE', actorId: 'admin-owner',
       reason: 'Certificate independently verified against the regulator record.',
       licenseType: 'CARRIER_CERTIFICATE_OF_AUTHORITY', licenseExpirationDate: '2027-12-31',
-      verificationSource: 'Nevada Division of Insurance certificate lookup'
+      verificationSource: 'Nevada Division of Insurance certificate lookup',
+      verificationSourceUrl: 'https://doi.nv.gov/licensing/lookup', verificationRecordId: 'NV-COA-2026-001',
+      verificationEvidence: '{"certificate":"NV-COA-2026-001","status":"ACTIVE","fixture":true}'
     });
     const enrollment = await commercial.enrollCommercialAgreement({
       providerOrgId: approved.providerOrganizationId!, planId: 'PLAN_ENTERPRISE', actorRole: 'ADMIN'

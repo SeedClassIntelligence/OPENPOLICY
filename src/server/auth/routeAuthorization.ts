@@ -37,6 +37,7 @@ const rules: RouteRule[] = [
   { methods: ['POST'], pattern: /^\/commercial\/refunds$/, roles: ['ADMIN'], adminPermission:'COMMERCIAL_ADMIN' },
   { pattern: /^\/admin\/administrators(?:\/[^/]+)?$/, roles: ['ADMIN'], adminPermission:'SECURITY_ADMIN' },
   { pattern: /^\/admin\/provider-applications(?:\/[^/]+\/(?:review|prepare-membership|activate))?$/, roles: ['ADMIN'], adminPermission:'PROVIDER_ADMIN' },
+  { methods: ['GET'], pattern: /^\/admin\/provider-authority-evidence$/, roles: ['ADMIN'], adminPermission:'PROVIDER_ADMIN' },
   { pattern: /^\/admin\/providers(?:\/[^/]+\/status)?$/, roles: ['ADMIN'], adminPermission:'PROVIDER_ADMIN' },
   { pattern: /^\/admin\/commercial\/compensation-determinations/, roles: ['ADMIN'], adminPermission:'COMPLIANCE_ADMIN' },
   { pattern: /^\/admin\/commercial\//, roles: ['ADMIN'], adminPermission:'COMMERCIAL_ADMIN' },

@@ -24,7 +24,9 @@ test('approved provider membership preparation is V2-priced, finalized, idempote
 
     const approved = await postgres.reviewProviderApplication({
       applicationId: application.id, decision: 'APPROVE', actorId: 'owner-admin', reason: 'Authority verified.',
-      licenseType: 'PROPERTY_CASUALTY', licenseExpirationDate: '2027-10-23', verificationSource: 'Nevada DOI'
+      licenseType: 'PROPERTY_CASUALTY', licenseExpirationDate: '2027-10-23', verificationSource: 'Nevada DOI',
+      verificationSourceUrl: 'https://doi.nv.gov/licensing/lookup', verificationRecordId: 'NV-10001',
+      verificationEvidence: '{"license":"NV-10001","status":"ACTIVE","fixture":true}'
     });
     const first = await prepareProviderMembership({ applicationId: application.id, postgresStore: postgres,
       commercialStore: commercial, now: '2026-10-23T00:00:00.000Z' });
@@ -58,7 +60,9 @@ test('membership state recognizes settlement but never grants marketplace access
     });
     const approved = await postgres.reviewProviderApplication({ applicationId: submitted.id, decision: 'APPROVE',
       actorId: 'owner-admin', reason: 'Authority verified.', licenseType: 'PROPERTY_CASUALTY',
-      licenseExpirationDate: '2027-10-23', verificationSource: 'Nevada DOI' });
+      licenseExpirationDate: '2027-10-23', verificationSource: 'Nevada DOI',
+      verificationSourceUrl: 'https://doi.nv.gov/licensing/lookup', verificationRecordId: 'NV-20002',
+      verificationEvidence: '{"license":"NV-20002","status":"ACTIVE","fixture":true}' });
     const prepared = await prepareProviderMembership({ applicationId: submitted.id, postgresStore: postgres,
       commercialStore: commercial, now: '2026-10-23T00:00:00.000Z' });
     assert.equal(prepared.invoice?.totalDueCents, 9_900);

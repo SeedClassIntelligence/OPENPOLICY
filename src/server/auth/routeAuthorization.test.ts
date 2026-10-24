@@ -79,6 +79,8 @@ test('provider application intake and review preserve separate authority boundar
   assert.equal(invoke('POST', '/provider-applications/current/membership-payment-session', pendingProvider).next, true);
   assert.equal(invoke('POST', '/admin/provider-applications/application-1/prepare-membership', providerAdmin).next, true);
   assert.equal(invoke('POST', '/admin/provider-applications/application-1/prepare-membership', readOnlyAdmin).status, 403);
+  assert.equal(invoke('GET', '/admin/provider-authority-evidence', providerAdmin).next, true);
+  assert.equal(invoke('GET', '/admin/provider-authority-evidence', readOnlyAdmin).status, 403);
   assert.equal(invoke('GET', '/admin/provider-applications', provider).status, 403);
   assert.equal(invoke('POST', '/admin/provider-applications/application-a/review', provider).status, 403);
   assert.equal(invoke('POST', '/admin/provider-applications/application-a/review', admin).next, true);

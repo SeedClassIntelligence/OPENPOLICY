@@ -1483,6 +1483,41 @@ CREATE INDEX IF NOT EXISTS idx_consumer_defined_requests_owner
   ON consumer_defined_coverage_requests (consumer_id, confirmed_at);
 `;
 
+export const SQL_MIGRATION_V26 = `
+CREATE TABLE IF NOT EXISTS provider_authority_evidence (
+  id TEXT PRIMARY KEY,
+  application_id TEXT NOT NULL REFERENCES provider_applications(id),
+  provider_organization_id TEXT NOT NULL REFERENCES provider_organizations(id) ON DELETE CASCADE,
+  provider_user_id TEXT,
+  subject_type TEXT NOT NULL CHECK (subject_type IN ('ORGANIZATION_LICENSE','INDIVIDUAL_LICENSE','CARRIER_AUTHORITY','CARRIER_RELATIONSHIP')),
+  jurisdiction TEXT NOT NULL,
+  insurance_line TEXT,
+  authority_number TEXT NOT NULL,
+  source_name TEXT NOT NULL,
+  source_url TEXT NOT NULL,
+  source_record_id TEXT NOT NULL,
+  retrieved_at TEXT NOT NULL,
+  effective_date TEXT,
+  expiration_date TEXT,
+  status TEXT NOT NULL CHECK (status IN ('VERIFIED','REJECTED','STALE')),
+  evidence_sha256 TEXT NOT NULL,
+  evidence_payload TEXT NOT NULL,
+  submitted_by TEXT NOT NULL,
+  verified_by TEXT NOT NULL,
+  verified_at TEXT NOT NULL,
+  next_review_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_provider_authority_evidence_org
+  ON provider_authority_evidence(provider_organization_id,status,next_review_at);
+CREATE INDEX IF NOT EXISTS idx_provider_authority_evidence_hash
+  ON provider_authority_evidence(evidence_sha256);
+ALTER TABLE provider_licenses ADD COLUMN IF NOT EXISTS authority_evidence_id TEXT REFERENCES provider_authority_evidence(id);
+
+DROP TRIGGER IF EXISTS trg_append_only_provider_authority_evidence ON provider_authority_evidence;
+CREATE TRIGGER trg_append_only_provider_authority_evidence BEFORE UPDATE OR DELETE ON provider_authority_evidence
+  FOR EACH ROW EXECUTE FUNCTION op_reject_mutation();
+`;
+
 export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR || './data/openpolicy_pg') {
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
@@ -1591,7 +1626,11 @@ export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR ||
     await pglite.query(
       `INSERT INTO _migrations (name) VALUES ('0025_consumer_defined_coverage_requests') ON CONFLICT (name) DO NOTHING;`
     );
-    console.log(`[Open Policy DB] Migrations 0001 through 0025 applied successfully.`);
+    await pglite.exec(SQL_MIGRATION_V26);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0026_provider_authority_evidence') ON CONFLICT (name) DO NOTHING;`
+    );
+    console.log(`[Open Policy DB] Migrations 0001 through 0026 applied successfully.`);
     return pglite;
   } catch (error) {
     console.error(`[Open Policy DB] Migration error:`, error);

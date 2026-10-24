@@ -15,13 +15,32 @@ export async function activateApprovedProviderApplication(input: {
   if (application.status !== 'APPROVED' || !application.providerOrganizationId || !application.providerUserId) {
     throw Object.assign(new Error('Provider application must be approved and authoritatively mapped before activation.'), { statusCode: 409 });
   }
+  const licenses = await input.postgresStore.getProviderLicenses(application.providerOrganizationId);
+  const evidence = await input.postgresStore.getProviderAuthorityEvidence(application.providerOrganizationId);
+  const authorityNumber = application.organizationType === 'DIRECT_CARRIER'
+    ? application.carrierAuthorityReference
+    : application.producerLicenseNumber;
+  const authorityLicense = licenses.find(item =>
+    item.licenseNumber === authorityNumber && item.jurisdiction === application.jurisdictionCode &&
+    item.status === 'ACTIVE' && item.verificationStatus === 'VERIFIED' && !!item.authorityEvidenceId
+  );
+  const authorityEvidence = authorityLicense && evidence.find(item =>
+    item.id === authorityLicense.authorityEvidenceId && item.authorityNumber === authorityNumber &&
+    item.jurisdiction === application.jurisdictionCode && item.status === 'VERIFIED'
+  );
+  const today = new Date().toISOString().slice(0, 10);
+  if (!authorityEvidence || authorityEvidence.submittedBy === authorityEvidence.verifiedBy ||
+      !authorityEvidence.sourceUrl || !authorityEvidence.evidenceSha256 ||
+      authorityEvidence.nextReviewAt.slice(0, 10) < today ||
+      (!!authorityEvidence.expirationDate && authorityEvidence.expirationDate.slice(0, 10) <= today)) {
+    throw Object.assign(new Error('Current, independently reviewed authoritative evidence is required before provider activation.'), { statusCode: 409 });
+  }
   if (application.organizationType === 'DIRECT_CARRIER') {
-    const licenses = await input.postgresStore.getProviderLicenses(application.providerOrganizationId);
     const certificate = licenses.find(item =>
       !item.providerUserId && item.jurisdiction === application.jurisdictionCode &&
       item.licenseType === 'CARRIER_CERTIFICATE_OF_AUTHORITY' && item.status === 'ACTIVE' &&
       item.verificationStatus === 'VERIFIED' && item.licenseNumber === application.carrierAuthorityReference &&
-      !!item.verificationSource && !!item.verifiedBy &&
+      !!item.verificationSource && !!item.verifiedBy && item.authorityEvidenceId === authorityEvidence.id &&
       (!item.expirationDate || item.expirationDate.slice(0, 10) > new Date().toISOString().slice(0, 10))
     );
     if (!certificate) {

@@ -923,6 +923,7 @@ export interface ProviderLicense {
   verificationSource?: string;
   verifiedAt?: string;
   verifiedBy?: string;
+  authorityEvidenceId?: string;
 }
 
 export interface CarrierRelationship {

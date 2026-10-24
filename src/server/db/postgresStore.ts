@@ -2,8 +2,9 @@ import { PGlite } from '@electric-sql/pglite';
 import fs from 'fs';
 import pg from 'pg';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8, SQL_MIGRATION_V9, SQL_MIGRATION_V10, SQL_MIGRATION_V11, SQL_MIGRATION_V12, SQL_MIGRATION_V13, SQL_MIGRATION_V14, SQL_MIGRATION_V15, SQL_MIGRATION_V16, SQL_MIGRATION_V17, SQL_MIGRATION_V18, SQL_MIGRATION_V19, SQL_MIGRATION_V20, SQL_MIGRATION_V21, SQL_MIGRATION_V22, SQL_MIGRATION_V23, SQL_MIGRATION_V24, SQL_MIGRATION_V25 } from './migrate';
+import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8, SQL_MIGRATION_V9, SQL_MIGRATION_V10, SQL_MIGRATION_V11, SQL_MIGRATION_V12, SQL_MIGRATION_V13, SQL_MIGRATION_V14, SQL_MIGRATION_V15, SQL_MIGRATION_V16, SQL_MIGRATION_V17, SQL_MIGRATION_V18, SQL_MIGRATION_V19, SQL_MIGRATION_V20, SQL_MIGRATION_V21, SQL_MIGRATION_V22, SQL_MIGRATION_V23, SQL_MIGRATION_V24, SQL_MIGRATION_V25, SQL_MIGRATION_V26 } from './migrate';
 import type { ConsumerDefinedCoverageRequestBaseline } from '../../domain/consumerDefinedCoverageRequest';
+import { authorityEvidenceSha256, nextAuthorityReviewDate, normalizeEvidencePayload, resolveAuthoritySource, type ProviderAuthorityEvidence } from '../../domain/providerAuthorityVerification';
 import { buildVerifiedPolicyAndBaseline } from '../../domain/policyEvidenceVerification';
 import {
   ProviderOrganization,
@@ -334,6 +335,10 @@ export class PostgresStore {
         await this.sql.exec(SQL_MIGRATION_V25);
         await this.sql.query(
           `INSERT INTO _migrations (name) VALUES ('0025_consumer_defined_coverage_requests') ON CONFLICT (name) DO NOTHING;`
+        );
+        await this.sql.exec(SQL_MIGRATION_V26);
+        await this.sql.query(
+          `INSERT INTO _migrations (name) VALUES ('0026_provider_authority_evidence') ON CONFLICT (name) DO NOTHING;`
         );
         this.isReady = true;
         console.log(
@@ -1021,6 +1026,7 @@ export class PostgresStore {
       license_number: string; license_type: string; status: string;
       expiration_date: string; verified_at: string | null; provider_user_id: string | null;
       npn: string | null; verification_source: string | null; verified_by: string | null;
+      authority_evidence_id: string | null;
     }>(`SELECT * FROM provider_licenses WHERE provider_organization_id = $1;`, [orgId]);
     return res.rows.map(row => ({
       id: row.id,
@@ -1036,7 +1042,44 @@ export class PostgresStore {
       npn: row.npn || undefined,
       verificationSource: row.verification_source || undefined,
       verifiedAt: row.verified_at || undefined,
-      verifiedBy: row.verified_by || undefined
+      verifiedBy: row.verified_by || undefined,
+      authorityEvidenceId: row.authority_evidence_id || undefined
+    }));
+  }
+
+  public async getProviderAuthorityEvidence(orgId: string): Promise<ProviderAuthorityEvidence[]> {
+    await this.ensureReady();
+    const result = await this.sql!.query<any>(
+      `SELECT * FROM provider_authority_evidence WHERE provider_organization_id=$1 ORDER BY verified_at DESC;`, [orgId]
+    );
+    return result.rows.map(row => ({
+      id: row.id, applicationId: row.application_id, providerOrganizationId: row.provider_organization_id,
+      providerUserId: row.provider_user_id || undefined, subjectType: row.subject_type,
+      jurisdiction: row.jurisdiction, insuranceLine: row.insurance_line || undefined,
+      authorityNumber: row.authority_number, sourceName: row.source_name, sourceUrl: row.source_url,
+      sourceRecordId: row.source_record_id, retrievedAt: row.retrieved_at,
+      effectiveDate: row.effective_date || undefined, expirationDate: row.expiration_date || undefined,
+      status: row.status, evidenceSha256: row.evidence_sha256, evidencePayload: row.evidence_payload,
+      submittedBy: row.submitted_by, verifiedBy: row.verified_by, verifiedAt: row.verified_at,
+      nextReviewAt: row.next_review_at
+    }));
+  }
+
+  public async listProviderAuthorityEvidence(): Promise<ProviderAuthorityEvidence[]> {
+    await this.ensureReady();
+    const result = await this.sql!.query<any>(
+      `SELECT * FROM provider_authority_evidence ORDER BY verified_at DESC;`
+    );
+    return result.rows.map(row => ({
+      id: row.id, applicationId: row.application_id, providerOrganizationId: row.provider_organization_id,
+      providerUserId: row.provider_user_id || undefined, subjectType: row.subject_type,
+      jurisdiction: row.jurisdiction, insuranceLine: row.insurance_line || undefined,
+      authorityNumber: row.authority_number, sourceName: row.source_name, sourceUrl: row.source_url,
+      sourceRecordId: row.source_record_id, retrievedAt: row.retrieved_at,
+      effectiveDate: row.effective_date || undefined, expirationDate: row.expiration_date || undefined,
+      status: row.status, evidenceSha256: row.evidence_sha256, evidencePayload: row.evidence_payload,
+      submittedBy: row.submitted_by, verifiedBy: row.verified_by, verifiedAt: row.verified_at,
+      nextReviewAt: row.next_review_at
     }));
   }
 
@@ -1699,6 +1742,10 @@ export class PostgresStore {
     licenseType?: string;
     licenseExpirationDate?: string;
     verificationSource?: string;
+    verificationSourceUrl?: string;
+    verificationRecordId?: string;
+    verificationEvidence?: unknown;
+    verificationRetrievedAt?: string;
   }): Promise<ProviderApplication> {
     await this.ensureReady();
     if (!params.reason.trim()) throw Object.assign(new Error('A review reason is required.'), { statusCode: 400 });
@@ -1724,12 +1771,20 @@ export class PostgresStore {
       if (isDirectCarrier && params.licenseType?.trim() !== requiredLicenseType) {
         throw Object.assign(new Error('Direct-carrier approval requires licenseType CARRIER_CERTIFICATE_OF_AUTHORITY.'), { statusCode: 400 });
       }
-      if (!authorityNumber || !requiredLicenseType || !/^\d{4}-\d{2}-\d{2}$/.test(params.licenseExpirationDate || '') || !params.verificationSource?.trim()) {
-        throw Object.assign(new Error('Verified license type, expiration date, and verification source are required for approval.'), { statusCode: 400 });
+      if (!authorityNumber || !requiredLicenseType || !/^\d{4}-\d{2}-\d{2}$/.test(params.licenseExpirationDate || '') ||
+          !params.verificationSource?.trim() || !params.verificationSourceUrl?.trim() || !params.verificationRecordId?.trim()) {
+        throw Object.assign(new Error('Verified license type, expiration date, authoritative URL, and source record identifier are required for approval.'), { statusCode: 400 });
       }
+      if (params.actorId === current.firebaseUid) {
+        throw Object.assign(new Error('Authority evidence must be verified by an administrator other than the applicant.'), { statusCode: 409 });
+      }
+      const source = resolveAuthoritySource(current.jurisdictionCode, params.verificationSourceUrl);
+      const evidencePayload = normalizeEvidencePayload(params.verificationEvidence);
+      const evidenceSha256 = authorityEvidenceSha256(evidencePayload);
       const organizationId = `org_application_${current.firebaseUid}`;
       const providerUserId = `provider_user_${current.firebaseUid}`;
       const licenseId = `provider_license_${current.firebaseUid}`;
+      const evidenceId = `authority_evidence_${randomUUID()}`;
       await client.query(
         `INSERT INTO provider_organizations (id,legal_name,display_name,organization_type,verification_status,marketplace_status,states,lines_of_business,created_at,verified_at)
          VALUES ($1,$2,$3,$4,'MARKETPLACE_APPROVED','PENDING',$5,$6,$7,$7)
@@ -1743,11 +1798,19 @@ export class PostgresStore {
         [providerUserId,organizationId,current.applicantEmail,current.applicantName,now]
       );
       await client.query(
-        `INSERT INTO provider_licenses (id,provider_organization_id,jurisdiction,license_number,license_type,status,expiration_date,verified_at,provider_user_id,npn,verification_source,verified_by)
-         VALUES ($1,$2,$3,$4,$5,'ACTIVE',$6,$7,$8,$9,$10,$11)
-         ON CONFLICT (id) DO UPDATE SET status='ACTIVE',expiration_date=EXCLUDED.expiration_date,verified_at=EXCLUDED.verified_at,verification_source=EXCLUDED.verification_source,verified_by=EXCLUDED.verified_by;`,
+        `INSERT INTO provider_authority_evidence (id,application_id,provider_organization_id,provider_user_id,subject_type,jurisdiction,insurance_line,authority_number,source_name,source_url,source_record_id,retrieved_at,expiration_date,status,evidence_sha256,evidence_payload,submitted_by,verified_by,verified_at,next_review_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'VERIFIED',$14,$15,$16,$17,$18,$19);`,
+        [evidenceId,current.id,organizationId,isDirectCarrier?null:providerUserId,isDirectCarrier?'CARRIER_AUTHORITY':'INDIVIDUAL_LICENSE',
+         current.jurisdictionCode,current.insuranceLines[0]||null,authorityNumber,source.name,params.verificationSourceUrl.trim(),
+         params.verificationRecordId.trim(),params.verificationRetrievedAt||now,params.licenseExpirationDate,evidenceSha256,evidencePayload,
+         current.firebaseUid,params.actorId,now,nextAuthorityReviewDate(now,params.licenseExpirationDate)]
+      );
+      await client.query(
+        `INSERT INTO provider_licenses (id,provider_organization_id,jurisdiction,license_number,license_type,status,expiration_date,verified_at,provider_user_id,npn,verification_source,verified_by,authority_evidence_id)
+         VALUES ($1,$2,$3,$4,$5,'ACTIVE',$6,$7,$8,$9,$10,$11,$12)
+         ON CONFLICT (id) DO UPDATE SET status='ACTIVE',expiration_date=EXCLUDED.expiration_date,verified_at=EXCLUDED.verified_at,verification_source=EXCLUDED.verification_source,verified_by=EXCLUDED.verified_by,authority_evidence_id=EXCLUDED.authority_evidence_id;`,
         [licenseId,organizationId,current.jurisdictionCode,authorityNumber,requiredLicenseType,params.licenseExpirationDate,now,
-         isDirectCarrier ? null : providerUserId,isDirectCarrier ? null : current.producerNpn||null,params.verificationSource.trim(),params.actorId]
+         isDirectCarrier ? null : providerUserId,isDirectCarrier ? null : current.producerNpn||null,source.name,params.actorId,evidenceId]
       );
       const approved = await client.query<any>(
         `UPDATE provider_applications SET status='APPROVED',reviewed_at=$2,reviewed_by=$3,review_reason=$4,
@@ -1756,7 +1819,7 @@ export class PostgresStore {
       );
       await this.appendAuditInTransaction(client, { eventType: 'PROVIDER_APPLICATION_APPROVED' as any,
         actorRole: 'ADMIN', actorId: params.actorId,
-        details: `Provider application ${current.id} approved for mapping ${organizationId}/${providerUserId}; marketplace remains PENDING.` });
+          details: `Provider application ${current.id} approved for mapping ${organizationId}/${providerUserId} using immutable authority evidence ${evidenceId} (${evidenceSha256}); marketplace remains PENDING.` });
       return this.mapProviderApplication(approved.rows[0]);
     });
   }

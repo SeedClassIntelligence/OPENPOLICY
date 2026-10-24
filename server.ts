@@ -1506,6 +1506,11 @@ app.get('/api/admin/provider-applications', async (_req, res) => {
   catch (e: any) { res.status(e.statusCode || 500).json({ error: e.message }); }
 });
 
+app.get('/api/admin/provider-authority-evidence', async (_req, res) => {
+  try { res.json(await postgresStore.listProviderAuthorityEvidence()); }
+  catch (e: any) { res.status(e.statusCode || 500).json({ error: e.message }); }
+});
+
 app.post('/api/admin/provider-applications/:applicationId/review', async (req, res) => {
   try {
     const decision = String(req.body?.decision || '').toUpperCase();
@@ -1517,7 +1522,11 @@ app.post('/api/admin/provider-applications/:applicationId/review', async (req, r
       actorId: req.openPolicyIdentity!.uid, reason: String(req.body?.reason || ''),
       licenseType: req.body?.licenseType ? String(req.body.licenseType) : undefined,
       licenseExpirationDate: req.body?.licenseExpirationDate ? String(req.body.licenseExpirationDate) : undefined,
-      verificationSource: req.body?.verificationSource ? String(req.body.verificationSource) : undefined
+      verificationSource: req.body?.verificationSource ? String(req.body.verificationSource) : undefined,
+      verificationSourceUrl: req.body?.verificationSourceUrl ? String(req.body.verificationSourceUrl) : undefined,
+      verificationRecordId: req.body?.verificationRecordId ? String(req.body.verificationRecordId) : undefined,
+      verificationEvidence: req.body?.verificationEvidence,
+      verificationRetrievedAt: req.body?.verificationRetrievedAt ? String(req.body.verificationRetrievedAt) : undefined
     });
     if (req.openPolicyIdentity!.source !== 'FIXTURE') {
       await updateFirebaseProviderReviewState(application.firebaseUid, {
