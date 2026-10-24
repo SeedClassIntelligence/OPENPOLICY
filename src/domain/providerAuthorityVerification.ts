@@ -88,9 +88,9 @@ export function authorityEvidenceSha256(payload: string): string {
 }
 
 export function nextAuthorityReviewDate(verifiedAt: string, expirationDate?: string): string {
-  const ninetyDays = new Date(new Date(verifiedAt).getTime() + 90 * 86_400_000).toISOString().slice(0, 10);
-  if (!expirationDate) return ninetyDays;
+  const thirtyDays = new Date(new Date(verifiedAt).getTime() + 30 * 86_400_000).toISOString().slice(0, 10);
+  if (!expirationDate) return thirtyDays;
   const advance = new Date(`${expirationDate.slice(0, 10)}T00:00:00.000Z`);
   advance.setUTCDate(advance.getUTCDate() - 30);
-  return advance.toISOString().slice(0, 10) < ninetyDays ? advance.toISOString().slice(0, 10) : ninetyDays;
+  return advance.toISOString().slice(0, 10) < thirtyDays ? advance.toISOString().slice(0, 10) : thirtyDays;
 }

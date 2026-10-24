@@ -14,6 +14,7 @@ test('provider application intake is durable, idempotent, and grants no authorit
       applicantEmail: 'alex@example.com', legalName: 'Applicant Agency LLC', displayName: 'Applicant Agency',
       organizationType: 'INDEPENDENT_AGENCY' as const, jurisdictionCode: 'NV',
       insuranceLines: ['PERSONAL_AUTO'], producerLicenseNumber: 'NV-12345', producerNpn: '998877',
+      organizationNpn: 'ORG-998877', organizationLicenseNumber: 'NV-ORG-12345', transactionRole: 'BROKER' as const,
       requestedPlanCode: 'PLAN_AGENCY'
     };
     const first = await store.submitProviderApplication(input);
@@ -87,21 +88,35 @@ test('administrator review creates pending mappings atomically without marketpla
       firebaseUid: 'firebase-reviewed-provider', applicantName: 'Reviewed Owner',
       applicantEmail: 'owner@reviewed.example', legalName: 'Reviewed Agency LLC', displayName: 'Reviewed Agency',
       organizationType: 'INDEPENDENT_AGENCY', jurisdictionCode: 'NV', insuranceLines: ['PERSONAL_AUTO'],
-      producerLicenseNumber: 'NV-REVIEWED-1', producerNpn: '1234567', requestedPlanCode: 'PLAN_SOLO'
+      producerLicenseNumber: 'NV-REVIEWED-1', producerNpn: '1234567', organizationNpn: '7654321',
+      organizationLicenseNumber: 'NV-ORG-REVIEWED-1', transactionRole: 'AGENT',
+      claimedCarrierName: 'Example Carrier', claimedCarrierNaicCode: '99999', requestedPlanCode: 'PLAN_SOLO'
     });
     await assert.rejects(() => store.reviewProviderApplication({
       applicationId: application.id, decision: 'APPROVE', actorId: application.firebaseUid,
       reason: 'Applicant attempts to approve their own authority.', licenseType: 'PROPERTY_CASUALTY',
       licenseExpirationDate: '2027-12-31', verificationSource: 'Nevada DOI producer lookup',
       verificationSourceUrl: 'https://doi.nv.gov/licensing/lookup', verificationRecordId: 'NV-REVIEWED-1',
-      verificationEvidence: '{"license":"NV-REVIEWED-1","status":"ACTIVE","npn":"1234567"}'
+      verificationEvidence: '{"license":"NV-REVIEWED-1","status":"ACTIVE","npn":"1234567"}',
+      organizationVerificationSourceUrl: 'https://doi.nv.gov/licensing/lookup',
+      organizationVerificationRecordId: 'NV-ORG-REVIEWED-1',
+      organizationVerificationEvidence: '{"license":"NV-ORG-REVIEWED-1","status":"ACTIVE","npn":"7654321"}',
+      relationshipVerificationSourceUrl: 'https://doi.nv.gov/licensing/lookup',
+      relationshipVerificationRecordId: 'NV-APPOINTMENT-99999',
+      relationshipVerificationEvidence: '{"carrier":"Example Carrier","naic":"99999","status":"ACTIVE"}'
     }), /other than the applicant/);
     const approved = await store.reviewProviderApplication({
       applicationId: application.id, decision: 'APPROVE', actorId: 'admin-owner',
       reason: 'License evidence verified for intake mapping.', licenseType: 'PROPERTY_CASUALTY',
       licenseExpirationDate: '2027-12-31', verificationSource: 'Nevada DOI producer lookup',
       verificationSourceUrl: 'https://doi.nv.gov/licensing/lookup', verificationRecordId: 'NV-REVIEWED-1',
-      verificationEvidence: '{"license":"NV-REVIEWED-1","status":"ACTIVE","npn":"1234567"}'
+      verificationEvidence: '{"license":"NV-REVIEWED-1","status":"ACTIVE","npn":"1234567"}',
+      organizationVerificationSourceUrl: 'https://doi.nv.gov/licensing/lookup',
+      organizationVerificationRecordId: 'NV-ORG-REVIEWED-1',
+      organizationVerificationEvidence: '{"license":"NV-ORG-REVIEWED-1","status":"ACTIVE","npn":"7654321"}',
+      relationshipVerificationSourceUrl: 'https://doi.nv.gov/licensing/lookup',
+      relationshipVerificationRecordId: 'NV-APPOINTMENT-99999',
+      relationshipVerificationEvidence: '{"carrier":"Example Carrier","naic":"99999","status":"ACTIVE"}'
     });
     assert.equal(approved.status, 'APPROVED');
     assert.ok(approved.providerOrganizationId);
@@ -115,12 +130,15 @@ test('administrator review creates pending mappings atomically without marketpla
     assert.equal(licenses[0]?.verificationStatus, 'VERIFIED');
     assert.ok(licenses[0]?.authorityEvidenceId);
     const evidence = await store.getProviderAuthorityEvidence(approved.providerOrganizationId!);
-    assert.equal(evidence.length, 1);
-    assert.equal(evidence[0].id, licenses[0].authorityEvidenceId);
-    assert.equal(evidence[0].authorityNumber, 'NV-REVIEWED-1');
-    assert.equal(evidence[0].status, 'VERIFIED');
-    assert.equal(evidence[0].evidenceSha256.length, 64);
-    assert.notEqual(evidence[0].submittedBy, evidence[0].verifiedBy);
+    assert.equal(evidence.length, 3);
+    const individualEvidence = evidence.find(item => item.subjectType === 'INDIVIDUAL_LICENSE')!;
+    assert.equal(individualEvidence.id, licenses[0].authorityEvidenceId);
+    assert.equal(individualEvidence.authorityNumber, 'NV-REVIEWED-1');
+    assert.equal(individualEvidence.status, 'VERIFIED');
+    assert.equal(individualEvidence.evidenceSha256.length, 64);
+    assert.notEqual(individualEvidence.submittedBy, individualEvidence.verifiedBy);
+    assert.equal(evidence.find(item => item.subjectType === 'ORGANIZATION_LICENSE')?.authorityNumber, 'NV-ORG-REVIEWED-1');
+    assert.equal(evidence.find(item => item.subjectType === 'CARRIER_RELATIONSHIP')?.authorityNumber, '99999');
     const retry = await store.reviewProviderApplication({
       applicationId: application.id, decision: 'APPROVE', actorId: 'admin-owner', reason: 'retry'
     });

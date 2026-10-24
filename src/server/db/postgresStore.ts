@@ -2,7 +2,7 @@ import { PGlite } from '@electric-sql/pglite';
 import fs from 'fs';
 import pg from 'pg';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8, SQL_MIGRATION_V9, SQL_MIGRATION_V10, SQL_MIGRATION_V11, SQL_MIGRATION_V12, SQL_MIGRATION_V13, SQL_MIGRATION_V14, SQL_MIGRATION_V15, SQL_MIGRATION_V16, SQL_MIGRATION_V17, SQL_MIGRATION_V18, SQL_MIGRATION_V19, SQL_MIGRATION_V20, SQL_MIGRATION_V21, SQL_MIGRATION_V22, SQL_MIGRATION_V23, SQL_MIGRATION_V24, SQL_MIGRATION_V25, SQL_MIGRATION_V26 } from './migrate';
+import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8, SQL_MIGRATION_V9, SQL_MIGRATION_V10, SQL_MIGRATION_V11, SQL_MIGRATION_V12, SQL_MIGRATION_V13, SQL_MIGRATION_V14, SQL_MIGRATION_V15, SQL_MIGRATION_V16, SQL_MIGRATION_V17, SQL_MIGRATION_V18, SQL_MIGRATION_V19, SQL_MIGRATION_V20, SQL_MIGRATION_V21, SQL_MIGRATION_V22, SQL_MIGRATION_V23, SQL_MIGRATION_V24, SQL_MIGRATION_V25, SQL_MIGRATION_V26, SQL_MIGRATION_V27 } from './migrate';
 import type { ConsumerDefinedCoverageRequestBaseline } from '../../domain/consumerDefinedCoverageRequest';
 import { authorityEvidenceSha256, nextAuthorityReviewDate, normalizeEvidencePayload, resolveAuthoritySource, type ProviderAuthorityEvidence } from '../../domain/providerAuthorityVerification';
 import { buildVerifiedPolicyAndBaseline } from '../../domain/policyEvidenceVerification';
@@ -78,6 +78,11 @@ export interface ProviderApplication {
   insuranceLines: string[];
   producerLicenseNumber?: string;
   producerNpn?: string;
+  organizationNpn?: string;
+  organizationLicenseNumber?: string;
+  transactionRole?: 'AGENT' | 'BROKER' | 'DIRECT_CARRIER';
+  claimedCarrierName?: string;
+  claimedCarrierNaicCode?: string;
   carrierAuthorityReference?: string;
   requestedPlanCode: string;
   status: 'SUBMITTED' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED';
@@ -339,6 +344,10 @@ export class PostgresStore {
         await this.sql.exec(SQL_MIGRATION_V26);
         await this.sql.query(
           `INSERT INTO _migrations (name) VALUES ('0026_provider_authority_evidence') ON CONFLICT (name) DO NOTHING;`
+        );
+        await this.sql.exec(SQL_MIGRATION_V27);
+        await this.sql.query(
+          `INSERT INTO _migrations (name) VALUES ('0027_wave_zero_provider_identity') ON CONFLICT (name) DO NOTHING;`
         );
         this.isReady = true;
         console.log(
@@ -1677,6 +1686,11 @@ export class PostgresStore {
       insuranceLines: JSON.parse(row.insurance_lines || '[]'),
       producerLicenseNumber: row.producer_license_number || undefined,
       producerNpn: row.producer_npn || undefined,
+      organizationNpn: row.organization_npn || undefined,
+      organizationLicenseNumber: row.organization_license_number || undefined,
+      transactionRole: row.transaction_role || undefined,
+      claimedCarrierName: row.claimed_carrier_name || undefined,
+      claimedCarrierNaicCode: row.claimed_carrier_naic_code || undefined,
       carrierAuthorityReference: row.carrier_authority_reference || undefined,
       requestedPlanCode: row.requested_plan_code, status: row.status,
       submittedAt: row.submitted_at, reviewedAt: row.reviewed_at || undefined,
@@ -1694,21 +1708,26 @@ export class PostgresStore {
       `INSERT INTO provider_applications (
          id,firebase_uid,applicant_name,applicant_email,legal_name,display_name,organization_type,
          jurisdiction_code,insurance_lines,producer_license_number,producer_npn,carrier_authority_reference,
+         organization_npn,organization_license_number,transaction_role,claimed_carrier_name,claimed_carrier_naic_code,
          requested_plan_code,status,submitted_at,created_at,updated_at
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'SUBMITTED',$14,$14,$14)
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,'SUBMITTED',$19,$19,$19)
        ON CONFLICT (firebase_uid) DO UPDATE SET
          applicant_name=EXCLUDED.applicant_name, applicant_email=EXCLUDED.applicant_email,
          legal_name=EXCLUDED.legal_name, display_name=EXCLUDED.display_name,
          organization_type=EXCLUDED.organization_type, jurisdiction_code=EXCLUDED.jurisdiction_code,
          insurance_lines=EXCLUDED.insurance_lines, producer_license_number=EXCLUDED.producer_license_number,
          producer_npn=EXCLUDED.producer_npn, carrier_authority_reference=EXCLUDED.carrier_authority_reference,
+         organization_npn=EXCLUDED.organization_npn, organization_license_number=EXCLUDED.organization_license_number,
+         transaction_role=EXCLUDED.transaction_role, claimed_carrier_name=EXCLUDED.claimed_carrier_name,
+         claimed_carrier_naic_code=EXCLUDED.claimed_carrier_naic_code,
          requested_plan_code=EXCLUDED.requested_plan_code, updated_at=EXCLUDED.updated_at
        WHERE provider_applications.status IN ('SUBMITTED','UNDER_REVIEW')
        RETURNING *;`,
       [id,input.firebaseUid,input.applicantName.trim(),input.applicantEmail.trim().toLowerCase(),
        input.legalName.trim(),input.displayName.trim(),input.organizationType,input.jurisdictionCode,
        JSON.stringify(input.insuranceLines),input.producerLicenseNumber||null,input.producerNpn||null,
-       input.carrierAuthorityReference||null,input.requestedPlanCode,now]
+       input.carrierAuthorityReference||null,input.organizationNpn||null,input.organizationLicenseNumber||null,
+       input.transactionRole||null,input.claimedCarrierName||null,input.claimedCarrierNaicCode||null,input.requestedPlanCode,now]
     );
     if (!result.rows[0]) {
       const existing = await this.getProviderApplicationByFirebaseUid(input.firebaseUid);
@@ -1725,6 +1744,15 @@ export class PostgresStore {
   public async getProviderApplicationByFirebaseUid(firebaseUid: string): Promise<ProviderApplication | undefined> {
     await this.ensureReady();
     const result = await this.sql!.query<any>(`SELECT * FROM provider_applications WHERE firebase_uid=$1;`, [firebaseUid]);
+    return result.rows[0] ? this.mapProviderApplication(result.rows[0]) : undefined;
+  }
+
+  public async getProviderApplicationByOrganizationId(providerOrganizationId: string): Promise<ProviderApplication | undefined> {
+    await this.ensureReady();
+    const result = await this.sql!.query<any>(
+      `SELECT * FROM provider_applications WHERE provider_organization_id=$1 ORDER BY submitted_at DESC LIMIT 1;`,
+      [providerOrganizationId]
+    );
     return result.rows[0] ? this.mapProviderApplication(result.rows[0]) : undefined;
   }
 
@@ -1746,6 +1774,12 @@ export class PostgresStore {
     verificationRecordId?: string;
     verificationEvidence?: unknown;
     verificationRetrievedAt?: string;
+    organizationVerificationSourceUrl?: string;
+    organizationVerificationRecordId?: string;
+    organizationVerificationEvidence?: unknown;
+    relationshipVerificationSourceUrl?: string;
+    relationshipVerificationRecordId?: string;
+    relationshipVerificationEvidence?: unknown;
   }): Promise<ProviderApplication> {
     await this.ensureReady();
     if (!params.reason.trim()) throw Object.assign(new Error('A review reason is required.'), { statusCode: 400 });
@@ -1805,6 +1839,41 @@ export class PostgresStore {
          params.verificationRecordId.trim(),params.verificationRetrievedAt||now,params.licenseExpirationDate,evidenceSha256,evidencePayload,
          current.firebaseUid,params.actorId,now,nextAuthorityReviewDate(now,params.licenseExpirationDate)]
       );
+      if (!isDirectCarrier) {
+        if (!current.organizationLicenseNumber || !params.organizationVerificationSourceUrl?.trim() ||
+            !params.organizationVerificationRecordId?.trim()) {
+          throw Object.assign(new Error('Separate authoritative organization-license evidence is required.'), { statusCode: 400 });
+        }
+        const organizationSource = resolveAuthoritySource(current.jurisdictionCode, params.organizationVerificationSourceUrl);
+        const organizationPayload = normalizeEvidencePayload(params.organizationVerificationEvidence);
+        const organizationEvidenceId = `authority_evidence_${randomUUID()}`;
+        await client.query(
+          `INSERT INTO provider_authority_evidence (id,application_id,provider_organization_id,provider_user_id,subject_type,jurisdiction,insurance_line,authority_number,source_name,source_url,source_record_id,retrieved_at,expiration_date,status,evidence_sha256,evidence_payload,submitted_by,verified_by,verified_at,next_review_at)
+           VALUES ($1,$2,$3,NULL,'ORGANIZATION_LICENSE',$4,$5,$6,$7,$8,$9,$10,$11,'VERIFIED',$12,$13,$14,$15,$16,$17);`,
+          [organizationEvidenceId,current.id,organizationId,current.jurisdictionCode,current.insuranceLines[0]||null,
+           current.organizationLicenseNumber,organizationSource.name,params.organizationVerificationSourceUrl.trim(),
+           params.organizationVerificationRecordId.trim(),params.verificationRetrievedAt||now,params.licenseExpirationDate,
+           authorityEvidenceSha256(organizationPayload),organizationPayload,current.firebaseUid,params.actorId,now,
+           nextAuthorityReviewDate(now,params.licenseExpirationDate)]
+        );
+      }
+      if (current.transactionRole === 'AGENT') {
+        if (!current.claimedCarrierName || !params.relationshipVerificationSourceUrl?.trim() ||
+            !params.relationshipVerificationRecordId?.trim()) {
+          throw Object.assign(new Error('Separate authoritative carrier-appointment evidence is required for an agent transaction.'), { statusCode: 400 });
+        }
+        const relationshipSource = resolveAuthoritySource(current.jurisdictionCode, params.relationshipVerificationSourceUrl);
+        const relationshipPayload = normalizeEvidencePayload(params.relationshipVerificationEvidence);
+        await client.query(
+          `INSERT INTO provider_authority_evidence (id,application_id,provider_organization_id,provider_user_id,subject_type,jurisdiction,insurance_line,authority_number,source_name,source_url,source_record_id,retrieved_at,expiration_date,status,evidence_sha256,evidence_payload,submitted_by,verified_by,verified_at,next_review_at)
+           VALUES ($1,$2,$3,$4,'CARRIER_RELATIONSHIP',$5,$6,$7,$8,$9,$10,$11,$12,'VERIFIED',$13,$14,$15,$16,$17,$18);`,
+          [`authority_evidence_${randomUUID()}`,current.id,organizationId,providerUserId,current.jurisdictionCode,
+           current.insuranceLines[0]||null,current.claimedCarrierNaicCode||current.claimedCarrierName,
+           relationshipSource.name,params.relationshipVerificationSourceUrl.trim(),params.relationshipVerificationRecordId.trim(),
+           params.verificationRetrievedAt||now,params.licenseExpirationDate,authorityEvidenceSha256(relationshipPayload),
+           relationshipPayload,current.firebaseUid,params.actorId,now,nextAuthorityReviewDate(now,params.licenseExpirationDate)]
+        );
+      }
       await client.query(
         `INSERT INTO provider_licenses (id,provider_organization_id,jurisdiction,license_number,license_type,status,expiration_date,verified_at,provider_user_id,npn,verification_source,verified_by,authority_evidence_id)
          VALUES ($1,$2,$3,$4,$5,'ACTIVE',$6,$7,$8,$9,$10,$11,$12)

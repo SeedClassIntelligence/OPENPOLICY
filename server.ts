@@ -272,6 +272,27 @@ async function getAuthenticatedProviderOrgId(req: express.Request): Promise<stri
     throw err;
   }
 
+  // Wave 0 authority is a live checkpoint, not a one-time onboarding flag.
+  // Fixture identities remain isolated test data; every real provider request
+  // fails closed when its immutable evidence packet is stale or incomplete.
+  if (identity.source !== 'FIXTURE') {
+    const application = (await postgresStore.getProviderApplicationByFirebaseUid(identity.uid)) ||
+      (await postgresStore.getProviderApplicationByOrganizationId(user.organizationId));
+    const evidence = await postgresStore.getProviderAuthorityEvidence(user.organizationId);
+    const today = new Date().toISOString().slice(0, 10);
+    const current = (subjectType: string) => evidence.some(item => item.subjectType === subjectType &&
+      item.status === 'VERIFIED' && item.submittedBy !== item.verifiedBy && !!item.evidenceSha256 &&
+      item.nextReviewAt.slice(0, 10) >= today && (!item.expirationDate || item.expirationDate.slice(0, 10) > today));
+    const required = application?.organizationType === 'DIRECT_CARRIER'
+      ? ['CARRIER_AUTHORITY']
+      : ['INDIVIDUAL_LICENSE', 'ORGANIZATION_LICENSE', ...(application?.transactionRole === 'AGENT' ? ['CARRIER_RELATIONSHIP'] : [])];
+    if (!application || required.some(subject => !current(subject))) {
+      const err: any = new Error('Forbidden: current authoritative provider evidence is incomplete or due for re-verification');
+      err.statusCode = 403;
+      throw err;
+    }
+  }
+
   // BLOCKER 3: Direct Impersonation Attack Prevention
   // If the client attempts to override the organization via header, query param, or request body,
   // reject immediately with 403 Forbidden. Changing client-supplied values cannot change who the server believes the caller is.
@@ -1468,12 +1489,27 @@ app.post('/api/provider-applications/current', async (req, res) => {
       return res.status(400).json({ error: 'At least one recognized insurance line is required.' });
     }
     const producerLicenseNumber = String(req.body?.producerLicenseNumber || '').trim();
+    const producerNpn = String(req.body?.producerNpn || '').trim();
+    const organizationNpn = String(req.body?.organizationNpn || '').trim();
+    const organizationLicenseNumber = String(req.body?.organizationLicenseNumber || '').trim();
+    const transactionRole = String(req.body?.transactionRole || '').toUpperCase();
+    const claimedCarrierName = String(req.body?.claimedCarrierName || '').trim();
+    const claimedCarrierNaicCode = String(req.body?.claimedCarrierNaicCode || '').trim();
     const carrierAuthorityReference = String(req.body?.carrierAuthorityReference || '').trim();
-    if (organizationType === 'DIRECT_CARRIER' && !carrierAuthorityReference) {
+    if (!['AGENT','BROKER','DIRECT_CARRIER'].includes(transactionRole)) {
+      return res.status(400).json({ error: 'Transaction role must be AGENT, BROKER, or DIRECT_CARRIER.' });
+    }
+    if (!producerNpn || !organizationNpn || !organizationLicenseNumber) {
+      return res.status(400).json({ error: 'Individual NPN, organization NPN, and organization license number are required.' });
+    }
+    if (transactionRole === 'DIRECT_CARRIER' && !carrierAuthorityReference) {
       return res.status(400).json({ error: 'Direct-carrier applications require a certificate-of-authority reference for review.' });
     }
-    if (organizationType !== 'DIRECT_CARRIER' && !producerLicenseNumber) {
-      return res.status(400).json({ error: 'A producer or entity license number is required.' });
+    if (transactionRole !== 'DIRECT_CARRIER' && !producerLicenseNumber) {
+      return res.status(400).json({ error: 'An individual producer license number is required.' });
+    }
+    if (transactionRole === 'AGENT' && !claimedCarrierName) {
+      return res.status(400).json({ error: 'Agent applications must identify the claimed appointing carrier.' });
     }
     const applicantName = String(req.body?.applicantName || '').trim();
     const applicantEmail = String(identity.email || req.body?.applicantEmail || '').trim();
@@ -1491,7 +1527,12 @@ app.post('/api/provider-applications/current', async (req, res) => {
       jurisdictionCode,
       insuranceLines,
       producerLicenseNumber: producerLicenseNumber || undefined,
-      producerNpn: String(req.body?.producerNpn || '').trim() || undefined,
+      producerNpn,
+      organizationNpn,
+      organizationLicenseNumber,
+      transactionRole: transactionRole as 'AGENT'|'BROKER'|'DIRECT_CARRIER',
+      claimedCarrierName: claimedCarrierName || undefined,
+      claimedCarrierNaicCode: claimedCarrierNaicCode || undefined,
       carrierAuthorityReference: carrierAuthorityReference || undefined,
       requestedPlanCode
     });
@@ -1526,7 +1567,13 @@ app.post('/api/admin/provider-applications/:applicationId/review', async (req, r
       verificationSourceUrl: req.body?.verificationSourceUrl ? String(req.body.verificationSourceUrl) : undefined,
       verificationRecordId: req.body?.verificationRecordId ? String(req.body.verificationRecordId) : undefined,
       verificationEvidence: req.body?.verificationEvidence,
-      verificationRetrievedAt: req.body?.verificationRetrievedAt ? String(req.body.verificationRetrievedAt) : undefined
+      verificationRetrievedAt: req.body?.verificationRetrievedAt ? String(req.body.verificationRetrievedAt) : undefined,
+      organizationVerificationSourceUrl: req.body?.organizationVerificationSourceUrl ? String(req.body.organizationVerificationSourceUrl) : undefined,
+      organizationVerificationRecordId: req.body?.organizationVerificationRecordId ? String(req.body.organizationVerificationRecordId) : undefined,
+      organizationVerificationEvidence: req.body?.organizationVerificationEvidence,
+      relationshipVerificationSourceUrl: req.body?.relationshipVerificationSourceUrl ? String(req.body.relationshipVerificationSourceUrl) : undefined,
+      relationshipVerificationRecordId: req.body?.relationshipVerificationRecordId ? String(req.body.relationshipVerificationRecordId) : undefined,
+      relationshipVerificationEvidence: req.body?.relationshipVerificationEvidence
     });
     if (req.openPolicyIdentity!.source !== 'FIXTURE') {
       await updateFirebaseProviderReviewState(application.firebaseUid, {

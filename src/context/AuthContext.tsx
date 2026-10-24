@@ -33,8 +33,9 @@ export interface AuthContextType {
   signUpWithEmail: (email: string, pass: string, name: string) => Promise<UserRole>;
   signUpAsConsumer: (name: string, email: string, pass: string, state?: string, currentCarrier?: string, requestedInsuranceLine?: InsuranceLine, consumerIntakeOrigin?: 'VERIFIED_EXISTING_POLICY' | 'CONSUMER_DEFINED_COVERAGE_REQUEST') => Promise<UserRole>;
   signUpAsProvider: (name: string, agencyName: string, license: string, state: string, email: string, pass: string,
-    organizationType: string, requestedPlanCode: string, insuranceLines: InsuranceLine[], producerNpn?: string,
-    carrierAuthorityReference?: string) => Promise<UserRole>;
+    organizationType: string, requestedPlanCode: string, insuranceLines: InsuranceLine[], producerNpn: string,
+    organizationNpn: string, organizationLicenseNumber: string, transactionRole: 'AGENT' | 'BROKER' | 'DIRECT_CARRIER',
+    claimedCarrierName?: string, claimedCarrierNaicCode?: string, carrierAuthorityReference?: string) => Promise<UserRole>;
   signInWithEmail: (email: string, pass: string) => Promise<UserRole>;
   sendPasswordReset: (email: string) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
@@ -178,7 +179,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     organizationType: string,
     requestedPlanCode: string,
     insuranceLines: InsuranceLine[],
-    producerNpn?: string,
+    producerNpn: string,
+    organizationNpn: string,
+    organizationLicenseNumber: string,
+    transactionRole: 'AGENT' | 'BROKER' | 'DIRECT_CARRIER',
+    claimedCarrierName?: string,
+    claimedCarrierNaicCode?: string,
     carrierAuthorityReference?: string
   ): Promise<UserRole> => {
     setLoading(true);
@@ -207,7 +213,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         body: JSON.stringify({
           applicantName: name, applicantEmail: email, legalName: agencyName, displayName: agencyName,
           organizationType, jurisdictionCode: state, insuranceLines,
-          producerLicenseNumber: license, producerNpn, carrierAuthorityReference, requestedPlanCode
+          producerLicenseNumber: license, producerNpn, organizationNpn, organizationLicenseNumber,
+          transactionRole, claimedCarrierName, claimedCarrierNaicCode, carrierAuthorityReference, requestedPlanCode
         })
       });
       if (!applicationResponse.ok) {

@@ -18,7 +18,8 @@ test('provider activation fails closed until authority, matching V2 agreement, a
       firebaseUid: 'firebase-activation-provider', applicantName: 'Activation Owner',
       applicantEmail: 'activation@example.com', legalName: 'Activation Agency LLC', displayName: 'Activation Agency',
       organizationType: 'INDEPENDENT_AGENCY', jurisdictionCode: 'NV', insuranceLines: ['PERSONAL_AUTO'],
-      producerLicenseNumber: 'NV-ACTIVATE-1', producerNpn: '7654321', requestedPlanCode: 'PLAN_AGENCY'
+      producerLicenseNumber: 'NV-ACTIVATE-1', producerNpn: '7654321', organizationNpn: 'ORG-7654321',
+      organizationLicenseNumber: 'NV-ORG-ACTIVATE-1', transactionRole: 'BROKER', requestedPlanCode: 'PLAN_AGENCY'
     });
     const activate = (synchronizeIdentity?: () => Promise<void>) => activateApprovedProviderApplication({
       applicationId: application.id, actorId: 'admin-owner', reason: 'Acceptance activation',
@@ -31,7 +32,10 @@ test('provider activation fails closed until authority, matching V2 agreement, a
       applicationId: application.id, decision: 'APPROVE', actorId: 'admin-owner', reason: 'Verified authority.',
       licenseType: 'PROPERTY_CASUALTY', licenseExpirationDate: '2027-12-31', verificationSource: 'Nevada DOI producer lookup',
       verificationSourceUrl: 'https://doi.nv.gov/licensing/lookup', verificationRecordId: 'NV-ACTIVATION-001',
-      verificationEvidence: '{"license":"NV-ACTIVATION-001","status":"ACTIVE","fixture":true}'
+      verificationEvidence: '{"license":"NV-ACTIVATION-001","status":"ACTIVE","fixture":true}',
+      organizationVerificationSourceUrl: 'https://doi.nv.gov/licensing/lookup',
+      organizationVerificationRecordId: 'NV-ORG-ACTIVATE-1',
+      organizationVerificationEvidence: '{"license":"NV-ORG-ACTIVATE-1","status":"ACTIVE","fixture":true}'
     });
     assert.equal((await postgres.getProviderOrganization(approved.providerOrganizationId!))?.marketplaceStatus, 'PENDING');
     await assert.rejects(activate(), /active V2 commercial agreement/);

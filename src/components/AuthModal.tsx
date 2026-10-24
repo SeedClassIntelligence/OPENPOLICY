@@ -72,6 +72,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [providerPlanCode, setProviderPlanCode] = useState(authModalInitialPlanCode || 'PLAN_SOLO');
   const [providerInsuranceLine, setProviderInsuranceLine] = useState<InsuranceLine>('PERSONAL_AUTO');
   const [providerNpn, setProviderNpn] = useState('');
+  const [organizationNpn, setOrganizationNpn] = useState('');
+  const [organizationLicenseNumber, setOrganizationLicenseNumber] = useState('');
+  const [transactionRole, setTransactionRole] = useState<'AGENT' | 'BROKER' | 'DIRECT_CARRIER'>('AGENT');
+  const [claimedCarrierName, setClaimedCarrierName] = useState('');
+  const [claimedCarrierNaicCode, setClaimedCarrierNaicCode] = useState('');
   const [carrierAuthorityReference, setCarrierAuthorityReference] = useState('');
 
   // Sign In form state
@@ -115,13 +120,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           );
           if (onSuccess) onSuccess(createdRole);
         } else {
-          if (!agentName.trim() || !agencyName.trim() || (providerOrganizationType !== 'DIRECT_CARRIER' && !licenseNumber.trim())) {
+          if (!agentName.trim() || !agencyName.trim() || !providerNpn.trim() || !organizationNpn.trim() ||
+              !organizationLicenseNumber.trim() || (transactionRole !== 'DIRECT_CARRIER' && !licenseNumber.trim()) ||
+              (transactionRole === 'AGENT' && !claimedCarrierName.trim())) {
             throw new Error('Please complete all required provider application fields.');
           }
           const createdRole = await signUpAsProvider(
             agentName, agencyName, licenseNumber, providerState, providerEmail, providerPassword,
             providerOrganizationType, providerPlanCode, [providerInsuranceLine], providerNpn,
-            carrierAuthorityReference
+            organizationNpn, organizationLicenseNumber, transactionRole, claimedCarrierName,
+            claimedCarrierNaicCode, carrierAuthorityReference
           );
           if (onSuccess) onSuccess(createdRole);
         }
@@ -553,8 +561,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 </div>
               </div>
 
-              <div className="space-y-1"><label className="text-xs font-semibold text-slate-700">National Producer Number (optional)</label><input type="text" value={providerNpn} onChange={(e) => setProviderNpn(e.target.value)} placeholder="NPN" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-blue-500" /></div>
-              {providerOrganizationType === 'DIRECT_CARRIER' && <div className="space-y-1"><label className="text-xs font-semibold text-slate-700">Certificate-of-Authority Reference</label><input type="text" required value={carrierAuthorityReference} onChange={(e) => setCarrierAuthorityReference(e.target.value)} placeholder="Regulator record or certificate reference" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-blue-500" /><p className="text-[11px] leading-5 text-amber-700">Submission records evidence for review. It does not establish carrier authority automatically.</p></div>}
+              <div className="grid grid-cols-2 gap-2.5">
+                <div className="space-y-1"><label className="text-xs font-semibold text-slate-700">Individual NPN</label><input required type="text" value={providerNpn} onChange={(e) => setProviderNpn(e.target.value)} placeholder="Individual NPN" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs" /></div>
+                <div className="space-y-1"><label className="text-xs font-semibold text-slate-700">Transaction Role</label><select value={transactionRole} onChange={e=>setTransactionRole(e.target.value as 'AGENT'|'BROKER'|'DIRECT_CARRIER')} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs"><option value="AGENT">Agent</option><option value="BROKER">Broker</option><option value="DIRECT_CARRIER">Direct carrier</option></select></div>
+                <div className="space-y-1"><label className="text-xs font-semibold text-slate-700">Organization NPN</label><input required value={organizationNpn} onChange={e=>setOrganizationNpn(e.target.value)} placeholder="Business-entity NPN" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs" /></div>
+                <div className="space-y-1"><label className="text-xs font-semibold text-slate-700">Organization License</label><input required value={organizationLicenseNumber} onChange={e=>setOrganizationLicenseNumber(e.target.value)} placeholder="Nevada entity license" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs" /></div>
+              </div>
+              {transactionRole === 'AGENT' && <div className="grid grid-cols-2 gap-2.5"><div className="space-y-1"><label className="text-xs font-semibold text-slate-700">Claimed Carrier</label><input required value={claimedCarrierName} onChange={e=>setClaimedCarrierName(e.target.value)} placeholder="Carrier legal name" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs" /></div><div className="space-y-1"><label className="text-xs font-semibold text-slate-700">Carrier NAIC Code (if known)</label><input value={claimedCarrierNaicCode} onChange={e=>setClaimedCarrierNaicCode(e.target.value)} placeholder="NAIC code" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs" /></div></div>}
+              {transactionRole === 'DIRECT_CARRIER' && <div className="space-y-1"><label className="text-xs font-semibold text-slate-700">Certificate-of-Authority Reference</label><input type="text" required value={carrierAuthorityReference} onChange={(e) => setCarrierAuthorityReference(e.target.value)} placeholder="Regulator record or certificate reference" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-blue-500" /><p className="text-[11px] leading-5 text-amber-700">Submission records evidence for review. It does not establish carrier authority automatically.</p></div>}
 
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-slate-700">Organization Legal Name</label>
@@ -584,10 +598,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-700">{providerOrganizationType === 'DIRECT_CARRIER' ? 'Producer License (if applicable)' : 'License Number'}</label>
+                  <label className="text-xs font-semibold text-slate-700">Individual Nevada License Number</label>
                   <input
                     type="text"
-                    required={providerOrganizationType !== 'DIRECT_CARRIER'}
+                    required={transactionRole !== 'DIRECT_CARRIER'}
                     value={licenseNumber}
                     onChange={(e) => setLicenseNumber(e.target.value)}
                     placeholder="NV-LIC-984210"

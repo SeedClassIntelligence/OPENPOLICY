@@ -29,11 +29,29 @@ export async function activateApprovedProviderApplication(input: {
     item.jurisdiction === application.jurisdictionCode && item.status === 'VERIFIED'
   );
   const today = new Date().toISOString().slice(0, 10);
+  const evidenceIsCurrent = (item: typeof evidence[number] | undefined) => !!item &&
+    item.submittedBy !== item.verifiedBy && !!item.sourceUrl && !!item.evidenceSha256 &&
+    item.nextReviewAt.slice(0, 10) >= today && (!item.expirationDate || item.expirationDate.slice(0, 10) > today);
   if (!authorityEvidence || authorityEvidence.submittedBy === authorityEvidence.verifiedBy ||
       !authorityEvidence.sourceUrl || !authorityEvidence.evidenceSha256 ||
       authorityEvidence.nextReviewAt.slice(0, 10) < today ||
       (!!authorityEvidence.expirationDate && authorityEvidence.expirationDate.slice(0, 10) <= today)) {
     throw Object.assign(new Error('Current, independently reviewed authoritative evidence is required before provider activation.'), { statusCode: 409 });
+  }
+  if (application.organizationType !== 'DIRECT_CARRIER') {
+    const organizationEvidence = evidence.find(item => item.subjectType === 'ORGANIZATION_LICENSE' &&
+      item.authorityNumber === application.organizationLicenseNumber && item.jurisdiction === application.jurisdictionCode && item.status === 'VERIFIED');
+    if (!evidenceIsCurrent(organizationEvidence)) {
+      throw Object.assign(new Error('Current authoritative organization-license evidence is required before activation.'), { statusCode: 409 });
+    }
+  }
+  if (application.transactionRole === 'AGENT') {
+    const relationshipEvidence = evidence.find(item => item.subjectType === 'CARRIER_RELATIONSHIP' &&
+      item.jurisdiction === application.jurisdictionCode && item.status === 'VERIFIED' &&
+      item.insuranceLine === application.insuranceLines[0]);
+    if (!evidenceIsCurrent(relationshipEvidence)) {
+      throw Object.assign(new Error('Current carrier-appointment evidence for the requested line is required before agent activation.'), { statusCode: 409 });
+    }
   }
   if (application.organizationType === 'DIRECT_CARRIER') {
     const certificate = licenses.find(item =>

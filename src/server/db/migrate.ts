@@ -1518,6 +1518,20 @@ CREATE TRIGGER trg_append_only_provider_authority_evidence BEFORE UPDATE OR DELE
   FOR EACH ROW EXECUTE FUNCTION op_reject_mutation();
 `;
 
+export const SQL_MIGRATION_V27 = `
+ALTER TABLE provider_applications ADD COLUMN IF NOT EXISTS organization_npn TEXT;
+ALTER TABLE provider_applications ADD COLUMN IF NOT EXISTS organization_license_number TEXT;
+ALTER TABLE provider_applications ADD COLUMN IF NOT EXISTS transaction_role TEXT;
+ALTER TABLE provider_applications ADD COLUMN IF NOT EXISTS claimed_carrier_name TEXT;
+ALTER TABLE provider_applications ADD COLUMN IF NOT EXISTS claimed_carrier_naic_code TEXT;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='provider_applications_transaction_role_check') THEN
+    ALTER TABLE provider_applications ADD CONSTRAINT provider_applications_transaction_role_check
+      CHECK (transaction_role IS NULL OR transaction_role IN ('AGENT','BROKER','DIRECT_CARRIER'));
+  END IF;
+END $$;
+`;
+
 export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR || './data/openpolicy_pg') {
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
@@ -1630,7 +1644,11 @@ export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR ||
     await pglite.query(
       `INSERT INTO _migrations (name) VALUES ('0026_provider_authority_evidence') ON CONFLICT (name) DO NOTHING;`
     );
-    console.log(`[Open Policy DB] Migrations 0001 through 0026 applied successfully.`);
+    await pglite.exec(SQL_MIGRATION_V27);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0027_wave_zero_provider_identity') ON CONFLICT (name) DO NOTHING;`
+    );
+    console.log(`[Open Policy DB] Migrations 0001 through 0027 applied successfully.`);
     return pglite;
   } catch (error) {
     console.error(`[Open Policy DB] Migration error:`, error);

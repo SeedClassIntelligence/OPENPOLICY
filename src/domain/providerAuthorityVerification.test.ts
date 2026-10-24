@@ -21,5 +21,5 @@ test('authority evidence is normalized, hashed deterministically, and scheduled 
   assert.equal(authorityEvidenceSha256(payload).length, 64);
   assert.throws(() => normalizeEvidencePayload('too short'), /captured authority-source result/);
   assert.equal(nextAuthorityReviewDate('2026-10-24T00:00:00.000Z', '2026-12-01'), '2026-11-01');
-  assert.equal(nextAuthorityReviewDate('2026-10-24T00:00:00.000Z', '2028-12-01'), '2027-01-22');
+  assert.equal(nextAuthorityReviewDate('2026-10-24T00:00:00.000Z', '2028-12-01'), '2026-11-23');
 });
