@@ -152,8 +152,11 @@ test('landing keeps account access in the canonical modal instead of embedding a
   assert.doesNotMatch(landing, /<form/);
   assert.match(authModal, /variant\?: 'modal' \| 'inline'/);
   assert.match(authModal, /Create Account/);
+  assert.match(authModal, /role === 'PROVIDER' \? 'Provider Sign Up' : 'Create Account'/);
   assert.match(authModal, /Sign In/);
   assert.match(authModal, /Fast Demo/);
+  assert.match(authModal, /\{demoIdentitiesEnabled && <button[\s\S]*?<span>Fast Demo<\/span>[\s\S]*?<\/button>\}/);
+  assert.doesNotMatch(authModal, /\{demoIdentitiesEnabled && <button[\s\S]*?Provider Sign Up/);
   assert.match(authModal, /Choose Your Account Type/);
   assert.match(authModal, /<JurisdictionSelectOptions \/>/);
 });

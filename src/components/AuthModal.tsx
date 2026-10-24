@@ -200,7 +200,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
         {/* Production exposes only real account creation and sign in. */}
         <div className={`grid ${demoIdentitiesEnabled ? 'grid-cols-3' : 'grid-cols-2'} p-2 bg-slate-50 border-b border-slate-200 text-xs font-medium shrink-0`}>
-          {demoIdentitiesEnabled && <button
+          <button
             type="button"
             onClick={() => { setMode('SIGN_UP'); setError(null); }}
             className={`py-2 text-center rounded-xl transition cursor-pointer ${
@@ -209,8 +209,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            Create Account
-          </button>}
+            {role === 'PROVIDER' ? 'Provider Sign Up' : 'Create Account'}
+          </button>
           <button
             type="button"
             onClick={() => { setMode('SIGN_IN'); setError(null); }}
@@ -222,7 +222,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           >
             Sign In
           </button>
-          <button
+          {demoIdentitiesEnabled && <button
             type="button"
             onClick={() => { setMode('DEMO'); setError(null); }}
             className={`py-2 text-center rounded-xl transition cursor-pointer flex items-center justify-center space-x-1 ${
@@ -233,7 +233,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           >
             <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
             <span>Fast Demo</span>
-          </button>
+          </button>}
         </div>
 
         {/* Role Toggle for Sign Up */}
