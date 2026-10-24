@@ -1893,6 +1893,31 @@ export class PostgresStore {
       if (invitation.email.toLowerCase() !== params.email.trim().toLowerCase()) {
         throw Object.assign(new Error('Authenticated email does not match the provider invitation.'), { statusCode: 403 });
       }
+      // Serialize seat consumption per organization. The organization row lock makes
+      // simultaneous invitation acceptances observe the latest active-user count.
+      await client.query(`SELECT id FROM provider_organizations WHERE id=$1 FOR UPDATE;`, [invitation.provider_organization_id]);
+      const seatEntitlement = await client.query<{limit_val:number|null;enforcement_policy:string}>(
+        `SELECT pe.limit_val,pe.enforcement_policy
+         FROM provider_entitlements pe
+         JOIN commercial_agreements ca ON ca.id=pe.commercial_agreement_id
+         WHERE pe.provider_organization_id=$1 AND pe.entitlement_type='PROVIDER_SEATS'
+           AND ca.status='ACTIVE' AND (ca.ends_at IS NULL OR ca.ends_at>$2)
+           AND pe.effective_from<=$2 AND (pe.effective_until IS NULL OR pe.effective_until>$2)
+         ORDER BY ca.starts_at DESC,pe.created_at DESC LIMIT 1;`,
+        [invitation.provider_organization_id,new Date().toISOString()]
+      );
+      if (!seatEntitlement.rows[0]) {
+        throw Object.assign(new Error('ACTIVE_PROVIDER_SEAT_ENTITLEMENT_REQUIRED'), { statusCode: 409 });
+      }
+      const activeUsers = await client.query<{count:string}>(
+        `SELECT COUNT(*)::text AS count FROM provider_users WHERE organization_id=$1 AND is_active=TRUE;`,
+        [invitation.provider_organization_id]
+      );
+      const activeSeatCount = Number(activeUsers.rows[0]?.count || 0);
+      const seatLimit = seatEntitlement.rows[0].limit_val;
+      if (seatLimit !== null && activeSeatCount >= seatLimit && seatEntitlement.rows[0].enforcement_policy === 'HARD_BLOCK') {
+        throw Object.assign(new Error(`PROVIDER_SEAT_CAPACITY_REACHED: ${activeSeatCount}/${seatLimit} active seats`), { statusCode: 409 });
+      }
       const existing = await client.query<any>(`SELECT organization_id FROM provider_users WHERE id=$1;`,[`provider_user_${params.firebaseUid}`]);
       if (existing.rows[0] && existing.rows[0].organization_id !== invitation.provider_organization_id) {
         throw Object.assign(new Error('Authenticated identity is already linked to another provider organization.'), { statusCode: 409 });

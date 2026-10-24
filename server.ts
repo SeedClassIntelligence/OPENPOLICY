@@ -1730,8 +1730,17 @@ app.get('/api/marketplace/my-provider/users', async (req, res) => {
   try {
     const actor = await getAuthenticatedProviderAdministrator(req);
     const users = await postgresStore.getProviderUsers(actor.organizationId);
+    const agreement = await commercialStore.getActiveAgreementForOrg(actor.organizationId);
+    const entitlements = await commercialStore.getEntitlementsForOrg(actor.organizationId);
+    const seatEntitlement = entitlements.find(entitlement => entitlement.commercialAgreementId === agreement?.id &&
+      entitlement.entitlementType === 'PROVIDER_SEATS');
+    const activeSeats = users.filter(user => user.status === 'ACTIVE').length;
     res.json({ users: users.map(user => ({ id: user.id, name: user.name, email: user.email,
-      role: user.role, status: user.status })) });
+      role: user.role, status: user.status })), seatCapacity: {
+        active: activeSeats, limit: seatEntitlement?.limit ?? 0,
+        available: Math.max(0, (seatEntitlement?.limit ?? 0) - activeSeats),
+        enforcementPolicy: seatEntitlement?.enforcementPolicy || 'HARD_BLOCK'
+      } });
   } catch (e: any) {
     res.status(e.statusCode || 403).json({ error: e.message });
   }
@@ -1749,6 +1758,16 @@ app.get('/api/marketplace/my-provider/user-invitations', async (req, res) => {
 app.post('/api/marketplace/my-provider/user-invitations', async (req, res) => {
   try {
     const actor = await getAuthenticatedProviderAdministrator(req);
+    const users = await postgresStore.getProviderUsers(actor.organizationId);
+    const agreement = await commercialStore.getActiveAgreementForOrg(actor.organizationId);
+    const entitlements = await commercialStore.getEntitlementsForOrg(actor.organizationId);
+    const seatEntitlement = entitlements.find(entitlement => entitlement.commercialAgreementId === agreement?.id &&
+      entitlement.entitlementType === 'PROVIDER_SEATS');
+    const activeSeats = users.filter(user => user.status === 'ACTIVE').length;
+    if (!seatEntitlement) return res.status(409).json({ error: 'ACTIVE_PROVIDER_SEAT_ENTITLEMENT_REQUIRED' });
+    if (seatEntitlement.limit !== undefined && activeSeats >= seatEntitlement.limit && seatEntitlement.enforcementPolicy === 'HARD_BLOCK') {
+      return res.status(409).json({ error: `PROVIDER_SEAT_CAPACITY_REACHED: ${activeSeats}/${seatEntitlement.limit} active seats` });
+    }
     const invitation = await postgresStore.createProviderUserInvitation({
       providerOrganizationId: actor.organizationId,
       email: String(req.body?.email || ''), fullName: String(req.body?.fullName || ''),

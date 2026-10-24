@@ -2444,7 +2444,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                       </div>
                       <p className="text-[11px] text-slate-500">
                         {ent.entitlementType === 'VPO_CAPACITY' && 'Maximum verified opportunities that can be engaged concurrently.'}
-                        {ent.entitlementType === 'PRODUCER_SEATS' && 'Licensed producers authorized to draft and submit binding quotes.'}
+                        {ent.entitlementType === 'PROVIDER_SEATS' && 'Authenticated provider users authorized within the organization’s purchased seat capacity. Individual insurance authority is evaluated separately.'}
                         {ent.entitlementType === 'ACTIVE_JURISDICTIONS' && 'States where policy-review access is enabled.'}
                         {ent.entitlementType === 'CONCURRENT_COMPETITIONS' && 'Simultaneous active policy reviews.'}
                         {ent.entitlementType === 'AUTHORIZED_CONNECTION_INCLUDED' && 'Included PM-4 authorized disclosures before usage overage.'}
