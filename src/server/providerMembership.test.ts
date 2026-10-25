@@ -5,9 +5,9 @@ import path from 'node:path';
 import test from 'node:test';
 import { CommercialStore } from './db/commercialStore';
 import { PostgresStore } from './db/postgresStore';
-import { getProviderMembershipState, prepareProviderMembership } from './providerMembership';
+import { getProviderMembershipState, hasCurrentProviderMembershipAccess, prepareProviderMembership } from './providerMembership';
 
-test('approved provider membership preparation is V2-priced, finalized, idempotent, and does not grant access', async () => {
+test('approved provider membership preparation creates one 30-day membership-only trial without an upfront invoice', async () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openpolicy-provider-membership-'));
   const postgres = new PostgresStore(dataDir);
   const commercial = new CommercialStore(postgres);
@@ -37,13 +37,35 @@ test('approved provider membership preparation is V2-priced, finalized, idempote
     const retry = await prepareProviderMembership({ applicationId: application.id, postgresStore: postgres,
       commercialStore: commercial, now: '2026-10-24T00:00:00.000Z' });
 
-    assert.equal(first.invoice?.totalDueCents, 24_900);
-    assert.equal(first.invoice?.status, 'FINALIZED');
-    assert.equal(first.invoice?.id, retry.invoice?.id);
-    assert.equal((await commercial.getInvoicesForOrg(approved.providerOrganizationId!)).length, 1);
-    assert.equal(first.paymentRequired, true);
+    assert.equal(first.invoice, undefined);
+    assert.equal(retry.invoice, undefined);
+    assert.equal((await commercial.getInvoicesForOrg(approved.providerOrganizationId!)).length, 0);
+    assert.equal(first.membershipTrial?.status, 'ACTIVE');
+    assert.equal(first.membershipTrial?.startedAt, '2026-10-23T00:00:00.000Z');
+    assert.equal(first.membershipTrial?.endsAt, '2026-11-22T00:00:00.000Z');
+    assert.equal(first.membershipTrial?.recurringMembershipWaived, true);
+    assert.equal(first.membershipTrial?.authorizedConnectionFeesRemainBillable, true);
+    assert.equal(first.paymentRequired, false);
     assert.equal(first.paymentComplete, false);
     assert.equal(first.marketplaceAccessGranted, false);
+    assert.equal(await hasCurrentProviderMembershipAccess({
+      providerOrganizationId: approved.providerOrganizationId!, agreementId: first.agreementId!,
+      membershipTrialStatus: first.membershipTrial?.status,
+      membershipTrialStartedAt: first.membershipTrial?.startedAt,
+      membershipTrialEndsAt: first.membershipTrial?.endsAt,
+      commercialStore: commercial, now: '2026-10-24T00:00:00.000Z'
+    }), true);
+    assert.equal(await hasCurrentProviderMembershipAccess({
+      providerOrganizationId: approved.providerOrganizationId!, agreementId: first.agreementId!,
+      membershipTrialStatus: first.membershipTrial?.status,
+      membershipTrialStartedAt: first.membershipTrial?.startedAt,
+      membershipTrialEndsAt: first.membershipTrial?.endsAt,
+      commercialStore: commercial, now: '2026-11-22T00:00:00.000Z'
+    }), false);
+    await assert.rejects(() => commercial.enrollCommercialAgreement({
+      providerOrgId: approved.providerOrganizationId!, planId: 'PLAN_AGENCY', actorRole: 'ADMIN',
+      membershipTrialDays: 30, now: '2026-11-23T00:00:00.000Z'
+    }), /MEMBERSHIP_TRIAL_ALREADY_USED/);
     assert.equal((await postgres.getProviderOrganization(approved.providerOrganizationId!))?.marketplaceStatus, 'PENDING');
   } finally {
     await postgres.close();
@@ -73,7 +95,7 @@ test('membership state recognizes settlement but never grants marketplace access
       organizationLicenseExpirationDate: '2027-10-23',
       organizationVerificationEvidence: '{"subjectType":"ORGANIZATION_LICENSE","legalName":"Solo Provider LLC","jurisdiction":"NV","authorityNumber":"NV-ORG-20002","sourceRecordId":"NV-ORG-20002","status":"ACTIVE","expirationDate":"2027-10-23","qualifications":["PROPERTY","CASUALTY"],"fixture":true}' });
     const prepared = await prepareProviderMembership({ applicationId: submitted.id, postgresStore: postgres,
-      commercialStore: commercial, now: '2026-10-23T00:00:00.000Z' });
+      commercialStore: commercial, now: '2025-10-23T00:00:00.000Z' });
     assert.equal(prepared.invoice?.totalDueCents, 9_900);
     await commercial.recordPayment({ providerOrganizationId: approved.providerOrganizationId!, invoiceId: prepared.invoice!.id,
       amountCents: prepared.invoice!.totalDueCents, paymentMethod: 'CREDIT_CARD', externalReference: 'pi_membership_paid',

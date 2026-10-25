@@ -47,6 +47,18 @@ test('premium price book publishes the founder-authorized subscription and servi
   assert.deepEqual(book.unavailableInsuranceLines, ['MEDICARE']);
 });
 
+test('Commercial V2 trial waives only recurring membership for 30 days', () => {
+  assert.deepEqual(OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.membershipTrial, {
+    durationDays: 30,
+    waives: 'RECURRING_MEMBERSHIP_ONLY',
+    authorizedConnectionFeesRemainBillable: true,
+    recurringAddOnsRemainBillable: true,
+    enterpriseImplementationRemainsBillable: true,
+    maximumTrialsPerProviderOrganization: 1
+  });
+  assert.equal(OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.authorizedConnectionCentsByInsuranceLine.PERSONAL_AUTO, 7_500);
+});
+
 test('all priced V1 premium services have accepted entitlement-enforced delivery surfaces', () => {
   assert.deepEqual(OPEN_POLICY_PREMIUM_V1_UNAVAILABLE_SERVICE_ADD_ONS, []);
   for (const code of ['WORKFLOW_AUTOMATION','ENTERPRISE_REPORTING','API_INTEGRATION','MULTI_LOCATION_ADMINISTRATION'] as const) {

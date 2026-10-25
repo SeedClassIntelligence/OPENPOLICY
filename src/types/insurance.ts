@@ -1457,6 +1457,9 @@ export interface CommercialAgreement {
   endsAt?: string;
   acceptedAt?: string;
   createdAt: string;
+  membershipTrialStartedAt?: string;
+  membershipTrialEndsAt?: string;
+  membershipTrialStatus?: 'ACTIVE' | 'CONVERTED' | 'CANCELLED' | 'EXPIRED';
 }
 
 export type EntitlementType =

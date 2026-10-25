@@ -364,12 +364,14 @@ export class CommercialStore {
     await client.query(
       `INSERT INTO commercial_agreements (
         id, commercial_account_id, provider_organization_id, plan_version_id,
-        status, starts_at, ends_at, accepted_at, created_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        status, starts_at, ends_at, accepted_at, created_at,
+        membership_trial_started_at, membership_trial_ends_at, membership_trial_status
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       ON CONFLICT (id) DO UPDATE SET
         status = EXCLUDED.status,
         ends_at = EXCLUDED.ends_at,
-        accepted_at = EXCLUDED.accepted_at;`,
+        accepted_at = EXCLUDED.accepted_at,
+        membership_trial_status = EXCLUDED.membership_trial_status;`,
       [
         agreement.id,
         agreement.commercialAccountId,
@@ -379,7 +381,10 @@ export class CommercialStore {
         agreement.startsAt,
         agreement.endsAt || null,
         agreement.acceptedAt || null,
-        agreement.createdAt
+        agreement.createdAt,
+        agreement.membershipTrialStartedAt || null,
+        agreement.membershipTrialEndsAt || null,
+        agreement.membershipTrialStatus || null
       ]
     );
   }
@@ -415,6 +420,9 @@ export class CommercialStore {
       endsAt: r.ends_at || undefined,
       acceptedAt: r.accepted_at || undefined,
       createdAt: r.created_at
+      ,membershipTrialStartedAt: (r as any).membership_trial_started_at || undefined
+      ,membershipTrialEndsAt: (r as any).membership_trial_ends_at || undefined
+      ,membershipTrialStatus: (r as any).membership_trial_status || undefined
     };
   }
 
@@ -451,6 +459,9 @@ export class CommercialStore {
       endsAt: r.ends_at || undefined,
       acceptedAt: r.accepted_at || undefined,
       createdAt: r.created_at
+      ,membershipTrialStartedAt: (r as any).membership_trial_started_at || undefined
+      ,membershipTrialEndsAt: (r as any).membership_trial_ends_at || undefined
+      ,membershipTrialStatus: (r as any).membership_trial_status || undefined
     };
   }
 
@@ -2397,6 +2408,7 @@ export class CommercialStore {
     enforcementPolicy?: CapacityEnforcementPolicy;
     now?: string;
     actorRole?: 'ADMIN' | 'PROVIDER';
+    membershipTrialDays?: number;
   }): Promise<{ agreement: CommercialAgreement; entitlements: ProviderEntitlement[]; planVersion: CommercialPlanVersion }> {
     const { providerOrgId, customTerms, enforcementPolicy, now = new Date().toISOString(), actorRole = 'PROVIDER' } = params;
     if (actorRole !== 'ADMIN') {
@@ -2514,6 +2526,24 @@ export class CommercialStore {
       });
     }
 
+    const trialDays = params.membershipTrialDays || 0;
+    if (!Number.isInteger(trialDays) || trialDays < 0 || trialDays > 30) {
+      throw Object.assign(new Error('Membership trial must be an integer from 0 through 30 days.'), { statusCode: 400 });
+    }
+    const trialEnd = trialDays > 0
+      ? new Date(Date.parse(now) + trialDays * 86_400_000).toISOString()
+      : undefined;
+    if (trialDays > 0) {
+      const client = await this.getClient();
+      const priorTrial = await client.query<{ id: string }>(
+        `SELECT id FROM commercial_agreements
+         WHERE provider_organization_id=$1 AND membership_trial_started_at IS NOT NULL
+         LIMIT 1;`, [providerOrgId]
+      );
+      if (priorTrial.rows.length > 0) {
+        throw Object.assign(new Error('MEMBERSHIP_TRIAL_ALREADY_USED'), { statusCode: 409 });
+      }
+    }
     const agreement: CommercialAgreement = {
       id: `cag_${providerOrgId}_${Date.now()}`,
       commercialAccountId: account.id,
@@ -2522,7 +2552,10 @@ export class CommercialStore {
       status: 'ACTIVE',
       startsAt: now,
       acceptedAt: now,
-      createdAt: now
+      createdAt: now,
+      membershipTrialStartedAt: trialDays > 0 ? now : undefined,
+      membershipTrialEndsAt: trialEnd,
+      membershipTrialStatus: trialDays > 0 ? 'ACTIVE' : undefined
     };
     await this.saveCommercialAgreement(agreement);
 

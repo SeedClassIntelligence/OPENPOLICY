@@ -56,6 +56,14 @@ export const OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2 = Object.freeze({
   effectiveFrom: '2026-10-17T00:00:00.000Z',
   currency: 'USD' as const,
   consumerPriceCents: 0,
+  membershipTrial: Object.freeze({
+    durationDays: 30,
+    waives: 'RECURRING_MEMBERSHIP_ONLY' as const,
+    authorizedConnectionFeesRemainBillable: true,
+    recurringAddOnsRemainBillable: true,
+    enterpriseImplementationRemainsBillable: true,
+    maximumTrialsPerProviderOrganization: 1
+  }),
   memberships: Object.freeze({
     SOLO: Object.freeze({ planCode:'PLAN_SOLO', priceCentsMonthly:9_900, producerSeats:1, jurisdictions:1, concurrentCompetitions:5, monthlyOfferSubmissions:25, includedServices:[] as string[] }),
     AGENCY: Object.freeze({ planCode:'PLAN_AGENCY', priceCentsMonthly:24_900, producerSeats:3, jurisdictions:2, concurrentCompetitions:20, monthlyOfferSubmissions:100, includedServices:[] as string[] }),

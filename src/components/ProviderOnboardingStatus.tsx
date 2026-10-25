@@ -17,6 +17,10 @@ type MembershipState = {
   };
   paymentRequired: boolean;
   paymentComplete: boolean;
+  membershipTrial?: {
+    status: 'ACTIVE' | 'CONVERTED' | 'CANCELLED' | 'EXPIRED';
+    endsAt: string;
+  };
 };
 
 const PLAN_NAMES: Record<string, string> = {
@@ -78,7 +82,9 @@ export function ProviderOnboardingStatus() {
         {rejected
           ? application?.reviewReason || 'Open Polici could not approve the submitted provider authority evidence.'
           : approved
-            ? 'Your provider authority review is complete. Finish the selected monthly membership below. Payment purchases platform access; it does not replace licensing, appointments, line eligibility, or marketplace authorization.'
+            ? state?.membershipTrial?.status === 'ACTIVE'
+              ? 'Your authority review is complete and your 30-day membership trial is active. Connection fees and separately purchased services remain governed by Commercial V2.'
+              : 'Your provider authority review is complete. Finish the selected monthly membership below. Payment purchases platform access; it does not replace licensing, appointments, line eligibility, or marketplace authorization.'
             : 'Your account and application are recorded. Open Polici is reviewing the submitted organization, licensing, insurance-line, and carrier-relationship evidence.'}
       </p>
 
@@ -86,7 +92,7 @@ export function ProviderOnboardingStatus() {
         <div className="mt-6 grid gap-3 sm:grid-cols-3">
           <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4"><Building2 className="h-5 w-5 text-emerald-700"/><strong className="mt-2 block text-sm text-slate-950">Application received</strong></div>
           <div className={`rounded-2xl border p-4 ${approved?'border-emerald-200 bg-emerald-50':'border-slate-200 bg-slate-50'}`}><ShieldCheck className={`h-5 w-5 ${approved?'text-emerald-700':'text-slate-400'}`}/><strong className="mt-2 block text-sm text-slate-950">Authority review</strong></div>
-          <div className={`rounded-2xl border p-4 ${state?.paymentComplete?'border-emerald-200 bg-emerald-50':'border-slate-200 bg-slate-50'}`}>{state?.paymentComplete?<CheckCircle2 className="h-5 w-5 text-emerald-700"/>:<CreditCard className="h-5 w-5 text-slate-400"/>}<strong className="mt-2 block text-sm text-slate-950">Membership payment</strong></div>
+          <div className={`rounded-2xl border p-4 ${state?.paymentComplete||state?.membershipTrial?.status==='ACTIVE'?'border-emerald-200 bg-emerald-50':'border-slate-200 bg-slate-50'}`}>{state?.paymentComplete||state?.membershipTrial?.status==='ACTIVE'?<CheckCircle2 className="h-5 w-5 text-emerald-700"/>:<CreditCard className="h-5 w-5 text-slate-400"/>}<strong className="mt-2 block text-sm text-slate-950">Membership access</strong></div>
         </div>
       )}
 
@@ -96,8 +102,9 @@ export function ProviderOnboardingStatus() {
             <div><p className="text-xs font-bold uppercase tracking-wide text-blue-800">Selected membership</p><h3 className="mt-1 text-lg font-bold text-slate-950">{PLAN_NAMES[application.requestedPlanCode] || application.requestedPlanCode}</h3></div>
             {state?.invoice && <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-700">{state.invoice.status}</span>}
           </div>
+          {state?.membershipTrial?.status === 'ACTIVE' && <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950"><strong>30-day membership trial active</strong><p className="mt-1">Your recurring membership is free through {new Date(state.membershipTrial.endsAt).toLocaleDateString()}. Commercial V2 authorized-connection fees and separately purchased services are not waived.</p></div>}
           {state?.paymentRequired && <><p className="mt-3 text-sm text-slate-700">Your first monthly membership invoice is ready: <strong>{amount}</strong>.</p><button onClick={payMembership} disabled={paying} className="mt-4 inline-flex items-center gap-2 rounded-xl bg-slate-950 px-5 py-3 text-sm font-bold text-white disabled:opacity-50">{paying?<Loader2 className="h-4 w-4 animate-spin"/>:<CreditCard className="h-4 w-4"/>} Continue to secure Stripe checkout</button></>}
-          {!state?.invoice && <p className="mt-3 text-sm text-slate-700">Open Polici is preparing the approved membership agreement and first invoice. No payment is due until the secure checkout appears here.</p>}
+          {!state?.invoice && state?.membershipTrial?.status !== 'ACTIVE' && <p className="mt-3 text-sm text-slate-700">Open Polici is preparing the approved membership agreement and first invoice. No payment is due until the secure checkout appears here.</p>}
           {state?.paymentComplete && <p className="mt-3 text-sm font-semibold text-emerald-800">Membership payment confirmed. Marketplace access remains closed until final activation checks pass.</p>}
         </div>
       )}

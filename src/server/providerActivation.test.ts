@@ -44,7 +44,7 @@ test('provider activation fails closed until authority, matching V2 agreement, a
     await commercial.enrollCommercialAgreement({ providerOrgId: approved.providerOrganizationId!, planId: 'PLAN_SOLO', actorRole: 'ADMIN' });
     await assert.rejects(activate(), /does not match the application requested/);
     const enrollment = await commercial.enrollCommercialAgreement({ providerOrgId: approved.providerOrganizationId!, planId: 'PLAN_AGENCY', actorRole: 'ADMIN' });
-    await assert.rejects(activate(), /fully settled V2 membership subscription invoice/);
+    await assert.rejects(activate(), /valid 30-day membership trial or fully settled V2 membership invoice/);
 
     const now = new Date().toISOString();
     const period = { id: 'bp_provider_activation', providerOrganizationId: approved.providerOrganizationId!,

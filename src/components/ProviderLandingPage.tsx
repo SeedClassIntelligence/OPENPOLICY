@@ -299,7 +299,7 @@ export const ProviderLandingPage: React.FC<ProviderLandingPageProps> = ({
           <div className="mx-auto max-w-3xl text-center">
             <p className="font-mono text-xs font-bold uppercase tracking-wider text-emerald-700">Provider membership</p>
             <h2 className="mt-3 text-3xl font-extrabold tracking-tight">Choose your monthly marketplace membership</h2>
-            <p className="mt-4 text-sm leading-6 text-slate-600">The monthly membership pays for access to the Open Polici provider marketplace and the operating capacity shown below. Select a Commercial V2 plan before creating your provider application. Licensing and carrier authority are verified separately before marketplace activation.</p>
+            <p className="mt-4 text-sm leading-6 text-slate-600">Start with 30 days free on your selected monthly membership. The trial begins only after authority verification and waives the recurring membership charge—not authorized-connection fees, add-ons, or implementation services. Select a Commercial V2 plan before creating your provider application.</p>
           </div>
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
             {COMMERCIAL_TIERS.map(([name, price, scope, capacity, planCode]) => (
@@ -315,7 +315,7 @@ export const ProviderLandingPage: React.FC<ProviderLandingPageProps> = ({
           </div>
           <div className="rounded-2xl border border-emerald-200 bg-white p-5 text-sm leading-6 text-slate-700">
             <strong className="block text-slate-950">Membership and connection charges are different.</strong>
-            Your monthly membership provides marketplace access and operating capacity after activation. It does not create an insurance license, carrier appointment, or marketplace preference. The separate line-specific connection fee shown above is charged only when a consumer selects your offer, authorizes disclosure, and the controlled connection completes.
+            Your first 30 days of recurring membership are free after verified activation. Your selected tier still controls operating capacity. The trial does not create an insurance license, carrier appointment, or marketplace preference, and it does not waive the separate line-specific connection fee charged after consumer selection, authorization, and completed controlled disclosure.
           </div>
         </section>
       </main>

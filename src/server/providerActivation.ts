@@ -1,6 +1,7 @@
 import { OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2 } from '../domain/commercialPriceBook';
 import type { CommercialStore } from './db/commercialStore';
 import type { PostgresStore, ProviderApplication } from './db/postgresStore';
+import { hasCurrentProviderMembershipAccess } from './providerMembership';
 
 export async function activateApprovedProviderApplication(input: {
   applicationId: string;
@@ -72,8 +73,15 @@ export async function activateApprovedProviderApplication(input: {
   if (!version || !plan || version.termsSnapshot.priceBookId !== OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.id || plan.code !== application.requestedPlanCode) {
     throw Object.assign(new Error('The active agreement does not match the application requested OPEN_POLICY_COMMERCIAL_V2 membership.'), { statusCode: 409 });
   }
-  if (!(await input.commercialStore.hasPaidSubscriptionInvoice(application.providerOrganizationId, agreement.id))) {
-    throw Object.assign(new Error('A fully settled V2 membership subscription invoice is required before provider activation.'), { statusCode: 409 });
+  if (!(await hasCurrentProviderMembershipAccess({
+    providerOrganizationId: application.providerOrganizationId,
+    agreementId: agreement.id,
+    membershipTrialStatus: agreement.membershipTrialStatus,
+    membershipTrialStartedAt: agreement.membershipTrialStartedAt,
+    membershipTrialEndsAt: agreement.membershipTrialEndsAt,
+    commercialStore: input.commercialStore
+  }))) {
+    throw Object.assign(new Error('A valid 30-day membership trial or fully settled V2 membership invoice is required before provider activation.'), { statusCode: 409 });
   }
   if (input.synchronizeIdentity) await input.synchronizeIdentity(application);
   const organization = await input.postgresStore.changeProviderOrganizationStatus({

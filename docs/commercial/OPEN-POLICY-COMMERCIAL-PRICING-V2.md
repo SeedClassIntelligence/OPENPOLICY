@@ -16,6 +16,13 @@ enrollment. V1 remains immutable history and must not be rewritten or deleted.
 - Marketplace availability, viewing, engagement, offer submission, consumer selection,
   binding, and verified outcomes are free marketplace events.
 - `AUTHORIZED_CONNECTION` is the sole billable marketplace transaction event.
+- New verified provider organizations receive one 30-calendar-day trial of the
+  recurring membership selected in their approved application. The trial begins
+  after authority approval, applies once per provider organization, and waives
+  only the recurring membership charge. Authorized-connection fees, recurring
+  add-ons, and negotiated implementation services remain billable under their
+  existing controls. Trial expiration fails closed until the first membership
+  invoice is settled.
 - Commercial activation is platform-admin controlled and references an immutable plan version.
 - Insurance-line availability and compensation authority remain independent fail-closed gates.
 

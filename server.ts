@@ -50,7 +50,7 @@ import { assertBindingRelationship, assertChallengeRelationship, enforceApiAutho
 import { assertDirectSettlementMutationAllowed } from './src/server/paymentCollectionBoundary';
 import { StripePaymentProcessor, mapStripeIntentStatus, shouldApplyStripePaymentStatus, stripePaymentMethod, stripeProcessorConfig, stripeRefundLedgerKey } from './src/server/stripePaymentProcessor';
 import { activateApprovedProviderApplication } from './src/server/providerActivation';
-import { getProviderMembershipState, prepareProviderMembership } from './src/server/providerMembership';
+import { getProviderMembershipState, hasCurrentProviderMembershipAccess, prepareProviderMembership } from './src/server/providerMembership';
 
 import { runComparisonEngineTestSuite } from './src/domain/comparisonEngine.test';
 import { runEligibilityEngineTestSuite } from './src/domain/eligibilityEngine.test';
@@ -288,6 +288,21 @@ async function getAuthenticatedProviderOrgId(req: express.Request): Promise<stri
       : ['INDIVIDUAL_LICENSE', 'ORGANIZATION_LICENSE', ...(application?.transactionRole === 'AGENT' ? ['CARRIER_RELATIONSHIP'] : [])];
     if (!application || required.some(subject => !current(subject))) {
       const err: any = new Error('Forbidden: current authoritative provider evidence is incomplete or due for re-verification');
+      err.statusCode = 403;
+      throw err;
+    }
+
+    const agreement = await commercialStore.getActiveAgreementForOrg(user.organizationId);
+    const membershipCurrent = agreement && await hasCurrentProviderMembershipAccess({
+      providerOrganizationId: user.organizationId,
+      agreementId: agreement.id,
+      membershipTrialStatus: agreement.membershipTrialStatus,
+      membershipTrialStartedAt: agreement.membershipTrialStartedAt,
+      membershipTrialEndsAt: agreement.membershipTrialEndsAt,
+      commercialStore
+    });
+    if (!membershipCurrent) {
+      const err: any = new Error('Forbidden: the provider membership trial has ended and no settled membership invoice is active');
       err.statusCode = 403;
       throw err;
     }
@@ -1437,7 +1452,11 @@ app.get('/api/provider-applications/current', async (req, res) => {
   try {
     const application = await postgresStore.getProviderApplicationByFirebaseUid(req.openPolicyIdentity!.uid);
     if (!application) return res.status(404).json({ error: 'Provider application not found.' });
-    res.json(await getProviderMembershipState({ application, commercialStore }));
+    let state = await getProviderMembershipState({ application, commercialStore });
+    if (application.status === 'APPROVED' && state.membershipTrial?.status === 'EXPIRED' && !state.invoice) {
+      state = await prepareProviderMembership({ applicationId: application.id, postgresStore, commercialStore });
+    }
+    res.json(state);
   } catch (e: any) {
     res.status(e.statusCode || 500).json({ error: e.message });
   }

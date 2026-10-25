@@ -16,6 +16,32 @@ export interface ProviderMembershipState {
   paymentRequired: boolean;
   paymentComplete: boolean;
   marketplaceAccessGranted: boolean;
+  membershipTrial?: {
+    status: 'ACTIVE' | 'CONVERTED' | 'CANCELLED' | 'EXPIRED';
+    startedAt: string;
+    endsAt: string;
+    days: 30;
+    recurringMembershipWaived: boolean;
+    authorizedConnectionFeesRemainBillable: true;
+  };
+}
+
+export async function hasCurrentProviderMembershipAccess(input: {
+  providerOrganizationId: string;
+  agreementId: string;
+  membershipTrialStatus?: string;
+  membershipTrialStartedAt?: string;
+  membershipTrialEndsAt?: string;
+  commercialStore: CommercialStore;
+  now?: string;
+}): Promise<boolean> {
+  const nowMs = Date.parse(input.now || new Date().toISOString());
+  const activeTrial = input.membershipTrialStatus === 'ACTIVE' &&
+    !!input.membershipTrialStartedAt && !!input.membershipTrialEndsAt &&
+    Date.parse(input.membershipTrialEndsAt) > nowMs;
+  return activeTrial || input.commercialStore.hasPaidSubscriptionInvoice(
+    input.providerOrganizationId, input.agreementId
+  );
 }
 
 function addOneUtcMonth(value: string): string {
@@ -51,6 +77,9 @@ export async function getProviderMembershipState(input: {
     : [];
   const invoice = invoices[0];
   const paymentComplete = Boolean(invoice && invoice.status === 'PAID' && invoice.balanceDueCents === 0);
+  const trialActive = agreement?.membershipTrialStatus === 'ACTIVE' &&
+    Boolean(agreement.membershipTrialStartedAt && agreement.membershipTrialEndsAt) &&
+    Date.parse(agreement.membershipTrialEndsAt!) > Date.now();
   return {
     application,
     agreementId: agreement?.id,
@@ -64,7 +93,17 @@ export async function getProviderMembershipState(input: {
     } : undefined,
     paymentRequired: Boolean(invoice && !paymentComplete && invoice.balanceDueCents > 0),
     paymentComplete,
-    marketplaceAccessGranted: false
+    marketplaceAccessGranted: false,
+    membershipTrial: agreement?.membershipTrialStartedAt && agreement.membershipTrialEndsAt && agreement.membershipTrialStatus
+      ? {
+          status: trialActive ? 'ACTIVE' : agreement.membershipTrialStatus === 'ACTIVE' ? 'EXPIRED' : agreement.membershipTrialStatus,
+          startedAt: agreement.membershipTrialStartedAt,
+          endsAt: agreement.membershipTrialEndsAt,
+          days: 30,
+          recurringMembershipWaived: trialActive,
+          authorizedConnectionFeesRemainBillable: true
+        }
+      : undefined
   };
 }
 
@@ -97,7 +136,9 @@ export async function prepareProviderMembership(input: {
     const enrollment = await commercialStore.enrollCommercialAgreement({
       providerOrgId: organizationId,
       planId: application.requestedPlanCode,
-      actorRole: 'ADMIN'
+      actorRole: 'ADMIN',
+      membershipTrialDays: 30,
+      now: input.now
     });
     agreement = enrollment.agreement;
   }
@@ -105,7 +146,11 @@ export async function prepareProviderMembership(input: {
   const existing = await getProviderMembershipState({ application, commercialStore });
   if (existing.invoice) return existing;
 
-  const periodStart = input.now || new Date().toISOString();
+  // During the founder-approved trial the recurring membership is the only
+  // waived charge. Usage/event billing remains governed by Commercial V2.
+  if (existing.membershipTrial?.status === 'ACTIVE') return existing;
+
+  const periodStart = agreement.membershipTrialEndsAt || input.now || new Date().toISOString();
   const period = buildBillingPeriod({
     id: `bp_membership_${application.id}`,
     providerOrganizationId: organizationId,

@@ -1532,6 +1532,23 @@ DO $$ BEGIN
 END $$;
 `;
 
+export const SQL_MIGRATION_V28 = `
+-- Founder-approved 30-day trial applies only to recurring V2 membership.
+-- Nullable columns preserve all historical agreements unchanged.
+ALTER TABLE commercial_agreements ADD COLUMN IF NOT EXISTS membership_trial_started_at TEXT;
+ALTER TABLE commercial_agreements ADD COLUMN IF NOT EXISTS membership_trial_ends_at TEXT;
+ALTER TABLE commercial_agreements ADD COLUMN IF NOT EXISTS membership_trial_status TEXT;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='commercial_agreements_trial_status_check') THEN
+    ALTER TABLE commercial_agreements ADD CONSTRAINT commercial_agreements_trial_status_check
+      CHECK (membership_trial_status IS NULL OR membership_trial_status IN ('ACTIVE','CONVERTED','CANCELLED','EXPIRED'));
+  END IF;
+END $$;
+CREATE UNIQUE INDEX IF NOT EXISTS commercial_agreements_one_membership_trial_per_org
+  ON commercial_agreements(provider_organization_id)
+  WHERE membership_trial_started_at IS NOT NULL;
+`;
+
 export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR || './data/openpolicy_pg') {
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
@@ -1648,7 +1665,11 @@ export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR ||
     await pglite.query(
       `INSERT INTO _migrations (name) VALUES ('0027_wave_zero_provider_identity') ON CONFLICT (name) DO NOTHING;`
     );
-    console.log(`[Open Policy DB] Migrations 0001 through 0027 applied successfully.`);
+    await pglite.exec(SQL_MIGRATION_V28);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0028_provider_membership_trial') ON CONFLICT (name) DO NOTHING;`
+    );
+    console.log(`[Open Policy DB] Migrations 0001 through 0028 applied successfully.`);
     return pglite;
   } catch (error) {
     console.error(`[Open Policy DB] Migration error:`, error);
