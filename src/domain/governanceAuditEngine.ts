@@ -90,58 +90,69 @@ export function verifyCryptographicAuditChain(
   // segments. Verify the resulting hash-chain forest by proving that every
   // stored record is reachable from genesis through its recorded hash. Missing,
   // altered, or out-of-chain records remain unreachable and fail verification.
-  const remaining = [...events];
+  const remaining = new Map(events.map(event => [event.id, event]));
   const orderedHashes: string[] = [];
-  const reachablePredecessors = new Set<string>([genesisHash]);
+  const roots = events.filter(candidate => computeBlockHash({
+    timestamp: candidate.timestamp,
+    eventType: candidate.eventType,
+    actorId: candidate.actorId,
+    details: candidate.details,
+    prevHash: genesisHash
+  }) === candidate.hash).sort((a, b) =>
+    a.timestamp.localeCompare(b.timestamp) || a.id.localeCompare(b.id) || a.hash.localeCompare(b.hash)
+  );
 
-  while (remaining.length > 0) {
-    const matches: Array<{ index: number; event: AuditEvent }> = [];
-    for (let candidateIndex = 0; candidateIndex < remaining.length; candidateIndex++) {
-      const candidate = remaining[candidateIndex];
-      for (const prevHash of reachablePredecessors) {
-        const expectedHash = computeBlockHash({
-          timestamp: candidate.timestamp,
-          eventType: candidate.eventType,
-          actorId: candidate.actorId,
-          details: candidate.details,
-          prevHash
-        });
-        if (expectedHash === candidate.hash) {
-          matches.push({ index: candidateIndex, event: candidate });
-          break;
-        }
+  for (const root of roots) {
+    if (!remaining.has(root.id)) continue;
+    remaining.delete(root.id);
+    orderedHashes.push(root.hash);
+    let predecessor = root.hash;
+
+    while (true) {
+      const matches = [...remaining.values()].filter(candidate => computeBlockHash({
+        timestamp: candidate.timestamp,
+        eventType: candidate.eventType,
+        actorId: candidate.actorId,
+        details: candidate.details,
+        prevHash: predecessor
+      }) === candidate.hash);
+      if (matches.length === 0) break;
+      if (matches.length > 1) {
+        return {
+          isValid: false,
+          totalEvents: events.length,
+          verifiedBlocks: orderedHashes.length,
+          tamperedIndex: orderedHashes.length,
+          tamperedEventId: matches[0].id,
+          error: `Cryptographic fork detected after ${predecessor}; ${matches.length} records claim the same non-genesis predecessor.`,
+          genesisHash,
+          latestBlockHash: orderedHashes.at(-1) ?? genesisHash,
+          merkleRoot: computeMerkleRoot(orderedHashes),
+          verifiedAt
+        };
       }
+      const successor = matches[0];
+      remaining.delete(successor.id);
+      orderedHashes.push(successor.hash);
+      predecessor = successor.hash;
     }
+  }
 
-    if (matches.length === 0) {
-      const verifiedBlocks = events.length - remaining.length;
-      const candidate = remaining[0];
+  if (remaining.size > 0) {
+      const verifiedBlocks = events.length - remaining.size;
+      const candidate = remaining.values().next().value as AuditEvent | undefined;
       return {
         isValid: false,
         totalEvents: events.length,
         verifiedBlocks,
         tamperedIndex: verifiedBlocks,
         tamperedEventId: candidate?.id,
-        error: `${remaining.length} stored record(s) cannot be reached from the audit genesis through the recorded hash chains. A record was altered, deleted, or inserted outside the append-only ledger.`,
+        error: `${remaining.size} stored record(s) cannot be reached from the audit genesis through the recorded hash chains. A record was altered, deleted, or inserted outside the append-only ledger.`,
         genesisHash,
         latestBlockHash: orderedHashes.at(-1) ?? genesisHash,
         merkleRoot: computeMerkleRoot(orderedHashes),
         verifiedAt
       };
-    }
-
-    matches.sort((a, b) =>
-      a.event.timestamp.localeCompare(b.event.timestamp)
-      || a.event.id.localeCompare(b.event.id)
-      || a.event.hash.localeCompare(b.event.hash)
-    );
-    for (const match of matches) {
-      orderedHashes.push(match.event.hash);
-      reachablePredecessors.add(match.event.hash);
-    }
-    for (const index of matches.map(match => match.index).sort((a, b) => b - a)) {
-      remaining.splice(index, 1);
-    }
   }
 
   return {
