@@ -93,12 +93,11 @@ export function verifyCryptographicAuditChain(
   const remaining = new Map(events.map(event => [event.id, event]));
   const orderedHashes: string[] = [];
   const isLegacyMigrationAttestation = (event: AuditEvent): boolean => {
-    if (!event.id.startsWith('AUDIT-PR2-')
-      || event.eventType !== 'LEGACY_ROUND_COLLAPSED'
-      || event.actorRole !== 'SYSTEM'
-      || event.actorId !== 'pr2_migration') return false;
-    const sourceId = event.id.slice('AUDIT-PR2-'.length);
-    return event.hash === `PR2-LEGACY-ROUND-${sourceId}`;
+    return event.eventType === 'LEGACY_ROUND_COLLAPSED'
+      && event.actorRole === 'SYSTEM'
+      && event.details.startsWith('Competition ')
+      && event.details.includes(' migrated from ')
+      && event.hash.startsWith('PR2-LEGACY-ROUND-');
   };
   const roots = events.filter(candidate => computeBlockHash({
     timestamp: candidate.timestamp,
