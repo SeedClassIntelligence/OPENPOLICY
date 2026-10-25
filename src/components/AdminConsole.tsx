@@ -1229,7 +1229,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
               Cryptographically Chained Audit Ledger ({filteredEvents.length} Records)
             </h3>
             <p className="text-xs text-slate-500">
-              Every system event, consumer decision, broker revision, and binding handoff is permanently anchored with SHA-256 block hashes.
+              Every system event, consumer decision, broker revision, and binding handoff is permanently anchored in an append-only hash chain.
             </p>
           </div>
 
@@ -1323,7 +1323,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
                       {isTamperedBlock ? (
                         <span className="text-rose-700 flex items-center space-x-1">
                           <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
-                          <span>[TAMPERED SIMULATION] Altered transaction payload breaks SHA-256 block hash!</span>
+                          <span>[TAMPERED SIMULATION] Altered transaction payload breaks the chained block hash!</span>
                         </span>
                       ) : (
                         event.details

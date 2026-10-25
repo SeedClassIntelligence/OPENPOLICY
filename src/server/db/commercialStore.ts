@@ -3065,7 +3065,11 @@ export class CommercialStore {
       client.query<any>(`SELECT COUNT(*)::int AS count,COALESCE(SUM(total_due_cents),0)::bigint AS invoiced_cents,COALESCE(SUM(balance_due_cents),0)::bigint AS outstanding_cents,COUNT(*) FILTER (WHERE status='PAST_DUE')::int AS past_due_count FROM invoices;`),
       client.query<any>(`SELECT COUNT(*)::int AS count,COALESCE(SUM(amount_cents) FILTER (WHERE status='SUCCEEDED'),0)::bigint AS collected_cents,COUNT(*) FILTER (WHERE status='FAILED')::int AS failed_count,COUNT(*) FILTER (WHERE status='PENDING')::int AS pending_count FROM payment_records;`),
       client.query<any>(`SELECT COUNT(*)::int AS count,COALESCE(SUM(amount_cents),0)::bigint AS refunded_cents FROM refund_records;`),
-      client.query<any>(`SELECT e.event_type,COUNT(*)::int AS event_count,COALESCE(SUM(b.amount_cents),0)::bigint AS rated_cents FROM commercial_events e LEFT JOIN billable_events b ON b.commercial_event_id=e.id GROUP BY e.event_type ORDER BY e.event_type;`),
+      client.query<any>(`SELECT e.event_type,COUNT(*)::int AS event_count,COALESCE(SUM(b.amount_cents),0)::bigint AS rated_cents
+        FROM commercial_events e
+        LEFT JOIN billable_events b ON b.commercial_event_id=e.id
+        WHERE e.event_type <> 'VPO_ENGAGED'
+        GROUP BY e.event_type ORDER BY e.event_type;`),
       client.query<any>(`SELECT i.id,i.invoice_number,i.provider_organization_id,o.display_name,i.status,i.total_due_cents,i.balance_due_cents,i.created_at FROM invoices i LEFT JOIN provider_organizations o ON o.id=i.provider_organization_id ORDER BY i.created_at DESC LIMIT 25;`),
       client.query<any>(`SELECT p.id,p.provider_organization_id,o.display_name,p.invoice_id,p.amount_cents,p.status,p.payment_method,p.created_at,p.settled_at FROM payment_records p LEFT JOIN provider_organizations o ON o.id=p.provider_organization_id ORDER BY p.created_at DESC LIMIT 25;`),
       client.query<any>(`SELECT r.id,r.provider_organization_id,o.display_name,r.original_payment_record_id,r.amount_cents,r.reason,r.refunded_at FROM refund_records r LEFT JOIN provider_organizations o ON o.id=r.provider_organization_id ORDER BY r.refunded_at DESC LIMIT 25;`)

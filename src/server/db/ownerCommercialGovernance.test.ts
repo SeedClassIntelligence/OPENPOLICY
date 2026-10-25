@@ -85,6 +85,28 @@ test('platform financial overview is rebuilt from canonical ledgers without dash
   }finally{await store.close();fs.rmSync(dataDir,{recursive:true,force:true});}
 });
 
+test('Commercial V2 financial overview excludes historical engagement events',async()=>{
+  const dataDir=fs.mkdtempSync(path.join(os.tmpdir(),'openpolicy-owner-financials-v2-'));
+  const store=new PostgresStore(dataDir);const commercial=new CommercialStore(store);
+  try{
+    await store.init();
+    const client=await store.getPgClient();
+    await client.query(`INSERT INTO provider_organizations
+      (id,legal_name,display_name,organization_type,verification_status,marketplace_status,states,lines_of_business,created_at)
+      VALUES ($1,$2,$2,'AGENCY','VERIFIED','ACTIVE',$3,$4,$5);`,
+      ['org-v2-overview','V2 Overview Agency',JSON.stringify(['NV']),JSON.stringify(['PERSONAL_AUTO']),new Date().toISOString()]);
+    const occurredAt=new Date().toISOString();
+    for(const [id,eventType] of [['evt-legacy-engagement','VPO_ENGAGED'],['evt-v2-connection','AUTHORIZED_CONNECTION']]){
+      await client.query(`INSERT INTO commercial_events
+        (id,provider_organization_id,event_type,source_entity_type,source_entity_id,occurred_at,metadata,idempotency_key,event_hash)
+        VALUES ($1,$2,$3,'ACCEPTANCE','source-v2-overview',$4,'{}',$5,$6);`,
+        [id,'org-v2-overview',eventType,occurredAt,`idem:${id}`,`hash:${id}`]);
+    }
+    const overview:any=await commercial.getPlatformFinancialOverview();
+    assert.deepEqual(overview.revenueEvents,[{eventType:'AUTHORIZED_CONNECTION',eventCount:1,ratedCents:0}]);
+  }finally{await store.close();fs.rmSync(dataDir,{recursive:true,force:true});}
+});
+
 test('platform administrator authority is durable, bounded, audited, and preserves a last owner',async()=>{
   const dataDir=fs.mkdtempSync(path.join(os.tmpdir(),'openpolicy-owner-authority-'));const store=new PostgresStore(dataDir);
   try{await store.init();const owner=await store.bootstrapPlatformOwner('firebase-owner');assert.equal(owner.adminType,'OWNER');

@@ -84,35 +84,49 @@ export function verifyCryptographicAuditChain(
     };
   }
 
+  // SQL timestamps are not a safe chain ordinal: multiple events can share the
+  // same timestamp and database query order among ties is undefined. Recover
+  // the one valid successor of each hash instead of treating display order as
+  // cryptographic order. Missing successors detect deletion/tampering; multiple
+  // successors detect a fork. No stored record is rewritten or ignored.
   let prevHash = genesisHash;
+  const remaining = [...events];
+  const orderedHashes: string[] = [];
 
   for (let i = 0; i < events.length; i++) {
-    const event = events[i];
+    const matches: number[] = [];
+    for (let candidateIndex = 0; candidateIndex < remaining.length; candidateIndex++) {
+      const candidate = remaining[candidateIndex];
+      const expectedHash = computeBlockHash({
+        timestamp: candidate.timestamp,
+        eventType: candidate.eventType,
+        actorId: candidate.actorId,
+        details: candidate.details,
+        prevHash
+      });
+      if (expectedHash === candidate.hash) matches.push(candidateIndex);
+    }
 
-    // Recompute block hash using known fields and previous hash
-    const expectedHash = computeBlockHash({
-      timestamp: event.timestamp,
-      eventType: event.eventType,
-      actorId: event.actorId,
-      details: event.details,
-      prevHash
-    });
-
-    if (expectedHash !== event.hash) {
+    if (matches.length !== 1) {
+      const candidate = remaining[0];
       return {
         isValid: false,
         totalEvents: events.length,
         verifiedBlocks: i,
         tamperedIndex: i,
-        tamperedEventId: event.id,
-        error: `Cryptographic mismatch at block #${i} [${event.id}]: expected ${expectedHash}, found ${event.hash}. Block payload or sequence was altered.`,
+        tamperedEventId: candidate?.id,
+        error: matches.length === 0
+          ? `Cryptographic chain stops after block #${i - 1}; ${remaining.length} stored record(s) cannot be linked to predecessor ${prevHash}. A record was altered, deleted, or inserted outside the append-only chain.`
+          : `Cryptographic fork detected after block #${i - 1}; ${matches.length} records claim predecessor ${prevHash}.`,
         genesisHash,
-        latestBlockHash: events[events.length - 1].hash,
-        merkleRoot: computeMerkleRoot(events.map(e => e.hash)),
+        latestBlockHash: prevHash,
+        merkleRoot: computeMerkleRoot(orderedHashes),
         verifiedAt
       };
     }
 
+    const [event] = remaining.splice(matches[0], 1);
+    orderedHashes.push(event.hash);
     prevHash = event.hash;
   }
 
@@ -122,8 +136,8 @@ export function verifyCryptographicAuditChain(
     verifiedBlocks: events.length,
     tamperedIndex: null,
     genesisHash,
-    latestBlockHash: events[events.length - 1].hash,
-    merkleRoot: computeMerkleRoot(events.map(e => e.hash)),
+    latestBlockHash: prevHash,
+    merkleRoot: computeMerkleRoot(orderedHashes),
     verifiedAt
   };
 }

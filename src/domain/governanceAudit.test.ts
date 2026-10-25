@@ -97,6 +97,16 @@ export function runGovernanceAuditTestSuite(): {
     'All 5 blocks sequentially hash with previous block hash to verify tamper-proof audit ledger.'
   );
 
+  const sameTimestampDisplayOrder = [validChain[3], validChain[0], validChain[4], validChain[2], validChain[1]];
+  const verifyDisplayOrderIndependent = verifyCryptographicAuditChain(sameTimestampDisplayOrder);
+  assert(
+    'Database display order must not be mistaken for cryptographic chain order',
+    'Cryptographic Chaining (Section 33)',
+    { isValid: verifyDisplayOrderIndependent.isValid, verifiedBlocks: verifyDisplayOrderIndependent.verifiedBlocks },
+    { isValid: true, verifiedBlocks: 5 },
+    'The verifier reconstructs the unique hash-linked sequence and remains deterministic when query rows are reordered.'
+  );
+
   // =========================================================================
   // 2. Tamper Detection on Payload Alteration
   // =========================================================================
