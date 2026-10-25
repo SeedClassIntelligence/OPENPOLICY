@@ -1229,7 +1229,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
               Cryptographically Chained Audit Ledger ({filteredEvents.length} Records)
             </h3>
             <p className="text-xs text-slate-500">
-              Every system event, consumer decision, broker revision, and binding handoff is permanently anchored in an append-only hash chain.
+              Every system event, consumer decision, broker revision, and binding handoff is permanently anchored in append-only hash chains.
             </p>
           </div>
 

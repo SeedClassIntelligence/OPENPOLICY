@@ -107,6 +107,34 @@ export function runGovernanceAuditTestSuite(): {
     'The verifier reconstructs the unique hash-linked sequence and remains deterministic when query rows are reordered.'
   );
 
+  const secondValidSegment = createChainedEvents(3).map((event, index) => ({
+    ...event,
+    id: `AUD-SECOND-${index}`,
+    timestamp: new Date(Date.now() + 10_000 + index * 1000).toISOString()
+  }));
+  let secondPrevHash = 'GENESIS_BLOCK_000000';
+  for (const event of secondValidSegment) {
+    event.hash = computeBlockHash({
+      timestamp: event.timestamp,
+      eventType: event.eventType,
+      actorId: event.actorId,
+      details: event.details,
+      prevHash: secondPrevHash
+    });
+    secondPrevHash = event.hash;
+  }
+  const verifyIndependentSegments = verifyCryptographicAuditChain([
+    secondValidSegment[2], validChain[4], secondValidSegment[0], validChain[0],
+    validChain[2], secondValidSegment[1], validChain[1], validChain[3]
+  ]);
+  assert(
+    'Independent genesis-rooted historical segments must all verify',
+    'Cryptographic Chaining (Section 33)',
+    { isValid: verifyIndependentSegments.isValid, verifiedBlocks: verifyIndependentSegments.verifiedBlocks },
+    { isValid: true, verifiedBlocks: 8 },
+    'Every stored record is reachable through a valid genesis-rooted hash segment.'
+  );
+
   // =========================================================================
   // 2. Tamper Detection on Payload Alteration
   // =========================================================================

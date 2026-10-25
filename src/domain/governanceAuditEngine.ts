@@ -85,49 +85,63 @@ export function verifyCryptographicAuditChain(
   }
 
   // SQL timestamps are not a safe chain ordinal: multiple events can share the
-  // same timestamp and database query order among ties is undefined. Recover
-  // the one valid successor of each hash instead of treating display order as
-  // cryptographic order. Missing successors detect deletion/tampering; multiple
-  // successors detect a fork. No stored record is rewritten or ignored.
-  let prevHash = genesisHash;
+  // same timestamp and database query order among ties is undefined. Historical
+  // imports and canonical seed cycles also created independent, genesis-rooted
+  // segments. Verify the resulting hash-chain forest by proving that every
+  // stored record is reachable from genesis through its recorded hash. Missing,
+  // altered, or out-of-chain records remain unreachable and fail verification.
   const remaining = [...events];
   const orderedHashes: string[] = [];
+  const reachablePredecessors = new Set<string>([genesisHash]);
 
-  for (let i = 0; i < events.length; i++) {
-    const matches: number[] = [];
+  while (remaining.length > 0) {
+    const matches: Array<{ index: number; event: AuditEvent }> = [];
     for (let candidateIndex = 0; candidateIndex < remaining.length; candidateIndex++) {
       const candidate = remaining[candidateIndex];
-      const expectedHash = computeBlockHash({
-        timestamp: candidate.timestamp,
-        eventType: candidate.eventType,
-        actorId: candidate.actorId,
-        details: candidate.details,
-        prevHash
-      });
-      if (expectedHash === candidate.hash) matches.push(candidateIndex);
+      for (const prevHash of reachablePredecessors) {
+        const expectedHash = computeBlockHash({
+          timestamp: candidate.timestamp,
+          eventType: candidate.eventType,
+          actorId: candidate.actorId,
+          details: candidate.details,
+          prevHash
+        });
+        if (expectedHash === candidate.hash) {
+          matches.push({ index: candidateIndex, event: candidate });
+          break;
+        }
+      }
     }
 
-    if (matches.length !== 1) {
+    if (matches.length === 0) {
+      const verifiedBlocks = events.length - remaining.length;
       const candidate = remaining[0];
       return {
         isValid: false,
         totalEvents: events.length,
-        verifiedBlocks: i,
-        tamperedIndex: i,
+        verifiedBlocks,
+        tamperedIndex: verifiedBlocks,
         tamperedEventId: candidate?.id,
-        error: matches.length === 0
-          ? `Cryptographic chain stops after block #${i - 1}; ${remaining.length} stored record(s) cannot be linked to predecessor ${prevHash}. A record was altered, deleted, or inserted outside the append-only chain.`
-          : `Cryptographic fork detected after block #${i - 1}; ${matches.length} records claim predecessor ${prevHash}.`,
+        error: `${remaining.length} stored record(s) cannot be reached from the audit genesis through the recorded hash chains. A record was altered, deleted, or inserted outside the append-only ledger.`,
         genesisHash,
-        latestBlockHash: prevHash,
+        latestBlockHash: orderedHashes.at(-1) ?? genesisHash,
         merkleRoot: computeMerkleRoot(orderedHashes),
         verifiedAt
       };
     }
 
-    const [event] = remaining.splice(matches[0], 1);
-    orderedHashes.push(event.hash);
-    prevHash = event.hash;
+    matches.sort((a, b) =>
+      a.event.timestamp.localeCompare(b.event.timestamp)
+      || a.event.id.localeCompare(b.event.id)
+      || a.event.hash.localeCompare(b.event.hash)
+    );
+    for (const match of matches) {
+      orderedHashes.push(match.event.hash);
+      reachablePredecessors.add(match.event.hash);
+    }
+    for (const index of matches.map(match => match.index).sort((a, b) => b - a)) {
+      remaining.splice(index, 1);
+    }
   }
 
   return {
@@ -136,7 +150,7 @@ export function verifyCryptographicAuditChain(
     verifiedBlocks: events.length,
     tamperedIndex: null,
     genesisHash,
-    latestBlockHash: prevHash,
+    latestBlockHash: orderedHashes.at(-1) ?? genesisHash,
     merkleRoot: computeMerkleRoot(orderedHashes),
     verifiedAt
   };
