@@ -14,6 +14,7 @@ node_modules/
 dist/
 data/
 output/
+.codex/
 .git/
 .gitignore
 
