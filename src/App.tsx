@@ -42,6 +42,8 @@ function MainApp() {
         setActivePerspective('CONSUMER');
       } else if (path === '/provider-account' && isAuthenticated && userRole === 'PROVIDER') {
         setActivePerspective('PROVIDER');
+      } else if (path === '/admin' && isAuthenticated && userRole === 'ADMIN') {
+        setActivePerspective('ADMIN_AUDIT');
       }
     };
     syncRoute();
@@ -135,6 +137,7 @@ function MainApp() {
     setActivePerspective(perspective);
     if (perspective === 'CONSUMER') window.history.pushState({}, '', '/account');
     if (perspective === 'PROVIDER') window.history.pushState({}, '', '/provider-account');
+    if (perspective === 'ADMIN_AUDIT') window.history.pushState({}, '', '/admin');
     const names: Record<ActivePerspective, string> = {
       LANDING: 'Welcome to Open Polici (Platform Overview & Doctrine)',
       CONSUMER: 'Switched to Consumer Perspective (Policyholder Comparison)',
@@ -149,6 +152,7 @@ function MainApp() {
 
   const handleAuthSuccess = (role: UserRole) => {
     if (role === 'ADMIN') {
+      window.history.pushState({}, '', '/admin');
       setActivePerspective('ADMIN_AUDIT');
       showToast('Owner identity loaded. Administrative controls are available.');
     } else if (role === 'PROVIDER') {
