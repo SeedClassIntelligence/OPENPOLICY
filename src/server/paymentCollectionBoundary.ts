@@ -18,3 +18,20 @@ export function assertDirectSettlementMutationAllowed(
   }
 }
 
+/**
+ * New processor-hosted collection sessions require an explicit operational
+ * enablement. Webhook processing and refunds intentionally do not use this
+ * guard: disabling new collections must not prevent reconciliation or returning
+ * money that was already collected.
+ */
+export function assertPaymentCollectionEnabled(
+  env: NodeJS.ProcessEnv = process.env
+): void {
+  if (env.OPENPOLICY_LIVE_COLLECTIONS_ENABLED !== 'true') {
+    throw Object.assign(
+      new Error('Payment collection is disabled by platform administration.'),
+      { statusCode: 503, code: 'LIVE_COLLECTIONS_DISABLED' }
+    );
+  }
+}
+

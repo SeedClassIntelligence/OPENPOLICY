@@ -47,7 +47,10 @@ import { verifyCryptographicAuditChain, processReviewQueueResolution,
   generateRegulatoryAuditProof } from './src/domain/governanceAuditEngine';
 import { assertProductionAuthConfiguration, attachRequestIdentity, configuredAuthMode, getFirebaseUserProfile, linkFirebaseProviderMembership, updateFirebaseProviderReviewState } from './src/server/auth/requestIdentity';
 import { assertBindingRelationship, assertChallengeRelationship, enforceApiAuthorization } from './src/server/auth/routeAuthorization';
-import { assertDirectSettlementMutationAllowed } from './src/server/paymentCollectionBoundary';
+import {
+  assertDirectSettlementMutationAllowed,
+  assertPaymentCollectionEnabled
+} from './src/server/paymentCollectionBoundary';
 import { StripePaymentProcessor, mapStripeIntentStatus, shouldApplyStripePaymentStatus, stripePaymentMethod, stripeProcessorConfig, stripeRefundLedgerKey } from './src/server/stripePaymentProcessor';
 import { activateApprovedProviderApplication } from './src/server/providerActivation';
 import { getProviderMembershipState, hasCurrentProviderMembershipAccess, prepareProviderMembership } from './src/server/providerMembership';
@@ -183,6 +186,10 @@ async function createStripeInvoicePaymentSession(input: {
   invoiceId: string;
   actorId: string;
 }) {
+  // This is the single boundary used by membership and usage-invoice checkout.
+  // Keep it before all database and Stripe mutations so a disabled runtime
+  // cannot create a customer, session, or misleading audit evidence.
+  assertPaymentCollectionEnabled();
   const invoice = await commercialStore.getInvoiceById(input.invoiceId);
   if (!invoice || invoice.providerOrganizationId !== input.providerOrganizationId) {
     throw Object.assign(new Error('Invoice not found'), { statusCode: 404 });
