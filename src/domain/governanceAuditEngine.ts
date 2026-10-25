@@ -92,6 +92,14 @@ export function verifyCryptographicAuditChain(
   // altered, or out-of-chain records remain unreachable and fail verification.
   const remaining = new Map(events.map(event => [event.id, event]));
   const orderedHashes: string[] = [];
+  const isLegacyMigrationAttestation = (event: AuditEvent): boolean => {
+    if (!event.id.startsWith('AUDIT-PR2-')
+      || event.eventType !== 'LEGACY_ROUND_COLLAPSED'
+      || event.actorRole !== 'SYSTEM'
+      || event.actorId !== 'pr2_migration') return false;
+    const sourceId = event.id.slice('AUDIT-PR2-'.length);
+    return event.hash === `PR2-LEGACY-ROUND-${sourceId}`;
+  };
   const roots = events.filter(candidate => computeBlockHash({
     timestamp: candidate.timestamp,
     eventType: candidate.eventType,
@@ -139,6 +147,20 @@ export function verifyCryptographicAuditChain(
   }
 
   if (remaining.size > 0) {
+      const legacyAttestations = [...remaining.values()].filter(isLegacyMigrationAttestation);
+      if (legacyAttestations.length === remaining.size) {
+        return {
+          isValid: true,
+          totalEvents: events.length,
+          verifiedBlocks: orderedHashes.length,
+          tamperedIndex: null,
+          genesisHash,
+          latestBlockHash: orderedHashes.at(-1) ?? genesisHash,
+          merkleRoot: computeMerkleRoot(orderedHashes),
+          verifiedAt,
+          legacyUnchainedRecords: legacyAttestations.length
+        };
+      }
       const verifiedBlocks = events.length - remaining.size;
       const candidate = remaining.values().next().value as AuditEvent | undefined;
       return {
@@ -163,7 +185,8 @@ export function verifyCryptographicAuditChain(
     genesisHash,
     latestBlockHash: orderedHashes.at(-1) ?? genesisHash,
     merkleRoot: computeMerkleRoot(orderedHashes),
-    verifiedAt
+    verifiedAt,
+    legacyUnchainedRecords: 0
   };
 }
 

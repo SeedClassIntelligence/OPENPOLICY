@@ -135,6 +135,29 @@ export function runGovernanceAuditTestSuite(): {
     'Every stored record is reachable through a valid genesis-rooted hash segment.'
   );
 
+  const legacySourceId = 'COMP-LEGACY-1';
+  const legacyAttestation: AuditEvent = {
+    id: `AUDIT-PR2-${legacySourceId}`,
+    timestamp: new Date().toISOString(),
+    eventType: 'LEGACY_ROUND_COLLAPSED',
+    actorRole: 'SYSTEM',
+    actorId: 'pr2_migration',
+    details: 'Competition COMP-LEGACY-1 migrated from BEST_AND_FINAL',
+    hash: `PR2-LEGACY-ROUND-${legacySourceId}`
+  };
+  const verifyLegacyAttestation = verifyCryptographicAuditChain([...validChain, legacyAttestation]);
+  assert(
+    'V12 legacy migration attestations remain visible without being misrepresented as chained blocks',
+    'Cryptographic Chaining (Section 33)',
+    {
+      isValid: verifyLegacyAttestation.isValid,
+      verifiedBlocks: verifyLegacyAttestation.verifiedBlocks,
+      legacyUnchainedRecords: verifyLegacyAttestation.legacyUnchainedRecords
+    },
+    { isValid: true, verifiedBlocks: 5, legacyUnchainedRecords: 1 },
+    'Known migration attestations are counted separately from cryptographically verified records.'
+  );
+
   // =========================================================================
   // 2. Tamper Detection on Payload Alteration
   // =========================================================================

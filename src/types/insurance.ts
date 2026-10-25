@@ -738,6 +738,7 @@ export interface AuditEvent {
     | 'ISSUED_POLICY_RECONCILED'
     | 'RENEWAL_DETECTED'
     | 'FINAL_ROUND_INITIATED'
+    | 'LEGACY_ROUND_COLLAPSED'
     | 'INCUMBENT_DEFENSE_INVITED'
     | 'VAULT_DOCUMENT_ADDED'
     | 'PROVIDER_REGISTERED'
@@ -1348,6 +1349,7 @@ export interface ChainVerificationResult {
   latestBlockHash: string;
   merkleRoot: string;
   verifiedAt: string;
+  legacyUnchainedRecords?: number;
 }
 
 export interface RegulatoryAuditProof {

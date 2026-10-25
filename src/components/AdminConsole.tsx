@@ -1033,17 +1033,17 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
               <div className="space-y-1">
                 <div className="flex items-center space-x-2">
                   <span className="font-bold text-sm">
-                    {verificationResult.isValid ? '100% UNBROKEN CRYPTOGRAPHIC INTEGRITY' : 'LEDGER TAMPERING DETECTED'}
+                    {verificationResult.isValid ? 'CRYPTOGRAPHIC INTEGRITY VERIFIED' : 'LEDGER TAMPERING DETECTED'}
                   </span>
                   <span className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold ${
                     verificationResult.isValid ? 'bg-emerald-200 text-emerald-800' : 'bg-rose-200 text-rose-800'
                   }`}>
-                    {verificationResult.isValid ? 'CHAIN VERIFIED' : `FAILED AT BLOCK #${verificationResult.tamperedIndex}`}
+                    {verificationResult.isValid ? 'CHAINS VERIFIED' : `FAILED AT BLOCK #${verificationResult.tamperedIndex}`}
                   </span>
                 </div>
                 <p className="text-xs">
                   {verificationResult.isValid 
-                    ? `All ${verificationResult.totalEvents} audit blocks validated sequentially from Genesis (${verificationResult.genesisHash}) to Tip. Zero record tampering or alterations.`
+                    ? `${verificationResult.verifiedBlocks} cryptographically chained records validated from Genesis (${verificationResult.genesisHash}).${verificationResult.legacyUnchainedRecords ? ` ${verificationResult.legacyUnchainedRecords} V12 migration attestations are retained separately and are not represented as cryptographically chained blocks.` : ' Zero record tampering or alterations detected.'}`
                     : verificationResult.error}
                 </p>
               </div>
@@ -1053,7 +1053,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs font-mono bg-white/80 p-2.5 rounded-lg border border-slate-200/80">
               <div>
                 <span className="text-[10px] text-slate-500 block uppercase font-sans font-semibold">Total Blocks</span>
-                <span className="font-bold text-slate-900">{verificationResult.totalEvents}</span>
+                <span className="font-bold text-slate-900">{verificationResult.verifiedBlocks}</span>
               </div>
               <div>
                 <span className="text-[10px] text-slate-500 block uppercase font-sans font-semibold">Merkle Root</span>
