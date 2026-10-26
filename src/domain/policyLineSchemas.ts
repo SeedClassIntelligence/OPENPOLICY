@@ -63,6 +63,29 @@ export const POLICY_LINE_SCHEMAS = Object.freeze({
       field('coverage.waterBackup.limit', 'Water backup limit', 'LIMIT', false)
     ])
   }),
+  COMMERCIAL_AUTO: Object.freeze({
+    insuranceLine: 'COMMERCIAL_AUTO', version: 1, fields: Object.freeze([...COMMON,
+      field('business.legalName', 'Insured business', 'TEXT'),
+      field('business.location', 'Primary business location', 'TEXT', false),
+      field('business.classification', 'Business classification', 'TEXT', false),
+      field('commercialAuto.coveredAutoSymbols', 'Covered auto symbols', 'TEXT', false),
+      field('commercialAuto.vehicleScheduleSummary', 'Covered vehicle schedule', 'TEXT', false),
+      field('commercialAuto.fleetSize', 'Scheduled vehicle count', 'INTEGER', false),
+      field('commercialAuto.operatingRadius', 'Operating radius', 'TEXT', false),
+      field('commercialAuto.primaryUse', 'Primary vehicle use', 'TEXT', false),
+      field('coverage.commercialAuto.combinedSingleLimit', 'Auto liability combined single limit', 'LIMIT', false),
+      field('coverage.commercialAuto.bodilyInjuryPerPersonLimit', 'Bodily injury limit per person', 'LIMIT', false),
+      field('coverage.commercialAuto.bodilyInjuryPerAccidentLimit', 'Bodily injury limit per accident', 'LIMIT', false),
+      field('coverage.commercialAuto.propertyDamageLimit', 'Property damage limit', 'LIMIT', false),
+      field('coverage.commercialAuto.uninsuredMotoristLimit', 'Uninsured motorist limit', 'LIMIT', false),
+      field('coverage.commercialAuto.medicalPaymentsLimit', 'Medical payments limit', 'LIMIT', false),
+      field('coverage.commercialAuto.comprehensiveDeductible', 'Comprehensive deductible', 'DEDUCTIBLE', false),
+      field('coverage.commercialAuto.collisionDeductible', 'Collision deductible', 'DEDUCTIBLE', false),
+      field('coverage.commercialAuto.hiredAutoIncluded', 'Hired auto liability shown', 'BOOLEAN', false),
+      field('coverage.commercialAuto.nonOwnedAutoIncluded', 'Non-owned auto liability shown', 'BOOLEAN', false),
+      field('coverage.commercialAuto.motorTruckCargoLimit', 'Motor truck cargo limit', 'LIMIT', false)
+    ])
+  }),
   COMMERCIAL_GENERAL_LIABILITY: Object.freeze({
     insuranceLine: 'COMMERCIAL_GENERAL_LIABILITY', version: 1, fields: Object.freeze([...COMMON,
       field('business.legalName', 'Insured business', 'TEXT'),

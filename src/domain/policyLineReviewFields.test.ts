@@ -24,8 +24,14 @@ test('commercial review fields distinguish CGL from BOP property coverage', () =
   assert.ok(bop.some(field => field.path === 'coverage.businessIncome.included'));
 });
 
+test('commercial auto review fields expose its own fleet and coverage evidence', () => {
+  const fields = getPolicyReviewFields('COMMERCIAL_AUTO');
+  assert.ok(fields.some(field => field.path === 'commercialAuto.coveredAutoSymbols'));
+  assert.ok(fields.some(field => field.path === 'coverage.commercialAuto.combinedSingleLimit'));
+  assert.equal(fields.some(field => field.path === 'coverage.cgl.eachOccurrence'), false);
+});
+
 test('unfinished lines fail closed with no review fields', () => {
-  assert.deepEqual(getPolicyReviewFields('COMMERCIAL_AUTO'), []);
   assert.deepEqual(getPolicyReviewFields('TERM_LIFE'), []);
   assert.deepEqual(getPolicyReviewFields('INDIVIDUAL_HEALTH'), []);
 });

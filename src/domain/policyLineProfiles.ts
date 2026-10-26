@@ -8,7 +8,9 @@ export type RiskSubjectKind =
   | 'BUSINESS_ENTITY'
   | 'BUSINESS_LOCATION'
   | 'COMMERCIAL_PROPERTY'
-  | 'BUSINESS_OPERATION';
+  | 'BUSINESS_OPERATION'
+  | 'COMMERCIAL_VEHICLE'
+  | 'VEHICLE_FLEET';
 
 export type CoverageDimension =
   | 'PROPERTY'
@@ -18,6 +20,8 @@ export type CoverageDimension =
   | 'BUSINESS_INCOME'
   | 'EXTRA_EXPENSE'
   | 'DEDUCTIBLE'
+  | 'PHYSICAL_DAMAGE'
+  | 'CARGO'
   | 'ENDORSEMENT';
 
 export interface PolicyLineProfile {
@@ -37,6 +41,12 @@ export interface PolicyLineProfile {
  * Those values must come from policy evidence and verified jurisdiction rules.
  */
 export const POLICY_LINE_PROFILES = Object.freeze({
+  COMMERCIAL_AUTO: Object.freeze({
+    insuranceLine: 'COMMERCIAL_AUTO', profileVersion: 1,
+    riskSubjects: ['BUSINESS_ENTITY', 'BUSINESS_LOCATION', 'COMMERCIAL_VEHICLE', 'VEHICLE_FLEET', 'BUSINESS_OPERATION'] as const,
+    coverageDimensions: ['LIABILITY', 'MEDICAL_PAYMENTS', 'PHYSICAL_DAMAGE', 'DEDUCTIBLE', 'CARGO', 'ENDORSEMENT'] as const,
+    sharesExtractionFamilyWith: [] as const, distinctContract: true
+  }),
   HOMEOWNERS: Object.freeze({
     insuranceLine: 'HOMEOWNERS', profileVersion: 1,
     riskSubjects: ['PERSON', 'RESIDENCE', 'PERSONAL_PROPERTY'] as const,

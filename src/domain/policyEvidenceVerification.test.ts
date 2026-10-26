@@ -7,7 +7,7 @@ set('effectiveDate','2025-01-01');set('expirationDate','2026-01-01');set('annual
 test('builds a verified policy and immutable baseline only from complete attested facts',()=>{const r=buildVerifiedPolicyAndBaseline({ownerId:'c1',documentName:'p.pdf',normalization:{extractionRunId:'r',documentId:'d',documentGeneration:'1',sourceSha256:'a',normalizer:'n',normalizerVersion:'1',fields,criticalIssues:[],status:'READY_FOR_CONSUMER',normalizedAt:''},corrections:[],verifiedAt:'2026-10-07T00:00:00Z'});assert.equal(r.policy.status,'VERIFIED');assert.equal(r.baseline.policyId,r.policy.id);assert.equal(r.baseline.verifiedBy,'c1')});
 test('refuses incomplete evidence rather than inventing baseline truth',()=>assert.throws(()=>buildVerifiedPolicyAndBaseline({ownerId:'c1',documentName:'p',normalization:{extractionRunId:'r',documentId:'d',documentGeneration:'1',sourceSha256:'a',normalizer:'n',normalizerVersion:'1',fields:fields.filter(x=>x.fieldPath!=='vehicle.vin'),criticalIssues:[],status:'READY_FOR_CONSUMER',normalizedAt:''},corrections:[]}),/vehicle.vin/));
 
-const lineFields = (line: 'HOMEOWNERS' | 'BUSINESS_OWNERS_POLICY') => getPolicyLineSchema(line)!.fields.map((definition, index) => ({
+const lineFields = (line: 'HOMEOWNERS' | 'BUSINESS_OWNERS_POLICY' | 'COMMERCIAL_AUTO') => getPolicyLineSchema(line)!.fields.map((definition, index) => ({
   fieldPath: definition.path,
   value: definition.path === 'effectiveDate' ? '2027-01-01'
     : definition.path === 'expirationDate' ? '2028-01-01'
@@ -18,6 +18,29 @@ const lineFields = (line: 'HOMEOWNERS' | 'BUSINESS_OWNERS_POLICY') => getPolicyL
   confidence: .99,
   evidence: {}
 }));
+
+test('builds a commercial-auto baseline with combined-single-limit evidence', () => {
+  const fields = lineFields('COMMERCIAL_AUTO');
+  const result = buildVerifiedPolicyAndBaseline({
+    ownerId:'consumer-commercial-auto',documentName:'business-auto.pdf',insuranceLine:'COMMERCIAL_AUTO',
+    normalization:{extractionRunId:'r-ca',documentId:'d-ca',documentGeneration:'1',sourceSha256:'ca',normalizer:'COMMERCIAL_AUTO',normalizerVersion:'1',fields:fields as any,criticalIssues:[],status:'READY_FOR_CONSUMER',normalizedAt:''},
+    corrections:[],verifiedAt:'2026-10-26T00:00:00Z'
+  });
+  assert.equal(result.baseline.insuranceLine,'COMMERCIAL_AUTO');
+  assert.equal(result.baseline.verifiedFacts?.['coverage.commercialAuto.combinedSingleLimit'],1015);
+  assert.deepEqual(result.policy.vehicles,[]);
+});
+
+test('commercial-auto baseline refuses evidence without a complete liability representation', () => {
+  const fields = lineFields('COMMERCIAL_AUTO').filter(field => ![
+    'coverage.commercialAuto.combinedSingleLimit','coverage.commercialAuto.bodilyInjuryPerPersonLimit',
+    'coverage.commercialAuto.bodilyInjuryPerAccidentLimit','coverage.commercialAuto.propertyDamageLimit'
+  ].includes(field.fieldPath));
+  assert.throws(() => buildVerifiedPolicyAndBaseline({
+    ownerId:'consumer-commercial-auto',documentName:'business-auto.pdf',insuranceLine:'COMMERCIAL_AUTO',
+    normalization:{extractionRunId:'r-ca',documentId:'d-ca',documentGeneration:'1',sourceSha256:'ca',normalizer:'COMMERCIAL_AUTO',normalizerVersion:'1',fields:fields as any,criticalIssues:[],status:'REVIEW_REQUIRED',normalizedAt:''},corrections:[]
+  }),/commercial-auto liability/);
+});
 
 test('builds a homeowners baseline without manufacturing an auto vehicle', () => {
   const result = buildVerifiedPolicyAndBaseline({

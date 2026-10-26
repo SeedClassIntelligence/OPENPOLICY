@@ -4,6 +4,7 @@ import type { ProviderNeutralOcrDocument } from '../server/documentAiOcrProvider
 import { normalizePolicyFields } from './policyFieldNormalization';
 import { normalizePropertyPolicyFields } from './propertyPolicyFieldNormalization';
 import { normalizeCommercialPolicyFields } from './commercialPolicyFieldNormalization';
+import { normalizeCommercialAutoPolicyFields } from './commercialAutoPolicyFieldNormalization';
 
 export function normalizePolicyDocumentByLine(input: {
   documentId: string;
@@ -14,6 +15,9 @@ export function normalizePolicyDocumentByLine(input: {
   if (input.insuranceLine === 'PERSONAL_AUTO') return normalizePolicyFields(input);
   if (input.insuranceLine === 'HOMEOWNERS' || input.insuranceLine === 'RENTERS') {
     return normalizePropertyPolicyFields({...input,insuranceLine:input.insuranceLine});
+  }
+  if (input.insuranceLine === 'COMMERCIAL_AUTO') {
+    return normalizeCommercialAutoPolicyFields({ ...input, insuranceLine:'COMMERCIAL_AUTO' });
   }
   if (input.insuranceLine === 'COMMERCIAL_GENERAL_LIABILITY' || input.insuranceLine === 'BUSINESS_OWNERS_POLICY') {
     return normalizeCommercialPolicyFields({ ...input, insuranceLine: input.insuranceLine });

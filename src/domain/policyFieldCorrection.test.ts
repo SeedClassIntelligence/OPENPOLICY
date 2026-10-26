@@ -39,4 +39,16 @@ test('corrections are bounded by the selected insurance line schema', () => {
     () => validatePolicyFieldCorrection({ fieldPath: 'coverage.businessIncome.included', afterValue: 2 }, 'BUSINESS_OWNERS_POLICY'),
     /0 \(not included\) or 1/
   );
+  assert.deepEqual(
+    validatePolicyFieldCorrection({ fieldPath: 'commercialAuto.fleetSize', afterValue: 12 }, 'COMMERCIAL_AUTO'),
+    { fieldPath: 'commercialAuto.fleetSize', afterValue: 12 }
+  );
+  assert.deepEqual(
+    validatePolicyFieldCorrection({ fieldPath: 'coverage.commercialAuto.combinedSingleLimit', afterValue: 1000000 }, 'COMMERCIAL_AUTO'),
+    { fieldPath: 'coverage.commercialAuto.combinedSingleLimit', afterValue: 1000000 }
+  );
+  assert.throws(
+    () => validatePolicyFieldCorrection({ fieldPath: 'coverage.dwelling.limit', afterValue: 450000 }, 'COMMERCIAL_AUTO'),
+    /not consumer-correctable for COMMERCIAL_AUTO/
+  );
 });

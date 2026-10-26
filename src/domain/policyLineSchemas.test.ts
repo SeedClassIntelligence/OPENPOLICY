@@ -12,11 +12,13 @@ test('development schemas carry common identity, term, and premium evidence', ()
   }
 });
 
-test('homeowners, renters, CGL, and BOP have distinct coverage contracts', () => {
+test('homeowners, renters, commercial auto, CGL, and BOP have distinct coverage contracts', () => {
   assert.equal(getPolicyLineSchema('HOMEOWNERS')?.fields.some(field => field.path === 'coverage.dwelling.limit'), true);
   assert.equal(getPolicyLineSchema('RENTERS')?.fields.some(field => field.path === 'coverage.dwelling.limit'), false);
   assert.equal(getPolicyLineSchema('COMMERCIAL_GENERAL_LIABILITY')?.fields.some(field => field.path === 'coverage.businessProperty.limit'), false);
   assert.equal(getPolicyLineSchema('BUSINESS_OWNERS_POLICY')?.fields.some(field => field.path === 'coverage.businessProperty.limit'), true);
+  assert.equal(getPolicyLineSchema('COMMERCIAL_AUTO')?.fields.some(field => field.path === 'coverage.commercialAuto.combinedSingleLimit'), true);
+  assert.equal(getPolicyLineSchema('COMMERCIAL_AUTO')?.fields.some(field => field.path === 'coverage.cgl.eachOccurrence'), false);
 });
 
 test('a schema describes evidence but cannot claim production authorization', () => {

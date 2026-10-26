@@ -30,6 +30,15 @@ export function buildVerifiedPolicyAndBaseline(input: {
     : (getPolicyLineSchema(insuranceLine)?.fields
       .filter(field => field.requiredForBaseline)
       .map(field => field.path as NormalizedPolicyFieldPath) || []);
+  if (insuranceLine === 'COMMERCIAL_AUTO') {
+    const hasCombinedSingleLimit = values.has('coverage.commercialAuto.combinedSingleLimit');
+    const hasSplitLimits = values.has('coverage.commercialAuto.bodilyInjuryPerPersonLimit')
+      && values.has('coverage.commercialAuto.bodilyInjuryPerAccidentLimit')
+      && values.has('coverage.commercialAuto.propertyDamageLimit');
+    if (!hasCombinedSingleLimit && !hasSplitLimits) {
+      throw Object.assign(new Error('Consumer verification requires commercial-auto liability as a combined single limit or complete split limits.'), { statusCode: 422 });
+    }
+  }
   if (insuranceLine !== 'PERSONAL_AUTO' && required.length === 0) {
     throw Object.assign(new Error(`Verified baseline creation is not implemented for ${insuranceLine}.`), { statusCode: 422 });
   }

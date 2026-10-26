@@ -12,11 +12,12 @@ test('only accepted personal auto can enter the policy pipeline', () => {
   assert.equal(canEnterPolicyPipeline('PERSONAL_AUTO'), true);
   assert.equal(canEnterPolicyPipeline('HOMEOWNERS'), false);
   assert.equal(canEnterPolicyPipeline('RENTERS'), false);
+  assert.equal(canEnterPolicyPipeline('COMMERCIAL_AUTO'), false);
   assert.equal(canEnterPolicyPipeline('COMMERCIAL_GENERAL_LIABILITY'), false);
 });
 
 test('property and core small-commercial lines are explicit development work, not active pipelines', () => {
-  for (const code of ['HOMEOWNERS', 'RENTERS', 'COMMERCIAL_GENERAL_LIABILITY', 'BUSINESS_OWNERS_POLICY'] as const) {
+  for (const code of ['HOMEOWNERS', 'RENTERS', 'COMMERCIAL_AUTO', 'COMMERCIAL_GENERAL_LIABILITY', 'BUSINESS_OWNERS_POLICY'] as const) {
     const line = INSURANCE_LINE_REGISTRY[code];
     assert.equal(line.implementationStatus, 'DEVELOPMENT');
     assert.equal(canEnterPolicyPipeline(code), false);

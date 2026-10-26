@@ -51,6 +51,33 @@ test('reads the exact clean generation, classifies provider-neutral OCR, and com
   assert.equal(result.classification.sourceSha256, 'a'.repeat(64));
 });
 
+test('commercial auto upload runs through classification and line-specific normalization', async () => {
+  const commercialDocument = document({ insuranceLine: 'COMMERCIAL_AUTO' });
+  const result = await extractAndClassifyPolicyDocument({
+    document: commercialDocument,
+    objectReader: { async readQuarantinedPdf() { return Buffer.from('data'); } },
+    ocrProvider: { async extract() { return {
+      runId:'OCR-COMMERCIAL-AUTO',sourceSha256:commercialDocument.sha256,sourceGeneration:commercialDocument.objectGeneration,
+      extractor:'GOOGLE_DOCUMENT_AI' as const,extractorVersion:'test',processedAt:'',pages:[{pageNumber:1,regions:[],text:[
+        'Commercial Auto Insurance Policy Declarations','Coverage Limits','Policy Number: CA-100','Insurance Company: Road Fleet Insurance',
+        'Named Insured: Example Logistics LLC','Policy State: NV','Effective Date: 01/01/2027','Expiration Date: 01/01/2028',
+        'Total Premium: $9,200','Business Name: Example Logistics LLC','Business Address: 100 Main Street, Las Vegas, NV 89101',
+        'Covered Auto Symbols: 1, 7, 8, 9','Fleet Size: 8','Operating Radius: 200 miles','Primary Vehicle Use: Local delivery',
+        'Combined Single Limit: $1,000,000','Comprehensive Deductible: $1,000','Collision Deductible: $2,500',
+        'Hired Auto: Included','Non-Owned Auto: Included'
+      ].join('\n')}]
+    }; } },
+    repository: { async commitPolicyDocumentExtraction(classification, normalization) { return { classification, normalization }; } }
+  });
+  assert.equal(result.classification.lineAssessment?.detectedLine, 'COMMERCIAL_AUTO');
+  assert.equal(result.classification.lineAssessment?.disposition, 'MATCH');
+  assert.equal(result.normalization.normalizer, 'OPENPOLICY_COMMERCIAL_AUTO_FIELDS');
+  assert.deepEqual(result.normalization.criticalIssues, []);
+  assert.equal(result.normalization.status, 'READY_FOR_CONSUMER');
+  assert.equal(result.normalization.fields.find(field => field.fieldPath === 'commercialAuto.fleetSize')?.value, 8);
+  assert.equal(result.normalization.fields.find(field => field.fieldPath === 'coverage.commercialAuto.combinedSingleLimit')?.value, 1000000);
+});
+
 test('refuses pending, malicious, and mismatched OCR evidence before classification commit', async () => {
   const reader = { async readQuarantinedPdf() { return Buffer.from('data'); } };
   const repository = { async commitPolicyDocumentExtraction(classification: any, normalization: any) {

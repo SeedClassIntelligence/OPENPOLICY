@@ -43,8 +43,25 @@ test('boolean and percent-or-money values retain factual source representation',
   assert.equal(facts['coverage.waterBackup.included'], 1);
 });
 
+test('commercial auto offer accepts its factual liability and optional coverage terms', () => {
+  const facts = validatePolicyLineOfferFacts('COMMERCIAL_AUTO', {
+    'coverage.commercialAuto.combinedSingleLimit': 1000000,
+    'coverage.commercialAuto.comprehensiveDeductible': 1000,
+    'coverage.commercialAuto.collisionDeductible': 2500,
+    'coverage.commercialAuto.hiredAutoIncluded': 1,
+    'coverage.commercialAuto.nonOwnedAutoIncluded': 1
+  });
+  assert.equal(facts['coverage.commercialAuto.combinedSingleLimit'],1000000);
+  assert.equal(facts['coverage.commercialAuto.nonOwnedAutoIncluded'],1);
+});
+
+test('commercial auto offer fails closed without a complete liability representation', () => {
+  assert.throws(() => validatePolicyLineOfferFacts('COMMERCIAL_AUTO', {
+    'coverage.commercialAuto.comprehensiveDeductible': 1000
+  }), /combined single limit or complete split limits/);
+});
+
 test('unfinished insurance lines fail closed', () => {
-  assert.throws(() => validatePolicyLineOfferFacts('COMMERCIAL_AUTO', {}), /not implemented/);
   assert.throws(() => validatePolicyLineOfferFacts('TERM_LIFE', {}), /not implemented/);
 });
 

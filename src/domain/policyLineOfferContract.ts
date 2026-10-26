@@ -54,6 +54,15 @@ export function validatePolicyLineOfferFacts(
     }
     result[definition.path as NormalizedPolicyFieldPath] = validateValue(definition, value);
   }
+  if (insuranceLine === 'COMMERCIAL_AUTO') {
+    const hasCombinedSingleLimit = result['coverage.commercialAuto.combinedSingleLimit'] !== undefined;
+    const hasSplitLimits = result['coverage.commercialAuto.bodilyInjuryPerPersonLimit'] !== undefined
+      && result['coverage.commercialAuto.bodilyInjuryPerAccidentLimit'] !== undefined
+      && result['coverage.commercialAuto.propertyDamageLimit'] !== undefined;
+    if (!hasCombinedSingleLimit && !hasSplitLimits) {
+      throw error('Commercial auto offer must state liability as a combined single limit or complete split limits.');
+    }
+  }
   return Object.freeze(result);
 }
 

@@ -136,7 +136,20 @@ export type NormalizedPolicyFieldPath =
   | 'coverage.cgl.eachOccurrence' | 'coverage.cgl.generalAggregate'
   | 'coverage.cgl.productsCompletedOperationsAggregate' | 'coverage.cgl.personalAdvertisingInjury'
   | 'coverage.cgl.medicalExpense' | 'coverage.businessProperty.limit'
-  | 'coverage.businessIncome.included' | 'coverage.extraExpense.included';
+  | 'coverage.businessIncome.included' | 'coverage.extraExpense.included'
+  | 'commercialAuto.coveredAutoSymbols' | 'commercialAuto.vehicleScheduleSummary'
+  | 'commercialAuto.fleetSize' | 'commercialAuto.operatingRadius' | 'commercialAuto.primaryUse'
+  | 'coverage.commercialAuto.combinedSingleLimit'
+  | 'coverage.commercialAuto.bodilyInjuryPerPersonLimit'
+  | 'coverage.commercialAuto.bodilyInjuryPerAccidentLimit'
+  | 'coverage.commercialAuto.propertyDamageLimit'
+  | 'coverage.commercialAuto.uninsuredMotoristLimit'
+  | 'coverage.commercialAuto.medicalPaymentsLimit'
+  | 'coverage.commercialAuto.comprehensiveDeductible'
+  | 'coverage.commercialAuto.collisionDeductible'
+  | 'coverage.commercialAuto.hiredAutoIncluded'
+  | 'coverage.commercialAuto.nonOwnedAutoIncluded'
+  | 'coverage.commercialAuto.motorTruckCargoLimit';
 
 export interface NormalizedPolicyFieldCandidate {
   fieldPath: NormalizedPolicyFieldPath;

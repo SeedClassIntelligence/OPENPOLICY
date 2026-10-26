@@ -37,6 +37,30 @@ test('CGL comparison excludes BOP-only fields by construction', () => {
   assert.equal(comparison.fields.find(field => field.fieldPath === 'coverage.cgl.eachOccurrence')?.relation, 'DIFFERENT');
 });
 
+test('commercial auto comparison reports only factual fleet and coverage differences', () => {
+  const comparison = comparePolicyLineFacts({
+    insuranceLine: 'COMMERCIAL_AUTO',
+    baseline: {
+      annualPremium: 9200,
+      'commercialAuto.fleetSize': 8,
+      'coverage.commercialAuto.combinedSingleLimit': 1000000,
+      'coverage.commercialAuto.collisionDeductible': 2500
+    },
+    offer: {
+      annualPremium: 8800,
+      'commercialAuto.fleetSize': 8,
+      'coverage.commercialAuto.combinedSingleLimit': 1000000,
+      'coverage.commercialAuto.collisionDeductible': 1000
+    }
+  });
+  assert.equal(comparison.annualPremiumDifference, 400);
+  assert.equal(comparison.fields.some(field => field.fieldPath === 'commercialAuto.fleetSize'), false);
+  assert.equal(comparison.fields.find(field => field.fieldPath === 'coverage.commercialAuto.combinedSingleLimit')?.relation, 'MATCH');
+  assert.equal(comparison.fields.find(field => field.fieldPath === 'coverage.commercialAuto.collisionDeductible')?.relation, 'DIFFERENT');
+  assert.equal(JSON.stringify(comparison).includes('recommend'), false);
+  assert.equal(JSON.stringify(comparison).includes('BETTER'), false);
+});
+
 test('comparison refuses lines without an implemented factual schema', () => {
   assert.throws(
     () => comparePolicyLineFacts({ insuranceLine: 'TERM_LIFE', baseline: {}, offer: {} }),

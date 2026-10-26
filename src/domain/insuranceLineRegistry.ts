@@ -65,7 +65,11 @@ export const INSURANCE_LINE_REGISTRY = Object.freeze({
   }),
   COMMERCIAL_AUTO: Object.freeze({
     code: 'COMMERCIAL_AUTO', displayName: 'Commercial Auto', family: 'COMMERCIAL', version: 1,
-    implementationStatus: 'INTEREST_ONLY', supportedDocumentClasses: []
+    implementationStatus: 'DEVELOPMENT', supportedDocumentClasses: ['DECLARATIONS_PAGE', 'FULL_POLICY', 'ENDORSEMENT', 'PROVIDER_QUOTE', 'ISSUED_POLICY'],
+    policySchemaRef: 'policy-schema/commercial-auto/v1', extractionProfileRef: 'document-intelligence/commercial-auto/v1',
+    comparisonProfileRef: 'comparison/commercial-auto/v1', disclosureProfileRef: 'disclosure/commercial/v1',
+    providerAuthorityProfileRef: 'provider-authority/commercial/v1', offerQualificationProfileRef: 'qualification/commercial-auto/v1',
+    handoffProfileRef: 'handoff/commercial/v1', reconciliationProfileRef: 'reconciliation/commercial-auto/v1'
   }),
   COMMERCIAL_GENERAL_LIABILITY: Object.freeze({
     code: 'COMMERCIAL_GENERAL_LIABILITY', displayName: 'Commercial General Liability', family: 'COMMERCIAL', version: 1,
