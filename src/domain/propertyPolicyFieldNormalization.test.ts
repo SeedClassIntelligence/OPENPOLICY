@@ -62,6 +62,48 @@ test('renters extraction accepts a public carrier-style declarations layout', ()
   assert.equal(result.status,'READY_FOR_CONSUMER');
 });
 
+test('maps Nevada renters Document AI column order to the declared coverage limits', () => {
+  const result=normalizePropertyPolicyFields({documentId:'D-NV-HO4-OCR',insuranceLine:'RENTERS',ocr:ocr(`
+Accelerant National Insurance Company
+Policy Number: N457PE00000000-00
+RENTERS POLICY DECLARATION PAGE
+Policy Period: 10/31/2021 5:00 PM PDT to 10/31/2022 5:00 PM PDT.
+Primary Named Insured:
+Amuro Ray
+Prop Loc: 804 Peachy Canyon Cir Las Vegas NV 89144
+SECTION I – PROPERTY COVERAGE LIMITS
+C
+PERSONAL PROPERTY
+$10,000
+D
+SECTION II – LIABILITY COVERAGE LIMITS
+E
+F
+LOSS OF USE
+$2,000
+PERSONAL LIABILITY
+MEDICAL PAYMENTS TO
+OTHERS
+$1,000
+Loss Deductible for Section I: $500
+$100,000
+each occurrence
+Wind/Hail Deductible: $1,000
+$25,000
+each person each occurrence
+Annual Premium: $135.00
+`)});
+  const values=Object.fromEntries(result.fields.map(candidate=>[candidate.fieldPath,candidate.value]));
+  assert.equal(result.status,'READY_FOR_CONSUMER');
+  assert.equal(values.carrier,'Accelerant National Insurance Company');
+  assert.equal(values.jurisdiction,'NV');
+  assert.equal(values.expirationDate,'2022-10-31');
+  assert.equal(values['property.address'],'804 Peachy Canyon Cir Las Vegas NV 89144');
+  assert.equal(values['coverage.personalLiability.limit'],100000);
+  assert.equal(values['coverage.medicalPayments.limit'],1000);
+  assert.equal(values['coverage.property.deductible'],500);
+});
+
 test('a commercial document cannot fall through into personal-auto normalization', () => {
   const result=normalizePolicyDocumentByLine({documentId:'D-CGL',insuranceLine:'COMMERCIAL_GENERAL_LIABILITY',ocr:ocr(
     'VIN: 1HGCM82633A004352\nYear, Make, and Model: 2022 Honda Accord'

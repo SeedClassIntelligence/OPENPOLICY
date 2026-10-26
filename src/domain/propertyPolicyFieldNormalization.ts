@@ -30,7 +30,7 @@ const date = (value: string) => {
 
 const RULES: readonly Rule[] = [
   { fieldPath:'policyNumber',patterns:[/\bpolicy\s*(?:number|no\.?|#)\s*[:#-]?\s*([A-Z0-9][A-Z0-9-]{3,})/i],confidence:.96 },
-  { fieldPath:'carrier',patterns:[/\b(?:insurance company|carrier|company)\s*[:#-]\s*([^\n]{3,100})/i,/\bunderwritten by\s*(?:\r?\n|:)\s*([^\n]{3,100})/i,/\bcoverage afforded by this policy is provided by\s*:\s*\r?\n\s*([^\n]{3,100})/i],confidence:.95 },
+  { fieldPath:'carrier',patterns:[/\b(?:insurance company|carrier|company)\s*[:#-]\s*([^\n]{3,100})/i,/\bunderwritten by\s*(?:\r?\n|:)\s*([^\n]{3,100})/i,/\bcoverage afforded by this policy is provided by\s*:\s*\r?\n\s*([^\n]{3,100})/i,/^([^\n]{3,100}\bInsurance Company)\s*$/im],confidence:.95 },
   { fieldPath:'namedInsured',patterns:[/\bnamed insured(?: and mailing address)?\s*(?:[:#-]\s*|\r?\n\s*)([^\n]{3,120})/i],confidence:.96 },
   { fieldPath:'jurisdiction',patterns:[/\b(?:policy state|state)\s*[:#-]\s*([A-Z]{2})\b/i,/\b(?:location of premises|insured property|property address)[\s\S]{0,180}?\b[A-Z][A-Z .'-]{2,80},\s*([A-Z]{2})\s+\d{5}(?:-\d{4})?\b/i],transform:v=>v.toUpperCase(),confidence:.95 },
   { fieldPath:'effectiveDate',patterns:[/\b(?:policy )?effective(?: date)?\s*[:#-]?\s*(\d{1,2}[\/-]\d{1,2}[\/-]\d{4})/i,/\beffective date[\s\S]{0,80}?(\d{1,2}[\/-]\d{1,2}[\/-]\d{4})/i],transform:date,confidence:.97 },
@@ -79,6 +79,35 @@ export function normalizePropertyPolicyFields(input: {
       const source = evidence(input.documentId,page,match,rule.confidence);
       fields.push({fieldPath:rule.fieldPath,value,confidence:source.confidence,evidence:source});
       break;
+    }
+  }
+  if (input.insuranceLine === 'RENTERS') {
+    const upsert = (fieldPath: NormalizedPolicyFieldPath, raw: string, page: ProviderNeutralOcrPage, match: RegExpMatchArray, transform?: (value: string) => string | number | undefined) => {
+      const value = transform ? transform(clean(raw)) : clean(raw);
+      if (value === undefined || value === '') return;
+      const existing = fields.findIndex(candidate => candidate.fieldPath === fieldPath);
+      if (existing >= 0) fields.splice(existing,1);
+      const source = evidence(input.documentId,page,match,.96);
+      fields.push({fieldPath,value,confidence:source.confidence,evidence:source});
+    };
+    for (const page of input.ocr.pages) {
+      const period = page.text.match(/Policy Period:\s*(\d{1,2}\/\d{1,2}\/\d{4})[^\n]*?\bto\s+(\d{1,2}\/\d{1,2}\/\d{4})/i);
+      if (period) {
+        upsert('effectiveDate',period[1],page,period,date);
+        upsert('expirationDate',period[2],page,period,date);
+      }
+      const location = page.text.match(/Prop Loc:\s*([^\n]*?\b([A-Z]{2})\s+\d{5}(?:-\d{4})?)/i);
+      if (location) {
+        upsert('property.address',location[1],page,location);
+        upsert('jurisdiction',location[2],page,location,value=>value.toUpperCase());
+      }
+      const sectionLimits = page.text.match(/SECTION II\s*[–-]\s*LIABILITY COVERAGE LIMITS[\s\S]{0,420}?PERSONAL LIABILITY[\s\S]{0,80}?MEDICAL PAYMENTS TO\s*\nOTHERS\s*\n(\$[\d,]+)[\s\S]{0,100}?(\$[\d,]+)\s*\neach occurrence/i);
+      if (sectionLimits) {
+        upsert('coverage.medicalPayments.limit',sectionLimits[1],page,sectionLimits,money);
+        upsert('coverage.personalLiability.limit',sectionLimits[2],page,sectionLimits,money);
+      }
+      const deductible = page.text.match(/Loss Deductible for Section I:\s*(\$[\d,]+)/i);
+      if (deductible) upsert('coverage.property.deductible',deductible[1],page,deductible,money);
     }
   }
   const schema = getPolicyLineSchema(input.insuranceLine);
