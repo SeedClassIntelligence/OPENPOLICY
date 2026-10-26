@@ -111,6 +111,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   const [deductible, setDeductible] = useState<number>(500);
   const [liabilityTier, setLiabilityTier] = useState<'STANDARD' | 'PREFERRED' | 'SOVEREIGN'>('PREFERRED');
   const [simulatePhantomCut, setSimulatePhantomCut] = useState<boolean>(false);
+  const [comparisonView, setComparisonView] = useState<'MATCHED' | 'CHANGED' | 'INCOMPLETE'>('CHANGED');
   const [expandedDoctrine, setExpandedDoctrine] = useState<number | null>(0);
   const [activeStepTab, setActiveStepTab] = useState<number>(0);
   // FAQ Accordion & Filtering State
@@ -519,14 +520,101 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             Price Is Only Half the Quote
           </span>
           <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
-            See What a Lower Insurance Price Really Changes
+            A Lower Price Is Not the Whole Proposal
           </h2>
           <p className="text-sm text-slate-600">
-            A cheaper premium can hide a dangerous tradeoff: higher deductibles, reduced liability limits, or removed protection that leaves more risk on you. Open Polici places the price directly beside every documented coverage difference. Use this interactive example to expose what a headline price alone can hide. This illustration is not an insurance quote or insurance advice.
+            Open Polici does not manufacture a score or tell you which provider to choose. It places each documented premium, limit, deductible, included protection, and missing term beside your baseline so you can see exactly what changed before authorizing a connection.
           </p>
         </div>
 
-        <div className="bg-white rounded-3xl border border-slate-200/90 shadow-xl overflow-hidden grid grid-cols-1 lg:grid-cols-12 divide-y lg:divide-y-0 lg:divide-x divide-slate-200">
+        <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl">
+          <div className="border-b border-slate-200 bg-slate-50 p-6 sm:p-8">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <p className="font-mono text-[11px] font-bold uppercase tracking-wider text-emerald-700">Illustrative proposal review</p>
+                <h3 className="mt-2 text-xl font-bold text-slate-950">Choose a comparison scenario</h3>
+                <p className="mt-2 max-w-2xl text-xs leading-5 text-slate-600">These examples demonstrate the presentation logic only. They are not insurance quotes, provider promises, or advice.</p>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-3">
+                {[
+                  ['MATCHED', 'Same documented terms'],
+                  ['CHANGED', 'Lower price, changed terms'],
+                  ['INCOMPLETE', 'Missing proposal details']
+                ].map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setComparisonView(id as 'MATCHED' | 'CHANGED' | 'INCOMPLETE')}
+                    className={`rounded-xl border px-4 py-3 text-left text-xs font-bold transition ${comparisonView === id ? 'border-slate-950 bg-slate-950 text-white shadow-sm' : 'border-slate-200 bg-white text-slate-700 hover:border-slate-400'}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid lg:grid-cols-[.82fr_1.18fr]">
+            <div className="border-b border-slate-200 p-6 sm:p-8 lg:border-b-0 lg:border-r">
+              <div className="flex items-center justify-between"><span className="text-xs font-bold uppercase tracking-wider text-slate-500">Your current-policy baseline</span><FileCheck2 className="h-5 w-5 text-emerald-600" /></div>
+              <div className="mt-6 space-y-3 text-sm">
+                {[
+                  ['Annual premium', '$2,964'],
+                  ['Bodily injury liability', '$100k / $300k'],
+                  ['Property damage liability', '$100k'],
+                  ['Comprehensive deductible', '$500'],
+                  ['Collision deductible', '$500'],
+                  ['Rental reimbursement', 'Included'],
+                  ['Roadside assistance', 'Included']
+                ].map(([label, value]) => <div key={label} className="flex items-center justify-between gap-4 rounded-xl bg-slate-50 px-4 py-3"><span className="text-slate-600">{label}</span><strong className="text-right text-slate-950">{value}</strong></div>)}
+              </div>
+            </div>
+
+            <div className="p-6 sm:p-8">
+              <div className="flex flex-col gap-3 border-b border-slate-100 pb-5 sm:flex-row sm:items-start sm:justify-between">
+                <div><span className="font-mono text-[11px] font-bold uppercase tracking-wider text-blue-700">Illustrative provider proposal</span><h4 className="mt-2 text-xl font-bold text-slate-950">Documented differences from your baseline</h4></div>
+                <span className={`w-fit rounded-full border px-3 py-1 text-[10px] font-bold ${comparisonView === 'MATCHED' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : comparisonView === 'CHANGED' ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-slate-300 bg-slate-100 text-slate-700'}`}>
+                  {comparisonView === 'MATCHED' ? 'NO DOCUMENTED COVERAGE CHANGE' : comparisonView === 'CHANGED' ? 'COVERAGE CHANGES REQUIRE REVIEW' : 'INCOMPLETE · CONFIRM WITH PROVIDER'}
+                </span>
+              </div>
+
+              <div className="mt-6 grid gap-3 sm:grid-cols-2">
+                {(comparisonView === 'MATCHED' ? [
+                  ['Annual premium', '$2,448', 'Lower by $516 per year', 'positive'],
+                  ['Liability limits', '$100k / $300k', 'Matches baseline', 'neutral'],
+                  ['Deductibles', '$500 / $500', 'Matches baseline', 'neutral'],
+                  ['Rental and roadside', 'Included', 'Matches baseline', 'neutral']
+                ] : comparisonView === 'CHANGED' ? [
+                  ['Annual premium', '$2,148', 'Lower by $816 per year', 'positive'],
+                  ['Liability limits', '$25k / $50k', 'Lower than baseline', 'warning'],
+                  ['Deductibles', '$1,000 / $2,000', 'Higher than baseline', 'warning'],
+                  ['Rental and roadside', 'Not included', 'Removed from proposal', 'warning']
+                ] : [
+                  ['Annual premium', '$2,316', 'Lower by $648 per year', 'positive'],
+                  ['Liability limits', '$100k / $300k', 'Matches baseline', 'neutral'],
+                  ['Deductibles', 'Not documented', 'Requires confirmation', 'unknown'],
+                  ['Rental and roadside', 'Not documented', 'Requires confirmation', 'unknown']
+                ]).map(([label, value, note, status]) => (
+                  <div key={label} className={`rounded-2xl border p-4 ${status === 'warning' ? 'border-amber-200 bg-amber-50' : status === 'unknown' ? 'border-slate-300 bg-slate-50' : status === 'positive' ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-white'}`}>
+                    <span className="text-[11px] font-semibold text-slate-500">{label}</span><strong className="mt-1 block text-base text-slate-950">{value}</strong><span className={`mt-2 block text-[11px] font-medium ${status === 'warning' ? 'text-amber-800' : status === 'positive' ? 'text-emerald-700' : 'text-slate-600'}`}>{note}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-6 flex items-start gap-3 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-xs leading-5 text-blue-950">
+                <Info className="mt-0.5 h-4 w-4 shrink-0 text-blue-700" />
+                <p>{comparisonView === 'MATCHED' ? 'The documented terms shown here align with the baseline fields. You still review the provider documents and decide whether to continue.' : comparisonView === 'CHANGED' ? 'The lower premium is displayed together with the documented reductions and higher out-of-pocket exposure. Open Polici does not hide the tradeoff or decide whether it is acceptable.' : 'Open Polici leaves missing terms unknown. The proposal is not presented as equivalent to the baseline when the documentation does not establish that equivalence.'}</p>
+              </div>
+
+              <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <span className="text-xs text-slate-500">Real proposals appear in the consumer’s private account after eligible providers submit them.</span>
+                <button type="button" onClick={handleStartPolicyReviewClick} className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 py-3 text-xs font-bold text-white hover:bg-slate-800">Compare My Current Policy <ArrowRight className="h-4 w-4" /></button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="hidden bg-white rounded-3xl border border-slate-200/90 shadow-xl overflow-hidden grid-cols-1 lg:grid-cols-12 divide-y lg:divide-y-0 lg:divide-x divide-slate-200">
           {/* Simulator Inputs Column */}
           <div className="lg:col-span-6 p-6 sm:p-8 space-y-6 bg-slate-50/60">
             <div className="flex items-center justify-between pb-4 border-b border-slate-200">
