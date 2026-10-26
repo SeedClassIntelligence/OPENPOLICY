@@ -60,6 +60,19 @@ test('staff administrator permissions are enforced independently of the ADMIN id
   assert.equal(invoke('PATCH','/admin/providers/org-a/status',financialStaff).status,403);
   assert.equal(invoke('PUT','/admin/administrators/staff-b',financialStaff).status,403);
   assert.equal(invoke('GET','/admin/review-queue',financialStaff).status,403);
+  assert.equal(invoke('POST','/admin/jurisdictions/NV/market/gates',financialStaff).status,403);
+  assert.equal(invoke('POST','/admin/jurisdictions/NV/market/transition',financialStaff).status,403);
+});
+
+test('market activation mutations require compliance administration before owner-only domain checks',()=>{
+  const complianceStaff:RequestIdentity={uid:'staff-compliance',role:'ADMIN',adminType:'STAFF',adminPermissions:['PLATFORM_READ','COMPLIANCE_ADMIN'],source:'FIREBASE'};
+  assert.equal(invoke('POST','/admin/jurisdictions/NV/market/gates').status,401);
+  assert.equal(invoke('POST','/admin/jurisdictions/NV/market/gates',provider).status,403);
+  assert.equal(invoke('POST','/admin/jurisdictions/NV/market/gates',complianceStaff).next,true);
+  assert.equal(invoke('POST','/admin/jurisdictions/NV/market/gates',admin).next,true);
+  assert.equal(invoke('POST','/admin/jurisdictions/NV/market/transition',consumer).status,403);
+  assert.equal(invoke('POST','/admin/jurisdictions/NV/market/transition',complianceStaff).next,true);
+  assert.equal(invoke('POST','/admin/jurisdictions/NV/market/transition',admin).next,true);
 });
 
 test('provider integration APIs require provider identity', () => {

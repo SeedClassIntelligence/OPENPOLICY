@@ -71,6 +71,7 @@ import { premiumServicesStore, type ApiScope } from './src/server/db/premiumServ
 import { jurisdictionStore } from './src/server/db/jurisdictionStore';
 import { determineJurisdiction } from './src/domain/jurisdictionDetermination';
 import { JurisdictionSignal } from './src/types/jurisdiction';
+import type { ActivationGateCode, MarketEnvironment, OperationalActivationState, SuspensionAction } from './src/types/jurisdiction';
 import {
   ensureJurisdictionFramework,
   inShadow,
@@ -507,9 +508,9 @@ app.get('/api/rollout/jurisdiction-lines', (_req, res) => {
 });
 
 // ==========================================
-// PR-0A: Jurisdiction framework (read-only)
-// Mutations (rulesets, publication, activation, gates) are store-level only until
-// PR-1 provides authenticated operator authorization.
+// Jurisdiction framework. Public routes below are read-only. Market gate and
+// transition mutations are exposed separately under owner-authenticated admin routes.
+// Legal-rule verification and publication remain outside the HTTP surface.
 // ==========================================
 app.get('/api/jurisdictions', async (req, res) => {
   try {
@@ -550,6 +551,78 @@ app.get('/api/jurisdictions/:code/market', async (req, res) => {
     res.json({ ...(await jurisdictionStore.getMarketStatus(key)), events: await jurisdictionStore.getActivationEvents(key) });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+const ACTIVATION_GATE_CODES = new Set<ActivationGateCode>([
+  'PROVIDER_AUTHORITY_READY', 'LEGAL_REVIEW_COMPLETE', 'DOCUMENT_REQUIREMENTS_READY',
+  'SECURITY_READY', 'OPERATIONAL_RUNBOOK_READY', 'MARKET_APPROVED'
+]);
+const MARKET_STATES = new Set<OperationalActivationState>(['INACTIVE', 'PILOT', 'ACTIVE', 'SUSPENDED']);
+const SUSPENSION_ACTIONS = new Set<SuspensionAction>([
+  'FREEZE_ALL_PROGRESS', 'ALLOW_SELECTION_ONLY', 'ALLOW_EXISTING_TO_COMPLETE', 'REQUIRE_MANUAL_REVIEW'
+]);
+
+function requireOwnerMarketOperator(req: express.Request) {
+  const identity = req.openPolicyIdentity;
+  if (!identity || identity.role !== 'ADMIN' || identity.adminType !== 'OWNER') {
+    throw Object.assign(new Error('Owner authorization is required for market activation controls.'), { statusCode: 403 });
+  }
+  return identity;
+}
+
+function requestedMarketKey(req: express.Request) {
+  const environment = String(req.body?.environment || '').toUpperCase();
+  const insuranceLine = String(req.body?.insuranceLine || '').toUpperCase() as InsuranceLine;
+  if (environment !== 'SANDBOX' && environment !== 'PRODUCTION') {
+    throw Object.assign(new Error('environment must be SANDBOX or PRODUCTION'), { statusCode: 400 });
+  }
+  if (!INSURANCE_LINES.some(line => line.code === insuranceLine)) {
+    throw Object.assign(new Error('A supported insuranceLine is required.'), { statusCode: 400 });
+  }
+  return {
+    jurisdictionCode: req.params.code.toUpperCase(),
+    insuranceLine,
+    environment: environment as MarketEnvironment
+  };
+}
+
+// These endpoints expose the existing append-only activation engine to the owner console.
+// They never verify or publish legal rules and therefore cannot bypass RulePack governance.
+app.post('/api/admin/jurisdictions/:code/market/gates', async (req, res) => {
+  try {
+    await ensureJurisdictionFramework();
+    const identity = requireOwnerMarketOperator(req);
+    const key = requestedMarketKey(req);
+    const gateCode = String(req.body?.gateCode || '').toUpperCase() as ActivationGateCode;
+    const evidenceRef = String(req.body?.evidenceRef || '').trim();
+    if (!ACTIVATION_GATE_CODES.has(gateCode)) return res.status(400).json({ error: 'Unknown activation gate.' });
+    if (!evidenceRef) return res.status(400).json({ error: 'An evidenceRef is required.' });
+    const attestation = await jurisdictionStore.attestGate(key, gateCode, evidenceRef, identity.uid);
+    res.status(201).json({ attestation, market: await jurisdictionStore.getMarketStatus(key) });
+  } catch (e: any) {
+    res.status(e.statusCode || 500).json({ error: e.message });
+  }
+});
+
+app.post('/api/admin/jurisdictions/:code/market/transition', async (req, res) => {
+  try {
+    await ensureJurisdictionFramework();
+    const identity = requireOwnerMarketOperator(req);
+    const key = requestedMarketKey(req);
+    const to = String(req.body?.to || '').toUpperCase() as OperationalActivationState;
+    const reason = String(req.body?.reason || '').trim();
+    const rawSuspensionAction = String(req.body?.suspensionAction || '').toUpperCase();
+    const suspensionAction = rawSuspensionAction ? rawSuspensionAction as SuspensionAction : undefined;
+    if (!MARKET_STATES.has(to)) return res.status(400).json({ error: 'Unknown market state.' });
+    if (!reason) return res.status(400).json({ error: 'A transition reason is required.' });
+    if (suspensionAction && !SUSPENSION_ACTIONS.has(suspensionAction)) {
+      return res.status(400).json({ error: 'Unknown suspension action.' });
+    }
+    const event = await jurisdictionStore.transitionMarket({ key, to, actorId: identity.uid, reason, suspensionAction });
+    res.status(201).json({ event, market: await jurisdictionStore.getMarketStatus(key) });
+  } catch (e: any) {
+    res.status(e.statusCode || 500).json({ error: e.message });
   }
 });
 
