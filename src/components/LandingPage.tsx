@@ -131,57 +131,57 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   const DOCTRINES = [
     {
       num: '01',
-      title: 'You Control the Decision',
-      summary: 'Review the offers, request more options, keep your policy, or walk away.',
-      detail: 'Open Polici presents documented information without choosing a provider for you. No offer becomes your decision until you decide to pursue it.'
+      title: 'You Govern the Decision',
+      summary: 'Review the proposals, request another eligible cohort, keep your policy, or close the process.',
+      detail: 'No proposal becomes an authorized connection until you select it and explicitly approve the handoff.'
     },
     {
       num: '02',
-      title: 'Start Once',
-      summary: 'Use one existing policy or one guided coverage request as your starting point.',
-      detail: 'Instead of beginning separately with every provider, confirm your information once and choose when to share the opportunity with eligible participants.'
+      title: 'Establish Your Criteria Once',
+      summary: 'Skip the multi-site grind. Confirm one policy baseline or one guided coverage request.',
+      detail: 'Lock in your starting information once, review it for accuracy, and make later changes through a traceable new version.'
     },
     {
       num: '03',
-      title: 'Independent Offers',
-      summary: 'Providers decide what they can offer without seeing another provider’s price or terms.',
-      detail: 'Each provider independently decides whether to send its own documented offer during the open submission window. Open Polici does not disclose another provider’s offer or provide a target price.'
+      title: 'Independent Custom Proposals',
+      summary: 'Providers develop their proposals without seeing another provider’s price or terms.',
+      detail: 'No participant receives another provider\'s pricing, a target price, or your reasons for rejecting an earlier proposal.'
     },
     {
       num: '04',
-      title: 'Compare More Than Price',
-      summary: 'See documented limits, deductibles, and coverage changes beside the premium.',
-      detail: 'A lower premium may come with different protection. Open Polici keeps the price difference visible without hiding the terms that changed.'
+      title: 'Compare the Substance, Not Just the Premium',
+      summary: 'See documented limits, deductibles, and coverage changes beside the price.',
+      detail: 'A lower premium can change the protection. Open Polici places the documented price difference beside the terms that changed.'
     },
     {
       num: '05',
-      title: 'Visible Differences',
+      title: 'Expose Every Documented Contrast',
       summary: 'Matches, additions, reductions, and unknowns remain visible.',
-      detail: 'The comparison identifies documented differences across coverage, limits, deductibles, endorsements, price, and available provider information.'
+      detail: 'Coverage, limits, deductibles, endorsements, price, and missing information remain available for direct review.'
     },
     {
       num: '06',
-      title: 'No Guessing About Missing Terms',
-      summary: 'If an offer does not document something, Open Polici leaves it unknown.',
-      detail: 'Missing roadside, rental, glass, endorsement, or other terms are marked for review instead of being filled in with an assumption.'
+      title: 'Zero Guesswork About Missing Terms',
+      summary: 'If a proposal does not document something, Open Polici leaves it unknown.',
+      detail: 'Missing roadside, rental, glass, endorsement, or other terms are flagged for review instead of being replaced with an assumption.'
     },
     {
       num: '07',
-      title: 'Review Before You Connect',
-      summary: 'Participating providers do not receive your controlled connection details merely for submitting an offer.',
-      detail: 'You review first, select second, and authorize the handoff last. Only the selected provider receives the controlled connection.'
+      title: 'Review Before Contact',
+      summary: 'Participating providers do not receive your controlled connection details merely for submitting a proposal.',
+      detail: 'You review first, choose second, and authorize the handoff last. Only the selected provider receives the controlled connection.'
     },
     {
       num: '08',
       title: 'No Pay-to-Play Results',
-      summary: 'Provider spending cannot purchase presentation order, placement, cohort priority, or selection influence.',
-      detail: 'Membership purchases organizational capacity and services—not a better position in front of the consumer.'
+      summary: 'Provider spending cannot purchase proposal order, exclusive placement, cohort priority, or selection influence.',
+      detail: 'Membership purchases operating capacity and services—never a better position in front of the consumer.'
     },
     {
       num: '09',
-      title: 'Traceable Consumer Authorization',
-      summary: 'The selected offer, consent, disclosure, and connection remain connected to the decision you made.',
-      detail: 'Open Polici preserves the marketplace evidence without taking over the licensed provider’s subsequent insurance transaction.'
+      title: 'Traceable Authorization Evidence',
+      summary: 'The selected proposal, consent, disclosure, and connection remain connected to your decision.',
+      detail: 'Open Polici preserves the marketplace evidence while the licensed provider remains responsible for the subsequent insurance transaction.'
     }
   ];
 
@@ -203,10 +203,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       category: 'PRIVACY',
       categoryLabel: 'Privacy & Anti-Spam',
       doctrineTag: 'Review first · Connect last',
-      question: 'Will insurance providers call, text, or email me as soon as I start?',
-      answer: 'No. Participating providers can review only the authorized opportunity information made available through the marketplace. They do not receive your controlled connection information merely because they review the opportunity or submit an offer. If you select an offer and authorize the handoff, that selected provider receives the information needed to continue with you.',
+      question: 'Will insurance providers call, text, or email me the moment I start?',
+      answer: 'No. Participating providers can review only the authorized opportunity information made available through the marketplace. They do not receive your controlled connection information merely because they review the opportunity or submit a proposal. Only the provider you select and authorize receives the information needed to continue with you.',
       keyPoints: [
-        'Review documented offers before accepting provider contact',
+        'Review documented proposals before accepting provider contact',
         'Only the selected provider can receive the authorized connection',
         'Unselected providers do not receive your controlled connection information'
       ]
@@ -216,8 +216,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       category: 'COMPARISON',
       categoryLabel: 'Coverage Comparison',
       doctrineTag: 'Compare price and protection',
-      question: 'How can I tell whether a lower premium also means less coverage?',
-      answer: 'Open Polici places the documented premium difference beside the factual price and coverage differences. When you have an existing policy, you can review changed limits, deductibles, included coverage, omitted coverage, endorsements, and unknown terms against the policy you already have. A lower price is presented as a price difference—not a conclusion about which offer you should choose.',
+      question: 'How can I tell whether a lower premium also means less protection?',
+      answer: 'Open Polici places the documented premium difference beside the factual coverage differences. If a provider changes liability limits, deductibles, included coverage, endorsements, or other documented terms, those changes remain visible beside the price. A lower rate is presented as a factual difference—never an instruction to switch.',
       keyPoints: [
         'Changed limits and deductibles stay visible beside the price',
         'Missing terms remain unknown instead of being guessed',
@@ -229,12 +229,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     {
       id: 'faq-policy-review',
       category: 'OFFERS',
-      categoryLabel: 'Offers & Connections',
-      doctrineTag: 'One opportunity · Independent offers',
-      question: 'How do providers submit offers for my insurance opportunity?',
-      answer: 'You begin by confirming the policy you already have or the new-insurance request you created. Eligible providers receive a privacy-preserving opportunity and independently decide whether to send their own offers during the open window. Providers do not see another provider’s price or terms and do not receive a target price.',
+      categoryLabel: 'Proposals & Connections',
+      doctrineTag: 'One opportunity · Independent proposals',
+      question: 'How do insurance professionals submit proposals for my request?',
+      answer: 'Once you approve your existing-policy baseline or new-coverage request, eligible providers receive a privacy-preserving opportunity and independently decide whether to submit a documented proposal during the open window. They cannot see another provider’s price or terms and do not receive a target price.',
       keyPoints: [
-        'Providers prepare offers independently',
+        'Providers prepare proposals independently',
         'One submission window with no provider-to-provider price signals',
         'Provider payment cannot purchase preferential presentation'
       ],
@@ -247,9 +247,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       categoryLabel: 'Consumer Cost & Choice',
       doctrineTag: 'Free for consumers',
       question: 'Does using Open Polici obligate me to switch or pay a fee?',
-      answer: 'No. Open Polici costs consumers $0. You may review the available offers, request another eligible provider cohort while the submission window remains open, keep your current policy when applicable, or end the process. You are not required to select an offer.',
+      answer: 'No. Open Polici costs consumers $0. You may review the available proposals, request another eligible provider cohort while the submission window remains open, keep your current policy when applicable, or end the process. You are not required to select a proposal.',
       keyPoints: [
-        'No consumer membership, offer-review, selection, or connection fee',
+        'No consumer membership, proposal-review, selection, or connection fee',
         'No obligation to replace an existing policy',
         'Your choice controls whether the process continues'
       ]
@@ -259,10 +259,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       category: 'AUDIT',
       categoryLabel: 'Accountability',
       doctrineTag: 'Traceable marketplace evidence',
-      question: 'What does Open Polici preserve when I choose an offer?',
-      answer: 'Open Polici preserves the exact offer version you selected, your authorization, the controlled disclosure, and the resulting connection record. Earlier offer evidence is not silently rewritten when the process advances.',
+      question: 'What does Open Polici preserve when I accept a proposal?',
+      answer: 'Open Polici preserves the exact proposal version you selected, your authorization, the controlled disclosure, and the resulting connection record. Earlier proposal evidence is not silently rewritten when the process advances.',
       keyPoints: [
-        'Selected offer version remains identifiable',
+        'Selected proposal version remains identifiable',
         'Authorization and disclosure stay connected to your decision',
         'Subsequent provider activity remains separate from the marketplace selection'
       ]
@@ -285,10 +285,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     {
       id: 'faq-binding',
       category: 'OFFERS',
-      categoryLabel: 'Offers & Connections',
+      categoryLabel: 'Proposals & Connections',
       doctrineTag: 'Consumer-authorized connection',
-      question: 'What happens after I select an offer?',
-      answer: 'Selection begins the authorization step; it does not automatically release your controlled connection information. Open Polici preserves the selected offer, records your authorization, and completes the controlled handoff. The licensed provider then conducts the subsequent insurance transaction on its own channel.',
+      question: 'What happens after I select a direct coverage proposal?',
+      answer: 'Selection begins the authorization step; it does not automatically release your controlled connection information. Open Polici preserves the selected proposal, records your authorization, and completes the controlled handoff. The licensed provider then conducts the subsequent insurance transaction on its own channel.',
       keyPoints: [
         'Only the selected provider receives the authorized connection',
         'Application and underwriting may still affect final terms',
@@ -301,7 +301,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       categoryLabel: 'Coverage Comparison',
       doctrineTag: 'Missing information stays unknown',
       question: 'What happens if a carrier\'s quote is missing specific coverage details?',
-      answer: 'Open Polici does not fill missing terms with assumptions. If an offer leaves an endorsement, rental benefit, roadside coverage, glass waiver, or another term unclear, the platform marks it as unknown or unverified so you can review it before deciding.',
+      answer: 'Open Polici does not fill missing terms with assumptions. If a proposal leaves an endorsement, rental benefit, roadside coverage, glass waiver, or another term unclear, the platform marks it as unknown or unverified so you can review it before deciding.',
       keyPoints: [
         'No invented coverage details',
         'Ambiguous terms remain visible for review',
@@ -314,10 +314,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       categoryLabel: 'Consumer Cost & Platform Economics',
       doctrineTag: 'Commercial V2 neutrality',
       question: 'If Open Polici is free for consumers, how does the platform make money?',
-      answer: 'Provider organizations purchase membership capacity and optional operational services. Under Commercial V2, the only billable marketplace transaction event is a qualifying authorized connection after consumer selection, authorization, and successful controlled disclosure. Provider payments never change activation order, cohort position, offer presentation, or consumer selection.',
+      answer: 'Provider organizations purchase membership capacity and optional operational services. Under Commercial V2, the only billable marketplace transaction event is a qualifying authorized connection after consumer selection, authorization, and successful controlled disclosure. Provider payments never change activation order, cohort position, proposal presentation, or consumer selection.',
       keyPoints: [
         'Consumers pay $0',
-        'Viewing, engagement, offer submission, and consumer selection carry no transaction fee',
+        'Opportunity access, viewing, proposal submission, and consumer selection carry no separate transaction fee',
         'No sponsored results or pay-to-play consumer placement'
       ]
     },
@@ -344,7 +344,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       keyPoints: [
         'No existing-policy premium or artificial savings claim is created',
         'Unstated preferences are not treated as exclusions or requirements',
-        'Eligible providers independently determine what they can offer'
+        'Eligible providers independently determine what they can propose'
       ],
       actionPrompt: 'I Need New Insurance',
       actionTarget: 'CONSUMER'
@@ -352,14 +352,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     {
       id: 'faq-more-offers',
       category: 'OFFERS',
-      categoryLabel: 'More Offer Options',
+      categoryLabel: 'More Proposal Options',
       doctrineTag: 'Consumer-controlled cohorts',
-      question: 'What if I do not like the first offers I receive?',
-      answer: 'You can request another eligible provider cohort while the original submission window remains open and the activation ceiling has not been reached. Newly activated providers do not receive earlier offers, your decline reasons, or pricing signals. You may also keep your current policy when applicable or end the process.',
+      question: 'What if I do not like the first proposals I receive?',
+      answer: 'You can request another eligible provider cohort while the original submission window remains open and the activation ceiling has not been reached. Newly activated providers do not receive earlier proposals, your decline reasons, or pricing signals. You may also keep your current policy when applicable or end the process.',
       keyPoints: [
         'Additional provider access begins only when you request it',
-        'New providers cannot see offers submitted earlier',
-        'You are never required to select an offer'
+        'New providers cannot see proposals submitted earlier',
+        'You are never required to select a proposal'
       ]
     }
   ];
@@ -424,7 +424,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
           {/* Primary Headline */}
           <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-white leading-tight">
-            Get Insurance Offers<br />
+            Get Insurance Proposals<br />
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400">
               Without the Spam Calls.
             </span>
@@ -432,7 +432,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
           {/* Subtitle */}
           <p className="text-base sm:text-lg text-slate-300 max-w-2xl mx-auto leading-relaxed">
-            Switching your current coverage or starting a new policy from scratch? Give eligible insurance providers an opportunity to submit documented offers inside your private account. Compare the prices, review the coverage differences, and decide who—if anyone—receives the connection.
+            Switching your current coverage or starting a brand-new policy from scratch? Invite eligible insurance providers to submit direct coverage proposals inside your private account. Compare the real numbers side by side, examine what changed, and choose who—if anyone—gets to speak with you.
           </p>
 
           {/* Insurance lines processed by the current ingestion system */}
@@ -472,7 +472,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               className="w-full sm:w-auto inline-flex items-center justify-center space-x-2 px-6 py-3.5 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-semibold text-sm rounded-xl border border-slate-700 transition cursor-pointer"
             >
               <Briefcase className="w-4 h-4 text-blue-400" />
-              <span>I Need New Insurance</span>
+              <span>Set Up New Coverage</span>
             </button>
 
             <button
@@ -494,17 +494,17 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <span aria-hidden="true" className="text-slate-700">·</span>
             <div className="flex items-center space-x-1.5">
               <Check className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Review Offers Before Connecting</span>
+            <span>Review Proposals Before Connecting</span>
             </div>
             <span aria-hidden="true" className="text-slate-700">·</span>
             <div className="flex items-center space-x-1.5">
               <Check className="w-3.5 h-3.5 text-emerald-400" />
-            <span>No Sponsored Provider Placement</span>
+            <span>Zero Sponsored Placement</span>
             </div>
             <span aria-hidden="true" className="text-slate-700">·</span>
             <div className="flex items-center space-x-1.5">
               <Check className="w-3.5 h-3.5 text-emerald-400" />
-              <span>You Control the Handoff</span>
+              <span>You Govern the Handoff</span>
             </div>
           </div>
         </div>
@@ -522,7 +522,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             See What a Lower Insurance Price Really Changes
           </h2>
           <p className="text-sm text-slate-600">
-            A cheaper premium can come with higher deductibles, lower limits, or missing coverage. Use this interactive example to see why Open Polici places the price beside every documented protection difference. This illustration is not an insurance quote or insurance advice.
+            A cheaper premium can hide a dangerous tradeoff: higher deductibles, reduced liability limits, or removed protection that leaves more risk on you. Open Polici places the price directly beside every documented coverage difference. Use this interactive example to expose what a headline price alone can hide. This illustration is not an insurance quote or insurance advice.
           </p>
         </div>
 
@@ -532,7 +532,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <div className="flex items-center justify-between pb-4 border-b border-slate-200">
               <h3 className="text-base font-bold text-slate-900 flex items-center space-x-2">
                 <SlidersHorizontal className="w-4 h-4 text-emerald-600" />
-                <span>Build an Illustrative Current-Policy Baseline</span>
+                <span>Build Your Illustrative Coverage Profile</span>
               </h3>
               <span className="text-xs text-slate-500 font-mono">Step 1 of 2</span>
             </div>
@@ -662,7 +662,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 <div className="flex items-center space-x-2">
                   <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
                   <span className="text-xs font-bold text-amber-950">
-                    Show the Lower-Price Coverage Tradeoff
+                    Expose Lower-Price Coverage Tradeoffs
                   </span>
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer">
@@ -676,7 +676,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 </label>
               </div>
               <p className="text-[11px] text-amber-800 leading-snug">
-                Turn this on to see how a larger advertised price difference can hide lower liability limits, higher deductibles, and removed benefits.
+                Turn this on to reveal how a larger advertised price difference can come from lower liability limits, higher deductibles, and removed benefits.
               </p>
             </div>
           </div>
@@ -702,17 +702,17 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     <div>
                       <div className="flex items-center space-x-1.5 text-emerald-800 text-xs font-bold">
                         <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>DOCUMENTED TERMS MATCH THE ILLUSTRATIVE BASELINE</span>
+                  <span>DOCUMENTED TERMS MATCH YOUR PROFILE BASELINE</span>
                       </div>
                       <p className="text-xs text-emerald-700 mt-1">
-                        These illustrative provider offers match the selected {liabilityTier} liability limits and ${deductible} deductible. Review every documented term before choosing.
+                        These illustrative provider proposals match the selected {liabilityTier} liability limits and ${deductible} deductible. Review every documented term before choosing.
                       </p>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3 pt-2 border-t border-emerald-200/70">
                     <div>
-                      <span className="text-[11px] text-emerald-800 font-medium">Illustrative Provider Premium</span>
+                      <span className="text-[11px] text-emerald-800 font-medium">Illustrative Proposal Premium</span>
                       <div className="text-2xl font-black text-slate-900 font-mono mt-0.5">
                         ${providerOfferPremium}
                         <span className="text-xs font-normal text-slate-500"> / mo</span>
@@ -734,10 +734,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     <div>
                       <div className="flex items-center space-x-1.5 text-rose-800 text-xs font-bold">
                         <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0" />
-                        <span>CHANGED COVERAGE · REVIEW REQUIRED</span>
+                        <span>ALTERED PROPOSAL DETECTED · REVIEW REQUIRED</span>
                       </div>
                       <p className="text-xs text-rose-700 mt-1">
-                        This illustration shows a <strong className="text-rose-900">${phantomStatedSavings}/mo</strong> premium difference ($${phantomStatedPremium}/mo offer) alongside these documented coverage changes:
+                        This illustration shows a <strong className="text-rose-900">${phantomStatedSavings}/mo</strong> premium difference ($${phantomStatedPremium}/mo proposal) alongside these documented coverage changes:
                       </p>
                     </div>
                   </div>
@@ -761,14 +761,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   </div>
 
                   <p className="text-[11px] text-rose-800 font-medium">
-                    Open Polici preserves the offer and displays these factual differences. The consumer alone decides whether the price and changed protection are acceptable.
+                    Open Polici maps and displays these factual differences in the open. You alone decide whether the price and modified protection match your goals.
                   </p>
                 </div>
               )}
 
               {/* Sample Carrier Independent Offers Preview */}
               <div className="space-y-2">
-                <span className="text-xs font-semibold text-slate-700">Illustrative Independent Provider Offers:</span>
+                <span className="text-xs font-semibold text-slate-700">Illustrative Independent Provider Proposals:</span>
                 <div className="space-y-1.5 text-xs">
                   <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-200">
                     <div className="flex items-center space-x-2">
@@ -807,7 +807,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             {/* Launch into Portal Button */}
             <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3">
               <div className="text-xs text-slate-500">
-                Ready to compare offers against the policy you actually have?
+                Ready to test real proposals against the policy you actually have?
               </div>
               <button
                 id="simulator-launch-policy review-btn"
@@ -827,13 +827,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       <section className="space-y-8">
         <div className="text-center max-w-3xl mx-auto space-y-2">
           <span className="text-xs font-mono font-semibold uppercase tracking-wider text-slate-500">
-            The Problem Open Polici Solves
+            The Structural Problem We Solve
           </span>
           <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
-            Why Insurance Shopping Can Feel Like Spam
+            Why Insurance Shopping Feels Like Telemarketing Spam
           </h2>
           <p className="text-sm text-slate-600">
-            Traditional comparison sites can distribute your contact information before you have anything meaningful to compare. Open Polici changes the order: review documented offers first, choose second, and authorize one provider connection last.
+            Traditional comparison websites can monetize your contact information before you receive anything meaningful to compare. Open Polici reverses the flow: review documented proposals first, choose your preferred terms second, and authorize one provider connection last.
           </p>
         </div>
 
@@ -842,7 +842,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50/70 text-xs font-semibold text-slate-600">
                 <th className="py-4 px-6">Dimension</th>
-                <th className="py-4 px-6 text-rose-700 bg-rose-50/40">Traditional Comparison Experience</th>
+                <th className="py-4 px-6 text-rose-700 bg-rose-50/40">The Legacy Aggregator Grind</th>
                 <th className="py-4 px-6 text-emerald-700 bg-emerald-50/40">The Open Polici Experience</th>
               </tr>
             </thead>
@@ -854,13 +854,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 <td className="py-4 px-6 text-slate-600 bg-rose-50/20">
                   <div className="flex items-start space-x-2 text-rose-900 font-medium">
                     <X className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
-                    <span>Your contact details may reach several agents before you receive offers worth comparing.</span>
+                    <span>Your contact details may be distributed before you receive a proposal worth reviewing.</span>
                   </div>
                 </td>
                 <td className="py-4 px-6 text-slate-600 bg-emerald-50/20">
                   <div className="flex items-start space-x-2 text-emerald-900 font-medium">
                     <Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                    <span>Your controlled connection information stays private until you select an offer and authorize the handoff.</span>
+                    <span>Your controlled connection information stays sealed until you select a proposal and authorize the handoff.</span>
                   </div>
                 </td>
               </tr>
@@ -885,7 +885,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
               <tr className="hover:bg-slate-50/50">
                 <td className="py-4 px-6 font-semibold text-slate-900">
-                  Carrier Offer Submission Mechanics
+                  Provider Proposal Submission Mechanics
                 </td>
                 <td className="py-4 px-6 text-slate-600 bg-rose-50/20">
                   <div className="flex items-start space-x-2 text-rose-900 font-medium">
@@ -896,7 +896,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 <td className="py-4 px-6 text-slate-600 bg-emerald-50/20">
                   <div className="flex items-start space-x-2 text-emerald-900 font-medium">
                     <Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                    <span>Eligible providers independently submit their own documented offers without seeing other providers’ offers.</span>
+                    <span>Eligible providers submit independent, documented proposals without seeing another provider's pricing.</span>
                   </div>
                 </td>
               </tr>
@@ -914,7 +914,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 <td className="py-4 px-6 text-slate-600 bg-emerald-50/20">
                   <div className="flex items-start space-x-2 text-emerald-900 font-medium">
                     <Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                    <span>Provider payments cannot purchase cohort priority, offer placement, or influence over your selection.</span>
+                    <span>Provider payments cannot purchase cohort priority, proposal placement, or influence over your selection.</span>
                   </div>
                 </td>
               </tr>
@@ -932,7 +932,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 <td className="py-4 px-6 text-slate-600 bg-emerald-50/20">
                   <div className="flex items-start space-x-2 text-emerald-900 font-medium">
                     <Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                    <span>Offer versions, your selection, consent, disclosure, and connection remain traceable.</span>
+                    <span>Proposal versions, your selection, consent, disclosure, and connection remain traceable.</span>
                   </div>
                 </td>
               </tr>
@@ -945,13 +945,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       <section className="space-y-8">
         <div className="text-center max-w-3xl mx-auto space-y-2">
           <span className="text-xs font-mono font-semibold uppercase tracking-wider text-slate-500">
-            How Open Polici Works
+            The Open Polici Process
           </span>
           <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
             Review First. Choose Second. Connect Last.
           </h2>
           <p className="text-sm text-slate-600">
-            Start with the policy you have or the insurance you need. Open Polici gives eligible providers an opportunity to submit offers while you stay in control of the decision and the connection.
+            Start with the coverage you have or describe the new protection you need. Open Polici opens the opportunity to eligible providers without giving them unrestricted access to your phone or email.
           </p>
         </div>
 
@@ -959,8 +959,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         <div className="flex items-center justify-center gap-2 overflow-x-auto pb-2">
           {[
             { step: 0, title: '01. Establish Your Starting Point' },
-            { step: 1, title: '02. Providers Review' },
-            { step: 2, title: '03. Compare Offers' },
+            { step: 1, title: '02. Private Workstation Review' },
+            { step: 2, title: '03. Compare Proposals' },
             { step: 3, title: '04. Authorize Connection' }
           ].map((item) => (
             <button
@@ -987,15 +987,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   Step 01 · Start Once
                 </span>
                 <h3 className="text-2xl font-bold text-slate-900">
-                  Share Your Current Policy—or Tell Us What You Need.
+                  Establish Your Baseline Once.
                 </h3>
                 <p className="text-sm text-slate-600 leading-relaxed">
-                  Upload your current declarations page and confirm the extracted details, or complete the guided form for new insurance. Open Polici preserves the starting point you approve without deciding what coverage you should buy.
+                  Share your current policy—or tell us what you need. Upload your declarations page for structured extraction, or complete the guided form for new coverage. Open Polici preserves the starting point you approve without pushing you toward a particular plan.
                 </p>
                 <div className="space-y-2 text-xs text-slate-700">
                   <div className="flex items-center space-x-2">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>Use an existing policy or create a consumer-defined coverage request</span>
+                    <span>Start from an existing policy or a consumer-defined coverage request</span>
                   </div>
                   <div className="flex items-center space-x-2">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
@@ -1028,18 +1028,18 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
               <div className="space-y-4">
                 <span className="text-xs font-mono font-bold text-blue-600 uppercase">
-                  Step 02 · Private Provider Review
+                  Step 02 · Private Workstation Review
                 </span>
                 <h3 className="text-2xl font-bold text-slate-900">
-                  Eligible Providers Decide What They Can Offer.
+                  Eligible Providers Evaluate the Opportunity Privately.
                 </h3>
                 <p className="text-sm text-slate-600 leading-relaxed">
-                  Activated providers review authorized policy or request information and independently decide whether to send their own offers. They do not receive other providers’ offers, pricing targets, consumer decline reasons, or your controlled connection information.
+                  Activated providers review the authorized risk and coverage facts and independently decide whether to submit a direct proposal. They cannot see another provider's proposal, pricing targets, rejection histories, or your controlled connection information.
                 </p>
                 <div className="space-y-2 text-xs text-slate-700">
                   <div className="flex items-center space-x-2">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>Each provider develops its offer independently</span>
+                    <span>Each provider develops its proposal independently</span>
                   </div>
                   <div className="flex items-center space-x-2">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
@@ -1059,15 +1059,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 <div className="space-y-2">
                   <div className="p-2.5 rounded-lg bg-slate-800 border border-slate-700 flex justify-between">
                     <span>Carrier 101 (Travelers Network)</span>
-                    <span className="text-emerald-400">Offer Submitted ($1,040 / 6mo)</span>
+                    <span className="text-emerald-400">Proposal Submitted ($1,040 / 6mo)</span>
                   </div>
                   <div className="p-2.5 rounded-lg bg-slate-800 border border-slate-700 flex justify-between">
                     <span>Carrier 204 (Pacific Specialty)</span>
-                    <span className="text-emerald-400">Offer Submitted ($1,110 / 6mo)</span>
+                    <span className="text-emerald-400">Proposal Submitted ($1,110 / 6mo)</span>
                   </div>
                   <div className="p-2.5 rounded-lg bg-slate-800 border border-slate-700 flex justify-between">
                     <span>Carrier 308 (Cascade Casualty)</span>
-                    <span className="text-emerald-400">Offer Submitted ($990 / 6mo)</span>
+                    <span className="text-emerald-400">Proposal Submitted ($990 / 6mo)</span>
                   </div>
                 </div>
               </div>
@@ -1078,22 +1078,22 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
               <div className="space-y-4">
                 <span className="text-xs font-mono font-bold text-purple-600 uppercase">
-                  Step 03 · Factual Offer Comparison
+                  Step 03 · Side-by-Side Comparison
                 </span>
                 <h3 className="text-2xl font-bold text-slate-900">
-                  Compare the Price—and What You Receive for It.
+                  Compare the Price—and the Substance Behind It.
                 </h3>
                 <p className="text-sm text-slate-600 leading-relaxed">
-                  Offers appear inside your private account. Open Polici organizes the factual price and coverage differences—including limits, deductibles, included coverage, omitted coverage, and unknown information—without choosing a provider for you.
+                  Direct proposals arrive inside your private account. Open Polici organizes the factual premium, limit, deductible, endorsement, and missing-information differences without choosing a provider for you.
                 </p>
                 <div className="space-y-2 text-xs text-slate-700">
                   <div className="flex items-center space-x-2">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>Existing-policy offers are compared with the policy you already have</span>
+                    <span>Existing-policy proposals are compared with the policy you already have</span>
                   </div>
                   <div className="flex items-center space-x-2">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>New-insurance offers are compared only with preferences you actually stated</span>
+                    <span>New-coverage proposals are compared only with preferences you actually stated</span>
                   </div>
                   <div className="flex items-center space-x-2">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
@@ -1135,15 +1135,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   Step 04 · Consumer-Authorized Connection
                 </span>
                 <h3 className="text-2xl font-bold text-slate-900">
-                  Choose Whether Anyone Receives the Connection.
+                  You Control the Connection Gate.
                 </h3>
                 <p className="text-sm text-slate-600 leading-relaxed">
-                  Select an offer only if you want to continue. Open Polici records your choice and asks you to authorize the disclosure. Only the selected provider receives the controlled connection information needed to continue.
+                  Select a proposal only if its terms earn the opportunity to continue. Open Polici records your choice and asks you to authorize the disclosure. Only the selected provider receives the controlled connection information needed to proceed.
                 </p>
                 <div className="space-y-2 text-xs text-slate-700">
                   <div className="flex items-center space-x-2">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>The selected offer version and your authorization remain traceable</span>
+                    <span>The selected proposal version and your authorization remain traceable</span>
                   </div>
                   <div className="flex items-center space-x-2">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
@@ -1179,13 +1179,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       <section className="space-y-8">
         <div className="text-center max-w-3xl mx-auto space-y-2">
           <span className="text-xs font-mono font-semibold uppercase tracking-wider text-slate-500">
-            Why Open Polici Is Different
+            Why Open Polici Is Radically Different
           </span>
           <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
-            Nine Consumer Protections Built Into the Process
+            Nine Structural Protections Built Into the Marketplace
           </h2>
           <p className="text-sm text-slate-600">
-            Insurance comparison should give you clarity before contact—not pressure before information. These principles govern how offers, privacy, comparison, and provider access work.
+            Insurance distribution should deliver clarity before contact—not a sales pitch before useful information. These controls govern every proposal, comparison, disclosure, and connection on the platform.
           </p>
         </div>
 
@@ -1229,13 +1229,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       <section className="space-y-8">
         <div className="text-center max-w-3xl mx-auto space-y-2">
           <span className="text-xs font-mono font-semibold uppercase tracking-wider text-slate-500">
-            Two Ways to Start
+            Dual-Intent Market Routing
           </span>
           <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
-            Start With the Insurance You Have—or the Coverage You Need
+            Put Your Current Insurance to Work—or Start a Brand-New Line
           </h2>
           <p className="text-sm text-slate-600">
-            Both paths enter the same consumer-controlled marketplace. Eligible providers submit their own offers, Open Polici organizes the documented differences, and you decide what happens next.
+            Both pathways route into the same private marketplace. Eligible providers submit custom proposals against your approved criteria, Open Polici organizes the documented differences, and you control the next move.
           </p>
         </div>
 
@@ -1246,9 +1246,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
                 <UserCheck className="w-5 h-5" />
               </div>
-              <h3 className="text-base font-bold text-slate-900">Put Your Current Policy to Work</h3>
+              <h3 className="text-base font-bold text-slate-900">Pathway A: Put Your Existing Policy to Work</h3>
               <p className="text-xs text-slate-600 leading-relaxed">
-                Upload your declarations page once and confirm the extracted premium, limits, deductibles, vehicles, and coverage. Compare provider offers against the policy you already have.
+                Upload your active declarations page to build a structured baseline. Give eligible providers an opportunity to submit a direct coverage proposal against your current premium, limits, deductibles, and documented protection.
               </p>
             </div>
             <button
@@ -1266,16 +1266,16 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center">
                 <Briefcase className="w-5 h-5" />
               </div>
-              <h3 className="text-base font-bold text-slate-900">No Current Insurance? Start Fresh.</h3>
+              <h3 className="text-base font-bold text-slate-900">Pathway B: No Current Insurance? Start Fresh.</h3>
               <p className="text-xs text-slate-600 leading-relaxed">
-                Tell us the insurance you are looking for, when you need it, the relevant facts, and any preferences you choose to state. Open Polici preserves your request without deciding what you should buy.
+                Tell the marketplace what coverage you are looking for, when you need it, the relevant risk facts, and the preferences you choose to state. Open Polici locks those criteria into a standardized request without deciding what you should buy.
               </p>
             </div>
             <button
               onClick={handleStartPolicyReviewClick}
               className="w-full inline-flex items-center justify-center space-x-2 py-2 px-3 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-xl transition cursor-pointer"
             >
-              <span>Create My Coverage Request</span>
+              <span>Set Up New Coverage</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>
@@ -1286,9 +1286,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center">
                 <FileText className="w-5 h-5" />
               </div>
-              <h3 className="text-base font-bold text-slate-900">Review Before You Connect</h3>
+              <h3 className="text-base font-bold text-slate-900">Review First. Connect Second.</h3>
               <p className="text-xs text-slate-600 leading-relaxed">
-                Offers appear inside your private account before a selected provider receives your controlled connection information. You authorize one connection only when you are ready.
+                Custom proposals arrive inside your private account before a provider receives your controlled connection information. You open the communication gate only when you are ready.
               </p>
             </div>
             <button
@@ -1308,7 +1308,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               </div>
               <h3 className="text-base font-bold text-slate-900">For Providers &amp; Carriers</h3>
               <p className="text-xs text-slate-600 leading-relaxed">
-                Licensed organizations can apply for governed marketplace access, configure their appetite, and submit independent documented offers without purchasing preferential placement.
+                Licensed organizations can apply for governed marketplace access, configure their appetite, and submit independent documented proposals without purchasing preferential placement.
               </p>
             </div>
             <button
@@ -1333,7 +1333,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             Frequently Asked Questions
           </h2>
           <p className="text-sm text-slate-600">
-            Straight answers about privacy, current-policy comparison, new-insurance requests, provider offers, additional options, and what happens after you choose.
+            Clear answers about privacy, structured proposals, new-coverage requests, additional provider cohorts, and what happens after you choose.
           </p>
         </div>
 
@@ -1346,7 +1346,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 { id: 'ALL', label: 'All Questions', count: FAQS.length },
                 { id: 'PRIVACY', label: 'Privacy & Anti-Spam', count: FAQS.filter(f => f.category === 'PRIVACY').length },
                 { id: 'COMPARISON', label: 'Coverage Comparison', count: FAQS.filter(f => f.category === 'COMPARISON').length },
-                { id: 'OFFERS', label: 'Offers & Connections', count: FAQS.filter(f => f.category === 'OFFERS').length },
+                { id: 'OFFERS', label: 'Proposals & Connections', count: FAQS.filter(f => f.category === 'OFFERS').length },
                 { id: 'AUDIT', label: 'Cost & Accountability', count: FAQS.filter(f => f.category === 'AUDIT').length }
               ].map(cat => (
                 <button
@@ -1397,7 +1397,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               type="text"
               value={faqSearchQuery}
               onChange={(e) => setFaqSearchQuery(e.target.value)}
-              placeholder="Search questions about privacy, offers, coverage, providers, or cost..."
+              placeholder="Search questions about privacy, proposals, coverage, providers, or cost..."
               className="w-full pl-10 pr-24 py-2.5 bg-white border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition shadow-sm"
             />
             {faqSearchQuery && (
@@ -1551,7 +1551,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             Review Your Options Before Deciding Who Gets the Connection.
           </h2>
           <p className="text-sm text-slate-300 max-w-xl mx-auto">
-            Start with your current policy or create a new coverage request. Eligible providers submit their own documented offers. You compare the facts and decide what happens next.
+            Upload your current policy or build a new coverage request. Eligible insurance providers independently decide whether to send their own offers inside your private account. You review factual price and coverage differences, keep your current policy if you choose, and control every connection.
+          </p>
+          <p className="text-xs text-slate-400 max-w-xl mx-auto">
+            Open Polici organizes the review and the consumer-authorized handoff. The licensed provider conducts the subsequent insurance transaction.
           </p>
         </div>
 
@@ -1567,7 +1570,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             onClick={handleStartPolicyReviewClick}
             className="w-full sm:w-auto inline-flex items-center justify-center space-x-2 px-5 py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl border border-slate-700 transition cursor-pointer"
           >
-            <span>I Need New Insurance</span>
+            <span>Set Up New Coverage</span>
             <BookOpen className="w-4 h-4 text-emerald-400" />
           </button>
         </div>
@@ -1594,13 +1597,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     OPEN POLICI
                   </div>
                   <div className="font-mono text-[10px] text-emerald-400 tracking-wider font-semibold mt-1">
-                    PRIVATE INSURANCE OFFER MARKETPLACE
+                    PRIVATE INSURANCE PROPOSAL MARKETPLACE
                   </div>
                 </div>
               </div>
 
               <p className="text-xs text-slate-400 leading-relaxed max-w-sm">
-                Shop for insurance without handing your phone number to a list of salespeople. Start with the policy you have or the coverage you need, review provider offers in one private account, and decide who receives the connection.
+                Shop for insurance without handing your phone number to a list of salespeople. Start with the policy you have or the coverage you need, review provider proposals in one private account, and decide who receives the connection.
               </p>
 
               {/* Protocol Badges */}
@@ -1699,7 +1702,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 </li>
                 <li className="flex items-center space-x-1.5">
                   <span className="text-emerald-400 font-bold">03</span>
-                  <span>Independent Provider Offers</span>
+                  <span>Independent Provider Proposals</span>
                 </li>
                 <li className="flex items-center space-x-1.5">
                   <span className="text-emerald-400 font-bold">04</span>
@@ -1765,7 +1768,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           {/* Sub-Footer Bar */}
           <div className="pt-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs font-mono text-slate-500">
             <div className="flex flex-col sm:flex-row items-center gap-2 text-center sm:text-left">
-              <span>Open Polici • Private Insurance Offer Marketplace</span>
+              <span>Open Polici • Private Insurance Proposal Marketplace</span>
               <span className="hidden sm:inline text-slate-700">|</span>
               <span className="text-slate-400">Review First. Choose Second. Connect Last.</span>
             </div>

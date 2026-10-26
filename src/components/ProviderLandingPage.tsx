@@ -204,7 +204,7 @@ export const ProviderLandingPage: React.FC<ProviderLandingPageProps> = ({
 
         <section className="space-y-8">
           <div className="mx-auto max-w-3xl text-center">
-            <p className="font-mono text-xs font-bold uppercase tracking-wider text-emerald-700">Consumer-authorized connection pricing</p>
+            <p className="font-mono text-xs font-bold uppercase tracking-wider text-emerald-700">Authorized Connection Fees</p>
             <h2 className="mt-3 text-3xl font-extrabold tracking-tight">Marketplace activity is free. A qualifying connection is not.</h2>
             <p className="mt-4 text-sm leading-6 text-slate-600">Opportunity availability, viewing, offer submission, consumer review, consumer selection by itself, and standby status carry no separate event charge. A line-specific transaction fee applies only after the complete connection conditions are satisfied.</p>
           </div>
