@@ -41,6 +41,39 @@ Motor Truck Cargo Limit: $100,000
   assert.equal(values['coverage.commercialAuto.motorTruckCargoLimit'],100000);
 });
 
+test('extracts Nevada-issued multiline business-auto declarations without inferring unsupported facts', () => {
+  const result = normalizeCommercialAutoPolicyFields({documentId:'DOC-NV-CA',insuranceLine:'COMMERCIAL_AUTO',ocr:ocr(`
+Philadelphia Indemnity Insurance Company
+BUSINESS AUTO DECLARATIONS
+ITEM ONE
+Company Name: Philadelphia Indemnity Insurance Company
+Named Insured And Mailing Address:
+Western Folklife Center
+501 Railroad St
+Elko, NV 89801-3752
+Policy Number: PHPK2058710
+Policy Period
+From: 12/31/2019
+To: 12/31/2020 At 12:01 AM Standard Time
+Premium Shown Is Payable At Inception: $ 600.00
+Schedule Of Coverages And Covered Autos
+Liability
+Covered Autos
+08, 09
+Limit
+$ 1,000,000 CSL
+`)});
+  const values = Object.fromEntries(result.fields.map(field => [field.fieldPath,field.value]));
+  assert.equal(values.carrier,'Philadelphia Indemnity Insurance Company');
+  assert.equal(values.namedInsured,'Western Folklife Center');
+  assert.equal(values.jurisdiction,'NV');
+  assert.equal(values.effectiveDate,'2019-12-31');
+  assert.equal(values.expirationDate,'2020-12-31');
+  assert.equal(values.annualPremium,600);
+  assert.equal(values['business.legalName'],'Western Folklife Center');
+  assert.equal(values['coverage.commercialAuto.combinedSingleLimit'],1000000);
+});
+
 test('commercial auto accepts complete split liability limits', () => {
   const result = normalizeCommercialAutoPolicyFields({documentId:'DOC-CA-SPLIT',insuranceLine:'COMMERCIAL_AUTO',ocr:ocr(`${common}
 Bodily Injury Per Person: $100,000

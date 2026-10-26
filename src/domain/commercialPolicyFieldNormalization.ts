@@ -37,24 +37,24 @@ const included = (value: string) => {
 
 const RULES: readonly Rule[] = [
   { fieldPath: 'policyNumber', patterns: [/\bpolicy\s*(?:number|no\.?|#)\s*[:#-]?\s*([A-Z0-9][A-Z0-9-]{3,})/i], confidence: .96 },
-  { fieldPath: 'carrier', patterns: [/\b(?:insurance company|carrier|company)\s*[:#-]\s*([^\n]{3,100})/i, /\bunderwritten by\s*(?:\r?\n|:)\s*([^\n]{3,100})/i], confidence: .95 },
-  { fieldPath: 'namedInsured', patterns: [/\bnamed insured\s*(?:[:#-]\s*|\r?\n\s*)([^\n]{3,120})/i], confidence: .96 },
-  { fieldPath: 'jurisdiction', patterns: [/\b(?:policy state|state)\s*[:#-]\s*([A-Z]{2})\b/i], transform: value => value.toUpperCase(), confidence: .95 },
-  { fieldPath: 'effectiveDate', patterns: [/\b(?:policy )?effective(?: date)?\s*[:#-]?\s*(\d{1,2}[\/-]\d{1,2}[\/-]\d{4})/i], transform: date, confidence: .97 },
-  { fieldPath: 'expirationDate', patterns: [/\b(?:policy )?expir(?:ation|es)(?: date)?\s*[:#-]?\s*(\d{1,2}[\/-]\d{1,2}[\/-]\d{4})/i], transform: date, confidence: .97 },
-  { fieldPath: 'annualPremium', patterns: [/\b(?:total|annual)(?: policy)? premium\s*[:#-]?\s*(\$?[\d,]+(?:\.\d{2})?)/i], transform: money, confidence: .96 },
-  { fieldPath: 'business.legalName', patterns: [/\b(?:named insured|insured business|business name)\s*[:#-]\s*([^\n]{3,120})/i], confidence: .95 },
-  { fieldPath: 'business.location', patterns: [/\b(?:business location|premises|location address)\s*[:#-]\s*([^\n]{5,160})/i], confidence: .93 },
-  { fieldPath: 'business.classification', patterns: [/\b(?:business classification|classification|description of operations)\s*[:#-]\s*([^\n]{3,120})/i], confidence: .92 },
+  { fieldPath: 'carrier', patterns: [/\b(?:insurance company|carrier|company)(?: name)?\s*[:#-]\s*([^\n]{3,100})/i, /\bunderwritten by\s*(?:\r?\n|:)\s*([^\n]{3,100})/i, /^([^\n]{3,100}?\b(?:Insurance Company|Indemnity Insurance Company|Mutual Insurance|Fire and Casualty Company))\b/im], confidence: .95 },
+  { fieldPath: 'namedInsured', patterns: [/\bnamed insured(?: and (?:mailing )?address)?\s*(?:[:#-]\s*|\r?\n\s*)([^\n]{3,120})/i], confidence: .96 },
+  { fieldPath: 'jurisdiction', patterns: [/\b(?:policy state|state)\s*[:#-]\s*([A-Z]{2})\b/i, /\b[A-Z][A-Za-z .'-]+,\s*(NV)\s+\d{5}(?:-\d{4})?\b/], transform: value => value.toUpperCase(), confidence: .95 },
+  { fieldPath: 'effectiveDate', patterns: [/\b(?:policy )?effective(?: date)?\s*[:#-]?\s*(\d{1,2}[\/-]\d{1,2}[\/-]\d{4})/i, /\bpolicy period[^\n]*\s+from\s*:\s*(\d{1,2}[\/-]\d{1,2}[\/-]\d{4})/i], transform: date, confidence: .97 },
+  { fieldPath: 'expirationDate', patterns: [/\b(?:policy )?expir(?:ation|es)(?: date)?\s*[:#-]?\s*(\d{1,2}[\/-]\d{1,2}[\/-]\d{4})/i, /\bpolicy period[^\n]*\s+from\s*:\s*\d{1,2}[\/-]\d{1,2}[\/-]\d{4}\s+to\s*:\s*(\d{1,2}[\/-]\d{1,2}[\/-]\d{4})/i], transform: date, confidence: .97 },
+  { fieldPath: 'annualPremium', patterns: [/\b(?:total|annual)(?: policy)? premium\s*[:#-]?\s*(\$?[\d,]+(?:\.\d{2})?)/i, /\btotal\s*:\s*(\$?[\d,]+(?:\.\d{2})?)/i], transform: money, confidence: .96 },
+  { fieldPath: 'business.legalName', patterns: [/\b(?:named insured(?: and (?:mailing )?address)?|insured business|business name)\s*(?:[:#-]\s*|\r?\n\s*)([^\n]{3,120})/i], confidence: .95 },
+  { fieldPath: 'business.location', patterns: [/\b(?:business location|premises|location address)\s*[:#-]\s*([^\n]{5,160})/i, /\blocations of all premises[^\n]*\r?\nlocation address territory\r?\n\d+\s+([^\n]{5,160}?)(?:\s+\d{3})?$/im], confidence: .93 },
+  { fieldPath: 'business.classification', patterns: [/\b(?:business classification|classification|description of operations|business description)\s*[:#-]\s*([^\n]{3,120})/i, /\b\d+\s+([^\n]{3,100})\s+\d{5}\s+[\d,]+\s+per\s+/i], confidence: .92 },
   { fieldPath: 'coverage.cgl.eachOccurrence', patterns: [/\beach occurrence\s*(?:limit)?\s*[:#-]?\s*(\$?[\d,]+(?:\.\d{2})?)/i], transform: money, confidence: .97 },
   { fieldPath: 'coverage.cgl.generalAggregate', patterns: [/\bgeneral aggregate\s*(?:limit)?\s*[:#-]?\s*(\$?[\d,]+(?:\.\d{2})?)/i], transform: money, confidence: .97 },
   { fieldPath: 'coverage.cgl.productsCompletedOperationsAggregate', patterns: [/\bproducts[- /]completed operations aggregate\s*(?:limit)?\s*[:#-]?\s*(\$?[\d,]+(?:\.\d{2})?)/i], transform: money, confidence: .95 },
   { fieldPath: 'coverage.cgl.personalAdvertisingInjury', patterns: [/\bpersonal(?: and| &) advertising injury\s*(?:limit)?\s*[:#-]?\s*(\$?[\d,]+(?:\.\d{2})?)/i], transform: money, confidence: .95 },
   { fieldPath: 'coverage.cgl.medicalExpense', patterns: [/\bmedical (?:expense|payments?)\s*(?:limit)?\s*[:#-]?\s*(\$?[\d,]+(?:\.\d{2})?)/i], transform: money, confidence: .94 },
   { fieldPath: 'coverage.businessProperty.limit', patterns: [/\b(?:business personal property|business property)\s*(?:limit)?\s*[:#-]?\s*(\$?[\d,]+(?:\.\d{2})?)/i], transform: money, confidence: .96, lines: ['BUSINESS_OWNERS_POLICY'] },
-  { fieldPath: 'coverage.businessIncome.included', patterns: [/\bbusiness income(?: coverage)?\s*[:#-]\s*(yes|no|included|not included|excluded)\b/i], transform: included, confidence: .94, lines: ['BUSINESS_OWNERS_POLICY'] },
+  { fieldPath: 'coverage.businessIncome.included', patterns: [/\bbusiness income(?: coverage)?\s*[:#-]\s*(yes|no|included|not included|excluded)\b/i, /\bloss of income(?: and extra expense)?\b[\s\S]{0,100}?\b(included|excluded)\b/i], transform: included, confidence: .94, lines: ['BUSINESS_OWNERS_POLICY'] },
   { fieldPath: 'coverage.extraExpense.included', patterns: [/\bextra expense(?: coverage)?\s*[:#-]\s*(yes|no|included|not included|excluded)\b/i], transform: included, confidence: .94, lines: ['BUSINESS_OWNERS_POLICY'] },
-  { fieldPath: 'coverage.property.deductible', patterns: [/\b(?:business )?property deductible\s*[:#-]?\s*(\$?[\d,]+(?:\.\d{2})?)/i], transform: money, confidence: .95, lines: ['BUSINESS_OWNERS_POLICY'] }
+  { fieldPath: 'coverage.property.deductible', patterns: [/\b(?:business )?property deductible\s*[:#-]?\s*(\$?[\d,]+(?:\.\d{2})?)/i, /\b(?:policy|basic) deductible\s*[:#-]?\s*(\$?[\d,]+(?:\.\d{2})?)/i], transform: money, confidence: .95, lines: ['BUSINESS_OWNERS_POLICY'] }
 ];
 
 function evidence(documentId: string, page: ProviderNeutralOcrPage, match: RegExpMatchArray, confidence: number): SourceEvidence {
