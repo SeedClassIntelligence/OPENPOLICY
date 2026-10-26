@@ -26,7 +26,9 @@ import {
   ShieldAlert,
   FileCheck2,
   Car,
+  Truck,
   Home as HomeIcon,
+  KeyRound,
   Building,
   Building2,
   HelpCircle,
@@ -60,6 +62,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   onNavigateArchitecture
 }) => {
   const { isAuthenticated, userRole, openAuthModal } = useAuth();
+
+  const processedInsuranceLines = [
+    { label: 'Personal Auto', icon: Car },
+    { label: 'Homeowners', icon: HomeIcon },
+    { label: 'Renters', icon: KeyRound },
+    { label: 'Commercial Auto', icon: Truck },
+    { label: 'General Liability', icon: ShieldCheck },
+    { label: 'Businessowners', icon: Building2 }
+  ] as const;
 
   const [publicPage, setPublicPage] = useState<'CONSUMER' | 'PROVIDER'>(() =>
     window.location.pathname === '/providers' ? 'PROVIDER' : 'CONSUMER'
@@ -423,6 +434,26 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           <p className="text-base sm:text-lg text-slate-300 max-w-2xl mx-auto leading-relaxed">
             Switching your current coverage or starting a new policy from scratch? Give eligible insurance providers an opportunity to submit documented offers inside your private account. Compare the prices, review the coverage differences, and decide who—if anyone—receives the connection.
           </p>
+
+          {/* Insurance lines processed by the current ingestion system */}
+          <div aria-label="Insurance types processed by Open Polici" className="pt-1">
+            <p className="mb-3 text-[11px] font-mono font-semibold uppercase tracking-[0.18em] text-slate-500">
+              Insurance we process
+            </p>
+            <div className="mx-auto grid max-w-3xl grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+              {processedInsuranceLines.map(({ label, icon: Icon }) => (
+                <div
+                  key={label}
+                  className="group flex min-h-20 flex-col items-center justify-center gap-2 rounded-xl border border-slate-700/80 bg-slate-900/65 px-2.5 py-3 text-center shadow-sm backdrop-blur-sm transition-colors hover:border-emerald-500/60 hover:bg-slate-800/80"
+                >
+                  <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-emerald-500/20 bg-emerald-500/10 text-emerald-300 transition-colors group-hover:border-emerald-400/40 group-hover:text-emerald-200">
+                    <Icon className="h-4.5 w-4.5" aria-hidden="true" />
+                  </span>
+                  <span className="text-[11px] font-semibold leading-tight text-slate-300">{label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
 
           {/* Primary Action Buttons */}
           <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3.5">
