@@ -1,0 +1,95 @@
+{
+  "manifestId": "NV-PERSONAL-AUTO-PRODUCTION-READINESS-V1",
+  "jurisdictionCode": "NV",
+  "insuranceLine": "PERSONAL_AUTO",
+  "environment": "PRODUCTION",
+  "candidatePacket": "research/pr0b/NV/STAGE-2-CANDIDATE-RULES.json",
+  "verificationPackage": "research/pr0b/NV/STAGE-2-INDEPENDENT-VERIFICATION-PACKAGE.md",
+  "publicationStatus": "UNPUBLISHED",
+  "operationalState": "INACTIVE",
+  "candidateRuleIds": [
+    "NV-MINIMUM-LIABILITY-001",
+    "NV-MINIMUM-LIABILITY-002",
+    "NV-MINIMUM-LIABILITY-003",
+    "NV-UM-UIM-001",
+    "NV-PROOF-001",
+    "NV-PRODUCER-001",
+    "NV-COMPENSATION-001",
+    "NV-REBATE-001",
+    "NV-APPOINTMENT-001",
+    "NV-INSURER-AUTHORITY-001",
+    "NV-BINDER-001",
+    "NV-CANCELLATION-NOTICE-001",
+    "NV-LINE-AUTHORITY-001",
+    "NV-BUSINESS-ENTITY-LICENSE-001",
+    "NV-MIDTERM-CANCELLATION-001",
+    "NV-NONRENEWAL-001",
+    "NV-RENEWAL-CHANGE-NOTICE-001",
+    "NV-INFORMATION-PRACTICES-NOTICE-001",
+    "NV-DISCLOSURE-AUTHORIZATION-001",
+    "NV-BINDER-REPLACEMENT-001",
+    "NV-PERSONAL-INFORMATION-ACCESS-001",
+    "NV-PERSONAL-INFORMATION-CORRECTION-001",
+    "NV-ADVERSE-UNDERWRITING-NOTICE-001",
+    "NV-ELECTRONIC-TRANSACTION-CONSENT-001",
+    "NV-ELECTRONIC-RECORD-REPRODUCTION-001",
+    "NV-ELECTRONIC-RETENTION-001"
+  ],
+  "activationGates": [
+    {
+      "gateCode": "PROVIDER_AUTHORITY_READY",
+      "status": "PENDING",
+      "evidenceRefs": [
+        "approved provider-authority rules",
+        "organization and individual license verification acceptance",
+        "carrier authority and role-specific relationship acceptance"
+      ]
+    },
+    {
+      "gateCode": "LEGAL_REVIEW_COMPLETE",
+      "status": "PENDING",
+      "evidenceRefs": [
+        "attributable disposition for all 26 candidate rules",
+        "published PRODUCTION_ELIGIBLE RulePack content hash"
+      ]
+    },
+    {
+      "gateCode": "DOCUMENT_REQUIREMENTS_READY",
+      "status": "PENDING",
+      "evidenceRefs": [
+        "personal-auto document ingestion acceptance",
+        "baseline field and issued-policy evidence mappings"
+      ]
+    },
+    {
+      "gateCode": "SECURITY_READY",
+      "status": "PENDING",
+      "evidenceRefs": [
+        "authentication and tenant-isolation acceptance",
+        "controlled-disclosure security acceptance"
+      ]
+    },
+    {
+      "gateCode": "OPERATIONAL_RUNBOOK_READY",
+      "status": "PENDING",
+      "evidenceRefs": [
+        "pilot monitoring and incident runbook",
+        "market suspension and rollback procedure"
+      ]
+    },
+    {
+      "gateCode": "MARKET_APPROVED",
+      "status": "PENDING",
+      "evidenceRefs": [
+        "founder production-market approval",
+        "recorded pilot scope and acceptance conditions"
+      ]
+    }
+  ],
+  "invariants": [
+    "Payment does not establish regulatory or marketplace authority.",
+    "No unpublished or unverified rule is available for production enforcement.",
+    "A PRODUCTION market cannot activate from a SANDBOX_ONLY RulePack.",
+    "The first production transition is INACTIVE to PILOT; ACTIVE requires completed pilot evidence."
+  ]
+}

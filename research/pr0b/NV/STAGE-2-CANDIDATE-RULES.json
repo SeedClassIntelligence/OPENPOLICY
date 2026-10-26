@@ -359,7 +359,7 @@
       "crossReferencesReviewed": ["NRS 687B.310(6)", "2021 Nev. Stat., ch. 29, §§ 1-2", "NRS 218D.330(1)"],
       "supersessionCheck": "AB 18 supplies the current exception text and has no special effective clause; NRS 218D.330(1) supplies October 1, 2021.",
       "openQuestions": ["Verifier must confirm date counting and how compound favorable/unfavorable changes are classified."],
-      "researchStatus": "RESEARCHED",
+      "researchStatus": "READY_FOR_VERIFICATION",
       "verificationStatus": "UNVERIFIED"
     },
     {
