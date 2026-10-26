@@ -105,6 +105,8 @@ import { validatePolicyLineOfferFacts } from './src/domain/policyLineOfferContra
 import { JURISDICTION_LINE_ROLLOUT_MATRIX } from './src/domain/jurisdictionLineAvailability';
 import { confirmConsumerDefinedCoverageRequest, consumerRequestToMarketplaceBaseline, projectConsumerRequestForMarketplace } from './src/domain/consumerDefinedCoverageRequest';
 import type { InsuranceLine } from './src/types/jurisdiction';
+import nevadaCandidatePacket from './research/pr0b/NV/STAGE-2-CANDIDATE-RULES.json';
+import nevadaReadinessManifest from './research/pr0b/NV/PRODUCTION-READINESS-MANIFEST.json';
 
 export const app = express();
 const DEFAULT_PORT = Number(process.env.PORT) || 3000;
@@ -621,6 +623,24 @@ app.post('/api/admin/jurisdictions/:code/market/transition', async (req, res) =>
     }
     const event = await jurisdictionStore.transitionMarket({ key, to, actorId: identity.uid, reason, suspensionAction });
     res.status(201).json({ event, market: await jurisdictionStore.getMarketStatus(key) });
+  } catch (e: any) {
+    res.status(e.statusCode || 500).json({ error: e.message });
+  }
+});
+
+app.get('/api/admin/jurisdictions/NV/readiness', async (_req, res) => {
+  try {
+    await ensureJurisdictionFramework();
+    const key = { jurisdictionCode: 'NV', insuranceLine: 'PERSONAL_AUTO' as InsuranceLine, environment: 'PRODUCTION' as MarketEnvironment };
+    const market = await jurisdictionStore.getMarketStatus(key);
+    const ruleSets = await jurisdictionStore.getRuleSets('NV', 'PERSONAL_AUTO');
+    res.json({
+      manifest: nevadaReadinessManifest,
+      candidatePacket: nevadaCandidatePacket,
+      market,
+      productionRuleSets: ruleSets,
+      recordedGateAttestations: await jurisdictionStore.getGateAttestations(key)
+    });
   } catch (e: any) {
     res.status(e.statusCode || 500).json({ error: e.message });
   }

@@ -73,6 +73,8 @@ test('market activation mutations require compliance administration before owner
   assert.equal(invoke('POST','/admin/jurisdictions/NV/market/transition',consumer).status,403);
   assert.equal(invoke('POST','/admin/jurisdictions/NV/market/transition',complianceStaff).next,true);
   assert.equal(invoke('POST','/admin/jurisdictions/NV/market/transition',admin).next,true);
+  assert.equal(invoke('GET','/admin/jurisdictions/NV/readiness',provider).status,403);
+  assert.equal(invoke('GET','/admin/jurisdictions/NV/readiness',complianceStaff).next,true);
 });
 
 test('provider integration APIs require provider identity', () => {

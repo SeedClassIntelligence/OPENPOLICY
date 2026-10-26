@@ -112,6 +112,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
   const [adminForm,setAdminForm]=useState({firebaseUid:'',permissions:['PLATFORM_READ'] as string[],status:'ACTIVE',reason:''});
   const [providerApplications,setProviderApplications]=useState<any[]>([]);
   const [providerAuthorityEvidence,setProviderAuthorityEvidence]=useState<any[]>([]);
+  const [nevadaReadiness,setNevadaReadiness]=useState<any|null>(null);
   const [applicationActionId,setApplicationActionId]=useState<string|null>(null);
   const [applicationMessage,setApplicationMessage]=useState<string|null>(null);
   const [applicationReview,setApplicationReview]=useState({
@@ -124,7 +125,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [eventsRes, queueRes, verifyRes, linesRes, rolloutRes, overviewRes, governanceRes, platformFinancialsRes, administratorsRes, operationsRes, applicationsRes, authorityEvidenceRes] = await Promise.all([
+      const [eventsRes, queueRes, verifyRes, linesRes, rolloutRes, overviewRes, governanceRes, platformFinancialsRes, administratorsRes, operationsRes, applicationsRes, authorityEvidenceRes, nevadaReadinessRes] = await Promise.all([
         apiFetch('/api/audit-events'),
         apiFetch('/api/admin/review-queue'),
         apiFetch('/api/admin/audit-chain/verify'),
@@ -136,7 +137,8 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
         apiFetch('/api/admin/administrators'),
         apiFetch('/api/admin/marketplace-operations'),
         apiFetch('/api/admin/provider-applications'),
-        apiFetch('/api/admin/provider-authority-evidence')
+        apiFetch('/api/admin/provider-authority-evidence'),
+        apiFetch('/api/admin/jurisdictions/NV/readiness')
       ]);
 
       const eventsData = await eventsRes.json();
@@ -151,6 +153,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
       const operationsData = await operationsRes.json();
       const applicationsData = await applicationsRes.json();
       const authorityEvidenceData = await authorityEvidenceRes.json();
+      const nevadaReadinessData = await nevadaReadinessRes.json();
 
       setAuditEvents(eventsData);
       setReviewQueue(queueData);
@@ -164,6 +167,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
       if (operationsRes.ok) setMarketplaceOperations(operationsData);
       if (applicationsRes.ok) setProviderApplications(Array.isArray(applicationsData) ? applicationsData : []);
       if (authorityEvidenceRes.ok) setProviderAuthorityEvidence(Array.isArray(authorityEvidenceData) ? authorityEvidenceData : []);
+      if (nevadaReadinessRes.ok) setNevadaReadiness(nevadaReadinessData);
     } catch (e) {
       console.error('Failed to load admin audit console data:', e);
     } finally {
@@ -973,6 +977,23 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
           This console does not activate markets. Production authority remains a separate durable governance decision requiring verified rules, provider authority, and activation gates.
         </div>
+
+        {nevadaReadiness && <div className="space-y-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div><h4 className="text-sm font-bold text-slate-900">Nevada Personal Auto Production Readiness</h4><p className="text-[11px] text-slate-500">Exact 26-rule founder disposition queue and six-gate activation ledger.</p></div>
+            <div className="flex gap-2 text-[10px] font-bold"><span className="rounded bg-white px-2 py-1">{nevadaReadiness.market.readiness}</span><span className="rounded bg-white px-2 py-1">{nevadaReadiness.market.state}</span></div>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-3">
+            {['READY_FOR_VERIFICATION','RESEARCHED','REVIEW_REQUIRED'].map(status=><div key={status} className="rounded-lg border bg-white p-3"><div className="text-xl font-black text-slate-900">{nevadaReadiness.candidatePacket.rules.filter((rule:any)=>rule.researchStatus===status).length}</div><div className="text-[9px] font-bold text-slate-500">{status.replaceAll('_',' ')}</div></div>)}
+          </div>
+          <div className="max-h-80 overflow-auto rounded-lg border bg-white">
+            {nevadaReadiness.candidatePacket.rules.map((rule:any)=><div key={rule.ruleId} className="border-b p-3 last:border-0"><div className="flex flex-wrap items-center justify-between gap-2"><strong className="text-xs text-slate-900">{rule.ruleId}</strong><span className="rounded bg-amber-50 px-2 py-0.5 text-[9px] font-bold text-amber-800">{rule.verificationStatus}</span></div><p className="mt-1 text-[11px] leading-5 text-slate-600">{rule.normalizedProposition}</p><a href={rule.primaryAuthority.officialUrl} target="_blank" rel="noreferrer" className="mt-1 inline-block text-[10px] font-bold text-blue-700 underline">{rule.primaryAuthority.citation}</a>{rule.openQuestions?.length>0&&<p className="mt-1 text-[10px] text-rose-700">Decision required: {rule.openQuestions.join(' ')}</p>}</div>)}
+          </div>
+          <div className="grid gap-2 md:grid-cols-2">
+            {nevadaReadiness.manifest.activationGates.map((gate:any)=><div key={gate.gateCode} className="rounded-lg border bg-white p-3"><div className="flex justify-between gap-2"><strong className="text-[10px] text-slate-800">{gate.gateCode}</strong><span className="text-[9px] font-bold text-amber-700">{nevadaReadiness.market.gates.includes(gate.gateCode)?'ATTESTED':'PENDING'}</span></div><p className="mt-1 text-[10px] text-slate-500">{gate.evidenceRefs.join(' · ')}</p></div>)}
+          </div>
+          <p className="text-[10px] text-slate-500">This view is evidence-only. It cannot mark a rule verified, publish a RulePack, attest a gate, or activate production.</p>
+        </div>}
       </div>
 
       {/* ========================================================================= */}
