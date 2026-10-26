@@ -64,7 +64,6 @@ An active commercial agreement binds exactly one provider organization to an imm
 
 The V2 price book independently defines event prices. They are not access roles or plan tiers:
 
-- `VPO_ENGAGED`: free. The former $35 engagement charge is eliminated.
 - `AUTHORIZED_CONNECTION`: insurance-line price after consumer-authorized disclosure and successful controlled connection, subject to the compensation-determination gate.
 - Every other marketplace event, including `VPO_AVAILABLE`, `VPO_VIEWED`, `PROPOSITION_SUBMITTED`, `CONSUMER_SELECTED`, `BASELINE_ACTIVATED`, `BOUND_ACQUISITION`, and `VERIFIED_BOUND_OUTCOME`, is free.
 
@@ -125,7 +124,6 @@ Repository verification against `cb75912` produced the following disposition:
 
 | Supplied claim | Disposition | Repository evidence |
 | --- | --- | --- |
-| `$35` applies to `VPO_ENGAGED`, not viewing | **Superseded by V2** | V2 eliminates the engagement charge. Both `VPO_VIEWED` and `VPO_ENGAGED` remain measurable but free; `AUTHORIZED_CONNECTION` is the sole billable marketplace transaction event. |
 | Premium V1 defines two seats and one jurisdiction but no included view/engagement/concurrent-opportunity quantity | **Confirmed** | The immutable V1 terms include seats and jurisdictions, but no included opportunity or engagement capacity. |
 | Only personal auto may enter the accepted policy pipeline | **Confirmed** | `canEnterPolicyPipeline` requires `implementationStatus === 'ACCEPTANCE'`; only personal auto has that status. |
 | Property and selected commercial lines have meaningful schema/normalization preparation but are not accepted end to end | **Confirmed** | Homeowners, renters, CGL and BOP remain `DEVELOPMENT` and are explicitly denied entry by registry tests. |

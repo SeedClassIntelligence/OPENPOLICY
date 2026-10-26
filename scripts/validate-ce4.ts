@@ -301,12 +301,10 @@ async function runCE4ValidationSuite() {
         compensationDeterminationApproved: true,
         determinationReference: 'TEST-DETERMINATION',
         includedAuthorizedConnections: 2,
-        includedEngagementCapacity: 5,
         rates: {
           AUTHORIZED_CONNECTION_CENTS: 2500,
           BOUND_ACQUISITION_CENTS: 5000,
-          VERIFIED_BOUND_OUTCOME_CENTS: 1500,
-          ENGAGEMENT_OVERAGE_CENTS: 1000
+          VERIFIED_BOUND_OUTCOME_CENTS: 1500
         }
       },
       createdAt: '2026-01-01T00:00:00Z'
@@ -449,43 +447,8 @@ async function runCE4ValidationSuite() {
     });
     assert(decVerifiedZero.disposition === 'INCLUDED_IN_PLAN', 'Verified bound outcome with zero fee yields INCLUDED_IN_PLAN');
 
-    // Test 15: Rate VPO_ENGAGED Overage Above Capacity
-    console.log('Test 15: Rate VPO_ENGAGED Overage Above Capacity');
-    const evEngagedOverage = buildCommercialEvent({
-      providerOrganizationId: 'org_sierra',
-      eventType: 'VPO_ENGAGED',
-      sourceEntityType: 'CHALLENGE_PARTICIPATION',
-      sourceEntityId: 'part_overage_1',
-      metadata: { isOverage: true }
-    });
-    const decEngagedOverage = rateCommercialEvent({
-      event: evEngagedOverage,
-      agreement: activeAgreement,
-      planVersion: tieredPlanVersion,
-      priorUsageCount: 5
-    });
-    assert(decEngagedOverage.disposition === 'BILLABLE', 'VPO_ENGAGED overage yields BILLABLE');
-    assert(decEngagedOverage.amountCents === 1000, 'Billed at 1000 cents ($10.00)');
-
-    // Test 16: Rate VPO_ENGAGED Within Capacity
-    console.log('Test 16: Rate VPO_ENGAGED Within Capacity');
-    const evEngagedWithin = buildCommercialEvent({
-      providerOrganizationId: 'org_sierra',
-      eventType: 'VPO_ENGAGED',
-      sourceEntityType: 'CHALLENGE_PARTICIPATION',
-      sourceEntityId: 'part_within_1'
-    });
-    const decEngagedWithin = rateCommercialEvent({
-      event: evEngagedWithin,
-      agreement: activeAgreement,
-      planVersion: tieredPlanVersion,
-      priorUsageCount: 2
-    });
-    assert(decEngagedWithin.disposition === 'INCLUDED_IN_PLAN', 'VPO_ENGAGED within capacity yields INCLUDED_IN_PLAN');
-    assert(decEngagedWithin.amountCents === 0, 'Zero cents billed');
-
-    // Test 17: Rate Telemetry Events -> disposition NOT_RATED ($0)
-    console.log('Test 17: Rate Telemetry Events -> disposition NOT_RATED ($0)');
+    // Test 15: Rate Telemetry Events -> disposition NOT_RATED ($0)
+    console.log('Test 15: Rate Telemetry Events -> disposition NOT_RATED ($0)');
     const telemetryTypes = ['VPO_AVAILABLE', 'VPO_VIEWED', 'PROPOSITION_SUBMITTED', 'CONSUMER_SELECTED', 'BASELINE_ACTIVATED'] as const;
     for (const tType of telemetryTypes) {
       const telemEvt = buildCommercialEvent({

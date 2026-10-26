@@ -1759,10 +1759,6 @@ app.post('/api/admin/commercial/plans/:planId/versions', async (req, res) => {
     const latest = await commercialStore.getLatestPlanVersion(req.params.planId);
     if (!latest) return res.status(404).json({ error: 'Commercial plan version not found.' });
     const recurringFeeCents = Number(req.body?.recurringFeeCents);
-    const qualifiedEngagementUnitPriceCents = Number(req.body?.qualifiedEngagementUnitPriceCents);
-    if (qualifiedEngagementUnitPriceCents !== 0) {
-      return res.status(400).json({ error: 'V2 requires qualifiedEngagementUnitPriceCents to remain zero.' });
-    }
     const connectionPrices = req.body?.authorizedConnectionCentsByInsuranceLine;
     const priceBookId = String(req.body?.priceBookId || '').trim();
     if (!priceBookId) return res.status(400).json({ error: 'priceBookId is required.' });
@@ -1781,7 +1777,6 @@ app.post('/api/admin/commercial/plans/:planId/versions', async (req, res) => {
       termsSnapshot: {
         ...latest.termsSnapshot,
         priceBookId,
-        qualifiedEngagementUnitPriceCents,
         authorizedConnectionCentsByInsuranceLine: Object.fromEntries(Object.entries(connectionPrices).map(([key, value]) => [key, Number(value)])),
         compensationDeterminationApproved: false
       },
@@ -2064,19 +2059,6 @@ app.post('/api/marketplace/invitations/:id/accept', async (req, res) => {
         await commercialStore.linkParticipationToUsage(capacityResult.usageRecord.id, result.participation.id);
       }
 
-      // CE-3: Instrument VPO_ENGAGED only after authoritative marketplace participation successfully created
-      const engagementChallenge = await postgresStore.getChallenge(result.participation.challengeId);
-      await commercialStore.projectMarketplaceEvent({
-        eventType: 'VPO_ENGAGED',
-        sourceEntityType: 'CHALLENGE_PARTICIPATION',
-        sourceEntityId: result.participation.id,
-        providerOrganizationId: result.participation.providerOrganizationId,
-        challengeId: result.participation.challengeId,
-        competitionId: result.participation.competitionId,
-        occurredAt: result.participation.acceptedAt,
-        idempotencyKey: `evt:VPO_ENGAGED:${result.participation.providerOrganizationId}:${result.participation.challengeId}`,
-        metadata: { insuranceLine: engagementChallenge?.insuranceLine || engagementChallenge?.baseline.insuranceLine || 'PERSONAL_AUTO' }
-      }).catch(err => console.warn('[CommercialEvent Error]', err));
     } catch (mpErr) {
       // Marketplace failure: rollback usage record to prevent phantom commercial consumption
       if (capacityResult.usageRecord && !capacityResult.alreadyConsumed) {

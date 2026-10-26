@@ -51,7 +51,6 @@ and does not carry forward.
 | --- | ---: |
 | `VPO_AVAILABLE` | $0 |
 | `VPO_VIEWED` | $0 |
-| `VPO_ENGAGED` | $0 |
 | `PROPOSITION_SUBMITTED` | $0 |
 | `CONSUMER_SELECTED` | $0 |
 | `BASELINE_ACTIVATED` | $0 |

@@ -1,51 +1,32 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2, OPEN_POLICY_PREMIUM_PRICE_BOOK_V1, OPEN_POLICY_PREMIUM_V1_UNAVAILABLE_SERVICE_ADD_ONS } from './commercialPriceBook';
+import { OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2 } from './commercialPriceBook';
 import { assembleDraftInvoice, buildCommercialEvent, rateCommercialEvent } from './commercialEconomicsEngine';
 import type { CommercialAgreement, CommercialPlanVersion } from '../types/insurance';
 
 const agreement: CommercialAgreement = {
-  id: 'agreement-pricebook-v1', commercialAccountId: 'account-pricebook',
-  providerOrganizationId: 'org-pricebook', planVersionId: 'pricebook-v1',
-  status: 'ACTIVE', startsAt: OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.effectiveFrom,
-  acceptedAt: OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.effectiveFrom,
-  createdAt: OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.effectiveFrom
+  id: 'agreement-pricebook-v2', commercialAccountId: 'account-pricebook',
+  providerOrganizationId: 'org-pricebook', planVersionId: 'pricebook-v2',
+  status: 'ACTIVE', startsAt: OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.effectiveFrom,
+  acceptedAt: OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.effectiveFrom,
+  createdAt: OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.effectiveFrom
 };
 
 const planVersion: CommercialPlanVersion = {
-  id: 'pricebook-v1', planId: 'plan_open_policy_premium', version: 1,
-  effectiveFrom: OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.effectiveFrom,
+  id: 'pricebook-v2', planId: 'plan_open_policy_premium', version: 2,
+  effectiveFrom: OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.effectiveFrom,
   billingInterval: 'MONTHLY',
-  recurringFeeCents: OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.providerMembershipCentsMonthly,
-  currency: 'USD', createdAt: OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.effectiveFrom,
+  recurringFeeCents: OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.memberships.PREMIUM.priceCentsMonthly,
+  currency: 'USD', createdAt: OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.effectiveFrom,
   termsSnapshot: {
-    priceBookId: OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.id,
-    includedProducerSeats: 2, includedJurisdictions: 1,
-    qualifiedEngagementUnitPriceCents: OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.qualifiedEngagementCents,
-    authorizedConnectionCentsByInsuranceLine: { ...OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.authorizedConnectionCentsByInsuranceLine },
-    recurringAddOns: { ...OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.recurringAddOns },
+    priceBookId: OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.id,
+    includedProducerSeats: 5, includedJurisdictions: 3,
+    authorizedConnectionCentsByInsuranceLine: { ...OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.authorizedConnectionCentsByInsuranceLine },
+    recurringAddOns: { ...OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.recurringAddOns },
     compensationDeterminationApproved: true,
     determinationReference: 'TEST-APPROVED-DETERMINATION'
   }
 };
-
-test('premium price book publishes the founder-authorized subscription and service prices', () => {
-  const book = OPEN_POLICY_PREMIUM_PRICE_BOOK_V1;
-  assert.equal(book.providerMembershipCentsMonthly, 49_900);
-  assert.equal(book.consumerPriceCents, 0);
-  assert.equal(book.includedProducerSeats, 2);
-  assert.equal(book.includedJurisdictions, 1);
-  assert.deepEqual(book.recurringAddOns, {
-    ADDITIONAL_PRODUCER_SEAT: 4_900, ADDITIONAL_JURISDICTION: 7_500,
-    WORKFLOW_AUTOMATION: 19_900, ENTERPRISE_REPORTING: 29_900,
-    API_INTEGRATION: 49_900, MULTI_LOCATION_ADMINISTRATION: 19_900
-  });
-  assert.equal(book.implementationServices.ENTERPRISE_IMPLEMENTATION_MIN_CENTS, 250_000);
-  assert.equal(book.implementationServices.ENTERPRISE_IMPLEMENTATION_MAX_CENTS, 1_000_000);
-  assert.equal(book.authorizedConnectionMinimumCents, 10_000);
-  assert.equal(book.authorizedConnectionMaximumCents, 35_000);
-  assert.deepEqual(book.unavailableInsuranceLines, ['MEDICARE']);
-});
 
 test('Commercial V2 trial waives only recurring membership for 30 days', () => {
   assert.deepEqual(OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.membershipTrial, {
@@ -59,30 +40,8 @@ test('Commercial V2 trial waives only recurring membership for 30 days', () => {
   assert.equal(OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.authorizedConnectionCentsByInsuranceLine.PERSONAL_AUTO, 7_500);
 });
 
-test('all priced V1 premium services have accepted entitlement-enforced delivery surfaces', () => {
-  assert.deepEqual(OPEN_POLICY_PREMIUM_V1_UNAVAILABLE_SERVICE_ADD_ONS, []);
-  for (const code of ['WORKFLOW_AUTOMATION','ENTERPRISE_REPORTING','API_INTEGRATION','MULTI_LOCATION_ADMINISTRATION'] as const) {
-    assert.ok(OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.recurringAddOns[code] > 0, `${code} price is published`);
-  }
-});
-
-test('qualified engagement is billed exactly once at $35 by its canonical commercial event', () => {
-  const event = buildCommercialEvent({
-    providerOrganizationId: agreement.providerOrganizationId, eventType: 'VPO_ENGAGED',
-    sourceEntityType: 'CHALLENGE_PARTICIPATION', sourceEntityId: 'participation-1',
-    challengeId: 'challenge-1', commercialAgreementId: agreement.id,
-    commercialPlanVersionId: planVersion.id,
-    idempotencyKey: 'evt:VPO_ENGAGED:org-pricebook:challenge-1'
-  });
-  const decision = rateCommercialEvent({ event, agreement, planVersion });
-  assert.equal(decision.disposition, 'BILLABLE');
-  assert.equal(decision.chargeCode, 'QUALIFIED_ENGAGEMENT_FEE');
-  assert.equal(decision.amountCents, 3_500);
-});
-
 test('authorized connections use the published insurance-line prices', () => {
-  for (const [insuranceLine, expected] of Object.entries(OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.authorizedConnectionCentsByInsuranceLine)) {
-    if (OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.unavailableInsuranceLines.includes(insuranceLine as 'MEDICARE')) continue;
+  for (const [insuranceLine, expected] of Object.entries(OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.authorizedConnectionCentsByInsuranceLine)) {
     const event = buildCommercialEvent({
       providerOrganizationId: agreement.providerOrganizationId, eventType: 'AUTHORIZED_CONNECTION',
       sourceEntityType: 'DISCLOSURE_EVENT', sourceEntityId: `disclosure-${insuranceLine}`,
@@ -97,7 +56,7 @@ test('authorized connections use the published insurance-line prices', () => {
 
 test('unpriced acquisition outcomes and telemetry remain zero-rated', () => {
   for (const eventType of [
-    'BOUND_ACQUISITION', 'VERIFIED_BOUND_OUTCOME', ...OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.freeMarketplaceEvents
+    'BOUND_ACQUISITION', 'VERIFIED_BOUND_OUTCOME', ...OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.freeMarketplaceEvents
   ] as const) {
     const event = buildCommercialEvent({
       providerOrganizationId: agreement.providerOrganizationId, eventType,
@@ -108,21 +67,6 @@ test('unpriced acquisition outcomes and telemetry remain zero-rated', () => {
     assert.equal(decision.billable, false, eventType);
     assert.equal(decision.amountCents, 0, eventType);
   }
-});
-
-test('Medicare connection price remains registered but cannot be rated in V1', () => {
-  assert.equal(OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.authorizedConnectionCentsByInsuranceLine.MEDICARE, 20_000);
-  const event = buildCommercialEvent({
-    providerOrganizationId: agreement.providerOrganizationId, eventType: 'AUTHORIZED_CONNECTION',
-    sourceEntityType: 'DISCLOSURE_EVENT', sourceEntityId: 'disclosure-medicare',
-    challengeId: 'challenge-medicare', commercialAgreementId: agreement.id,
-    commercialPlanVersionId: planVersion.id, metadata: { insuranceLine: 'MEDICARE' }
-  });
-  const decision = rateCommercialEvent({ event, agreement, planVersion });
-  assert.equal(decision.disposition, 'NOT_RATED');
-  assert.equal(decision.billable, false);
-  assert.equal(decision.amountCents, 0);
-  assert.equal(decision.error, 'INSURANCE_LINE_NOT_OPERATIONAL');
 });
 
 test('connection pricing fails closed when insurance line is absent', () => {
@@ -141,7 +85,7 @@ test('contracted recurring add-ons flow into an historically anchored invoice', 
     ...planVersion,
     termsSnapshot: {
       ...planVersion.termsSnapshot,
-      recurringAddOns: { ...OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.recurringAddOns },
+      recurringAddOns: { ...OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.recurringAddOns },
       selectedRecurringAddOns: { ADDITIONAL_PRODUCER_SEAT: 2, WORKFLOW_AUTOMATION: 1,
         ENTERPRISE_REPORTING: 1, API_INTEGRATION: 1, MULTI_LOCATION_ADMINISTRATION: 1 }
     }
@@ -207,7 +151,7 @@ test('V2 publishes the complete founder-authorized tier and capacity network', (
   });
 });
 
-test('V2 makes engagement free and rates only approved line-specific authorized connections', () => {
+test('V2 rates approved line-specific authorized connections as the marketplace transaction', () => {
   const tier = OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.memberships.SOLO;
   const v2Version: CommercialPlanVersion = {
     ...planVersion, id: 'pricebook-v2', version: 2,
@@ -218,7 +162,6 @@ test('V2 makes engagement free and rates only approved line-specific authorized 
       includedProducerSeats: tier.producerSeats, includedJurisdictions: tier.jurisdictions,
       includedConcurrentCompetitions: tier.concurrentCompetitions,
       includedMonthlyOfferSubmissions: tier.monthlyOfferSubmissions,
-      qualifiedEngagementUnitPriceCents: 0,
       freeMarketplaceEvents: [...OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.freeMarketplaceEvents],
       authorizedConnectionCentsByInsuranceLine: {
         ...OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.authorizedConnectionCentsByInsuranceLine
@@ -227,14 +170,6 @@ test('V2 makes engagement free and rates only approved line-specific authorized 
       compensationDeterminationApproved: true, determinationReference: 'V2-TEST'
     }
   };
-  const engagement = rateCommercialEvent({ event: buildCommercialEvent({
-    providerOrganizationId: agreement.providerOrganizationId, eventType: 'VPO_ENGAGED',
-    sourceEntityType: 'CHALLENGE_PARTICIPATION', sourceEntityId: 'v2-engagement',
-    commercialAgreementId: agreement.id, commercialPlanVersionId: v2Version.id
-  }), agreement: { ...agreement, planVersionId: v2Version.id }, planVersion: v2Version });
-  assert.equal(engagement.billable, false);
-  assert.equal(engagement.amountCents, 0);
-
   for (const [insuranceLine, expected] of Object.entries(
     OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.authorizedConnectionCentsByInsuranceLine)) {
     const decision = rateCommercialEvent({ event: buildCommercialEvent({

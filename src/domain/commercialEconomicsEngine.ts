@@ -172,9 +172,6 @@ export function deriveEntitlementsFromPlanVersion(params: {
   if (snapshot.includedVpoCapacity !== undefined) {
     add('VPO_VIEW_CAPACITY', snapshot.includedVpoCapacity);
   }
-  if (snapshot.includedEngagementCapacity !== undefined) {
-    add('VPO_ENGAGEMENT_CAPACITY', snapshot.includedEngagementCapacity);
-  }
   if (snapshot.includedConcurrentCompetitions !== undefined) {
     add('ACTIVE_COMPETITION_CAPACITY', snapshot.includedConcurrentCompetitions +
       (selectedQuantity('ADDITIONAL_10_CONCURRENT_COMPETITIONS') * 10));
@@ -385,7 +382,8 @@ export function createTestFixturePlanVersion(params: {
       includedProducerSeats: 5,
       includedJurisdictions: 3,
       includedVpoCapacity: 50,
-      includedEngagementCapacity: 10,
+      includedConcurrentCompetitions: 10,
+      includedMonthlyOfferSubmissions: 50,
       capacityEnforcementPolicy: 'HARD_BLOCK'
     },
     createdAt: '2026-01-01T00:00:00Z'
@@ -783,60 +781,6 @@ export function rateCommercialEvent(params: {
       };
     }
 
-    case 'VPO_ENGAGED': {
-      const engagementPrice = rates.VPO_ENGAGED_CENTS ?? snapshot.qualifiedEngagementUnitPriceCents ?? 0;
-      if (engagementPrice > 0) {
-        return {
-          disposition: 'BILLABLE', billable: true,
-          commercialEventId: event.id, providerOrganizationId: event.providerOrganizationId,
-          commercialAgreementId: agreement.id, commercialPlanVersionId: planVersion.id,
-          chargeCode: 'QUALIFIED_ENGAGEMENT_FEE', quantity: 1,
-          unitPriceCents: engagementPrice, amountCents: engagementPrice, currency: 'USD',
-          reason: 'One qualified provider engagement delivered for this policy opportunity.', ratedAt,
-          pricingSnapshot: { chargeCode: 'QUALIFIED_ENGAGEMENT_FEE', unitPriceCents: engagementPrice,
-            challengeId: event.challengeId, priceBookId: snapshot.priceBookId }
-        };
-      }
-      const overagePrice = rates.VPO_ENGAGEMENT_OVERAGE_CENTS ?? rates.ENGAGEMENT_OVERAGE_CENTS ?? 0;
-      const isOverage = event.metadata?.isOverage === true || priorUsageCount >= (snapshot.includedEngagementCapacity ?? Infinity);
-      if (isOverage && overagePrice > 0) {
-        return {
-          disposition: 'BILLABLE',
-          billable: true,
-          commercialEventId: event.id,
-          providerOrganizationId: event.providerOrganizationId,
-          commercialAgreementId: agreement.id,
-          commercialPlanVersionId: planVersion.id,
-          chargeCode: 'ENGAGEMENT_OVERAGE_FEE',
-          quantity: 1,
-          unitPriceCents: overagePrice,
-          amountCents: overagePrice,
-          currency: 'USD',
-          reason: 'Billed as opportunity engagement overage above plan capacity',
-          ratedAt,
-          pricingSnapshot: {
-            chargeCode: 'ENGAGEMENT_OVERAGE_FEE',
-            unitPriceCents: overagePrice
-          }
-        };
-      }
-      return {
-        disposition: 'INCLUDED_IN_PLAN',
-        billable: false,
-        commercialEventId: event.id,
-        providerOrganizationId: event.providerOrganizationId,
-        commercialAgreementId: agreement.id,
-        commercialPlanVersionId: planVersion.id,
-        chargeCode: 'ENGAGEMENT_INCLUDED',
-        quantity: 1,
-        unitPriceCents: 0,
-        amountCents: 0,
-        currency: 'USD',
-        reason: 'Opportunity engagement included in plan capacity',
-        ratedAt
-      };
-    }
-
     default:
       return {
         disposition: 'NOT_RATED',
@@ -947,7 +891,6 @@ export function calculateValueSummary(params: {
 
   const vposAvailable = counts['VPO_AVAILABLE'] || 0;
   const vposViewed = counts['VPO_VIEWED'] || 0;
-  const vposEngaged = counts['VPO_ENGAGED'] || 0;
   const propositionsSubmitted = counts['PROPOSITION_SUBMITTED'] || 0;
   const consumerSelections = counts['CONSUMER_SELECTED'] || 0;
   const authorizedConnections = counts['AUTHORIZED_CONNECTION'] || 0;
@@ -960,7 +903,6 @@ export function calculateValueSummary(params: {
     period: { from, to },
     vposAvailable,
     vposViewed,
-    vposEngaged,
     propositionsSubmitted,
     consumerSelections,
     authorizedConnections,
@@ -968,8 +910,8 @@ export function calculateValueSummary(params: {
     verifiedBoundOutcomes,
     baselinesActivated,
     conversionRatios: {
-      engagementRate: vposAvailable > 0 ? Math.round((vposEngaged / vposAvailable) * 1000) / 1000 : 0,
-      selectionRate: vposEngaged > 0 ? Math.round((consumerSelections / vposEngaged) * 1000) / 1000 : 0,
+      viewRate: vposAvailable > 0 ? Math.round((vposViewed / vposAvailable) * 1000) / 1000 : 0,
+      selectionRate: propositionsSubmitted > 0 ? Math.round((consumerSelections / propositionsSubmitted) * 1000) / 1000 : 0,
       authorizationRate: consumerSelections > 0 ? Math.round((authorizedConnections / consumerSelections) * 1000) / 1000 : 0,
       bindRate: authorizedConnections > 0 ? Math.round((boundAcquisitions / authorizedConnections) * 1000) / 1000 : 0,
       verificationRate: boundAcquisitions > 0 ? Math.round((verifiedBoundOutcomes / boundAcquisitions) * 1000) / 1000 : 0,

@@ -28,7 +28,6 @@ The executable accounting architecture is connected from authoritative commercia
 | $499 API integration | Admin-contracted quantity | Entitlement and recurring invoice line | Same payment ledger | Executable |
 | $199 multi-location administration | Admin-contracted quantity | Entitlement and recurring invoice line | Same payment ledger | Executable |
 | $2,500–$10,000 enterprise implementation | Admin records exact executed-agreement amount and supporting reference | Migration 0016 creates an auditable one-time service charge and exactly-once invoice line | Same payment/refund/allocation ledger | Code complete; Stripe sandbox evidence blocked |
-| $35 `VPO_ENGAGED` | Qualified participation, once per provider organization/opportunity | Immutable event → rating → billable event → invoice | Same payment/reconciliation ledger | Executable; external collection evidence blocked |
 | Line-priced `AUTHORIZED_CONNECTION` | Consumer authorization plus successful controlled disclosure | Immutable disclosure-derived event → line-specific rating → invoice | Same payment/reconciliation ledger | Compensation determination required; Medicare non-executable |
 | `BOUND_ACQUISITION` | Verified downstream acquisition evidence | Recorded, independently configurable, V1 unpriced | No V1 charge | Preserved unpriced |
 | `VERIFIED_BOUND_OUTCOME` | Verified reconciliation outcome | Recorded, independently configurable, V1 unpriced | No V1 charge | Preserved unpriced |

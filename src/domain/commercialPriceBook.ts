@@ -82,9 +82,8 @@ export const OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2 = Object.freeze({
     MULTI_LOCATION_ADMINISTRATION: 14_900
   }),
   implementationServices: OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.implementationServices,
-  qualifiedEngagementCents: 0,
   freeMarketplaceEvents: Object.freeze([
-    'VPO_AVAILABLE','VPO_VIEWED','VPO_ENGAGED','PROPOSITION_SUBMITTED','CONSUMER_SELECTED',
+    'VPO_AVAILABLE','VPO_VIEWED','PROPOSITION_SUBMITTED','CONSUMER_SELECTED',
     'BASELINE_ACTIVATED','BOUND_ACQUISITION','VERIFIED_BOUND_OUTCOME'
   ] as const),
   authorizedConnectionCentsByInsuranceLine: Object.freeze({

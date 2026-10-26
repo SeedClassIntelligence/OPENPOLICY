@@ -821,7 +821,6 @@ export class CommercialStore {
     const countsByStage: Record<string, number> = {
       VPO_AVAILABLE: 0,
       VPO_VIEWED: 0,
-      VPO_ENGAGED: 0,
       PROPOSITION_SUBMITTED: 0,
       CONSUMER_SELECTED: 0,
       AUTHORIZED_CONNECTION: 0,
@@ -897,24 +896,7 @@ export class CommercialStore {
       }
     }
 
-    // 2. Scan Participations -> VPO_ENGAGED
-    const participations = await postgresStore.getAllParticipations();
-    for (const part of participations) {
-      const challenge = await postgresStore.getChallenge(part.challengeId);
-      await projectOne({
-        eventType: 'VPO_ENGAGED',
-        sourceEntityType: 'CHALLENGE_PARTICIPATION',
-        sourceEntityId: part.id,
-        providerOrganizationId: part.providerOrganizationId,
-        challengeId: part.challengeId,
-        competitionId: part.competitionId,
-        occurredAt: part.acceptedAt,
-        metadata: { insuranceLine: challenge?.insuranceLine || challenge?.baseline.insuranceLine || 'PERSONAL_AUTO' },
-        idempotencyKey: `evt:VPO_ENGAGED:${part.providerOrganizationId}:${part.challengeId}`
-      });
-    }
-
-    // 3. Scan OfferVersions -> PROPOSITION_SUBMITTED
+    // 2. Scan OfferVersions -> PROPOSITION_SUBMITTED
     const offers = await postgresStore.getOffers();
     const offersById = new Map(offers.map(offer => [offer.id, offer]));
     const offerVersions = (await Promise.all(offers.map(offer => postgresStore.getOfferVersions(offer.id)))).flat();
@@ -1758,8 +1740,6 @@ export class CommercialStore {
       priorUsageCount = prior.filter(b =>
         b.chargeCode === 'AUTHORIZED_CONNECTION_UNIT' || b.chargeCode === 'AUTHORIZED_CONNECTION_INCLUDED'
       ).length;
-    } else if (event.eventType === 'VPO_ENGAGED') {
-      priorUsageCount = await this.getUsageCount(event.providerOrganizationId, 'ENGAGEMENT_CAPACITY', agreement.id);
     }
 
     // 6. Execute Pure Domain Rating
@@ -2421,7 +2401,7 @@ export class CommercialStore {
       customTerms?.authorizedConnectionUnitPriceCents, ...Object.values(lineConnectionPrices)]
       .some(value => typeof value === 'number' && value > 0);
     const financialTerms = customTerms && [
-      'rates', 'recurringFeeCents', 'qualifiedEngagementUnitPriceCents',
+      'rates', 'recurringFeeCents',
       'authorizedConnectionCentsByInsuranceLine', 'recurringAddOns', 'selectedRecurringAddOns', 'implementationServices'
     ].some(key => key in customTerms);
     if (customTerms && actorRole !== 'ADMIN' && (pricedOutcomeTerms || financialTerms)) {
@@ -2461,7 +2441,8 @@ export class CommercialStore {
         includedProducerSeats: 1,
         includedJurisdictions: 1,
         includedVpoCapacity: 10,
-        includedEngagementCapacity: 10,
+        includedConcurrentCompetitions: 10,
+        includedMonthlyOfferSubmissions: 50,
         ...(latest?.termsSnapshot || {}),
         ...customTerms,
         capacityEnforcementPolicy: enforcementPolicy || customTerms.capacityEnforcementPolicy ||
@@ -2650,7 +2631,7 @@ export class CommercialStore {
       await this.saveCommercialPlan({
         id: 'plan_network', code: 'PLAN_NETWORK', displayName: 'Network',
         providerSegment: 'NETWORK', status: 'ACTIVE',
-        createdAt: OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.effectiveFrom
+        createdAt: OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.effectiveFrom
       });
     }
 
@@ -2662,10 +2643,11 @@ export class CommercialStore {
         displayName: 'Open Policy Premium',
         providerSegment: 'AGENCY',
         status: 'ACTIVE',
-        createdAt: OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.effectiveFrom
+        createdAt: OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.effectiveFrom
       };
       await this.saveCommercialPlan(premiumPlan);
     }
+    // Historical V1 agreement anchor only. New enrollment catalogs expose V2.
     const premiumVersionId = 'cpv_open_policy_premium_v1';
     if (!(await this.getCommercialPlanVersion(premiumVersionId))) {
       await this.saveCommercialPlanVersion({
@@ -2689,11 +2671,7 @@ export class CommercialStore {
           authorizedConnectionMinimumCents: OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.authorizedConnectionMinimumCents,
           authorizedConnectionMaximumCents: OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.authorizedConnectionMaximumCents,
           unavailableInsuranceLines: [...OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.unavailableInsuranceLines],
-          rates: {
-            VPO_ENGAGED_CENTS: OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.qualifiedEngagementCents
-          },
-          // Price publication is not a legal compensation determination. An authorized
-          // administrator must create a later contracted version with an approved reference.
+          rates: { VPO_ENGAGED_CENTS: OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.qualifiedEngagementCents },
           compensationDeterminationApproved: false,
           unpricedOutcomeEvents: [...OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.unpricedOutcomeEvents],
           capacityEnforcementPolicy: 'ALLOW_OVERAGE'
@@ -2701,7 +2679,6 @@ export class CommercialStore {
         createdAt: OPEN_POLICY_PREMIUM_PRICE_BOOK_V1.effectiveFrom
       });
     }
-
     // V2 is the founder-approved initial-launch catalog. V1 remains immutable
     // development history and is not rewritten or deleted.
     for (const [tier, definition] of Object.entries(OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.memberships)) {
@@ -2727,11 +2704,9 @@ export class CommercialStore {
           recurringAddOns: { ...OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.recurringAddOns },
           selectedRecurringAddOns: {},
           implementationServices: { ...OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.implementationServices },
-          qualifiedEngagementUnitPriceCents: 0,
           freeMarketplaceEvents: [...OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.freeMarketplaceEvents],
           authorizedConnectionCentsByInsuranceLine: { ...OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.authorizedConnectionCentsByInsuranceLine },
           unavailableInsuranceLines: [...OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.unavailableInsuranceLines],
-          rates: { VPO_ENGAGED_CENTS: 0 },
           compensationDeterminationApproved: false,
           unpricedOutcomeEvents: [...OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.unpricedOutcomeEvents],
           capacityEnforcementPolicy: 'HARD_BLOCK'
@@ -2763,7 +2738,6 @@ export class CommercialStore {
           includedProducerSeats: 1,
           includedJurisdictions: 1,
           includedVpoCapacity: 50,
-          includedEngagementCapacity: 10,
           includedConcurrentCompetitions: 10,
           includedMonthlyOfferSubmissions: 50,
           capacityEnforcementPolicy: 'HARD_BLOCK'
@@ -2786,7 +2760,6 @@ export class CommercialStore {
           includedProducerSeats: 5,
           includedJurisdictions: 3,
           includedVpoCapacity: 200,
-          includedEngagementCapacity: 100,
           includedConcurrentCompetitions: 100,
           includedMonthlyOfferSubmissions: 200,
           capacityEnforcementPolicy: 'HARD_BLOCK'
@@ -3068,7 +3041,7 @@ export class CommercialStore {
       client.query<any>(`SELECT e.event_type,COUNT(*)::int AS event_count,COALESCE(SUM(b.amount_cents),0)::bigint AS rated_cents
         FROM commercial_events e
         LEFT JOIN billable_events b ON b.commercial_event_id=e.id
-        WHERE e.event_type <> 'VPO_ENGAGED'
+        WHERE e.event_type IN ('VPO_AVAILABLE','VPO_VIEWED','PROPOSITION_SUBMITTED','CONSUMER_SELECTED','AUTHORIZED_CONNECTION','BOUND_ACQUISITION','VERIFIED_BOUND_OUTCOME','BASELINE_ACTIVATED')
         GROUP BY e.event_type ORDER BY e.event_type;`),
       client.query<any>(`SELECT i.id,i.invoice_number,i.provider_organization_id,o.display_name,i.status,i.total_due_cents,i.balance_due_cents,i.created_at FROM invoices i LEFT JOIN provider_organizations o ON o.id=i.provider_organization_id ORDER BY i.created_at DESC LIMIT 25;`),
       client.query<any>(`SELECT p.id,p.provider_organization_id,o.display_name,p.invoice_id,p.amount_cents,p.status,p.payment_method,p.created_at,p.settled_at FROM payment_records p LEFT JOIN provider_organizations o ON o.id=p.provider_organization_id ORDER BY p.created_at DESC LIMIT 25;`),

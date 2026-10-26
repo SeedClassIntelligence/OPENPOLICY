@@ -292,7 +292,7 @@ Post-issuance reconciliation may create the consumer's first `VERIFIED_EXISTING_
 Required invariants:
 
 - no new billable event;
-- `VPO_AVAILABLE`, `VPO_VIEWED`, `VPO_ENGAGED`, `PROPOSITION_SUBMITTED`, and `CONSUMER_SELECTED` remain non-billable under V2;
+- `VPO_AVAILABLE`, `VPO_VIEWED`, `PROPOSITION_SUBMITTED`, and `CONSUMER_SELECTED` remain non-billable under V2;
 - only a qualifying `AUTHORIZED_CONNECTION` can carry the line-specific connection charge;
 - one charge per completed authorized handoff under the existing idempotency key;
 - unselected providers receive no connection charge;

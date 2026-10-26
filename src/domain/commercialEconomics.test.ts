@@ -136,18 +136,17 @@ export function runCommercialEconomicsTestSuite(): {
       termsSnapshot: {
         compensationDeterminationApproved: true,
         determinationReference: 'TEST-DETERMINATION',
-        includedVpoCapacity: 50,
-        includedEngagementCapacity: 20
+        includedConcurrentCompetitions: 20
       }
     });
 
     const entitlements = deriveEntitlementsFromPlanVersion({ agreement, planVersion });
-    assert(entitlements.length === 2, 'Two entitlements derived from terms snapshot');
+    assert(entitlements.length === 1, 'One capacity entitlement derived from terms snapshot');
 
     // Check capacity: below limit
     const check1 = checkEntitlementCapacity({
       entitlements,
-      entitlementType: 'VPO_ENGAGEMENT_CAPACITY',
+      entitlementType: 'ACTIVE_COMPETITION_CAPACITY',
       currentUsage: 15
     });
     assert(check1.allowed === true, 'Under limit is allowed');
@@ -155,7 +154,7 @@ export function runCommercialEconomicsTestSuite(): {
     // Check capacity: at limit
     const check2 = checkEntitlementCapacity({
       entitlements,
-      entitlementType: 'VPO_ENGAGEMENT_CAPACITY',
+      entitlementType: 'ACTIVE_COMPETITION_CAPACITY',
       currentUsage: 20
     });
     assert(check2.allowed === false, 'At limit is disallowed');
@@ -279,7 +278,6 @@ export function runCommercialEconomicsTestSuite(): {
       counts: {
         VPO_AVAILABLE: 100,
         VPO_VIEWED: 80,
-        VPO_ENGAGED: 50,
         PROPOSITION_SUBMITTED: 40,
         CONSUMER_SELECTED: 20,
         AUTHORIZED_CONNECTION: 16,
@@ -291,15 +289,14 @@ export function runCommercialEconomicsTestSuite(): {
 
     assert(summary.vposAvailable === 100, 'VPOs available count correct');
     assert(summary.vposViewed === 80, 'VPOs viewed count correct');
-    assert(summary.vposEngaged === 50, 'VPOs engaged count correct');
     assert(summary.propositionsSubmitted === 40, 'Propositions submitted count correct');
     assert(summary.consumerSelections === 20, 'Consumer selections count correct');
     assert(summary.authorizedConnections === 16, 'Authorized connections count correct');
     assert(summary.boundAcquisitions === 12, 'Bound acquisitions count correct');
     assert(summary.verifiedBoundOutcomes === 10, 'Verified bound outcomes count correct');
     assert(summary.baselinesActivated === 8, 'Baselines activated count correct');
-    assert(summary.conversionRatios.engagementRate === 0.5, 'Engagement rate is 50/100 = 0.5');
-    assert(summary.conversionRatios.selectionRate === 0.4, 'Selection rate is 20/50 = 0.4');
+    assert(summary.conversionRatios.viewRate === 0.8, 'View rate is 80/100 = 0.8');
+    assert(summary.conversionRatios.selectionRate === 0.5, 'Selection rate is 20/40 = 0.5');
     assert(summary.conversionRatios.authorizationRate === 0.8, 'Authorization rate is 16/20 = 0.8');
     assert(summary.conversionRatios.bindRate === 0.75, 'Bind rate is 12/16 = 0.75');
     assert(summary.conversionRatios.verificationRate === 0.833, 'Verification rate is 10/12 = 0.833');
@@ -482,7 +479,7 @@ export function runCommercialEconomicsTestSuite(): {
       id: 'ent_test_1',
       providerOrganizationId: 'org_apex',
       commercialAgreementId: 'cag_test_1',
-      entitlementType: 'VPO_ENGAGEMENT_CAPACITY' as const,
+      entitlementType: 'ACTIVE_COMPETITION_CAPACITY' as const,
       limit: 10,
       effectiveFrom: '2026-01-01T00:00:00Z',
       createdAt: '2026-01-01T00:00:00Z'
@@ -491,7 +488,7 @@ export function runCommercialEconomicsTestSuite(): {
     // HARD_BLOCK: Under limit -> allowed
     const hbUnder = checkEntitlementCapacity({
       entitlements: [{ ...baseEntitlement, enforcementPolicy: 'HARD_BLOCK' }],
-      entitlementType: 'VPO_ENGAGEMENT_CAPACITY',
+      entitlementType: 'ACTIVE_COMPETITION_CAPACITY',
       currentUsage: 9
     });
     assert(hbUnder.allowed === true, 'HARD_BLOCK under limit allows participation');
@@ -501,7 +498,7 @@ export function runCommercialEconomicsTestSuite(): {
     // HARD_BLOCK: At limit -> blocked
     const hbAtLimit = checkEntitlementCapacity({
       entitlements: [{ ...baseEntitlement, enforcementPolicy: 'HARD_BLOCK' }],
-      entitlementType: 'VPO_ENGAGEMENT_CAPACITY',
+      entitlementType: 'ACTIVE_COMPETITION_CAPACITY',
       currentUsage: 10
     });
     assert(hbAtLimit.allowed === false, 'HARD_BLOCK at limit denies participation');
@@ -510,7 +507,7 @@ export function runCommercialEconomicsTestSuite(): {
     // ALLOW_OVERAGE: At limit -> allowed with overage flag
     const overage = checkEntitlementCapacity({
       entitlements: [{ ...baseEntitlement, enforcementPolicy: 'ALLOW_OVERAGE' }],
-      entitlementType: 'VPO_ENGAGEMENT_CAPACITY',
+      entitlementType: 'ACTIVE_COMPETITION_CAPACITY',
       currentUsage: 10
     });
     assert(overage.allowed === true, 'ALLOW_OVERAGE permits participation');
@@ -520,7 +517,7 @@ export function runCommercialEconomicsTestSuite(): {
     // NOTIFY_ONLY: At limit -> allowed with notify code
     const notifyOnly = checkEntitlementCapacity({
       entitlements: [{ ...baseEntitlement, enforcementPolicy: 'NOTIFY_ONLY' }],
-      entitlementType: 'VPO_ENGAGEMENT_CAPACITY',
+      entitlementType: 'ACTIVE_COMPETITION_CAPACITY',
       currentUsage: 10
     });
     assert(notifyOnly.allowed === true, 'NOTIFY_ONLY permits participation');
@@ -536,7 +533,7 @@ export function runCommercialEconomicsTestSuite(): {
       id: 'ent_test_2',
       providerOrganizationId: 'org_apex',
       commercialAgreementId: 'cag_test_2',
-      entitlementType: 'VPO_ENGAGEMENT_CAPACITY' as const,
+      entitlementType: 'ACTIVE_COMPETITION_CAPACITY' as const,
       limit: 100,
       enforcementPolicy: 'ALLOW_OVERAGE' as const,
       effectiveFrom: '2026-01-01T00:00:00Z',
@@ -545,7 +542,7 @@ export function runCommercialEconomicsTestSuite(): {
 
     const suspendedCheck = checkEntitlementCapacity({
       entitlements: [entitlement],
-      entitlementType: 'VPO_ENGAGEMENT_CAPACITY',
+      entitlementType: 'ACTIVE_COMPETITION_CAPACITY',
       currentUsage: 0,
       agreementStatus: 'SUSPENDED'
     });
@@ -554,7 +551,7 @@ export function runCommercialEconomicsTestSuite(): {
 
     const terminatedCheck = checkEntitlementCapacity({
       entitlements: [entitlement],
-      entitlementType: 'VPO_ENGAGEMENT_CAPACITY',
+      entitlementType: 'ACTIVE_COMPETITION_CAPACITY',
       currentUsage: 0,
       agreementStatus: 'TERMINATED'
     });
@@ -572,15 +569,14 @@ export function runCommercialEconomicsTestSuite(): {
       termsSnapshot: {
         compensationDeterminationApproved: true,
         determinationReference: 'TEST-DETERMINATION',
-        includedVpoCapacity: 75,
-        includedEngagementCapacity: 15,
+        includedConcurrentCompetitions: 15,
         capacityEnforcementPolicy: 'HARD_BLOCK'
       }
     });
 
     assert(fixture.id.startsWith('fixture_cpv_'), 'Explicitly identifies as test fixture');
     assert(fixture.recurringFeeCents === 0, 'Does not declare invented production pricing');
-    assert(fixture.termsSnapshot.includedEngagementCapacity === 15, 'Configurable capacity preserved');
+    assert(fixture.termsSnapshot.includedConcurrentCompetitions === 15, 'Configurable capacity preserved');
   });
 
   // -------------------------------------------------------------------------

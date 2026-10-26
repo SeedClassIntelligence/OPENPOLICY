@@ -85,7 +85,7 @@ test('platform financial overview is rebuilt from canonical ledgers without dash
   }finally{await store.close();fs.rmSync(dataDir,{recursive:true,force:true});}
 });
 
-test('Commercial V2 financial overview excludes historical engagement events',async()=>{
+test('Commercial V2 financial overview allowlists only current marketplace events',async()=>{
   const dataDir=fs.mkdtempSync(path.join(os.tmpdir(),'openpolicy-owner-financials-v2-'));
   const store=new PostgresStore(dataDir);const commercial=new CommercialStore(store);
   try{
@@ -96,7 +96,7 @@ test('Commercial V2 financial overview excludes historical engagement events',as
       VALUES ($1,$2,$2,'AGENCY','VERIFIED','ACTIVE',$3,$4,$5);`,
       ['org-v2-overview','V2 Overview Agency',JSON.stringify(['NV']),JSON.stringify(['PERSONAL_AUTO']),new Date().toISOString()]);
     const occurredAt=new Date().toISOString();
-    for(const [id,eventType] of [['evt-legacy-engagement','VPO_ENGAGED'],['evt-v2-connection','AUTHORIZED_CONNECTION']]){
+    for(const [id,eventType] of [['evt-archived','ARCHIVED_V1_EVENT'],['evt-v2-connection','AUTHORIZED_CONNECTION']]){
       await client.query(`INSERT INTO commercial_events
         (id,provider_organization_id,event_type,source_entity_type,source_entity_id,occurred_at,metadata,idempotency_key,event_hash)
         VALUES ($1,$2,$3,'ACCEPTANCE','source-v2-overview',$4,'{}',$5,$6);`,

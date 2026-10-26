@@ -429,7 +429,6 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
         method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
           priceBookId:priceForm.priceBookId,effectiveFrom:`${priceForm.effectiveFrom}T00:00:00.000Z`,
           recurringFeeCents:Math.round(priceForm.recurringFeeDollars*100),
-          qualifiedEngagementUnitPriceCents:0,
           authorizedConnectionCentsByInsuranceLine:plan.latestVersion.termsSnapshot.authorizedConnectionCentsByInsuranceLine||{}
         })
       });
@@ -714,7 +713,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
               <input value={priceForm.priceBookId} onChange={e=>setPriceForm({...priceForm,priceBookId:e.target.value})} placeholder="Price book ID" className="rounded-lg border px-3 py-2 text-xs" />
               <input type="date" value={priceForm.effectiveFrom} onChange={e=>setPriceForm({...priceForm,effectiveFrom:e.target.value})} className="rounded-lg border px-3 py-2 text-xs" />
               <label className="text-[11px] text-slate-600">Membership USD<input type="number" min={0} value={priceForm.recurringFeeDollars} onChange={e=>setPriceForm({...priceForm,recurringFeeDollars:Number(e.target.value)})} className="mt-1 w-full rounded-lg border px-3 py-2 text-xs" /></label>
-              <div className="rounded-lg border bg-slate-50 px-3 py-2 text-[11px] text-slate-600"><span className="block">Engagement event</span><strong className="text-slate-950">$0 · fixed by V2</strong></div>
+              <div className="rounded-lg border bg-slate-50 px-3 py-2 text-[11px] text-slate-600"><span className="block">Marketplace transaction</span><strong className="text-slate-950">Authorized connection only</strong></div>
             </div>
             <button onClick={publishFuturePriceVersion} disabled={financialBusy||!priceForm.priceBookId||!priceForm.effectiveFrom} className="w-full rounded-lg bg-slate-950 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">Publish immutable future version</button>
             <p className="text-[10px] text-slate-500">Selected plan: {selectedCommercialPlan} · Compensation activation is never inferred from a price change.</p>

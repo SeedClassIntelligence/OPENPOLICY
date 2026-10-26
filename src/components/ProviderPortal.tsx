@@ -2493,49 +2493,42 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                 <span className="text-[10px] text-slate-500">Viewed</span>
               </div>
               <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-center">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">3. Engaged</span>
-                <strong className="text-lg font-bold text-blue-700 block mt-1">
-                  {valueSummary?.vposEngaged ?? 0}
-                </strong>
-                <span className="text-[10px] text-slate-500">Accepted</span>
-              </div>
-              <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-center">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">4. Submitted</span>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">3. Submitted</span>
                 <strong className="text-lg font-bold text-purple-700 block mt-1">
                   {valueSummary?.propositionsSubmitted ?? 0}
                 </strong>
                 <span className="text-[10px] text-slate-500">Propositions</span>
               </div>
               <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-center">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">5. Selected</span>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">4. Selected</span>
                 <strong className="text-lg font-bold text-amber-700 block mt-1">
                   {valueSummary?.consumerSelections ?? 0}
                 </strong>
                 <span className="text-[10px] text-slate-500">By Consumer</span>
               </div>
               <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-center">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">6. Authorized</span>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">5. Authorized</span>
                 <strong className="text-lg font-bold text-emerald-700 block mt-1">
                   {valueSummary?.authorizedConnections ?? 0}
                 </strong>
                 <span className="text-[10px] text-slate-500">Connections (PM-4)</span>
               </div>
               <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-center">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">7. Bound</span>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">6. Bound</span>
                 <strong className="text-lg font-bold text-cyan-700 block mt-1">
                   {valueSummary?.boundAcquisitions ?? 0}
                 </strong>
                 <span className="text-[10px] text-slate-500">Acquisitions</span>
               </div>
               <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-center">
-                <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider block">8. Verified</span>
+                <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider block">7. Verified</span>
                 <strong className="text-lg font-bold text-emerald-800 block mt-1">
                   {valueSummary?.verifiedBoundOutcomes ?? 0}
                 </strong>
                 <span className="text-[10px] text-emerald-600">Reconciled (PM-5)</span>
               </div>
               <div className="bg-emerald-50 p-3 rounded-xl border border-emerald-200 text-center">
-                <span className="text-[10px] font-bold text-teal-700 uppercase tracking-wider block">9. Baseline</span>
+                <span className="text-[10px] font-bold text-teal-700 uppercase tracking-wider block">8. Baseline</span>
                 <strong className="text-lg font-bold text-teal-900 block mt-1">
                   {valueSummary?.baselinesActivated ?? 0}
                 </strong>
@@ -2546,9 +2539,9 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
             {/* Governed Conversion Ratios */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 pt-2 border-t border-slate-100 text-xs">
               <div className="p-2 bg-slate-50 rounded-lg">
-                <span className="text-[10px] text-slate-500 block">Engagement Rate</span>
+                <span className="text-[10px] text-slate-500 block">View Rate</span>
                 <span className="font-semibold text-slate-800">
-                  {((valueSummary?.conversionRatios?.engagementRate ?? 0) * 100).toFixed(1)}%
+                  {((valueSummary?.conversionRatios?.viewRate ?? 0) * 100).toFixed(1)}%
                 </span>
               </div>
               <div className="p-2 bg-slate-50 rounded-lg">

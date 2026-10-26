@@ -1415,13 +1415,11 @@ export interface CommercialPlanTermsSnapshot {
   includedProducerSeats?: number;
   includedJurisdictions?: number;
   includedVpoCapacity?: number;
-  includedEngagementCapacity?: number;
   includedConcurrentCompetitions?: number;
   includedMonthlyOfferSubmissions?: number;
   includedAuthorizedConnections?: number;
   authorizedConnectionUnitPriceCents?: number;
   boundAcquisitionUnitPriceCents?: number;
-  qualifiedEngagementUnitPriceCents?: number;
   authorizedConnectionCentsByInsuranceLine?: Record<string, number>;
   recurringAddOns?: Record<string, number>;
   selectedRecurringAddOns?: Record<string, number>;
@@ -1469,7 +1467,6 @@ export type EntitlementType =
   | 'PROVIDER_SEATS'
   | 'JURISDICTION_CAPACITY'
   | 'VPO_VIEW_CAPACITY'
-  | 'VPO_ENGAGEMENT_CAPACITY'
   | 'ACTIVE_COMPETITION_CAPACITY'
   | 'MONTHLY_OFFER_SUBMISSION_CAPACITY'
   | 'API_ACCESS'
@@ -1493,7 +1490,6 @@ export interface ProviderEntitlement {
 }
 
 export type CommercialUsageType =
-  | 'VPO_ENGAGEMENT'
   | 'VPO_VIEW'
   | 'PRODUCER_SEAT'
   | 'JURISDICTION'
@@ -1532,7 +1528,6 @@ export interface CommercialCapacityResult {
 export type CommercialEventType =
   | 'VPO_AVAILABLE'
   | 'VPO_VIEWED'
-  | 'VPO_ENGAGED'
   | 'PROPOSITION_SUBMITTED'
   | 'CONSUMER_SELECTED'
   | 'AUTHORIZED_CONNECTION'
@@ -1644,7 +1639,6 @@ export interface CommercialValueSummary {
   };
   vposAvailable: number;
   vposViewed: number;
-  vposEngaged: number;
   propositionsSubmitted: number;
   consumerSelections: number;
   authorizedConnections: number;
@@ -1652,8 +1646,8 @@ export interface CommercialValueSummary {
   verifiedBoundOutcomes: number;
   baselinesActivated: number;
   conversionRatios: {
-    engagementRate: number; // vposEngaged / vposAvailable
-    selectionRate: number; // consumerSelections / vposEngaged
+    viewRate: number; // vposViewed / vposAvailable
+    selectionRate: number; // consumerSelections / propositionsSubmitted
     authorizationRate: number; // authorizedConnections / consumerSelections
     bindRate: number; // boundAcquisitions / authorizedConnections
     verificationRate: number; // verifiedBoundOutcomes / boundAcquisitions

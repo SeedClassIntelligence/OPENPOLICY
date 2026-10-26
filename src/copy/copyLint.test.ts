@@ -200,7 +200,7 @@ test('provider landing page preserves access, neutrality, and transaction bounda
     assert.match(providerLanding, new RegExp(price.replace('$', '\\$')));
   }
   assert.match(providerLanding, /Opportunity availability, viewing, offer submission, consumer review, consumer selection by itself, and standby status carry no separate event charge/);
-  assert.doesNotMatch(providerLanding, /\$35|Qualified engagement/);
+  assert.match(providerLanding, /Authorized Connection Fees/);
   assert.doesNotMatch(providerLanding, /\bbid(?:ding|s)?\b|\bauction(?:ed|ing|s)?\b|\brank(?:ed|ing|s)?\b/i);
 });
 

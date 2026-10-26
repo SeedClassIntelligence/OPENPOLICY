@@ -6,7 +6,7 @@
  * 1. Canonical Value Funnel Lifecycle (14 tests):
  *    - Persisted Invitation Creation -> exactly 1 VPO_AVAILABLE
  *    - Invitation View -> exactly 1 VPO_VIEWED
- *    - Invitation Acceptance -> exactly 1 VPO_ENGAGED (and 1 CommercialUsageRecord via CE-2)
+ *    - Invitation Acceptance -> participation plus 1 CommercialUsageRecord via CE-2
  *    - Initial Proposition Submission -> exactly 1 PROPOSITION_SUBMITTED
  *    - Improvement Round Revision -> exactly 1 PROPOSITION_SUBMITTED
  *    - Consumer Selection -> exactly 1 CONSUMER_SELECTED
@@ -164,9 +164,7 @@ export async function runCE3ValidationSuite() {
         providerOrganizationId: testOrgId,
         planCode: 'PLAN_AGENCY',
         enforcementPolicy: 'ALLOW_OVERAGE',
-        customTerms: {
-          includedEngagementCapacity: 100
-        }
+        customTerms: { includedConcurrentCompetitions: 100 }
       },
       { 'x-openpolicy-fixture-role': 'ADMIN' }
     );
@@ -215,8 +213,8 @@ export async function runCE3ValidationSuite() {
     assert(!!apexViewed, 'VPO_VIEWED event recorded in commercial ledger');
     assert(apexViewed?.idempotencyKey === `evt:VPO_VIEWED:${invId}`, 'VPO_VIEWED idempotency key formatted canonical');
 
-    // 1.3 Invitation Acceptance -> VPO_ENGAGED
-    console.log('\n[1.3] Testing VPO_ENGAGED on invitation acceptance...');
+    // 1.3 Invitation Acceptance -> participation and contractual usage only
+    console.log('\n[1.3] Testing invitation acceptance and competition capacity...');
     assert(!!agreement, 'Active commercial agreement present for capacity check');
 
     const acceptRes = await request(
@@ -231,16 +229,7 @@ export async function runCE3ValidationSuite() {
     }
     assert(acceptRes.status === 200, 'Invitation accept succeeded');
 
-    const engagedEvents = await commercialStore.getCommercialEvents({
-      providerOrganizationId: testOrgId,
-      eventType: 'VPO_ENGAGED'
-    });
-    const apexEngaged = engagedEvents.find(e => e.challengeId === createdChal.id);
-    assert(!!apexEngaged, 'VPO_ENGAGED event recorded in commercial ledger');
-    assert(apexEngaged?.sourceEntityType === 'CHALLENGE_PARTICIPATION', 'Source entity is CHALLENGE_PARTICIPATION');
-    assert(apexEngaged?.sourceEntityId === acceptRes.body.participation.id, 'Source entity ID matches participation ID');
-
-    // Verify CE-2 usage record also exists without confusing it with CommercialEvent
+    assert(!!acceptRes.body.participation?.id, 'Participation record created');
     const usage = await commercialStore.getUsageForInvitation(invId!);
     assert(!!usage, 'CE-2 CommercialUsageRecord created separately from CommercialEvent');
     assert(usage?.usageType === 'ACTIVE_COMPETITION', 'Usage record tracks contractual concurrent-competition capacity');
