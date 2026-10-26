@@ -74,6 +74,35 @@ $ 1,000,000 CSL
   assert.equal(values['coverage.commercialAuto.combinedSingleLimit'],1000000);
 });
 
+test('accepts Document AI reading order from a Nevada business-auto declaration', () => {
+  const result = normalizeCommercialAutoPolicyFields({documentId:'DOC-NV-CA-OCR',insuranceLine:'COMMERCIAL_AUTO',ocr:ocr(`
+POLICY NUMBER: PHPK2058710
+Company Name: Philadelphia Indemnity Insurance Company
+Named Insured And Mailing Address:
+Western Folklife Center
+501 Railroad St
+Elko, NV 89801-3752
+Policy Period
+At 12:01 AM Standard Time at your mailing address shown above
+From: 12/31/2019
+To: 12/31/2020
+Premium Shown Is Payable At Inception: $
+Audit Period (if applicable):
+600.00
+Schedule Of Coverages And Covered Autos
+Covered Autos
+08,09
+Limit
+$ 1,000,000
+CSL
+Liability
+`)});
+  const values = Object.fromEntries(result.fields.map(field => [field.fieldPath,field.value]));
+  assert.equal(result.status,'READY_FOR_CONSUMER');
+  assert.equal(values.annualPremium,600);
+  assert.equal(values['coverage.commercialAuto.combinedSingleLimit'],1000000);
+});
+
 test('commercial auto accepts complete split liability limits', () => {
   const result = normalizeCommercialAutoPolicyFields({documentId:'DOC-CA-SPLIT',insuranceLine:'COMMERCIAL_AUTO',ocr:ocr(`${common}
 Bodily Injury Per Person: $100,000

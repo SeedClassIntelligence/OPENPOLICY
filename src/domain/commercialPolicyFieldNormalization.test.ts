@@ -78,6 +78,49 @@ Loc Classification Code No. Premium Basis
   assert.equal(values['coverage.cgl.generalAggregate'],2000000);
 });
 
+test('maps Document AI column reading order for Nevada CGL declarations', () => {
+  const result = normalizeCommercialPolicyFields({documentId:'D-NV-CGL-OCR',insuranceLine:'COMMERCIAL_GENERAL_LIABILITY',ocr:ocr(`
+United States Liability Insurance Company
+POLICY DECLARATIONS
+No. CL 1817311G
+NAMED INSURED AND ADDRESS:
+LING LTD
+933 GEAR ST
+RENO, NV 89503
+POLICY PERIOD: From: 06/30/2024 To: 06/30/2025
+BUSINESS DESCRIPTION: Office
+TOTAL:
+$100.00
+$600.00
+COMMERCIAL GENERAL LIABILITY COVERAGE PART DECLARATIONS
+Each Occurrence Limit
+Personal & Advertising Injury Limit (Any One Person/Organization)
+Medical Expense (Any One Person)
+Damages To Premises Rented To You (Any One Premises)
+Products/Completed Operations Aggregate Limit
+General Aggregate Limit
+LIABILITY DEDUCTIBLE
+LOCATIONS OF ALL PREMISES YOU OWN, RENT OR OCCUPY
+Location
+1
+Address
+933 Gear St, Reno, NV 89503
+$1,000,000
+Excluded
+$5,000
+$100,000
+Included
+$2,000,000
+Business Classification: Office
+`)});
+  const values = Object.fromEntries(result.fields.map(field => [field.fieldPath,field.value]));
+  assert.equal(result.status,'READY_FOR_CONSUMER');
+  assert.equal(values.policyNumber,'CL 1817311G');
+  assert.equal(values.annualPremium,600);
+  assert.equal(values['coverage.cgl.eachOccurrence'],1000000);
+  assert.equal(values['coverage.cgl.generalAggregate'],2000000);
+});
+
 test('extracts Nevada-issued BOP identity, property, income and liability declarations', () => {
   const result = normalizeCommercialPolicyFields({documentId:'D-NV-BOP',insuranceLine:'BUSINESS_OWNERS_POLICY',ocr:ocr(`
 State Farm Fire and Casualty Company
