@@ -149,6 +149,85 @@ General Aggregate Limit: $2,000,000
   assert.equal(values['coverage.property.deductible'],1000);
 });
 
+test('maps State Farm Nevada BOP Document AI column reading order without inventing fields', () => {
+  const pages = [
+    `STATE FARM FIRE AND CASUALTY COMPANY
+DECLARATIONS
+Named Insured
+Policy Number
+Policy Porlod
+M-24-2315-FA56 F N
+12 Months
+CARLIN HISTORICAL SOCIETY
+PO BOX 1134
+CARLIN NV 89822-1134
+98-88-4641-9
+Effective Date
+APR 13 2019
+Expiration Date
+APR 13 2020
+Businessowners Policy
+Entity: NONPROFIT
+POLICY PREMIUM
+Minimum Premium
+Discounts Applied:
+Protective Devices
+575.00
+Prepared`,
+    `SECTIONI-PROPERTY SCHEDULE
+Location of
+Described
+Premises
+001
+718 CEDAR ST
+CARLIN NV 89822
+Coverage A -
+Buildings
+Coverage B-
+Business Personal
+Property
+No Coverage
+$ 20,000
+25%
+SECTION-DEDUCTIBLES
+Basic Deductible
+Special Deductibles:
+Money and Securities
+$1,000
+N/A`,
+    `Loss Of Income And Extra Expense
+SECTION - LIABILITY
+COVERAGE
+Coverage L - Business Llability
+LIMIT OF
+INSURANCE
+Actual Loss Sustained - 12 Months
+Prepared
+$1,000,000`,
+    `AGGREGATE LIMITS
+Products/Completed Operations Aggregate
+General Aggregate
+$2,000,000
+$2,000,000`
+  ].map((text,index) => ({pageNumber:index+1,text,regions:[{textStart:0,textEnd:text.length,confidence:.99,normalizedVertices:[]}]}));
+  const result = normalizeCommercialPolicyFields({documentId:'D-NV-BOP-OCR',insuranceLine:'BUSINESS_OWNERS_POLICY',ocr:{...ocr(''),pages}});
+  const values = Object.fromEntries(result.fields.map(field => [field.fieldPath,field.value]));
+  assert.equal(result.status,'READY_FOR_CONSUMER');
+  assert.equal(values.policyNumber,'98-88-4641-9');
+  assert.equal(values.namedInsured,'CARLIN HISTORICAL SOCIETY');
+  assert.equal(values.jurisdiction,'NV');
+  assert.equal(values.effectiveDate,'2019-04-13');
+  assert.equal(values.expirationDate,'2020-04-13');
+  assert.equal(values.annualPremium,575);
+  assert.equal(values['business.location'],'718 CEDAR ST, CARLIN NV 89822');
+  assert.equal(values['business.classification'],'NONPROFIT');
+  assert.equal(values['coverage.businessProperty.limit'],20000);
+  assert.equal(values['coverage.businessIncome.included'],1);
+  assert.equal(values['coverage.cgl.eachOccurrence'],1000000);
+  assert.equal(values['coverage.cgl.generalAggregate'],2000000);
+  assert.equal(values['coverage.property.deductible'],1000);
+});
+
 test('extracts BOP property and liability facts from explicit source statements', () => {
   const result = normalizeCommercialPolicyFields({
     documentId: 'D-BOP',

@@ -23,9 +23,13 @@ const money = (value: string) => {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
 };
 const date = (value: string) => {
-  const match = value.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
-  if (!match) return undefined;
-  const candidate = `${match[3]}-${match[1].padStart(2, '0')}-${match[2].padStart(2, '0')}`;
+  const numeric = value.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  const named = value.toUpperCase().match(/^(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s+(\d{1,2})\s+(\d{4})$/);
+  const month = named ? String(['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'].indexOf(named[1]) + 1) : numeric?.[1];
+  const day = named?.[2] || numeric?.[2];
+  const year = named?.[3] || numeric?.[3];
+  if (!month || !day || !year) return undefined;
+  const candidate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
   return Number.isNaN(new Date(`${candidate}T00:00:00Z`).getTime()) ? undefined : candidate;
 };
 const included = (value: string) => {
@@ -39,7 +43,7 @@ const RULES: readonly Rule[] = [
   { fieldPath: 'policyNumber', patterns: [/\bpolicy\s*(?:number|no\.?|#)\s*[:#-]?\s*([A-Z0-9][A-Z0-9-]{3,})/i, /\bno\.[ \t]*([A-Z]{1,5}[ \t]*[A-Z0-9-]{4,})/i], confidence: .96 },
   { fieldPath: 'carrier', patterns: [/\b(?:insurance company|carrier|company)(?: name)?\s*[:#-]\s*([^\n]{3,100})/i, /\bunderwritten by\s*(?:\r?\n|:)\s*([^\n]{3,100})/i, /^([^\n]{3,100}?\b(?:Insurance Company|Indemnity Insurance Company|Mutual Insurance|Fire and Casualty Company))\b/im], confidence: .95 },
   { fieldPath: 'namedInsured', patterns: [/\b(?:named insured|name of insured)(?: and (?:mailing )?address)?\s*(?:[:#-]\s*|\r?\n\s*)([^\n]{3,120})/i], confidence: .96 },
-  { fieldPath: 'jurisdiction', patterns: [/\b(?:policy state|state)\s*[:#-]\s*([A-Z]{2})\b/i, /\b[A-Z][A-Za-z .'-]+,\s*(NV)\s+\d{5}(?:-\d{4})?\b/], transform: value => value.toUpperCase(), confidence: .95 },
+  { fieldPath: 'jurisdiction', patterns: [/\b(?:policy state|state)\s*[:#-]\s*([A-Z]{2})\b/i, /\b[A-Z][A-Za-z .'-]+,?\s+(NV)\s+\d{5}(?:-\d{4})?\b/], transform: value => value.toUpperCase(), confidence: .95 },
   { fieldPath: 'effectiveDate', patterns: [/\b(?:policy )?effective(?: date)?\s*[:#-]?\s*(\d{1,2}[\/-]\d{1,2}[\/-]\d{4})/i, /\bpolicy period[\s\S]{0,120}?\bfrom\s*:\s*(\d{1,2}[\/-]\d{1,2}[\/-]\d{4})/i], transform: date, confidence: .97 },
   { fieldPath: 'expirationDate', patterns: [/\b(?:policy )?expir(?:ation|es)(?: date)?\s*[:#-]?\s*(\d{1,2}[\/-]\d{1,2}[\/-]\d{4})/i, /\bpolicy period[\s\S]{0,180}?(?:TO|ΤΟ)\s*:\s*(\d{1,2}[\/-]\d{1,2}[\/-]\d{4})/i, /\bpolicy period[\s\S]{0,180}?\d{1,2}[\/-]\d{1,2}[\/-]\d{4}[\s\S]{0,100}?(\d{1,2}[\/-]\d{1,2}[\/-]\d{4})/i], transform: date, confidence: .97 },
   { fieldPath: 'annualPremium', patterns: [/\b(?:total|annual)(?: policy)? premium[ \t]*[:#-]?[ \t]*(\$?[\d,]+(?:\.\d{2})?)/i, /\btotal[ \t]*:[ \t]*(\$?[\d,]+(?:\.\d{2})?)/i], transform: money, confidence: .96 },
@@ -112,6 +116,47 @@ export function normalizeCommercialPolicyFields(input: {
         fields.push({ fieldPath, value, confidence: source.confidence, evidence: source });
       }
       break;
+    }
+  }
+  if (input.insuranceLine === 'BUSINESS_OWNERS_POLICY') {
+    const upsert = (fieldPath: NormalizedPolicyFieldPath, raw: string, page: ProviderNeutralOcrPage, match: RegExpMatchArray, transform?: (value: string) => string | number | undefined) => {
+      const value = transform ? transform(clean(raw)) : clean(raw);
+      if (value === undefined || value === '') return;
+      const existing = fields.findIndex(candidate => candidate.fieldPath === fieldPath);
+      if (existing >= 0) fields.splice(existing, 1);
+      const source = evidence(input.documentId, page, match, .96);
+      fields.push({ fieldPath, value, confidence: source.confidence, evidence: source });
+    };
+    for (const page of input.ocr.pages) {
+      if (/STATE FARM FIRE AND CASUALTY COMPANY[\s\S]+Businessowners Policy/i.test(page.text)) {
+        const policy = page.text.match(/\n(\d{2}-[A-Z0-9-]{6,})\s*\nEffective Date/i);
+        const insured = page.text.match(/12 Months\s*\n([A-Z][A-Z0-9 &'.,-]{3,})\s*\n(?:PO BOX|\d+\s+[A-Z])/i);
+        const effective = page.text.match(/Effective Date\s*\n([A-Z]{3}\s+\d{1,2}\s+\d{4})/i);
+        const expiration = page.text.match(/Expiration Date\s*\n([A-Z]{3}\s+\d{1,2}\s+\d{4})/i);
+        const premium = page.text.match(/POLICY PREMIUM[\s\S]{0,160}?\n(\d[\d,]*\.\d{2})\s*\nPrepared/i);
+        const classification = page.text.match(/Entity:\s*([^\n]+)/i);
+        if (policy) upsert('policyNumber', policy[1], page, policy);
+        if (insured) {
+          upsert('namedInsured', insured[1], page, insured);
+          upsert('business.legalName', insured[1], page, insured);
+        }
+        if (effective) upsert('effectiveDate', effective[1], page, effective, date);
+        if (expiration) upsert('expirationDate', expiration[1], page, expiration, date);
+        if (premium) upsert('annualPremium', premium[1], page, premium, money);
+        if (classification) upsert('business.classification', classification[1], page, classification);
+      }
+      const location = page.text.match(/Location of\s*\nDescribed\s*\nPremises[\s\S]{0,80}?\n\d{3}\s*\n([^\n]+)\s*\n([^\n]+)/i);
+      if (location) upsert('business.location', `${location[1]}, ${location[2]}`, page, location);
+      const businessProperty = page.text.match(/Coverage B-\s*\nBusiness Personal\s*\nProperty[\s\S]{0,120}?No Coverage\s*\n(\$\s*[\d,]+)/i);
+      if (businessProperty) upsert('coverage.businessProperty.limit', businessProperty[1], page, businessProperty, money);
+      const deductible = page.text.match(/Basic Deductible[\s\S]{0,140}?(\$[\d,]+)/i);
+      if (deductible) upsert('coverage.property.deductible', deductible[1], page, deductible, money);
+      const liability = page.text.match(/Coverage L\s*-\s*Business L(?:i|l)ability[\s\S]{0,220}?Actual Loss Sustained[^\n]*[\s\S]{0,360}?(\$[\d,]+)/i);
+      if (liability) upsert('coverage.cgl.eachOccurrence', liability[1], page, liability, money);
+      const income = page.text.match(/Loss Of Income And Extra Expense[\s\S]{0,300}?Actual Loss Sustained\s*-\s*\d+ Months/i);
+      if (income) upsert('coverage.businessIncome.included', 'INCLUDED', page, income, included);
+      const aggregate = page.text.match(/AGGREGATE LIMITS[\s\S]{0,120}?Products\/Completed Operations Aggregate\s*\nGeneral Aggregate[\s\S]{0,420}?LIMIT OF\s*\nINSURANCE\s*\n(\$[\d,]+)\s*\n(\$[\d,]+)/i);
+      if (aggregate) upsert('coverage.cgl.generalAggregate', aggregate[2], page, aggregate, money);
     }
   }
   const schema = getPolicyLineSchema(input.insuranceLine);
