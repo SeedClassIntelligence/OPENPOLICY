@@ -14,7 +14,9 @@ import {
   Building2,
   FileCheck2,
   Compass,
-  Briefcase
+  Briefcase,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { useAuth, UserRole } from '../context/AuthContext';
 import { JurisdictionSelectOptions } from './JurisdictionSelectOptions';
@@ -82,6 +84,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   // Sign In form state
   const [signInEmail, setSignInEmail] = useState('');
   const [signInPassword, setSignInPassword] = useState('');
+  const [showSignInPassword, setShowSignInPassword] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
   const [resetStatus, setResetStatus] = useState<string | null>(null);
@@ -94,6 +97,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setProviderPlanCode(authModalInitialPlanCode || 'PLAN_SOLO');
       setError(null);
       setResetStatus(null);
+      setShowSignInPassword(false);
     }
   }, [authModalOpen, authModalInitialRole, authModalInitialMode, authModalInitialPlanCode, initialMode, initialRole, isInline]);
 
@@ -383,13 +387,24 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 <div className="relative">
                   <Key className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
-                    type="password"
+                    type={showSignInPassword ? 'text' : 'password'}
                     required
                     value={signInPassword}
                     onChange={(e) => setSignInPassword(e.target.value)}
                     placeholder="••••••••••••"
-                    className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+                    className="w-full pl-9 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowSignInPassword((visible) => !visible)}
+                    aria-label={showSignInPassword ? 'Hide password' : 'Show password'}
+                    aria-pressed={showSignInPassword}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-800 transition cursor-pointer"
+                  >
+                    {showSignInPassword
+                      ? <EyeOff className="h-4 w-4" aria-hidden="true" />
+                      : <Eye className="h-4 w-4" aria-hidden="true" />}
+                  </button>
                 </div>
               </div>
 

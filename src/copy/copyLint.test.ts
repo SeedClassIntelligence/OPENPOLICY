@@ -170,6 +170,13 @@ test('sign-in provides privacy-preserving Firebase password recovery', () => {
   assert.doesNotMatch(authModal, /No account exists|Email not found/);
 });
 
+test('sign-in lets the user inspect the password they typed without exposing stored credentials', () => {
+  const authModal = readFileSync(new URL('../components/AuthModal.tsx', import.meta.url), 'utf8');
+  assert.match(authModal, /type=\{showSignInPassword \? 'text' : 'password'\}/);
+  assert.match(authModal, /aria-label=\{showSignInPassword \? 'Hide password' : 'Show password'\}/);
+  assert.match(authModal, /setShowSignInPassword\(\(visible\) => !visible\)/);
+});
+
 test('public copy preserves the founder-approved operating boundaries', () => {
   const landing = readFileSync(new URL('../components/LandingPage.tsx', import.meta.url), 'utf8')
     + readFileSync(new URL('../components/ProviderLandingPage.tsx', import.meta.url), 'utf8')
