@@ -38,6 +38,30 @@ test('renters extraction omits dwelling fields rather than writing zero or null'
   assert.equal(result.status,'READY_FOR_CONSUMER');
 });
 
+test('renters extraction accepts a public carrier-style declarations layout', () => {
+  const result=normalizePropertyPolicyFields({documentId:'D-HO4-PUBLIC',insuranceLine:'RENTERS',ocr:ocr([
+    'DECLARATIONS','Coverage afforded by this policy is provided by:','State Farm Fire and Casualty Company',
+    'Policy Number27-B3-P000-5','Named Insured and Mailing Address','LEASEHOLDER FIRST & LAST NAME',
+    '1234 ADDRESS STREET','OMAHA, NE 68106','Effective Date','12 months - Policy Period','11/20/2020',
+    'Expiration of Policy Period11/20/2021','Limit of Liability - Section I','$25,000 Personal Property (Coverage B)',
+    'Limit of Liability - Section II','$100,000','$5,000','Policy Type','Personal Liability (Coverage L) each occurrence',
+    'Medical Payments (Coverage M) each occurrence','Renters Policy','Location of Premises','5106 MAYBERRY ST APT 2101',
+    'OMAHA, NE 68106-1764','Deductibles - Section I $500','Policy Premium $ 105.00'
+  ].join('\n'))});
+  const values=Object.fromEntries(result.fields.map(candidate=>[candidate.fieldPath,candidate.value]));
+  assert.equal(values.carrier,'State Farm Fire and Casualty Company');
+  assert.equal(values.namedInsured,'LEASEHOLDER FIRST & LAST NAME');
+  assert.equal(values.jurisdiction,'NE');
+  assert.equal(values.effectiveDate,'2020-11-20');
+  assert.equal(values.expirationDate,'2021-11-20');
+  assert.equal(values.annualPremium,105);
+  assert.equal(values['coverage.personalProperty.limit'],25000);
+  assert.equal(values['coverage.personalLiability.limit'],100000);
+  assert.equal(values['coverage.medicalPayments.limit'],5000);
+  assert.equal(values['coverage.property.deductible'],500);
+  assert.equal(result.status,'READY_FOR_CONSUMER');
+});
+
 test('a commercial document cannot fall through into personal-auto normalization', () => {
   const result=normalizePolicyDocumentByLine({documentId:'D-CGL',insuranceLine:'COMMERCIAL_GENERAL_LIABILITY',ocr:ocr(
     'VIN: 1HGCM82633A004352\nYear, Make, and Model: 2022 Honda Accord'
