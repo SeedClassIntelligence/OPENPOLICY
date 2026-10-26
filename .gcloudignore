@@ -2,9 +2,9 @@
 # Keeping bun.lock out of the upload prevents Buildpacks from selecting Bun.
 bun.lock
 
-# Historical artifacts are not runtime inputs.
+# Regulatory research includes the immutable Nevada readiness payloads bundled
+# into the authenticated owner console, so it remains in the source upload.
 archive/
-research/
 
 # Local configuration and generated state must never be uploaded.
 .env
