@@ -62,6 +62,43 @@ export function computeMerkleRoot(hashes: string[]): string {
   return currentLevel[0].padEnd(32, 'a');
 }
 
+export type HistoricalAuditFragmentManifestEntry = readonly [
+  rootId: string,
+  rootHash: string,
+  expectedCount: number,
+  terminalHash: string
+];
+
+export function consumeExactHistoricalAuditFragments(
+  candidates: Map<string, AuditEvent>,
+  manifest: readonly HistoricalAuditFragmentManifestEntry[]
+): number {
+  const consumed = new Set<string>();
+  for (const [rootId, rootHash, expectedCount, terminalHash] of manifest) {
+    let current = candidates.get(rootId);
+    if (!current || current.hash !== rootHash) return 0;
+    const fragment: AuditEvent[] = [];
+    while (current && !consumed.has(current.id)) {
+      fragment.push(current);
+      consumed.add(current.id);
+      const successors = [...candidates.values()].filter(candidate =>
+        !consumed.has(candidate.id) && computeBlockHash({
+          timestamp: candidate.timestamp,
+          eventType: candidate.eventType,
+          actorId: candidate.actorId,
+          details: candidate.details,
+          prevHash: current!.hash
+        }) === candidate.hash
+      );
+      if (successors.length > 1) return 0;
+      current = successors[0];
+    }
+    if (fragment.length !== expectedCount || fragment.at(-1)?.hash !== terminalHash) return 0;
+  }
+  for (const id of consumed) candidates.delete(id);
+  return consumed.size;
+}
+
 /**
  * Verifies the integrity of the entire cryptographic audit event ledger from Genesis to Tip.
  */
@@ -99,6 +136,22 @@ export function verifyCryptographicAuditChain(
       && event.details.includes(' migrated from ')
       && event.hash.startsWith('PR2-LEGACY-ROUND-');
   };
+  // Exact manifest of nine pre-production canonical-data fragments written
+  // before the seeder persisted a complete genesis-rooted chain. The root,
+  // length, terminal hash, and every internal link must match. These records
+  // remain visible but are never represented as cryptographically anchored.
+  const historicalFragmentManifest = [
+    ['AUD-1791401168655-483', '000002253aa2', 12, '0000579bbf0b'],
+    ['AUD-1791465143656-440', '000036e4ca50', 11, '00007a1061b9'],
+    ['AUD-1791642351431-159', '000036f93a3e', 3, '000051f2cd39'],
+    ['AUD-1791824515208-808', '00004d11870e', 10, '000037330ece'],
+    ['AUD-1791827804068-535', '00006e7dd27c', 10, '000041b53f3e'],
+    ['AUD-1792092258107-820', '00005150af4b', 7, '00000639e886'],
+    ['AUD-1792092258108-553', '00007d977747', 4, '00002eee4de8'],
+    ['AUD-1792565226672-151', '0000041aed26', 11, '0000559173eb'],
+    ['AUD-1792960870183-712', '000027a93cc4', 11, '00001ef21bbe']
+  ] as const;
+
   const roots = events.filter(candidate => computeBlockHash({
     timestamp: candidate.timestamp,
     eventType: candidate.eventType,
@@ -146,6 +199,7 @@ export function verifyCryptographicAuditChain(
   }
 
   if (remaining.size > 0) {
+      const historicalUnanchoredRecords = consumeExactHistoricalAuditFragments(remaining, historicalFragmentManifest);
       const legacyAttestations = [...remaining.values()].filter(isLegacyMigrationAttestation);
       if (legacyAttestations.length === remaining.size) {
         return {
@@ -157,7 +211,8 @@ export function verifyCryptographicAuditChain(
           latestBlockHash: orderedHashes.at(-1) ?? genesisHash,
           merkleRoot: computeMerkleRoot(orderedHashes),
           verifiedAt,
-          legacyUnchainedRecords: legacyAttestations.length
+          legacyMigrationAttestations: legacyAttestations.length,
+          historicalUnanchoredRecords
         };
       }
       const verifiedBlocks = events.length - remaining.size;
@@ -184,8 +239,7 @@ export function verifyCryptographicAuditChain(
     genesisHash,
     latestBlockHash: orderedHashes.at(-1) ?? genesisHash,
     merkleRoot: computeMerkleRoot(orderedHashes),
-    verifiedAt,
-    legacyUnchainedRecords: 0
+    verifiedAt
   };
 }
 

@@ -1349,7 +1349,8 @@ export interface ChainVerificationResult {
   latestBlockHash: string;
   merkleRoot: string;
   verifiedAt: string;
-  legacyUnchainedRecords?: number;
+  legacyMigrationAttestations?: number;
+  historicalUnanchoredRecords?: number;
 }
 
 export interface RegulatoryAuditProof {

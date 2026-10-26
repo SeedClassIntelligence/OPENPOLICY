@@ -7,7 +7,8 @@
 import { 
   computeBlockHash, 
   computeMerkleRoot, 
-  verifyCryptographicAuditChain, 
+  verifyCryptographicAuditChain,
+  consumeExactHistoricalAuditFragments,
   shouldEscalateToHumanReview, 
   processReviewQueueResolution, 
   generateRegulatoryAuditProof 
@@ -152,10 +153,52 @@ export function runGovernanceAuditTestSuite(): {
     {
       isValid: verifyLegacyAttestation.isValid,
       verifiedBlocks: verifyLegacyAttestation.verifiedBlocks,
-      legacyUnchainedRecords: verifyLegacyAttestation.legacyUnchainedRecords
+      legacyMigrationAttestations: verifyLegacyAttestation.legacyMigrationAttestations
     },
-    { isValid: true, verifiedBlocks: 5, legacyUnchainedRecords: 1 },
+    { isValid: true, verifiedBlocks: 5, legacyMigrationAttestations: 1 },
     'Known migration attestations are counted separately from cryptographically verified records.'
+  );
+
+  const historicalFragment = createChainedEvents(3).map((event, index) => ({
+    ...event,
+    id: `HISTORICAL-${index}`
+  }));
+  let historicalPrevious = 'UNPERSISTED_PREDECESSOR';
+  for (const event of historicalFragment) {
+    event.hash = computeBlockHash({
+      timestamp: event.timestamp,
+      eventType: event.eventType,
+      actorId: event.actorId,
+      details: event.details,
+      prevHash: historicalPrevious
+    });
+    historicalPrevious = event.hash;
+  }
+  const historicalManifest = [[
+    historicalFragment[0].id,
+    historicalFragment[0].hash,
+    historicalFragment.length,
+    historicalFragment.at(-1)!.hash
+  ]] as const;
+  const exactHistorical = new Map(historicalFragment.map(event => [event.id, event]));
+  const consumedHistorical = consumeExactHistoricalAuditFragments(exactHistorical, historicalManifest);
+  assert(
+    'Pinned historical fragments require exact root, length, terminal hash and internal links',
+    'Historical Audit Evidence Classification',
+    { consumedHistorical, remaining: exactHistorical.size },
+    { consumedHistorical: 3, remaining: 0 },
+    'The exact historical fragment is classified without representing it as genesis-anchored.'
+  );
+  const mutatedHistorical = historicalFragment.map(event => ({ ...event }));
+  mutatedHistorical[1].details = 'mutated historical evidence';
+  const mutatedCandidates = new Map(mutatedHistorical.map(event => [event.id, event]));
+  const consumedMutated = consumeExactHistoricalAuditFragments(mutatedCandidates, historicalManifest);
+  assert(
+    'Pinned historical fragment classification must fail closed on payload mutation',
+    'Historical Audit Evidence Classification',
+    { consumedMutated, remaining: mutatedCandidates.size },
+    { consumedMutated: 0, remaining: 3 },
+    'A changed payload breaks the pinned internal chain and remains an audit failure.'
   );
 
   // =========================================================================

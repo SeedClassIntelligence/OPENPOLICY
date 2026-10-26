@@ -1043,7 +1043,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
                 </div>
                 <p className="text-xs">
                   {verificationResult.isValid 
-                    ? `${verificationResult.verifiedBlocks} cryptographically chained records validated from Genesis (${verificationResult.genesisHash}).${verificationResult.legacyUnchainedRecords ? ` ${verificationResult.legacyUnchainedRecords} V12 migration attestations are retained separately and are not represented as cryptographically chained blocks.` : ' Zero record tampering or alterations detected.'}`
+                    ? `${verificationResult.verifiedBlocks} cryptographically chained records validated from Genesis (${verificationResult.genesisHash}).${verificationResult.historicalUnanchoredRecords ? ` ${verificationResult.historicalUnanchoredRecords} pinned pre-production seed records remain visible as nine internally linked but unanchored historical fragments.` : ''}${verificationResult.legacyMigrationAttestations ? ` ${verificationResult.legacyMigrationAttestations} V12 migration attestation is retained separately.` : ''}${!verificationResult.historicalUnanchoredRecords && !verificationResult.legacyMigrationAttestations ? ' Zero record tampering or alterations detected.' : ' These historical records are not represented as cryptographically anchored blocks.'}`
                     : verificationResult.error}
                 </p>
               </div>
