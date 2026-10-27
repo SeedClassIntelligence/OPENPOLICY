@@ -3,12 +3,52 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Open Polici</title>
-    <meta name="description" content="Share your current insurance policy, review independent provider offers, compare factual price and coverage differences, and decide." />
-    <meta property="og:title" content="Open Polici" />
-    <meta property="og:description" content="Share your current insurance policy, review independent provider offers, compare factual price and coverage differences, and decide." />
+    <title>Open Polici | Private Insurance Marketplace</title>
+    <meta name="description" content="Open Polici is a private insurance marketplace where consumers create a coverage baseline, receive provider offers, compare factual differences, and choose who may contact them." />
+    <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1" />
+    <link rel="canonical" href="https://openpolici.com/" />
+    <meta property="og:site_name" content="Open Polici" />
+    <meta property="og:title" content="Open Polici | Private Insurance Marketplace" />
+    <meta property="og:description" content="Compare documented insurance offers privately. Review coverage and price first, then authorize one selected provider to connect." />
     <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://openpolici.com/" />
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Open Polici | Private Insurance Marketplace" />
+    <meta name="twitter:description" content="A consumer-controlled marketplace for private insurance comparison and authorized provider connections." />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "Organization",
+            "@id": "https://openpolici.com/#organization",
+            "name": "Open Polici",
+            "url": "https://openpolici.com/",
+            "description": "A consumer-controlled insurance marketplace that connects consumers with eligible insurance providers after explicit selection and authorization."
+          },
+          {
+            "@type": "WebSite",
+            "@id": "https://openpolici.com/#website",
+            "url": "https://openpolici.com/",
+            "name": "Open Polici",
+            "publisher": { "@id": "https://openpolici.com/#organization" },
+            "inLanguage": "en-US"
+          },
+          {
+            "@type": "Service",
+            "@id": "https://openpolici.com/#marketplace",
+            "name": "Open Polici Insurance Marketplace",
+            "provider": { "@id": "https://openpolici.com/#organization" },
+            "areaServed": { "@type": "State", "name": "Nevada" },
+            "audience": [
+              { "@type": "Audience", "audienceType": "Insurance consumers" },
+              { "@type": "Audience", "audienceType": "Licensed insurance providers and carriers" }
+            ],
+            "description": "Consumers establish an insurance coverage baseline and receive documented offers from eligible providers without disclosing direct contact information until they select and authorize a connection."
+          }
+        ]
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

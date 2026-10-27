@@ -107,6 +107,7 @@ import { confirmConsumerDefinedCoverageRequest, consumerRequestToMarketplaceBase
 import type { InsuranceLine } from './src/types/jurisdiction';
 import nevadaCandidatePacket from './research/pr0b/NV/STAGE-2-CANDIDATE-RULES.json';
 import nevadaReadinessManifest from './research/pr0b/NV/PRODUCTION-READINESS-MANIFEST.json';
+import { renderSeoHtml, seoPageForPath } from './src/server/seoSurface';
 
 export const app = express();
 const DEFAULT_PORT = Number(process.env.PORT) || 3000;
@@ -4499,7 +4500,10 @@ async function startServer() {
     });
     app.get('*', async (req, res) => {
       res.setHeader('Cache-Control', 'no-store');
-      res.sendFile(path.join(distPath, 'index.html'));
+      const page = seoPageForPath(req.path);
+      if (!page.index) res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
+      const template = await fs.promises.readFile(path.join(distPath, 'index.html'), 'utf8');
+      res.type('html').send(renderSeoHtml(template, req.path));
     });
   }
 

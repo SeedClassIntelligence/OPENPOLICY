@@ -1,0 +1,22 @@
+# Open Polici
+
+Open Polici is a consumer-controlled insurance marketplace serving Nevada at initial launch.
+
+## Public pages
+
+- https://openpolici.com/consumers - Consumer marketplace overview and account entry
+- https://openpolici.com/providers - Provider and carrier marketplace overview, membership, and onboarding
+
+## Platform model
+
+Consumers either upload an existing insurance declarations document or define a requested-coverage baseline. Eligible providers may independently submit documented offers. Consumers compare factual coverage and price differences, select an offer, and explicitly authorize disclosure to one selected provider.
+
+Open Polici does not sell consumer contact lists, recommend which insurance policy a consumer should purchase, or grant insurance authority through payment. Provider licensing, jurisdiction, insurance-line eligibility, carrier relationships, commercial membership, and consumer authorization are separate controls.
+
+## Current accepted Nevada document lines
+
+Personal auto, homeowners, renters, commercial auto, commercial general liability, and business owners policy.
+
+## Commercial model
+
+Provider access follows Open Policy Commercial V2. The only billable marketplace transaction event is a qualifying consumer-authorized connection. Membership and optional services are separate from marketplace transaction charges.
