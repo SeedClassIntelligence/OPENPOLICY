@@ -1743,6 +1743,18 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     <span>Providers & Carriers</span>
                   </button>
                 </li>
+                <li>
+                  <a href="/insurance-comparison" className="hover:text-emerald-400 transition text-left flex items-center space-x-1.5 text-slate-400">
+                    <ChevronRight className="w-3 h-3 text-slate-600" />
+                    <span>How Comparison Works</span>
+                  </a>
+                </li>
+                <li>
+                  <a href="/about" className="hover:text-emerald-400 transition text-left flex items-center space-x-1.5 text-slate-400">
+                    <ChevronRight className="w-3 h-3 text-slate-600" />
+                    <span>About Open Polici</span>
+                  </a>
+                </li>
               </ul>
             </div>
 

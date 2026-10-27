@@ -55,6 +55,18 @@ import { apiFetch } from '../services/apiClient';
 import { ProviderPremiumServices } from './ProviderPremiumServices';
 import { ProviderTeamManagement } from './ProviderTeamManagement';
 import { HelpHeading } from './HelpTooltip';
+import { GuidedTour, type GuidedTourStep } from './GuidedTour';
+
+const PROVIDER_TOUR_STEPS: (GuidedTourStep & { tab?: 'OPPORTUNITIES' | 'MY_COMPETITIONS' | 'PROFILE' | 'ACCOUNT' })[] = [
+  { targetId: 'provider-tour-identity', eyebrow: 'Organization', title: 'Start with the active provider organization', description: 'Confirm the organization, signed-in producer, marketplace status, licensed states, and configured appetite before acting.', tab: 'OPPORTUNITIES' },
+  { targetId: 'provider-tour-opportunities', eyebrow: 'Marketplace', title: 'Review eligible opportunities', description: 'This queue contains consumer-created insurance requests that match the organization’s verified authority, jurisdiction, insurance line, appetite, and available capacity.', tab: 'OPPORTUNITIES' },
+  { targetId: 'provider-tour-competitions', eyebrow: 'Offers', title: 'Track submitted offers', description: 'Use My Offer Reviews to follow the competitions in which this organization has participated and see each offer’s current status.', tab: 'MY_COMPETITIONS' },
+  { targetId: 'provider-tour-profile', eyebrow: 'Authority', title: 'Inspect appetite and licensing', description: 'This area keeps the organization’s chosen appetite separate from license evidence, carrier relationships, and producer authority. Missing authority fails closed.', tab: 'PROFILE' },
+  { targetId: 'provider-tour-team', eyebrow: 'People', title: 'Manage producer seats', description: 'Invite and manage authenticated producer users within the organization’s purchased seat capacity. A seat never substitutes for individual insurance authority.', tab: 'ACCOUNT' },
+  { targetId: 'provider-tour-commercial', eyebrow: 'Membership', title: 'Review the commercial account', description: 'See the active Commercial V2 membership, agreement status, account reference, and included operating capacity. Payment grants marketplace access—not regulatory authority or placement preference.', tab: 'ACCOUNT' },
+  { targetId: 'provider-tour-capacity', eyebrow: 'Capacity', title: 'Monitor operating limits', description: 'Track producer seats, active jurisdictions, and concurrent marketplace participation before limits interrupt workflow.', tab: 'ACCOUNT' },
+  { targetId: 'provider-tour-account', eyebrow: 'Account activity', title: 'Finish in commercial activity', description: 'Invoices, settlements, and qualifying authorized-connection records remain traceable and separate from provider licensing and consumer selection.', tab: 'ACCOUNT' }
+];
 
 interface ProviderPortalProps {
   challenge: Challenge | null;
@@ -71,6 +83,8 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
 }) => {
   // Navigation tabs in Provider Experience
   const [activeTab, setActiveTab] = useState<'OPPORTUNITIES' | 'MY_COMPETITIONS' | 'WORKSPACE' | 'PROFILE' | 'ACCOUNT'>('OPPORTUNITIES');
+  const [tourOpen, setTourOpen] = useState(false);
+  const [tourStep, setTourStep] = useState(0);
   
   // Commercial Economics State (CE-1 through CE-4)
   const [commercialAccount, setCommercialAccount] = useState<any | null>(null);
@@ -930,10 +944,24 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
   const baselinePremium = workspaceData?.baseline?.baselineAnnualPremium || 2964;
   const annualSavings = baselinePremium - annualPremium;
 
+  const moveTour = (stepIndex: number) => {
+    const next = PROVIDER_TOUR_STEPS[stepIndex];
+    if (next.tab) {
+      setActiveTab(next.tab);
+      if (next.tab === 'ACCOUNT') void loadCommercialData();
+    }
+    setTourStep(stepIndex);
+  };
+
+  const closeTour = (completed: boolean) => {
+    setTourOpen(false);
+    if (completed) window.localStorage.setItem('openpolici-provider-tour-completed-v1', 'true');
+  };
+
   return (
     <div className="space-y-6">
       {/* Authenticated provider organization summary */}
-      <div className="bg-slate-900 text-white p-5 rounded-2xl shadow-md border border-slate-800">
+      <div id="provider-tour-identity" className="bg-slate-900 text-white p-5 rounded-2xl shadow-md border border-slate-800">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div className="flex items-center space-x-3.5">
             <div className="h-11 w-11 rounded-xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400">
@@ -958,6 +986,13 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() => { setTourOpen(true); moveTour(0); }}
+              className="px-3 py-2 bg-emerald-400 hover:bg-emerald-300 text-slate-950 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
+            >
+              <Compass className="h-4 w-4" /> Guided Tour
+            </button>
             <div className="bg-slate-800/80 border border-slate-700/60 rounded-xl px-3 py-2 text-xs">
               <span className="text-slate-400">Signed in as </span>
               <strong className="text-white">{activeUser?.name || 'Verified provider user'}</strong>
@@ -1086,7 +1121,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
 
       {/* TAB 1: OPPORTUNITIES (Section 12: Opportunity Distribution & Preview) */}
       {activeTab === 'OPPORTUNITIES' && (
-        <div className="space-y-4">
+        <div id="provider-tour-opportunities" className="space-y-4">
           <div className="bg-blue-50/70 border border-blue-200/80 rounded-xl p-4 flex items-start space-x-3 text-xs text-blue-900">
             <Info className="h-5 w-5 text-blue-600 shrink-0 mt-0.5" />
             <div>
@@ -1225,7 +1260,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
 
       {/* TAB 2: MY OFFER REVIEWS (Section 13) */}
       {activeTab === 'MY_COMPETITIONS' && (
-        <div className="space-y-4">
+        <div id="provider-tour-competitions" className="space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-bold text-slate-900">
               Active Policy Reviews for {activeOrg?.displayName}
@@ -2217,7 +2252,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
 
       {/* TAB 4: APPETITE & LICENSING INSPECTOR */}
       {activeTab === 'PROFILE' && (
-        <div className="space-y-6">
+        <div id="provider-tour-profile" className="space-y-6">
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
             <h3 className="text-base font-bold text-slate-900">
               Provider Organization Profile: {activeOrg?.displayName}
@@ -2299,8 +2334,8 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
 
       {/* TAB 5: COMMERCIAL ACCOUNT, ENTITLEMENTS & VALUE FUNNEL (CE-1) */}
       {activeTab === 'ACCOUNT' && (
-        <div className="space-y-6">
-          <ProviderTeamManagement providerUserId={authenticatedUserId} />
+        <div id="provider-tour-account" className="space-y-6">
+          <div id="provider-tour-team"><ProviderTeamManagement providerUserId={authenticatedUserId} /></div>
           {/* 1. Neutrality Invariant Banner */}
           <div className="bg-slate-900 text-white rounded-2xl p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="space-y-1">
@@ -2331,7 +2366,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
 
           {/* 2. Membership & Commercial Agreement Card */}
           {/* 2. Membership & Commercial Agreement Card */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
+          <div id="provider-tour-commercial" className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
               <div>
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Commercial Plan & Membership</span>
@@ -2402,7 +2437,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
           </div>
 
           {/* 3. Marketplace Capacity & Entitlements */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
+          <div id="provider-tour-capacity" className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
             <div>
                 <h3 className="text-base font-bold text-slate-900"><HelpHeading label="Provider account capacity" heading="Provider Account Capacity">Shows the operating limits included in the active membership, such as producer seats, jurisdictions, and concurrent marketplace participation. Capacity is enforced independently from licensing.</HelpHeading></h3>
               <p className="text-xs text-slate-500">
@@ -3490,6 +3525,15 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
       )}
 
       {/* PM-5: Upload Issued Declarations Page Modal */}
+      {tourOpen && (
+        <GuidedTour
+          steps={PROVIDER_TOUR_STEPS}
+          activeStep={tourStep}
+          onStepChange={moveTour}
+          onClose={closeTour}
+        />
+      )}
+
       {showUploadIssuedModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-fade-in">
           <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 border border-slate-200 space-y-4">

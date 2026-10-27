@@ -18,7 +18,7 @@ test('public search surface exposes crawl controls, canonical identity, and stru
   for (const privatePath of ['/api/', '/account', '/provider-account', '/admin']) {
     assert.match(robots, new RegExp(`Disallow: ${privatePath.replace('/', '\\/')}`));
   }
-  for (const publicUrl of ['https://openpolici.com/', 'https://openpolici.com/consumers', 'https://openpolici.com/providers']) {
+  for (const publicUrl of ['https://openpolici.com/', 'https://openpolici.com/consumers', 'https://openpolici.com/providers', 'https://openpolici.com/about', 'https://openpolici.com/insurance-comparison']) {
     assert.ok(sitemap.includes(`<loc>${publicUrl}</loc>`));
   }
   assert.match(llms, /consumer-controlled insurance marketplace/i);
@@ -36,4 +36,15 @@ test('public pages receive unique canonical metadata while account surfaces fail
   assert.match(provider, /rel="canonical" href="https:\/\/openpolici\.com\/providers"/);
   assert.match(account, /name="robots" content="noindex,nofollow,noarchive"/);
   assert.equal(seoPageForPath('/admin').index, false);
+});
+
+test('public education routes receive unique indexable metadata and structured data', () => {
+  const template = fs.readFileSync('index.html', 'utf8');
+  const about = renderSeoHtml(template, '/about');
+  const comparison = renderSeoHtml(template, '/insurance-comparison');
+  assert.match(about, /<title>About Open Polici/);
+  assert.match(about, /AboutPage/);
+  assert.match(comparison, /<title>How Insurance Offer Comparison Works/);
+  assert.match(comparison, /application\/ld\+json/);
+  assert.doesNotMatch(comparison, /noindex,nofollow/);
 });

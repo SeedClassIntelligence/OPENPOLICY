@@ -20,6 +20,8 @@ import { apiFetch } from './services/apiClient';
 import { canEnterPolicyPipeline, getInsuranceLineDefinition } from './domain/insuranceLineRegistry';
 import { ProviderInvitationAcceptance } from './components/ProviderInvitationAcceptance';
 import { ProviderOnboardingStatus } from './components/ProviderOnboardingStatus';
+import { AboutPage } from './components/AboutPage';
+import { ComparisonAnalysisPage } from './components/ComparisonAnalysisPage';
 
 function MainApp() {
   const { isAuthenticated, userRole, userProfile, isDemoUser, loading: authLoading, openAuthModal } = useAuth();
@@ -29,6 +31,7 @@ function MainApp() {
   const [offers, setOffers] = useState<Offer[]>([]);
   const [loading, setLoading] = useState(true);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [publicPath, setPublicPath] = useState(() => window.location.pathname);
   const requestedLine = userProfile?.requestedInsuranceLine || 'PERSONAL_AUTO';
   const requestedLineAvailable = canEnterPolicyPipeline(requestedLine);
   const providerInvitationMatch = window.location.pathname.match(/^\/provider-invitation\/([^/]+)$/);
@@ -36,7 +39,8 @@ function MainApp() {
   useEffect(() => {
     const syncRoute = () => {
       const path = window.location.pathname;
-      if (path === '/' || path === '/consumers' || path === '/providers') {
+      setPublicPath(path);
+      if (path === '/' || path === '/consumers' || path === '/providers' || path === '/about' || path === '/insurance-comparison') {
         setActivePerspective('LANDING');
       } else if (path === '/account' && isAuthenticated && userRole === 'CONSUMER') {
         setActivePerspective('CONSUMER');
@@ -202,7 +206,7 @@ function MainApp() {
         ) : (
           <>
             {activePerspective === 'LANDING' && (
-              <LandingPage
+              publicPath === '/about' ? <AboutPage /> : publicPath === '/insurance-comparison' ? <ComparisonAnalysisPage /> : <LandingPage
                 onNavigateConsumer={() => handlePerspectiveChange('CONSUMER', 'UPLOAD_EXTRACT')}
                 onNavigateProvider={() => handlePerspectiveChange('PROVIDER')}
                 onNavigateAdmin={() => handlePerspectiveChange('ADMIN_AUDIT')}
