@@ -87,6 +87,24 @@ test('required durable storage fails closed instead of falling back to PGlite', 
   }
 });
 
+test('consumer funnel counts distinct consumers and ignores duplicate milestones', async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openpolicy-consumer-funnel-'));
+  const store = new PostgresStore(dataDir);
+  try {
+    await store.init();
+    await store.recordConsumerFunnelEvent({ consumerId: 'consumer-a', eventName: 'ACCOUNT_CREATED', idempotencyKey: 'ACCOUNT_CREATED:ACCOUNT' });
+    await store.recordConsumerFunnelEvent({ consumerId: 'consumer-a', eventName: 'ACCOUNT_CREATED', idempotencyKey: 'ACCOUNT_CREATED:ACCOUNT' });
+    await store.recordConsumerFunnelEvent({ consumerId: 'consumer-b', eventName: 'ACCOUNT_CREATED', idempotencyKey: 'ACCOUNT_CREATED:ACCOUNT' });
+    await store.recordConsumerFunnelEvent({ consumerId: 'consumer-a', eventName: 'MARKETPLACE_REQUEST_ACTIVATED', idempotencyKey: 'MARKETPLACE_REQUEST_ACTIVATED:challenge-a' });
+    const summary = await store.getConsumerFunnelSummary();
+    assert.equal(summary.find(item => item.eventName === 'ACCOUNT_CREATED')?.consumers, 2);
+    assert.equal(summary.find(item => item.eventName === 'MARKETPLACE_REQUEST_ACTIVATED')?.consumers, 1);
+  } finally {
+    await store.close();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
 test('explicit local validator storage remains available when durability is not required', async () => {
   const before = process.env.OPENPOLICY_REQUIRE_DURABLE_STORAGE;
   delete process.env.OPENPOLICY_REQUIRE_DURABLE_STORAGE;

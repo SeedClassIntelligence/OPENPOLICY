@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ArrowRight, CheckCircle2, ShieldCheck } from 'lucide-react';
 import { apiFetch } from '../services/apiClient';
+import { recordConsumerFunnelEvent } from '../services/consumerFunnel';
 import type { InsuranceLine } from '../types/jurisdiction';
 
 interface Props {
@@ -37,6 +38,10 @@ export const ConsumerDefinedCoverageRequestForm: React.FC<Props> = ({ insuranceL
       });
       const payload = await response.json();
       if (!response.ok || !payload.success) throw new Error(payload.message || payload.error || 'The request could not be shared with providers.');
+      void recordConsumerFunnelEvent({
+        eventName: 'MARKETPLACE_REQUEST_ACTIVATED', insuranceLine,
+        baselineOrigin: 'CONSUMER_DEFINED_COVERAGE_REQUEST', referenceId: payload.challenge?.id || confirmedId
+      }).catch(() => undefined);
       await Promise.resolve(onMarketplaceStarted());
     } catch (caught: any) {
       setError(caught?.message || 'The request could not be shared with providers.');
@@ -71,6 +76,10 @@ export const ConsumerDefinedCoverageRequestForm: React.FC<Props> = ({ insuranceL
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'The request could not be confirmed.');
       setConfirmedId(payload.baseline.id);
+      void recordConsumerFunnelEvent({
+        eventName: 'BASELINE_CONFIRMED', insuranceLine,
+        baselineOrigin: 'CONSUMER_DEFINED_COVERAGE_REQUEST', referenceId: payload.baseline.id
+      }).catch(() => undefined);
     } catch (caught: any) {
       setError(caught?.message || 'The request could not be confirmed.');
     } finally {

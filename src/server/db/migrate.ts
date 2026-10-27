@@ -1549,6 +1549,21 @@ CREATE UNIQUE INDEX IF NOT EXISTS commercial_agreements_one_membership_trial_per
   WHERE membership_trial_started_at IS NOT NULL;
 `;
 
+export const SQL_MIGRATION_V29 = `
+CREATE TABLE IF NOT EXISTS consumer_funnel_events (
+  id TEXT PRIMARY KEY,
+  consumer_id TEXT NOT NULL,
+  event_name TEXT NOT NULL CHECK (event_name IN ('ACCOUNT_CREATED','BASELINE_PATH_SELECTED','BASELINE_CONFIRMED','MARKETPLACE_REQUEST_ACTIVATED')),
+  insurance_line TEXT,
+  baseline_origin TEXT CHECK (baseline_origin IS NULL OR baseline_origin IN ('VERIFIED_EXISTING_POLICY','CONSUMER_DEFINED_COVERAGE_REQUEST')),
+  reference_id TEXT,
+  idempotency_key TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_consumer_funnel_event_name ON consumer_funnel_events(event_name, created_at);
+CREATE INDEX IF NOT EXISTS idx_consumer_funnel_consumer ON consumer_funnel_events(consumer_id, created_at);
+`;
+
 export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR || './data/openpolicy_pg') {
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
@@ -1669,7 +1684,11 @@ export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR ||
     await pglite.query(
       `INSERT INTO _migrations (name) VALUES ('0028_provider_membership_trial') ON CONFLICT (name) DO NOTHING;`
     );
-    console.log(`[Open Policy DB] Migrations 0001 through 0028 applied successfully.`);
+    await pglite.exec(SQL_MIGRATION_V29);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0029_consumer_conversion_funnel') ON CONFLICT (name) DO NOTHING;`
+    );
+    console.log(`[Open Policy DB] Migrations 0001 through 0029 applied successfully.`);
     return pglite;
   } catch (error) {
     console.error(`[Open Policy DB] Migration error:`, error);

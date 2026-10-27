@@ -28,7 +28,8 @@ export interface AuthContextType {
   authModalInitialRole: 'CONSUMER' | 'PROVIDER';
   authModalInitialMode: 'SIGN_IN' | 'SIGN_UP' | 'DEMO';
   authModalInitialPlanCode: string;
-  openAuthModal: (options?: { initialRole?: 'CONSUMER' | 'PROVIDER'; initialMode?: 'SIGN_IN' | 'SIGN_UP' | 'DEMO'; initialPlanCode?: string } | any) => void;
+  authModalInitialConsumerOrigin: 'VERIFIED_EXISTING_POLICY' | 'CONSUMER_DEFINED_COVERAGE_REQUEST';
+  openAuthModal: (options?: { initialRole?: 'CONSUMER' | 'PROVIDER'; initialMode?: 'SIGN_IN' | 'SIGN_UP' | 'DEMO'; initialPlanCode?: string; initialConsumerOrigin?: 'VERIFIED_EXISTING_POLICY' | 'CONSUMER_DEFINED_COVERAGE_REQUEST' } | any) => void;
   closeAuthModal: () => void;
   signUpWithEmail: (email: string, pass: string, name: string) => Promise<UserRole>;
   signUpAsConsumer: (name: string, email: string, pass: string, state?: string, currentCarrier?: string, requestedInsuranceLine?: InsuranceLine, consumerIntakeOrigin?: 'VERIFIED_EXISTING_POLICY' | 'CONSUMER_DEFINED_COVERAGE_REQUEST') => Promise<UserRole>;
@@ -76,6 +77,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [authModalInitialRole, setAuthModalInitialRole] = useState<'CONSUMER' | 'PROVIDER'>('CONSUMER');
   const [authModalInitialMode, setAuthModalInitialMode] = useState<'SIGN_IN' | 'SIGN_UP' | 'DEMO'>('SIGN_UP');
   const [authModalInitialPlanCode, setAuthModalInitialPlanCode] = useState('PLAN_SOLO');
+  const [authModalInitialConsumerOrigin, setAuthModalInitialConsumerOrigin] = useState<'VERIFIED_EXISTING_POLICY' | 'CONSUMER_DEFINED_COVERAGE_REQUEST'>('VERIFIED_EXISTING_POLICY');
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -114,11 +116,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => window.removeEventListener(REAUTH_REQUIRED_EVENT, requireReauthentication);
   }, []);
 
-  const openAuthModal = (options?: { initialRole?: 'CONSUMER' | 'PROVIDER'; initialMode?: 'SIGN_IN' | 'SIGN_UP' | 'DEMO'; initialPlanCode?: string } | any) => {
-    if (options && typeof options === 'object' && ('initialRole' in options || 'initialMode' in options || 'initialPlanCode' in options)) {
+  const openAuthModal = (options?: { initialRole?: 'CONSUMER' | 'PROVIDER'; initialMode?: 'SIGN_IN' | 'SIGN_UP' | 'DEMO'; initialPlanCode?: string; initialConsumerOrigin?: 'VERIFIED_EXISTING_POLICY' | 'CONSUMER_DEFINED_COVERAGE_REQUEST' } | any) => {
+    if (options && typeof options === 'object' && ('initialRole' in options || 'initialMode' in options || 'initialPlanCode' in options || 'initialConsumerOrigin' in options)) {
       if (options.initialRole) setAuthModalInitialRole(options.initialRole);
       if (options.initialMode) setAuthModalInitialMode(options.initialMode);
       if (options.initialPlanCode) setAuthModalInitialPlanCode(options.initialPlanCode);
+      if (options.initialConsumerOrigin) setAuthModalInitialConsumerOrigin(options.initialConsumerOrigin);
     }
     setAuthModalOpen(true);
   };
@@ -324,6 +327,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         authModalInitialRole,
         authModalInitialMode,
         authModalInitialPlanCode,
+        authModalInitialConsumerOrigin,
         openAuthModal,
         closeAuthModal,
         signUpWithEmail,

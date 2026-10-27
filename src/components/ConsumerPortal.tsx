@@ -67,6 +67,7 @@ import { getInsuranceLineDefinition } from '../domain/insuranceLineRegistry';
 import { getPolicyReviewFields } from '../domain/policyLineReviewFields';
 import { ConsumerDefinedCoverageRequestForm } from './ConsumerDefinedCoverageRequestForm';
 import { HelpHeading } from './HelpTooltip';
+import { recordConsumerFunnelEvent } from '../services/consumerFunnel';
 
 interface ConsumerPortalProps {
   insuranceLine: InsuranceLine;
@@ -140,6 +141,13 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
   const [intakeOrigin, setIntakeOrigin] = useState<'VERIFIED_EXISTING_POLICY' | 'CONSUMER_DEFINED_COVERAGE_REQUEST' | null>(
     userProfile?.consumerIntakeOrigin || null
   );
+
+  const chooseIntakeOrigin = (origin: 'VERIFIED_EXISTING_POLICY' | 'CONSUMER_DEFINED_COVERAGE_REQUEST') => {
+    setIntakeOrigin(origin);
+    void recordConsumerFunnelEvent({
+      eventName: 'BASELINE_PATH_SELECTED', insuranceLine, baselineOrigin: origin, referenceId: origin
+    }).catch(() => undefined);
+  };
 
   useEffect(() => {
     if (userProfile?.consumerIntakeOrigin) setIntakeOrigin(userProfile.consumerIntakeOrigin);
@@ -657,6 +665,10 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
       setDocumentProcessing(null);
       onRefreshData();
       setCurrentStep('VERIFY_POLICY');
+      void recordConsumerFunnelEvent({
+        eventName: 'BASELINE_CONFIRMED', insuranceLine,
+        baselineOrigin: 'VERIFIED_EXISTING_POLICY', referenceId: result.baseline.id
+      }).catch(() => undefined);
     } catch (error:any) {
       setDocumentProcessing(null);
       setDocumentProcessingError(error?.message || 'Policy verification failed');
@@ -714,6 +726,10 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
       if (!res.ok || !data.success) throw new Error(data.message || data.error || 'Could not share this policy for provider offers.');
       await Promise.resolve(onRefreshData());
       setCurrentStep('COMPETITION_ROOM');
+      void recordConsumerFunnelEvent({
+        eventName: 'MARKETPLACE_REQUEST_ACTIVATED', insuranceLine,
+        baselineOrigin: 'VERIFIED_EXISTING_POLICY', referenceId: data.challenge?.id || activeBaseline.id
+      }).catch(() => undefined);
     } catch (error:any) {
       setFlowActionError(error?.message || 'Could not share this policy for provider offers.');
     } finally {
@@ -1107,12 +1123,12 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
           <h2 className="mt-2 text-2xl font-bold text-slate-900">Which describes you?</h2>
           <p className="mt-1 text-sm text-slate-600">Your answer determines only how your baseline is created. Both paths enter the same provider marketplace.</p>
           <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
-            <button type="button" onClick={() => setIntakeOrigin('VERIFIED_EXISTING_POLICY')} className="rounded-2xl border-2 border-slate-200 p-6 text-left transition hover:border-emerald-500 hover:bg-emerald-50/40">
+            <button type="button" onClick={() => chooseIntakeOrigin('VERIFIED_EXISTING_POLICY')} className="rounded-2xl border-2 border-slate-200 p-6 text-left transition hover:border-emerald-500 hover:bg-emerald-50/40">
               <FileCheck2 className="h-7 w-7 text-emerald-600" />
               <span className="mt-4 block text-lg font-bold text-slate-900">I have insurance now</span>
               <span className="mt-2 block text-sm leading-6 text-slate-600">Upload the policy you have. Confirm the extracted facts, then review independent provider offers.</span>
             </button>
-            <button type="button" onClick={() => setIntakeOrigin('CONSUMER_DEFINED_COVERAGE_REQUEST')} className="rounded-2xl border-2 border-slate-200 p-6 text-left transition hover:border-emerald-500 hover:bg-emerald-50/40">
+            <button type="button" onClick={() => chooseIntakeOrigin('CONSUMER_DEFINED_COVERAGE_REQUEST')} className="rounded-2xl border-2 border-slate-200 p-6 text-left transition hover:border-emerald-500 hover:bg-emerald-50/40">
               <ShieldCheck className="h-7 w-7 text-emerald-600" />
               <span className="mt-4 block text-lg font-bold text-slate-900">I need new insurance</span>
               <span className="mt-2 block text-sm leading-6 text-slate-600">Enter the facts and coverage preferences you want providers to consider. Open Polici does not choose or recommend terms.</span>
@@ -1124,7 +1140,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
       {currentStep === 'UPLOAD_EXTRACT' && intakeOrigin === 'CONSUMER_DEFINED_COVERAGE_REQUEST' && (
         <ConsumerDefinedCoverageRequestForm
           insuranceLine={insuranceLine}
-          onUseExistingPolicy={() => setIntakeOrigin('VERIFIED_EXISTING_POLICY')}
+          onUseExistingPolicy={() => chooseIntakeOrigin('VERIFIED_EXISTING_POLICY')}
           onMarketplaceStarted={async () => {
             await Promise.resolve(onRefreshData());
             setCurrentStep('COMPETITION_ROOM');

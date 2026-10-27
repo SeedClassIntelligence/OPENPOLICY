@@ -172,6 +172,14 @@ test('coverage baseline confirmation supports the consumer flow without admittin
   assert.equal(invoke('POST', '/baselines/create', admin).next, true);
 });
 
+test('consumer funnel progress is consumer-owned and its aggregate is administrator-only', () => {
+  assert.equal(invoke('POST', '/consumer-funnel/events').status, 401);
+  assert.equal(invoke('POST', '/consumer-funnel/events', provider).status, 403);
+  assert.equal(invoke('POST', '/consumer-funnel/events', consumer).next, true);
+  assert.equal(invoke('GET', '/admin/consumer-funnel/summary', consumer).status, 403);
+  assert.equal(invoke('GET', '/admin/consumer-funnel/summary', admin).next, true);
+});
+
 test('founder-approved directory and notification route policies are enforced', () => {
   assert.equal(invoke('GET', '/marketplace/users', provider).status, 403);
   assert.equal(invoke('GET', '/marketplace/users', admin).next, true);

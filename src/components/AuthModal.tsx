@@ -43,6 +43,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     authModalInitialRole,
     authModalInitialMode,
     authModalInitialPlanCode,
+    authModalInitialConsumerOrigin,
     signInWithEmail, 
     sendPasswordReset,
     signUpAsConsumer,
@@ -61,7 +62,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [consumerState, setConsumerState] = useState('NV');
   const [currentCarrier, setCurrentCarrier] = useState('');
   const [requestedInsuranceLine, setRequestedInsuranceLine] = useState<InsuranceLine>('PERSONAL_AUTO');
-  const [consumerIntakeOrigin, setConsumerIntakeOrigin] = useState<'VERIFIED_EXISTING_POLICY' | 'CONSUMER_DEFINED_COVERAGE_REQUEST'>('VERIFIED_EXISTING_POLICY');
+  const [consumerIntakeOrigin, setConsumerIntakeOrigin] = useState<'VERIFIED_EXISTING_POLICY' | 'CONSUMER_DEFINED_COVERAGE_REQUEST'>(authModalInitialConsumerOrigin);
 
   // Provider form state
   const [agentName, setAgentName] = useState('');
@@ -95,11 +96,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setMode(initialMode || authModalInitialMode || 'SIGN_UP');
       setRole(initialRole || authModalInitialRole || 'CONSUMER');
       setProviderPlanCode(authModalInitialPlanCode || 'PLAN_SOLO');
+      setConsumerIntakeOrigin(authModalInitialConsumerOrigin);
       setError(null);
       setResetStatus(null);
       setShowSignInPassword(false);
     }
-  }, [authModalOpen, authModalInitialRole, authModalInitialMode, authModalInitialPlanCode, initialMode, initialRole, isInline]);
+  }, [authModalOpen, authModalInitialRole, authModalInitialMode, authModalInitialPlanCode, authModalInitialConsumerOrigin, initialMode, initialRole, isInline]);
 
   if (!isInline && !authModalOpen) return null;
 

@@ -2,7 +2,7 @@ import { PGlite } from '@electric-sql/pglite';
 import fs from 'fs';
 import pg from 'pg';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8, SQL_MIGRATION_V9, SQL_MIGRATION_V10, SQL_MIGRATION_V11, SQL_MIGRATION_V12, SQL_MIGRATION_V13, SQL_MIGRATION_V14, SQL_MIGRATION_V15, SQL_MIGRATION_V16, SQL_MIGRATION_V17, SQL_MIGRATION_V18, SQL_MIGRATION_V19, SQL_MIGRATION_V20, SQL_MIGRATION_V21, SQL_MIGRATION_V22, SQL_MIGRATION_V23, SQL_MIGRATION_V24, SQL_MIGRATION_V25, SQL_MIGRATION_V26, SQL_MIGRATION_V27, SQL_MIGRATION_V28 } from './migrate';
+import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8, SQL_MIGRATION_V9, SQL_MIGRATION_V10, SQL_MIGRATION_V11, SQL_MIGRATION_V12, SQL_MIGRATION_V13, SQL_MIGRATION_V14, SQL_MIGRATION_V15, SQL_MIGRATION_V16, SQL_MIGRATION_V17, SQL_MIGRATION_V18, SQL_MIGRATION_V19, SQL_MIGRATION_V20, SQL_MIGRATION_V21, SQL_MIGRATION_V22, SQL_MIGRATION_V23, SQL_MIGRATION_V24, SQL_MIGRATION_V25, SQL_MIGRATION_V26, SQL_MIGRATION_V27, SQL_MIGRATION_V28, SQL_MIGRATION_V29 } from './migrate';
 import type { ConsumerDefinedCoverageRequestBaseline } from '../../domain/consumerDefinedCoverageRequest';
 import { assertAuthorityEvidenceMatches, authorityEvidenceSha256, nextAuthorityReviewDate, normalizeEvidencePayload, resolveAuthoritySource, type ProviderAuthorityEvidence } from '../../domain/providerAuthorityVerification';
 import { buildVerifiedPolicyAndBaseline } from '../../domain/policyEvidenceVerification';
@@ -353,6 +353,10 @@ export class PostgresStore {
         await this.sql.query(
           `INSERT INTO _migrations (name) VALUES ('0028_provider_membership_trial') ON CONFLICT (name) DO NOTHING;`
         );
+        await this.sql.exec(SQL_MIGRATION_V29);
+        await this.sql.query(
+          `INSERT INTO _migrations (name) VALUES ('0029_consumer_conversion_funnel') ON CONFLICT (name) DO NOTHING;`
+        );
         this.isReady = true;
         console.log(
           this.useCloudSql
@@ -366,6 +370,30 @@ export class PostgresStore {
       }
     })();
     return this.initPromise;
+  }
+
+  async recordConsumerFunnelEvent(input: {
+    consumerId: string; eventName: string; insuranceLine?: string; baselineOrigin?: string;
+    referenceId?: string; idempotencyKey: string;
+  }): Promise<void> {
+    await this.ensureReady();
+    await this.sql!.query(
+      `INSERT INTO consumer_funnel_events
+       (id,consumer_id,event_name,insurance_line,baseline_origin,reference_id,idempotency_key,created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (idempotency_key) DO NOTHING;`,
+      [randomUUID(), input.consumerId, input.eventName, input.insuranceLine || null,
+        input.baselineOrigin || null, input.referenceId || null,
+        `${input.consumerId}:${input.idempotencyKey}`, new Date().toISOString()]
+    );
+  }
+
+  async getConsumerFunnelSummary(): Promise<Array<{ eventName: string; consumers: number }>> {
+    await this.ensureReady();
+    const result = await this.sql!.query<{ event_name: string; consumers: number }>(
+      `SELECT event_name, COUNT(DISTINCT consumer_id)::int AS consumers
+       FROM consumer_funnel_events GROUP BY event_name ORDER BY event_name;`
+    );
+    return result.rows.map(row => ({ eventName: row.event_name, consumers: Number(row.consumers) }));
   }
 
   public async getPgClient(): Promise<SqlClient> {

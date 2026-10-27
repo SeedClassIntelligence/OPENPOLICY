@@ -46,6 +46,9 @@ const rules: RouteRule[] = [
   { pattern: /^\/admin\/(?:review-queue|audit-chain)/, roles: ['ADMIN'], adminPermission:'COMPLIANCE_ADMIN' },
   { pattern: /^\/admin\//, roles: ['ADMIN'], adminPermission:'PLATFORM_READ' },
 
+  { methods: ['POST'], pattern: /^\/consumer-funnel\/events$/, roles: ['CONSUMER'] },
+  { methods: ['GET'], pattern: /^\/admin\/consumer-funnel\/summary$/, roles: ['ADMIN'], adminPermission:'PLATFORM_READ' },
+
   { pattern: /^\/(?:challenges(?:\/create|\/[^/]+)?|selection\/|reconciliation\/|vault\/)/, roles: ['CONSUMER'] },
   { methods: ['POST'], pattern: /^\/policy-documents\/ingest$/, roles: ['CONSUMER'] },
   { methods: ['POST'], pattern: /^\/policy-documents\/[^/]+\/(?:scan|extract)$/, roles: ['CONSUMER'] },

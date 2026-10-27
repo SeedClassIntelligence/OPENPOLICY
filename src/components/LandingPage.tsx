@@ -97,6 +97,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     }
   };
 
+  const handleConsumerPathClick = (origin: 'VERIFIED_EXISTING_POLICY' | 'CONSUMER_DEFINED_COVERAGE_REQUEST') => {
+    if (isAuthenticated && userRole === 'CONSUMER') {
+      onNavigateConsumer();
+      return;
+    }
+    openAuthModal({ initialRole: 'CONSUMER', initialMode: 'SIGN_UP', initialConsumerOrigin: origin });
+  };
+
   const handleProviderDeskClick = () => {
     if (isAuthenticated && userRole === 'PROVIDER') {
       onNavigateProvider();
@@ -477,34 +485,38 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </div>
           </div>
 
-          {/* Primary Action Buttons */}
-          <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3.5">
+          {/* One account entry with two unmistakable intake paths. */}
+          <div className="pt-2 mx-auto max-w-3xl rounded-2xl border border-slate-700/80 bg-slate-900/75 p-4 sm:p-5 shadow-xl backdrop-blur-sm">
+            <button
+              type="button"
+              onClick={() => openAuthModal({ initialRole: 'CONSUMER', initialMode: 'SIGN_UP' })}
+              className="w-full inline-flex items-center justify-center space-x-2 px-6 py-3.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm rounded-xl shadow-lg shadow-emerald-500/20 transition-all cursor-pointer"
+            >
+              <UserCheck className="w-4 h-4" />
+              <span>Create Your Free Insurance Account</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+            <p className="mt-3 text-xs font-semibold text-slate-300">Then start with the path that fits you:</p>
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
             <button
               id="hero-start-policy review-btn"
-              onClick={handleStartPolicyReviewClick}
-              className="w-full sm:w-auto inline-flex items-center justify-center space-x-2 px-6 py-3.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm rounded-xl shadow-lg shadow-emerald-500/20 transition-all cursor-pointer transform hover:-translate-y-0.5 active:translate-y-0"
+              onClick={() => handleConsumerPathClick('VERIFIED_EXISTING_POLICY')}
+              className="w-full rounded-xl border border-emerald-500/40 bg-emerald-950/40 px-4 py-3 text-left transition hover:border-emerald-400 hover:bg-emerald-950/70"
             >
-              <span>Compare My Current Policy</span>
-              <ArrowRight className="w-4 h-4" />
+              <span className="block text-sm font-bold text-white">I have insurance now</span>
+              <span className="mt-1 block text-xs leading-5 text-slate-300">Upload your current policy once and invite eligible providers to submit proposals.</span>
             </button>
 
             <button
               id="hero-provider-desk-btn"
-              onClick={handleStartPolicyReviewClick}
-              className="w-full sm:w-auto inline-flex items-center justify-center space-x-2 px-6 py-3.5 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-semibold text-sm rounded-xl border border-slate-700 transition cursor-pointer"
+              onClick={() => handleConsumerPathClick('CONSUMER_DEFINED_COVERAGE_REQUEST')}
+              className="w-full rounded-xl border border-cyan-500/30 bg-cyan-950/20 px-4 py-3 text-left transition hover:border-cyan-400 hover:bg-cyan-950/40"
             >
-              <Briefcase className="w-4 h-4 text-blue-400" />
-              <span>Set Up New Coverage</span>
+              <span className="block text-sm font-bold text-white">I need new insurance</span>
+              <span className="mt-1 block text-xs leading-5 text-slate-300">State what you need. Providers decide independently what they can offer.</span>
             </button>
-
-            <button
-              type="button"
-              onClick={() => openAuthModal({ initialRole: 'CONSUMER', initialMode: 'SIGN_UP' })}
-              className="w-full sm:w-auto inline-flex items-center justify-center space-x-2 px-5 py-3.5 bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-500/50 text-emerald-300 font-semibold text-sm rounded-xl transition cursor-pointer"
-            >
-              <UserCheck className="w-4 h-4 text-emerald-400" />
-              <span>Create My Free Account</span>
-            </button>
+            </div>
+            <p className="mt-3 text-[11px] leading-5 text-slate-400">No phone number up front. Review provider proposals privately. Only the provider you authorize receives your connection.</p>
           </div>
 
           {/* Protocol Invariants Bar - Unboxed metadata per frontend design rules */}

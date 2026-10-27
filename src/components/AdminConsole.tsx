@@ -113,6 +113,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
   const [providerApplications,setProviderApplications]=useState<any[]>([]);
   const [providerAuthorityEvidence,setProviderAuthorityEvidence]=useState<any[]>([]);
   const [nevadaReadiness,setNevadaReadiness]=useState<any|null>(null);
+  const [consumerFunnel,setConsumerFunnel]=useState<any|null>(null);
   const [applicationActionId,setApplicationActionId]=useState<string|null>(null);
   const [applicationMessage,setApplicationMessage]=useState<string|null>(null);
   const [applicationReview,setApplicationReview]=useState({
@@ -125,7 +126,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [eventsRes, queueRes, verifyRes, linesRes, rolloutRes, overviewRes, governanceRes, platformFinancialsRes, administratorsRes, operationsRes, applicationsRes, authorityEvidenceRes, nevadaReadinessRes] = await Promise.all([
+      const [eventsRes, queueRes, verifyRes, linesRes, rolloutRes, overviewRes, governanceRes, platformFinancialsRes, administratorsRes, operationsRes, applicationsRes, authorityEvidenceRes, nevadaReadinessRes, consumerFunnelRes] = await Promise.all([
         apiFetch('/api/audit-events'),
         apiFetch('/api/admin/review-queue'),
         apiFetch('/api/admin/audit-chain/verify'),
@@ -138,7 +139,8 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
         apiFetch('/api/admin/marketplace-operations'),
         apiFetch('/api/admin/provider-applications'),
         apiFetch('/api/admin/provider-authority-evidence'),
-        apiFetch('/api/admin/jurisdictions/NV/readiness')
+        apiFetch('/api/admin/jurisdictions/NV/readiness'),
+        apiFetch('/api/admin/consumer-funnel/summary')
       ]);
 
       const eventsData = await eventsRes.json();
@@ -154,6 +156,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
       const applicationsData = await applicationsRes.json();
       const authorityEvidenceData = await authorityEvidenceRes.json();
       const nevadaReadinessData = await nevadaReadinessRes.json();
+      const consumerFunnelData = await consumerFunnelRes.json();
 
       setAuditEvents(eventsData);
       setReviewQueue(queueData);
@@ -168,6 +171,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
       if (applicationsRes.ok) setProviderApplications(Array.isArray(applicationsData) ? applicationsData : []);
       if (authorityEvidenceRes.ok) setProviderAuthorityEvidence(Array.isArray(authorityEvidenceData) ? authorityEvidenceData : []);
       if (nevadaReadinessRes.ok) setNevadaReadiness(nevadaReadinessData);
+      if (consumerFunnelRes.ok) setConsumerFunnel(consumerFunnelData);
     } catch (e) {
       console.error('Failed to load admin audit console data:', e);
     } finally {
@@ -583,7 +587,16 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
           ))}
         </div>
         <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-[11px] text-blue-900">
-          Consumer account totals are not shown because Firebase Authentication is the identity authority and the current owner API does not maintain a separate, trustworthy consumer directory. Policy and lifecycle totals above are authoritative PostgreSQL counts.
+          Consumer conversion is counted from authenticated, idempotent lifecycle milestones—not anonymous page views or marketing clicks.
+        </div>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          {[
+            ['Free accounts', 'ACCOUNT_CREATED'], ['Path selected', 'BASELINE_PATH_SELECTED'],
+            ['Baseline confirmed', 'BASELINE_CONFIRMED'], ['Marketplace activated', 'MARKETPLACE_REQUEST_ACTIVATED']
+          ].map(([label,eventName]) => {
+            const value=consumerFunnel?.events?.find((item:any)=>item.eventName===eventName)?.consumers||0;
+            return <div key={eventName} className="rounded-xl border border-emerald-200 bg-emerald-50 p-3"><span className="block text-[10px] font-semibold uppercase text-emerald-800">{label}</span><strong className="mt-1 block text-xl text-slate-950">{value}</strong>{eventName==='MARKETPLACE_REQUEST_ACTIVATED'&&<span className="text-[10px] text-emerald-800">of {consumerFunnel?.targetActivatedConsumers||1000} target</span>}</div>;
+          })}
         </div>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3 rounded-xl border border-slate-200 p-4">
           <div><span className="block text-[10px] uppercase text-slate-500">Payment processor</span><strong className="text-sm text-slate-900">Stripe</strong></div>

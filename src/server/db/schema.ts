@@ -253,6 +253,17 @@ export const commercialEvents = pgTable('commercial_events', {
   eventHash: text('event_hash').notNull()
 });
 
+export const consumerFunnelEvents = pgTable('consumer_funnel_events', {
+  id: text('id').primaryKey(),
+  consumerId: text('consumer_id').notNull(),
+  eventName: text('event_name').notNull(),
+  insuranceLine: text('insurance_line'),
+  baselineOrigin: text('baseline_origin'),
+  referenceId: text('reference_id'),
+  idempotencyKey: text('idempotency_key').notNull().unique(),
+  createdAt: text('created_at').notNull()
+});
+
 export const billableEvents = pgTable('billable_events', {
   id: text('id').primaryKey(),
   commercialEventId: text('commercial_event_id').notNull().references(() => commercialEvents.id),

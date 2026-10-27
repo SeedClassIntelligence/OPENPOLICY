@@ -665,6 +665,30 @@ app.get('/api/audit-events', async (req, res) => {
   res.json(await postgresStore.getAuditEvents());
 });
 
+app.post('/api/consumer-funnel/events', async (req, res) => {
+  try {
+    const consumerId = getAuthenticatedConsumerId(req);
+    const allowedEvents = new Set(['ACCOUNT_CREATED','BASELINE_PATH_SELECTED','BASELINE_CONFIRMED','MARKETPLACE_REQUEST_ACTIVATED']);
+    const eventName = String(req.body?.eventName || '');
+    if (!allowedEvents.has(eventName)) return res.status(400).json({ error: 'Unsupported consumer funnel event.' });
+    const idempotencyKey = String(req.body?.idempotencyKey || '').trim();
+    if (!idempotencyKey) return res.status(400).json({ error: 'Idempotency key is required.' });
+    await postgresStore.recordConsumerFunnelEvent({
+      consumerId, eventName, idempotencyKey,
+      insuranceLine: req.body?.insuranceLine ? String(req.body.insuranceLine) : undefined,
+      baselineOrigin: req.body?.baselineOrigin ? String(req.body.baselineOrigin) : undefined,
+      referenceId: req.body?.referenceId ? String(req.body.referenceId) : undefined
+    });
+    res.status(202).json({ accepted: true });
+  } catch (error: any) {
+    res.status(error.statusCode || 500).json({ error: error.message });
+  }
+});
+
+app.get('/api/admin/consumer-funnel/summary', async (_req, res) => {
+  res.json({ events: await postgresStore.getConsumerFunnelSummary(), targetActivatedConsumers: 1000 });
+});
+
 app.post('/api/reset', async (req, res) => {
   try {
     db.seedCanonicalDataset();

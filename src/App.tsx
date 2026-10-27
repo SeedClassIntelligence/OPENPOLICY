@@ -22,6 +22,7 @@ import { ProviderInvitationAcceptance } from './components/ProviderInvitationAcc
 import { ProviderOnboardingStatus } from './components/ProviderOnboardingStatus';
 import { AboutPage } from './components/AboutPage';
 import { ComparisonAnalysisPage } from './components/ComparisonAnalysisPage';
+import { recordConsumerFunnelEvent } from './services/consumerFunnel';
 
 function MainApp() {
   const { isAuthenticated, userRole, userProfile, isDemoUser, loading: authLoading, openAuthModal } = useAuth();
@@ -98,6 +99,16 @@ function MainApp() {
     setLoading(true);
     void loadData();
   }, [authLoading, isAuthenticated, userRole, userProfile?.id]);
+
+  useEffect(() => {
+    if (!authLoading && isAuthenticated && userRole === 'CONSUMER' && userProfile?.id) {
+      void recordConsumerFunnelEvent({
+        eventName: 'ACCOUNT_CREATED',
+        insuranceLine: requestedLine,
+        baselineOrigin: userProfile.consumerIntakeOrigin
+      }).catch(() => undefined);
+    }
+  }, [authLoading, isAuthenticated, userRole, userProfile?.id, userProfile?.consumerIntakeOrigin, requestedLine]);
 
   if (providerInvitationMatch) {
     return <ProviderInvitationAcceptance token={decodeURIComponent(providerInvitationMatch[1])} />;
