@@ -704,7 +704,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
                       {organization.marketplaceStatus === 'ACTIVE' ? (
                         <button disabled={!providerStatusReason.trim() || providerStatusBusy === organization.id} onClick={() => changeProviderStatus(organization.id, 'SUSPENDED')} className="rounded border border-amber-300 bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-800 disabled:opacity-40">Suspend</button>
                       ) : organization.marketplaceStatus === 'SUSPENDED' ? (
-                        <button disabled={!providerStatusReason.trim() || providerStatusBusy === organization.id} onClick={() => changeProviderStatus(organization.id, 'ACTIVE')} className="rounded border border-emerald-300 bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-800 disabled:opacity-40">Activate</button>
+                        <button disabled={!providerStatusReason.trim() || providerStatusBusy === organization.id} onClick={() => changeProviderStatus(organization.id, 'ACTIVE')} className="rounded border border-emerald-300 bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-800 disabled:opacity-40">Re-activate</button>
                       ) : (
                         <span className="text-[10px] font-semibold text-slate-500">Use application gate</span>
                       )}
@@ -715,9 +715,9 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
             </table>
           </div>
           <label className="block text-xs font-semibold text-slate-700">Required reason for provider status change
-            <input value={providerStatusReason} onChange={event => setProviderStatusReason(event.target.value)} placeholder="Document the operational or compliance reason" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-xs" />
+            <input value={providerStatusReason} onChange={event => setProviderStatusReason(event.target.value)} placeholder="Examples: nonpayment, expired authority, security review, voluntary pause, or reason for reactivation" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-xs" />
           </label>
-          <p className="text-[10px] text-slate-500">Suspension immediately removes marketplace eligibility. Every change is committed with immutable administrator audit evidence.</p>
+          <p className="text-[10px] text-slate-500">Suspension immediately removes marketplace eligibility. A suspended organization displays a Re-activate button; initial activation must still pass the application, authority, membership, and settlement gates. Every change is committed with immutable administrator audit evidence.</p>
         </div>
       </section>
 

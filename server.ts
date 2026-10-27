@@ -4470,6 +4470,43 @@ export async function synchronizeFixturePersistence(): Promise<void> {
   for (const item of db.getReviewQueue()) await postgresStore.saveReviewQueueItem(item);
 }
 
+async function seedProviderAdministrationDemo(): Promise<void> {
+  if (process.env.NODE_ENV === 'production' || process.env.OPENPOLICY_PROVIDER_APPLICATION_DEMO !== 'true') return;
+  const fixtureApplicantUid = 'fixture_pending_provider_applicant';
+  if (!await postgresStore.getProviderApplicationByFirebaseUid(fixtureApplicantUid)) {
+    await postgresStore.submitProviderApplication({
+      firebaseUid: fixtureApplicantUid,
+      applicantName: 'Jordan Reed (Demo Applicant)',
+      applicantEmail: 'jordan.reed@example.test',
+      legalName: 'Desert Star Insurance Demo LLC',
+      displayName: 'Desert Star Insurance — Demo Application',
+      organizationType: 'INDEPENDENT_AGENCY',
+      jurisdictionCode: 'NV',
+      insuranceLines: ['PERSONAL_AUTO'],
+      producerLicenseNumber: 'NV-DEMO-1001',
+      producerNpn: '0001001',
+      organizationNpn: '0002001',
+      organizationLicenseNumber: 'NV-DEMO-ORG-2001',
+      transactionRole: 'AGENT',
+      claimedCarrierName: 'Silver State Demo Mutual (Fictional)',
+      claimedCarrierNaicCode: '00000',
+      requestedPlanCode: 'PLAN_AGENCY'
+    });
+  }
+  await postgresStore.saveProviderOrganization({
+    id: 'org_demo_suspended', legalName: 'Wave Zero Suspended Provider Demo LLC',
+    displayName: 'Suspended Provider — Demo Only', organizationType: 'INDEPENDENT_AGENCY',
+    verificationStatus: 'MARKETPLACE_APPROVED', marketplaceStatus: 'SUSPENDED',
+    states: ['NV'], linesOfBusiness: ['PERSONAL_AUTO'],
+    createdAt: '2026-10-27T00:00:00.000Z', verifiedAt: '2026-10-27T00:00:00.000Z'
+  });
+  await postgresStore.saveProviderUser({
+    id: 'user_demo_suspended', organizationId: 'org_demo_suspended',
+    name: 'Suspended Producer (Demo)', email: 'suspended.provider@example.test',
+    role: 'OWNER', status: 'ACTIVE'
+  });
+}
+
 async function startServer() {
   // Production must never boot with an implicit fixture mode or an unusable
   // Firebase Admin configuration. This checks configuration presence only;
@@ -4485,6 +4522,7 @@ async function startServer() {
     await commercialStore.seedCanonicalPlans();
     if (process.env.OPENPOLICY_AUTH_MODE === 'fixture') {
       await commercialStore.seedTestCommercialAgreements();
+      await seedProviderAdministrationDemo();
       if (process.env.OPENPOLICY_SEAT_DEMO === 'true' && process.env.NODE_ENV !== 'production') {
         await postgresStore.saveProviderUser({ id:'user_sierra_1', organizationId:'org_sierra',
           name:'Alex Morgan', email:'alex@sierrabrokerage.com', role:'OWNER', status:'ACTIVE' });
