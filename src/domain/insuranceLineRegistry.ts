@@ -57,7 +57,7 @@ export const INSURANCE_LINE_REGISTRY = Object.freeze({
   }),
   RENTERS: Object.freeze({
     code: 'RENTERS', displayName: 'Renters', family: 'PERSONAL', version: 1,
-    implementationStatus: 'DEVELOPMENT', supportedDocumentClasses: ['DECLARATIONS_PAGE', 'FULL_POLICY', 'ENDORSEMENT', 'PROVIDER_QUOTE', 'ISSUED_POLICY'],
+    implementationStatus: 'ACCEPTANCE', supportedDocumentClasses: ['DECLARATIONS_PAGE', 'FULL_POLICY', 'ENDORSEMENT', 'PROVIDER_QUOTE', 'ISSUED_POLICY'],
     policySchemaRef: 'policy-schema/renters/v1', extractionProfileRef: 'document-intelligence/property/v1',
     comparisonProfileRef: 'comparison/renters/v1', disclosureProfileRef: 'disclosure/property/v1',
     providerAuthorityProfileRef: 'provider-authority/property/v1', offerQualificationProfileRef: 'qualification/renters/v1',
@@ -65,7 +65,7 @@ export const INSURANCE_LINE_REGISTRY = Object.freeze({
   }),
   COMMERCIAL_AUTO: Object.freeze({
     code: 'COMMERCIAL_AUTO', displayName: 'Commercial Auto', family: 'COMMERCIAL', version: 1,
-    implementationStatus: 'DEVELOPMENT', supportedDocumentClasses: ['DECLARATIONS_PAGE', 'FULL_POLICY', 'ENDORSEMENT', 'PROVIDER_QUOTE', 'ISSUED_POLICY'],
+    implementationStatus: 'ACCEPTANCE', supportedDocumentClasses: ['DECLARATIONS_PAGE', 'FULL_POLICY', 'ENDORSEMENT', 'PROVIDER_QUOTE', 'ISSUED_POLICY'],
     policySchemaRef: 'policy-schema/commercial-auto/v1', extractionProfileRef: 'document-intelligence/commercial-auto/v1',
     comparisonProfileRef: 'comparison/commercial-auto/v1', disclosureProfileRef: 'disclosure/commercial/v1',
     providerAuthorityProfileRef: 'provider-authority/commercial/v1', offerQualificationProfileRef: 'qualification/commercial-auto/v1',
@@ -73,7 +73,7 @@ export const INSURANCE_LINE_REGISTRY = Object.freeze({
   }),
   COMMERCIAL_GENERAL_LIABILITY: Object.freeze({
     code: 'COMMERCIAL_GENERAL_LIABILITY', displayName: 'Commercial General Liability', family: 'COMMERCIAL', version: 1,
-    implementationStatus: 'DEVELOPMENT', supportedDocumentClasses: ['DECLARATIONS_PAGE', 'FULL_POLICY', 'ENDORSEMENT', 'PROVIDER_QUOTE', 'ISSUED_POLICY'],
+    implementationStatus: 'ACCEPTANCE', supportedDocumentClasses: ['DECLARATIONS_PAGE', 'FULL_POLICY', 'ENDORSEMENT', 'PROVIDER_QUOTE', 'ISSUED_POLICY'],
     policySchemaRef: 'policy-schema/commercial-general-liability/v1', extractionProfileRef: 'document-intelligence/commercial-property-liability/v1',
     comparisonProfileRef: 'comparison/commercial-general-liability/v1', disclosureProfileRef: 'disclosure/commercial/v1',
     providerAuthorityProfileRef: 'provider-authority/commercial/v1', offerQualificationProfileRef: 'qualification/commercial-general-liability/v1',
@@ -81,7 +81,7 @@ export const INSURANCE_LINE_REGISTRY = Object.freeze({
   }),
   BUSINESS_OWNERS_POLICY: Object.freeze({
     code: 'BUSINESS_OWNERS_POLICY', displayName: 'Business Owners Policy', family: 'COMMERCIAL', version: 1,
-    implementationStatus: 'DEVELOPMENT', supportedDocumentClasses: ['DECLARATIONS_PAGE', 'FULL_POLICY', 'ENDORSEMENT', 'PROVIDER_QUOTE', 'ISSUED_POLICY'],
+    implementationStatus: 'ACCEPTANCE', supportedDocumentClasses: ['DECLARATIONS_PAGE', 'FULL_POLICY', 'ENDORSEMENT', 'PROVIDER_QUOTE', 'ISSUED_POLICY'],
     policySchemaRef: 'policy-schema/business-owners-policy/v1', extractionProfileRef: 'document-intelligence/commercial-property-liability/v1',
     comparisonProfileRef: 'comparison/business-owners-policy/v1', disclosureProfileRef: 'disclosure/commercial/v1',
     providerAuthorityProfileRef: 'provider-authority/commercial/v1', offerQualificationProfileRef: 'qualification/business-owners-policy/v1',

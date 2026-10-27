@@ -11,16 +11,17 @@ test('insurance-line registry contains unique stable codes', () => {
 test('accepted personal auto and homeowners can enter the policy pipeline', () => {
   assert.equal(canEnterPolicyPipeline('PERSONAL_AUTO'), true);
   assert.equal(canEnterPolicyPipeline('HOMEOWNERS'), true);
-  assert.equal(canEnterPolicyPipeline('RENTERS'), false);
-  assert.equal(canEnterPolicyPipeline('COMMERCIAL_AUTO'), false);
-  assert.equal(canEnterPolicyPipeline('COMMERCIAL_GENERAL_LIABILITY'), false);
+  assert.equal(canEnterPolicyPipeline('RENTERS'), true);
+  assert.equal(canEnterPolicyPipeline('COMMERCIAL_AUTO'), true);
+  assert.equal(canEnterPolicyPipeline('COMMERCIAL_GENERAL_LIABILITY'), true);
+  assert.equal(canEnterPolicyPipeline('BUSINESS_OWNERS_POLICY'), true);
 });
 
-test('remaining property and core small-commercial lines stay development work, not active pipelines', () => {
-  for (const code of ['RENTERS', 'COMMERCIAL_AUTO', 'COMMERCIAL_GENERAL_LIABILITY', 'BUSINESS_OWNERS_POLICY'] as const) {
+test('property and core small-commercial lines expose complete acceptance contracts', () => {
+  for (const code of ['HOMEOWNERS', 'RENTERS', 'COMMERCIAL_AUTO', 'COMMERCIAL_GENERAL_LIABILITY', 'BUSINESS_OWNERS_POLICY'] as const) {
     const line = INSURANCE_LINE_REGISTRY[code];
-    assert.equal(line.implementationStatus, 'DEVELOPMENT');
-    assert.equal(canEnterPolicyPipeline(code), false);
+    assert.equal(line.implementationStatus, 'ACCEPTANCE');
+    assert.equal(canEnterPolicyPipeline(code), true);
     assert.ok(line.policySchemaRef);
     assert.ok(line.extractionProfileRef);
     assert.ok(line.comparisonProfileRef);

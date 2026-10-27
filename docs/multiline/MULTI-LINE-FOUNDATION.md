@@ -48,10 +48,10 @@ transactions.
 | --- | --- | --- |
 | Personal Auto | `ACCEPTANCE` | Existing end-to-end pipeline remains available for acceptance testing. |
 | Homeowners | `ACCEPTANCE` | Upload, classification, source-backed normalization, immutable baseline, provider eligibility, line-aware offer validation and factual comparison, consumer selection, controlled disclosure, and Commercial V2 connection rating have acceptance coverage. Jurisdiction activation remains a separate fail-closed gate. |
-| Renters | `DEVELOPMENT` | Canonical line, document classification, versioned policy schema, and source-backed field normalization exist. Dwelling coverage is never fabricated. Remaining lifecycle profiles and full acceptance remain to be implemented. |
-| Commercial Auto | `INTEREST_ONLY` | Account interest may be recorded; policy processing is not open. |
-| Commercial General Liability | `DEVELOPMENT` | Shares commercial document infrastructure with BOP and now has source-backed field normalization, while retaining its own policy and comparison contract. |
-| Business Owners Policy | `DEVELOPMENT` | Property/liability package normalization is distinct from Homeowners; remaining lifecycle profiles and full acceptance are not complete. |
+| Renters | `ACCEPTANCE` | Nevada-format normalization, immutable baseline, provider eligibility, line-aware offer validation, factual comparison, controlled disclosure, and exact Commercial V2 connection rating have acceptance coverage. Dwelling coverage is never fabricated. |
+| Commercial Auto | `ACCEPTANCE` | Nevada-format business-auto normalization, liability-contract validation, immutable baseline, marketplace handoff, and exact Commercial V2 connection rating have acceptance coverage. |
+| Commercial General Liability | `ACCEPTANCE` | Nevada-format CGL normalization, distinct coverage contract, immutable baseline, marketplace handoff, and exact Commercial V2 connection rating have acceptance coverage. |
+| Business Owners Policy | `ACCEPTANCE` | Nevada-format package normalization, distinct property/liability contract, immutable baseline, marketplace handoff, and exact Commercial V2 connection rating have acceptance coverage. |
 | Term Life | `LOCKED` | Represented in the canonical universe but not exposed for registration or processing. |
 | Individual Health | `LOCKED` | Represented in the canonical universe but not exposed for registration or processing. |
 
@@ -73,8 +73,8 @@ transactions.
 
 ## Acceptance evidence for this checkpoint
 
-- Registry tests prove the line universe is unique and only Personal Auto and
-  Homeowners can enter the current policy pipeline.
+- Registry tests prove the line universe is unique and the six accepted
+  property/casualty lines can enter the policy pipeline.
 - Matrix tests prove all 51 jurisdictions are crossed with every registered
   line exactly once, locked regions stay locked, and static rollout data can
   never confer production authority.
