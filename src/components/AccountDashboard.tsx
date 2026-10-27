@@ -21,6 +21,7 @@ import {
   Award,
   AlertCircle
 } from 'lucide-react';
+import { HelpHeading } from './HelpTooltip';
 import { useAuth } from '../context/AuthContext';
 import { 
   fetchUserChallenges, 
@@ -213,7 +214,7 @@ export const AccountDashboard: React.FC<AccountDashboardProps> = ({
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-base font-bold text-slate-900">Policies Open for Offers</h2>
+              <h2 className="text-base font-bold text-slate-900"><HelpHeading label="Policies open for offers" heading="Policies Open for Offers">Your verified coverage baselines currently available to eligible providers. Providers see only the marketplace information permitted at this stage—not your direct contact information.</HelpHeading></h2>
               <p className="text-xs text-slate-500">
                 Policies you have shared for eligible insurance providers to review and respond to independently.
               </p>
@@ -318,7 +319,7 @@ export const AccountDashboard: React.FC<AccountDashboardProps> = ({
       {activeTab === 'ORDERS' && (
         <div className="space-y-4">
           <div>
-            <h2 className="text-base font-bold text-slate-900">Bound Policies & Issued Binders</h2>
+            <h2 className="text-base font-bold text-slate-900"><HelpHeading label="Bound policies and binders" heading="Bound Policies & Issued Binders">Policies a provider reports as bound and the supporting binder records available for post-bind verification. A provider report and a verified issued-policy outcome remain separate records.</HelpHeading></h2>
             <p className="text-xs text-slate-500">
               Issued policies from offers you selected, with recorded consent and factual reconciliation against the selected offer.
             </p>
@@ -399,7 +400,7 @@ export const AccountDashboard: React.FC<AccountDashboardProps> = ({
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-base font-bold text-slate-900">Private Policy Document Vault</h2>
+              <h2 className="text-base font-bold text-slate-900"><HelpHeading label="Private document vault" heading="Private Policy Document Vault">Your protected policy documents and evidence. Uploading a document does not share your identity with providers or create a provider charge.</HelpHeading></h2>
               <p className="text-xs text-slate-500">
                 Encrypted repository for declarations pages, vehicle titles, and endorsement records.
               </p>

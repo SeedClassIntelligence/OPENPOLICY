@@ -54,6 +54,7 @@ import { detectQuoteDiscrepancies } from '../domain/policyIntelligence';
 import { apiFetch } from '../services/apiClient';
 import { ProviderPremiumServices } from './ProviderPremiumServices';
 import { ProviderTeamManagement } from './ProviderTeamManagement';
+import { HelpHeading } from './HelpTooltip';
 
 interface ProviderPortalProps {
   challenge: Challenge | null;
@@ -1008,7 +1009,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
           }`}
         >
           <Briefcase className="h-4 w-4" />
-          Opportunities
+          <HelpHeading label="Opportunities" heading="Opportunities">Consumer-created insurance requests that match your organization’s verified jurisdiction, insurance line, appetite, and available capacity. Reviewing availability does not create a connection charge.</HelpHeading>
           {opportunities.length > 0 && (
             <span className="ml-1 px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-700 font-bold">
               {opportunities.length}
@@ -1062,7 +1063,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
           }`}
         >
           <Users className="h-4 w-4" />
-          Appetite & Licensing
+          <HelpHeading label="Appetite and licensing" heading="Appetite & Licensing">Shows the markets your organization chooses to consider and the authority evidence Open Polici uses to determine eligibility. Appetite never replaces a valid license or carrier relationship.</HelpHeading>
         </button>
 
         <button
@@ -1077,7 +1078,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
           }`}
         >
           <DollarSign className="h-4 w-4" />
-          Commercial & Membership
+          <HelpHeading label="Commercial and membership" heading="Commercial & Membership">Your V2 membership, operating capacity, invoices, settlements, and authorized-connection activity. Membership access and marketplace authority are evaluated separately.</HelpHeading>
         </button>
       </div>
 
@@ -1090,7 +1091,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
             <Info className="h-5 w-5 text-blue-600 shrink-0 mt-0.5" />
             <div>
               <strong className="font-semibold block text-sm mb-0.5">
-                Stage 0 & 1: Privacy-Preserving Opportunity Distribution
+                <HelpHeading label="Privacy-preserving opportunity distribution" heading="Stage 0 & 1: Privacy-Preserving Opportunity Distribution">At this stage you receive only the information authorized for marketplace review. Direct consumer identity and contact information remain sealed until selection and explicit disclosure consent.</HelpHeading>
               </strong>
               Opportunities are shared policies made available to this provider based on
               matching jurisdiction licensing, active appetite, and line of business. Prior to acceptance,
@@ -1638,7 +1639,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
                     <div>
                       <div className="flex items-center space-x-2">
                         <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                          Offer Submission Status
+                          <HelpHeading label="Offer submission status" heading="Offer Submission Status">Shows whether this competition is accepting proposals and whether your organization has submitted a current, documented offer. Submission itself does not disclose the consumer’s contact information.</HelpHeading>
                         </span>
                         <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold border ${offerStatus?.windowOpen ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-slate-100 text-slate-700 border-slate-200'}`}>
                           {offerStatus?.windowOpen ? 'Submission Window Open' : 'Submission Window Closed'}
@@ -2249,7 +2250,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
 
           {/* Active Verified Licenses */}
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-3">
-            <h4 className="text-sm font-bold text-slate-900">Active State Insurance Licenses</h4>
+            <h4 className="text-sm font-bold text-slate-900"><HelpHeading label="Active licenses" heading="Active State Insurance Licenses">License evidence is evaluated by jurisdiction, insurance line, organization, and individual producer. Missing, expired, stale, or mismatched evidence prevents marketplace activity.</HelpHeading></h4>
             <div className="divide-y divide-slate-100">
               {licenses.map(lic => (
                 <div key={lic.id} className="py-3 flex items-center justify-between text-xs">
@@ -2271,7 +2272,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
 
           {/* Configured Underwriting Appetite */}
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
-            <h4 className="text-sm font-bold text-slate-900">Underwriting Appetite Criteria</h4>
+            <h4 className="text-sm font-bold text-slate-900"><HelpHeading label="Underwriting appetite" heading="Underwriting Appetite Criteria">The organization-defined risk characteristics and markets it is willing to review. These settings control which eligible opportunities are shown; they do not rank providers for consumers.</HelpHeading></h4>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
               <div className="border border-slate-200 p-3.5 rounded-xl">
                 <span className="text-slate-400 block uppercase text-[10px] font-bold">Target Jurisdictions</span>
@@ -2305,7 +2306,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
             <div className="space-y-1">
               <div className="flex items-center space-x-2">
                 <ShieldCheck className="h-5 w-5 text-emerald-400" />
-                <h3 className="text-base font-bold text-white">Commercial Neutrality Invariant</h3>
+                <h3 className="text-base font-bold text-white"><HelpHeading label="Commercial neutrality" heading="Commercial Neutrality Invariant">Payment purchases membership and operating capacity only. It never establishes regulatory authority, changes provider order, or buys preferential presentation to consumers.</HelpHeading></h3>
                 <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/20 text-emerald-300 font-semibold border border-emerald-500/30">
                   ENFORCED
                 </span>
@@ -2403,7 +2404,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
           {/* 3. Marketplace Capacity & Entitlements */}
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
             <div>
-              <h3 className="text-base font-bold text-slate-900">Provider Account Capacity</h3>
+                <h3 className="text-base font-bold text-slate-900"><HelpHeading label="Provider account capacity" heading="Provider Account Capacity">Shows the operating limits included in the active membership, such as producer seats, jurisdictions, and concurrent marketplace participation. Capacity is enforced independently from licensing.</HelpHeading></h3>
               <p className="text-xs text-slate-500">
                 Capacity limits derived from active commercial agreement. Entitlements gate volume and access without modifying evaluation neutrality.
               </p>
@@ -2467,7 +2468,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-base font-bold text-slate-900">Governed Acquisition & Value Funnel</h3>
+                <h3 className="text-base font-bold text-slate-900"><HelpHeading label="Marketplace activity funnel" heading="Governed Acquisition & Value Funnel">Tracks factual marketplace stages from availability through offer submission, consumer selection, authorized connection, binding, verification, and future baseline activation.</HelpHeading></h3>
                 <p className="text-xs text-slate-500">
                   Full lifecycle visibility across verified transactional milestones. Value is recognized at authentic customer actions.
                 </p>
@@ -2581,7 +2582,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-base font-bold text-slate-900">Commercial Event Ledger</h3>
+                <h3 className="text-base font-bold text-slate-900"><HelpHeading label="Commercial event ledger" heading="Commercial Event Ledger">An immutable activity record used to determine whether a qualifying V2 commercial event occurred. Only an eligible, consumer-authorized connection can become a marketplace transaction charge.</HelpHeading></h3>
                 <p className="text-xs text-slate-500">
                   Immutable cryptographic ledger of economically significant transaction events.
                 </p>
@@ -2636,7 +2637,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
               <div>
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">CE-4 Rating Engine</span>
-                <h3 className="text-base font-bold text-slate-900 mt-0.5">Rated Commercial Activity</h3>
+                <h3 className="text-base font-bold text-slate-900 mt-0.5"><HelpHeading label="Rated commercial activity" heading="Rated Commercial Activity">Shows how recorded events were evaluated against the active V2 agreement, including billable, non-billable, blocked, or duplicate dispositions.</HelpHeading></h3>
                 <p className="text-xs text-slate-500">
                   Transactional charges and auditable adjustments rated under historical plan agreements. Flat fees only (integer cents).
                 </p>
@@ -2791,7 +2792,7 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
               <div>
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">CE-5 Billing & Settlement</span>
-                <h3 className="text-base font-bold text-slate-900 mt-0.5">Invoices & Settlement Ledger</h3>
+                <h3 className="text-base font-bold text-slate-900 mt-0.5"><HelpHeading label="Invoices and settlements" heading="Invoices & Settlement Ledger">Finalized invoices, processor payments, refunds, allocations, and remaining balances. A processor result must reconcile to an Open Polici invoice before the account is treated as settled.</HelpHeading></h3>
                 <p className="text-xs text-slate-500">
                   Contractual billing periods, finalized snapshot invoices, and authoritative settlement balance.
                 </p>

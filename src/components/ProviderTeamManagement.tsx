@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { apiFetch } from '../services/apiClient';
+import { HelpHeading } from './HelpTooltip';
 
 export const ProviderTeamManagement: React.FC<{ providerUserId?: string }> = ({ providerUserId }) => {
   const [users,setUsers]=useState<any[]>([]);
@@ -39,7 +40,7 @@ export const ProviderTeamManagement: React.FC<{ providerUserId?: string }> = ({ 
   };
   const input='rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs';
   return <section className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
-    <div><h3 className="text-base font-bold text-slate-900">Provider team</h3><p className="text-xs text-slate-500">Owners and administrators invite independently authenticated users into this organization. Invitations never create licensing authority.</p>{seatCapacity&&<p className="mt-2 inline-flex rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">Producer seats: {seatCapacity.active} active / {seatCapacity.limit} purchased · {seatCapacity.available} available</p>}</div>
+    <div><h3 className="text-base font-bold text-slate-900"><HelpHeading label="Provider team and producer seats" heading="Provider team">Each invited person receives an independent login and consumes a purchased seat when active. A seat permits platform access but never creates licensing authority; the user’s own role and evidence still control what they can do.</HelpHeading></h3><p className="text-xs text-slate-500">Owners and administrators invite independently authenticated users into this organization. Invitations never create licensing authority.</p>{seatCapacity&&<p className="mt-2 inline-flex rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">Producer seats: {seatCapacity.active} active / {seatCapacity.limit} purchased · {seatCapacity.available} available</p>}</div>
     {message&&<p className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900">{message}</p>}
     {acceptanceLink&&<div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs"><b>One-time acceptance link</b><code className="mt-1 block break-all select-all">{acceptanceLink}</code></div>}
     <form onSubmit={invite} className="grid grid-cols-1 md:grid-cols-4 gap-2">

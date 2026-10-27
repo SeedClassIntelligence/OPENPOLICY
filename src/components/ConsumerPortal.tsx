@@ -66,6 +66,7 @@ import type { InsuranceLine } from '../types/jurisdiction';
 import { getInsuranceLineDefinition } from '../domain/insuranceLineRegistry';
 import { getPolicyReviewFields } from '../domain/policyLineReviewFields';
 import { ConsumerDefinedCoverageRequestForm } from './ConsumerDefinedCoverageRequestForm';
+import { HelpHeading } from './HelpTooltip';
 
 interface ConsumerPortalProps {
   insuranceLine: InsuranceLine;
@@ -1326,7 +1327,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                 OCR & PROVENANCE EXTRACTION COMPLETE
               </span>
               <h2 className="text-2xl font-bold text-slate-900 mt-1">
-                Verify Your Policy Baseline
+                <HelpHeading label="Coverage baseline" heading="Verify Your Policy Baseline">A structured record of the policy facts extracted from your document. You review and correct those facts before they become the standard used to compare provider offers.</HelpHeading>
               </h2>
               <p className="text-sm text-slate-600">
                 Review the extracted terms from <span className="font-semibold text-slate-800">{activePolicy.sourceDocumentName}</span>. Confirm or correct the information before providers can review it.
@@ -1484,7 +1485,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
               VERIFIED POLICY BASELINE
             </span>
             <h2 className="text-2xl font-bold text-slate-900 mt-1">
-              Open Your Policy for Provider Offers
+              <HelpHeading label="Open for provider offers" heading="Open Your Policy for Provider Offers">Makes the verified baseline available to eligible providers without disclosing your direct identity or contact information. You remain in control of selection and disclosure.</HelpHeading>
             </h2>
             <p className="text-sm text-slate-600">
               Your verified existing policy is the reference point. Providers independently determine the price, coverage, and terms they are authorized to offer.
@@ -1548,7 +1549,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                 </span>
               </div>
               <h2 className="text-2xl font-bold text-slate-900 mt-1">
-                Your Offers
+                <HelpHeading label="Provider offers" heading="Your Offers">Documented proposals submitted independently by eligible providers. Open Polici displays factual premium and coverage differences without recommending which policy you should buy.</HelpHeading>
               </h2>
               <p className="text-xs text-slate-600">
                 Providers review the same verified policy information independently. <strong className="text-slate-800 font-semibold">Coverage and price are shown separately</strong> so a lower price cannot conceal a coverage reduction.
@@ -1830,7 +1831,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
                 <div className="flex items-center space-x-2">
                   <Clock className="w-4 h-4 text-blue-600" />
                   <h4 className="text-sm font-bold text-slate-900">
-                    Offer Activity Timeline
+                    <HelpHeading label="Offer activity timeline" heading="Offer Activity Timeline">A timestamped record of marketplace activity so you can see when the submission window opened, offers arrived, review began, and any later selection or disclosure occurred.</HelpHeading>
                   </h4>
                   <span className="text-[10px] bg-blue-100 text-blue-700 font-bold px-2 py-0.5 rounded-full font-mono">
                     Transparent Event Ledger
@@ -2097,7 +2098,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
               <div className="flex items-center space-x-2">
                 <Sparkles className="w-4 h-4 text-purple-600" />
                 <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                  Plain-Language Transparency Summary for {selectedComparison?.carrier || 'Selected Offer'}
+                  <HelpHeading label="Transparency summary" heading={<>Plain-Language Transparency Summary for {selectedComparison?.carrier || 'Selected Offer'}</>}>A factual summary of how this proposal differs from your verified baseline. It identifies changes but does not provide suitability advice or choose an offer for you.</HelpHeading>
                 </span>
               </div>
               <span className="text-[10px] text-slate-500 font-mono">
@@ -2988,7 +2989,7 @@ export const ConsumerPortal: React.FC<ConsumerPortalProps> = ({
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
                 <ShieldCheck className="w-5 h-5 text-emerald-600" />
-                <h3 className="text-base font-bold text-slate-900">Governed Policies & Future Baselines (PM-5)</h3>
+                <h3 className="text-base font-bold text-slate-900"><HelpHeading label="Governed policies and future baselines" heading="Governed Policies & Future Baselines">Preserves issued-policy outcomes and, after verification, creates the starting baseline for a future shopping cycle. Provider-reported binding and verified outcomes remain distinct.</HelpHeading></h3>
               </div>
               <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200">
                 {policyVaultItems.length} Active in Vault
