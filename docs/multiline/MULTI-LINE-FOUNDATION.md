@@ -47,7 +47,7 @@ transactions.
 | Insurance line | Current status | Meaning |
 | --- | --- | --- |
 | Personal Auto | `ACCEPTANCE` | Existing end-to-end pipeline remains available for acceptance testing. |
-| Homeowners | `DEVELOPMENT` | Canonical line, document classification, versioned policy schema, and source-backed field normalization exist. Comparison, offer, handoff, reconciliation, and full acceptance remain to be implemented. |
+| Homeowners | `ACCEPTANCE` | Upload, classification, source-backed normalization, immutable baseline, provider eligibility, line-aware offer validation and factual comparison, consumer selection, controlled disclosure, and Commercial V2 connection rating have acceptance coverage. Jurisdiction activation remains a separate fail-closed gate. |
 | Renters | `DEVELOPMENT` | Canonical line, document classification, versioned policy schema, and source-backed field normalization exist. Dwelling coverage is never fabricated. Remaining lifecycle profiles and full acceptance remain to be implemented. |
 | Commercial Auto | `INTEREST_ONLY` | Account interest may be recorded; policy processing is not open. |
 | Commercial General Liability | `DEVELOPMENT` | Shares commercial document infrastructure with BOP and now has source-backed field normalization, while retaining its own policy and comparison contract. |
@@ -73,8 +73,8 @@ transactions.
 
 ## Acceptance evidence for this checkpoint
 
-- Registry tests prove the line universe is unique and only Personal Auto can
-  enter the current policy pipeline.
+- Registry tests prove the line universe is unique and only Personal Auto and
+  Homeowners can enter the current policy pipeline.
 - Matrix tests prove all 51 jurisdictions are crossed with every registered
   line exactly once, locked regions stay locked, and static rollout data can
   never confer production authority.
@@ -86,7 +86,7 @@ transactions.
 
 ## Remaining work by line
 
-Each line must receive its own versioned document classification, extraction
+Each remaining development line must receive its own versioned document classification, extraction
 and normalization schema, consumer correction model, policy schema,
 comparison profile, provider authority mapping, offer validation,
 qualification, controlled disclosure, handoff, issued-policy reconciliation,

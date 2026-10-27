@@ -49,7 +49,7 @@ export const INSURANCE_LINE_REGISTRY = Object.freeze({
   }),
   HOMEOWNERS: Object.freeze({
     code: 'HOMEOWNERS', displayName: 'Homeowners', family: 'PERSONAL', version: 1,
-    implementationStatus: 'DEVELOPMENT', supportedDocumentClasses: ['DECLARATIONS_PAGE', 'FULL_POLICY', 'ENDORSEMENT', 'PROVIDER_QUOTE', 'ISSUED_POLICY'],
+    implementationStatus: 'ACCEPTANCE', supportedDocumentClasses: ['DECLARATIONS_PAGE', 'FULL_POLICY', 'ENDORSEMENT', 'PROVIDER_QUOTE', 'ISSUED_POLICY'],
     policySchemaRef: 'policy-schema/homeowners/v1', extractionProfileRef: 'document-intelligence/property/v1',
     comparisonProfileRef: 'comparison/homeowners/v1', disclosureProfileRef: 'disclosure/property/v1',
     providerAuthorityProfileRef: 'provider-authority/property/v1', offerQualificationProfileRef: 'qualification/homeowners/v1',

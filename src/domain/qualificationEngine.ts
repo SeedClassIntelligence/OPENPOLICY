@@ -18,6 +18,7 @@ import {
   VerifiedSupplementalFact
 } from '../types/insurance';
 import { evaluateOfferAgainstStandard } from './qualificationStandard';
+import { validatePolicyLineOfferFacts } from './policyLineOfferContract';
 
 export interface JurisdictionalStatutoryRule {
   jurisdiction: string;
@@ -99,6 +100,11 @@ export function evaluateOfferQualification(
 ): QualificationResult {
   const qualificationReasons: string[] = [];
   const disqualificationReasons: string[] = [];
+  const insuranceLine = offer.insuranceLine || baseline.insuranceLine || 'PERSONAL_AUTO';
+
+  if ((baseline.insuranceLine || 'PERSONAL_AUTO') !== insuranceLine) {
+    disqualificationReasons.push(`Offer insurance line '${insuranceLine}' does not match baseline insurance line '${baseline.insuranceLine || 'PERSONAL_AUTO'}'.`);
+  }
 
   const resolvedJurisdiction = (
     jurisdictionOverride ||
@@ -157,7 +163,19 @@ export function evaluateOfferQualification(
   // 5. Versioned Jurisdictional Statutory Coverage Evaluation
   // Evaluates explicit jurisdictional requirements without assuming universal 50-state statutory rules.
   let applicableRuleVersion: string | undefined = undefined;
-  if (resolvedJurisdiction && JURISDICTIONAL_STATUTORY_REGISTRY[resolvedJurisdiction]) {
+  if (insuranceLine !== 'PERSONAL_AUTO') {
+    try {
+      validatePolicyLineOfferFacts(insuranceLine, offer.verifiedFacts);
+      qualificationReasons.push(`${insuranceLine} offer coverage facts satisfy the versioned line contract.`);
+    } catch (error) {
+      disqualificationReasons.push(error instanceof Error ? error.message : String(error));
+    }
+    if (resolvedJurisdiction) {
+      qualificationReasons.push(
+        `Jurisdiction '${resolvedJurisdiction}': no independently published ${insuranceLine} statutory rule is applied by this qualification step.`
+      );
+    }
+  } else if (resolvedJurisdiction && JURISDICTIONAL_STATUTORY_REGISTRY[resolvedJurisdiction]?.lineOfBusiness === insuranceLine) {
     const rule = JURISDICTIONAL_STATUTORY_REGISTRY[resolvedJurisdiction];
     applicableRuleVersion = rule.ruleVersion;
     const missingCodes = rule.mandatoryCoverageCodes.filter(
