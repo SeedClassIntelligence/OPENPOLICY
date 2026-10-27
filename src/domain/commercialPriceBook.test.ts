@@ -101,7 +101,16 @@ test('contracted recurring add-ons flow into an historically anchored invoice', 
     invoiceId: 'invoice-pricebook', invoiceNumber: 'INV-PRICEBOOK', now: '2026-12-01T00:00:00.000Z'
   });
   assert.equal(lineItems.length, 6);
-  assert.equal(invoice.subtotalCents, 49_900 + (2 * 4_900) + 19_900 + 29_900 + 49_900 + 19_900);
+  const v2AddOns = OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.recurringAddOns;
+  assert.equal(
+    invoice.subtotalCents,
+    OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.memberships.PREMIUM.priceCentsMonthly +
+      (2 * v2AddOns.ADDITIONAL_PRODUCER_SEAT) +
+      v2AddOns.WORKFLOW_AUTOMATION +
+      v2AddOns.ENTERPRISE_REPORTING +
+      v2AddOns.API_INTEGRATION +
+      v2AddOns.MULTI_LOCATION_ADMINISTRATION
+  );
 });
 
 test('executed enterprise implementation agreement creates one exact one-time invoice line', () => {
