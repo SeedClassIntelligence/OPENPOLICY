@@ -955,8 +955,17 @@ export const ProviderPortal: React.FC<ProviderPortalProps> = ({
 
   const closeTour = (completed: boolean) => {
     setTourOpen(false);
-    if (completed) window.localStorage.setItem('openpolici-provider-tour-completed-v1', 'true');
+    if (completed) window.localStorage.setItem('openpolici-provider-tour-completed-v2', 'true');
   };
+
+  useEffect(() => {
+    if (window.localStorage.getItem('openpolici-provider-tour-completed-v2') === 'true') return;
+    const timer = window.setTimeout(() => {
+      setTourOpen(true);
+      moveTour(0);
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   return (
     <div className="space-y-6">

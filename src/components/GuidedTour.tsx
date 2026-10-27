@@ -37,12 +37,11 @@ export const GuidedTour: React.FC<GuidedTourProps> = ({ steps, activeStep, onSte
 
   return (
     <div className="fixed inset-0 z-[90] pointer-events-none" aria-live="polite">
-      <div className="absolute inset-0 bg-slate-950/25" />
       <section
         role="dialog"
-        aria-modal="true"
+        aria-modal="false"
         aria-labelledby="provider-tour-title"
-        className="pointer-events-auto absolute bottom-5 right-5 left-5 sm:left-auto sm:w-[420px] bg-slate-950 text-white rounded-2xl border border-emerald-400/40 shadow-2xl overflow-hidden"
+        className="pointer-events-auto absolute bottom-5 right-5 left-5 sm:left-auto sm:w-[420px] bg-slate-950/95 text-white rounded-2xl border border-emerald-400/60 shadow-2xl overflow-hidden"
       >
         <div className="h-1 bg-slate-800">
           <div className="h-full bg-emerald-400 transition-all" style={{ width: `${((activeStep + 1) / steps.length) * 100}%` }} />
