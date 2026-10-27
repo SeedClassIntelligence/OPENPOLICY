@@ -25,7 +25,7 @@ import { ComparisonAnalysisPage } from './components/ComparisonAnalysisPage';
 import { recordConsumerFunnelEvent } from './services/consumerFunnel';
 
 function MainApp() {
-  const { isAuthenticated, userRole, userProfile, isDemoUser, loading: authLoading, openAuthModal } = useAuth();
+  const { isAuthenticated, userRole, userProfile, isDemoUser, loading: authLoading, openAuthModal, useDemoAccount } = useAuth();
   const [activePerspective, setActivePerspective] = useState<ActivePerspective>('LANDING');
   const [consumerInitialStep, setConsumerInitialStep] = useState<ConsumerStep>('UPLOAD_EXTRACT');
   const [challenge, setChallenge] = useState<Challenge | null>(null);
@@ -36,6 +36,16 @@ function MainApp() {
   const requestedLine = userProfile?.requestedInsuranceLine || 'PERSONAL_AUTO';
   const requestedLineAvailable = canEnterPolicyPipeline(requestedLine);
   const providerInvitationMatch = window.location.pathname.match(/^\/provider-invitation\/([^/]+)$/);
+
+  useEffect(() => {
+    const localOwnerDemo = import.meta.env.DEV
+      && import.meta.env.VITE_ENABLE_DEMO_IDENTITIES === 'true'
+      && window.location.pathname === '/admin'
+      && new URLSearchParams(window.location.search).get('demo') === 'owner';
+    if (localOwnerDemo && (!isAuthenticated || userRole !== 'ADMIN')) {
+      useDemoAccount('ADMIN', 'Open Polici Owner Demo');
+    }
+  }, [isAuthenticated, userRole, useDemoAccount]);
 
   useEffect(() => {
     const syncRoute = () => {
