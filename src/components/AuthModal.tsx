@@ -156,7 +156,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   };
 
-  const handleDemoSelect = (selectedRole: 'CONSUMER' | 'PROVIDER', alias?: string) => {
+  const handleDemoSelect = (selectedRole: UserRole, alias?: string) => {
     useDemoAccount(selectedRole, alias);
     if (onSuccess) onSuccess(selectedRole);
   };
@@ -354,6 +354,27 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     </div>
                   </div>
                   <ArrowRight className="w-4 h-4 text-slate-400 group-hover:text-blue-600 transition-transform group-hover:translate-x-0.5" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleDemoSelect('ADMIN', 'Open Polici Owner Demo')}
+                  className="w-full flex items-center justify-between p-3.5 rounded-xl border border-slate-200 hover:border-amber-500 hover:bg-amber-50/30 transition text-left cursor-pointer group"
+                >
+                  <div className="flex items-center space-x-3">
+                    <div className="w-9 h-9 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+                      <ShieldCheck className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-slate-900 group-hover:text-amber-700">
+                        Owner Administrator: Control Center
+                      </div>
+                      <div className="text-[11px] text-slate-500 font-mono">
+                        Local review queue, marketplace controls, commercial records, and audit evidence
+                      </div>
+                    </div>
+                  </div>
+                  <ArrowRight className="w-4 h-4 text-slate-400 group-hover:text-amber-600 transition-transform group-hover:translate-x-0.5" />
                 </button>
               </div>
             </div>

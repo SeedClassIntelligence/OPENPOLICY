@@ -41,7 +41,7 @@ export interface AuthContextType {
   sendPasswordReset: (email: string) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
   signOutUser: () => Promise<void>;
-  useDemoAccount: (role?: 'CONSUMER' | 'PROVIDER', alias?: string) => void;
+  useDemoAccount: (role?: UserRole, alias?: string) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -64,6 +64,14 @@ export const DEMO_PROVIDER_PROFILE: FirestoreUserProfile = {
   licenseNumber: 'NV-LIC-984210',
   state: 'NV',
   createdAt: '2026-01-15T08:00:00.000Z'
+};
+
+export const DEMO_ADMIN_PROFILE: FirestoreUserProfile = {
+  id: 'fixture_admin',
+  email: 'owner.demo@openpolici.local',
+  displayName: 'Open Polici Owner Demo',
+  role: 'ADMIN',
+  createdAt: '2026-10-27T00:00:00.000Z'
 };
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -290,14 +298,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setCurrentUser(null);
     setIsDemoUser(false);
     setUserProfile(null);
+    window.sessionStorage.removeItem('openpolici-fixture-role');
   };
 
-  const useDemoAccount = (role: 'CONSUMER' | 'PROVIDER' = 'CONSUMER', alias?: string) => {
+  const useDemoAccount = (role: UserRole = 'CONSUMER', alias?: string) => {
     if (!import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO_IDENTITIES !== 'true') {
       throw new Error('Demonstration identities are disabled outside the explicitly enabled local development environment.');
     }
     setIsDemoUser(true);
-    if (role === 'PROVIDER') {
+    window.sessionStorage.setItem('openpolici-fixture-role', role);
+    if (role === 'ADMIN') {
+      setUserProfile({
+        ...DEMO_ADMIN_PROFILE,
+        displayName: alias || DEMO_ADMIN_PROFILE.displayName
+      });
+    } else if (role === 'PROVIDER') {
       setUserProfile({
         ...DEMO_PROVIDER_PROFILE,
         displayName: alias || DEMO_PROVIDER_PROFILE.displayName

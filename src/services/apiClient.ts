@@ -31,6 +31,10 @@ export async function executeAuthenticatedFetch(
   const headers = new Headers(init.headers);
   const { user } = dependencies;
   if (user) headers.set('Authorization', `Bearer ${await user.getIdToken()}`);
+  if (import.meta.env.DEV && import.meta.env.VITE_ENABLE_DEMO_IDENTITIES === 'true') {
+    const fixtureRole = window.sessionStorage.getItem('openpolici-fixture-role');
+    if (fixtureRole) headers.set('x-openpolicy-fixture-role', fixtureRole);
+  }
 
   let response = await dependencies.fetchImpl(input, { ...init, headers });
   if (response.status !== 401 || !user) return response;
