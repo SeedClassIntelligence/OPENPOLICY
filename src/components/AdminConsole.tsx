@@ -675,7 +675,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
                   <td className="px-3 py-2"><strong>{application.status}</strong>{application.providerOrganizationId&&<><span className="mt-1 block font-mono text-[10px] text-slate-400">{application.providerOrganizationId}</span><button onClick={()=>{setFinancialOrgId(application.providerOrganizationId);setSelectedCommercialPlan(application.requestedPlanCode);setFinancialSummary(null);setActiveSection('COMMERCIAL');window.scrollTo({top:0,behavior:'smooth'});}} className="mt-1 text-[10px] font-bold text-emerald-700 underline">Open commercial setup</button></>}</td>
                   <td className="px-3 py-2"><div className="flex flex-wrap gap-1">
                     {['SUBMITTED','UNDER_REVIEW'].includes(application.status)&&<><button onClick={()=>beginApplicationReview(application)} className="rounded border border-blue-300 bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-800">Review application</button>{selectedApplicationId===application.id&&<><button disabled={applicationActionId===application.id||!applicationReview.reason.trim()} onClick={()=>reviewProviderApplication(application.id,'REJECT')} className="rounded border border-rose-300 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-800 disabled:opacity-40">Reject</button><button disabled={applicationActionId===application.id||!applicationReview.reason.trim()||!applicationReview.licenseExpirationDate||!applicationReview.verificationSourceUrl.trim()||!applicationReview.verificationRecordId.trim()||(application.organizationType!=='DIRECT_CARRIER'&&(!applicationReview.organizationVerificationRecordId.trim()||!applicationReview.organizationLicenseExpirationDate))||(application.transactionRole==='AGENT'&&(!applicationReview.relationshipVerificationRecordId.trim()||!applicationReview.relationshipExpirationDate))} onClick={()=>reviewProviderApplication(application.id,'APPROVE')} className="rounded border border-blue-700 bg-blue-700 px-2 py-1 text-[10px] font-bold text-white disabled:opacity-40">Approve verified authority</button></>}</>}
-                    {application.status==='APPROVED'&&<><button disabled={applicationActionId===application.id} onClick={()=>prepareProviderMembership(application.id)} className="rounded border border-blue-300 bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-800 disabled:opacity-40">Prepare membership checkout</button><button disabled={applicationActionId===application.id} onClick={()=>activateProviderApplication(application.id)} className="rounded border border-emerald-300 bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-800 disabled:opacity-40">Verify evidence, payment & activate</button></>}
+                    {application.status==='APPROVED'&&<><button disabled={applicationActionId===application.id} onClick={()=>prepareProviderMembership(application.id)} className="rounded border border-blue-300 bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-800 disabled:opacity-40">Prepare membership checkout</button><span className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-semibold text-slate-600">Activate from organization registry</span></>}
                   </div></td>
                 </tr>)}
                 {!providerApplications.length&&<tr><td colSpan={5} className="px-3 py-6 text-center text-slate-500"><strong className="block text-slate-700">No provider applications are waiting for review.</strong><span className="text-[10px]">The verification form will appear only after a provider submits an application and you select it.</span></td></tr>}
@@ -692,8 +692,9 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
                 <th className="px-3 py-2">Organization</th><th className="px-3 py-2">Verification</th><th className="px-3 py-2">Marketplace</th><th className="px-3 py-2">Users</th><th className="px-3 py-2">Jurisdictions</th><th className="px-3 py-2">Lines</th><th className="px-3 py-2">Action</th>
               </tr></thead>
               <tbody className="divide-y divide-slate-100">
-                {(ownerOverview?.organizations || []).map((organization: any) => (
-                  <tr key={organization.id} className="hover:bg-slate-50">
+                {(ownerOverview?.organizations || []).map((organization: any) => {
+                  const approvedApplication=providerApplications.find((application:any)=>application.providerOrganizationId===organization.id&&application.status==='APPROVED');
+                  return <tr key={organization.id} className="hover:bg-slate-50">
                     <td className="px-3 py-2"><strong className="block text-slate-900">{organization.displayName}</strong><span className="font-mono text-[10px] text-slate-400">{organization.id}</span></td>
                     <td className="px-3 py-2 text-slate-700">{organization.verificationStatus}</td>
                     <td className="px-3 py-2 text-slate-700">{organization.marketplaceStatus}</td>
@@ -705,12 +706,14 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
                         <button disabled={!providerStatusReason.trim() || providerStatusBusy === organization.id} onClick={() => changeProviderStatus(organization.id, 'SUSPENDED')} className="rounded border border-amber-300 bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-800 disabled:opacity-40">Suspend</button>
                       ) : organization.marketplaceStatus === 'SUSPENDED' ? (
                         <button disabled={!providerStatusReason.trim() || providerStatusBusy === organization.id} onClick={() => changeProviderStatus(organization.id, 'ACTIVE')} className="rounded border border-emerald-300 bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-800 disabled:opacity-40">Re-activate</button>
+                      ) : organization.marketplaceStatus === 'PENDING' && approvedApplication ? (
+                        <button disabled={applicationActionId===approvedApplication.id} onClick={()=>activateProviderApplication(approvedApplication.id)} className="rounded border border-emerald-400 bg-emerald-600 px-2 py-1 text-[10px] font-bold text-white disabled:opacity-40" title="Requires verified authority, a matching Commercial V2 agreement, and settled membership payment">Activate after gates pass</button>
                       ) : (
-                        <span className="text-[10px] font-semibold text-slate-500">Use application gate</span>
+                        <span className="text-[10px] font-semibold text-slate-500">Awaiting approved application</span>
                       )}
                     </td>
-                  </tr>
-                ))}
+                  </tr>;
+                })}
               </tbody>
             </table>
           </div>
