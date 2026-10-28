@@ -108,6 +108,8 @@ import type { InsuranceLine } from './src/types/jurisdiction';
 import nevadaCandidatePacket from './research/pr0b/NV/STAGE-2-CANDIDATE-RULES.json';
 import nevadaReadinessManifest from './research/pr0b/NV/PRODUCTION-READINESS-MANIFEST.json';
 import { renderSeoHtml, seoPageForPath } from './src/server/seoSurface';
+import { pasoStore } from './src/server/db/pasoStore';
+import { assertPaso, type PasoAction, type PasoRole } from './src/domain/pasoAuthorization';
 
 export const app = express();
 const DEFAULT_PORT = Number(process.env.PORT) || 3000;
@@ -1564,6 +1566,32 @@ app.get('/api/admin/marketplace-operations',async(_req,res)=>{
       selections:selections.map(item=>({id:item.id,challengeId:item.challengeId,providerOrganizationId:item.providerOrganizationId,carrier:item.carrier,status:item.status,selectedAt:item.selectedAt,annualPremium:item.annualPremium})),
       handoffs:handoffs.map(item=>({id:item.id,bindingReference:item.bindingReference,challengeId:item.challengeId,providerOrganizationId:item.providerOrganizationId,carrier:item.carrier,status:item.status,createdAt:item.createdAt,updatedAt:item.updatedAt}))});
   }catch(e:any){res.status(e.statusCode||500).json({error:e.message});}
+});
+
+const PASO_ROLES = new Set<PasoRole>(['SALES_ADMIN','SALES_MANAGER','SALES_REP','PROVIDER_ACTIVATION','SALES_FINANCE','SALES_AUDITOR']);
+async function requirePaso(req: express.Request, action:PasoAction){
+  const identity=req.openPolicyIdentity!;
+  if(identity.adminType==='OWNER')return undefined;
+  const profile=await pasoStore.getProfileByInternalUserId(identity.uid);
+  if(!profile||profile.activeStatus!=='ACTIVE')throw Object.assign(new Error('Active PASO assignment required.'),{statusCode:403});
+  assertPaso(profile.role,action); return profile;
+}
+
+app.get('/api/internal/sales/foundation',async(req,res)=>{
+  try{const profile=await requirePaso(req,'FOUNDATION_READ');const [teams,territories,profiles]=await Promise.all([pasoStore.listTeams(),pasoStore.listTerritories(),pasoStore.listProfiles()]);res.json({profile:profile||{role:'PLATFORM_OWNER'},teams,territories,profiles});}
+  catch(e:any){res.status(e.statusCode||500).json({error:e.message});}
+});
+app.post('/api/internal/sales/teams',async(req,res)=>{
+  try{await requirePaso(req,'TEAM_WRITE');const team=await pasoStore.createTeam({name:String(req.body?.name||''),managerUserId:req.body?.managerUserId?String(req.body.managerUserId):undefined,actorId:req.openPolicyIdentity!.uid});res.status(201).json({team});}
+  catch(e:any){res.status(e.statusCode||500).json({error:e.message});}
+});
+app.post('/api/internal/sales/territories',async(req,res)=>{
+  try{await requirePaso(req,'TERRITORY_WRITE');const territory=await pasoStore.createTerritory({name:String(req.body?.name||''),jurisdictionCodes:Array.isArray(req.body?.jurisdictionCodes)?req.body.jurisdictionCodes.map(String):[],geographicScope:String(req.body?.geographicScope||'STATE'),insuranceLineFocus:Array.isArray(req.body?.insuranceLineFocus)?req.body.insuranceLineFocus.map(String):[],assignedTeamId:req.body?.assignedTeamId?String(req.body.assignedTeamId):undefined,effectiveFrom:String(req.body?.effectiveFrom||''),effectiveTo:req.body?.effectiveTo?String(req.body.effectiveTo):undefined,actorId:req.openPolicyIdentity!.uid});res.status(201).json({territory});}
+  catch(e:any){res.status(e.statusCode||500).json({error:e.message});}
+});
+app.post('/api/internal/sales/profiles',async(req,res)=>{
+  try{await requirePaso(req,'PROFILE_WRITE');const role=String(req.body?.role||'') as PasoRole;if(!PASO_ROLES.has(role))return res.status(400).json({error:'Valid PASO role required.'});const profile=await pasoStore.createProfile({internalUserId:String(req.body?.internalUserId||''),teamId:req.body?.teamId?String(req.body.teamId):undefined,managerId:req.body?.managerId?String(req.body.managerId):undefined,role,employmentClassification:String(req.body?.employmentClassification||''),effectiveFrom:String(req.body?.effectiveFrom||''),actorId:req.openPolicyIdentity!.uid});res.status(201).json({profile});}
+  catch(e:any){res.status(e.statusCode||500).json({error:e.message});}
 });
 
 const V2_PROVIDER_PLAN_CODES: Set<string> = new Set(

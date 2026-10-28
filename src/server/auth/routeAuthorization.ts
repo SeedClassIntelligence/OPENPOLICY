@@ -43,6 +43,7 @@ const rules: RouteRule[] = [
   { methods: ['POST'], pattern: /^\/admin\/jurisdictions\/[^/]+\/market\/(?:gates|transition)$/, roles: ['ADMIN'], adminPermission:'COMPLIANCE_ADMIN' },
   { methods: ['GET'], pattern: /^\/admin\/jurisdictions\/NV\/readiness$/, roles: ['ADMIN'], adminPermission:'COMPLIANCE_ADMIN' },
   { pattern: /^\/admin\/commercial\//, roles: ['ADMIN'], adminPermission:'COMMERCIAL_ADMIN' },
+  { pattern: /^\/internal\/sales(?:\/.*)?$/, roles: ['ADMIN'], adminPermission:'PLATFORM_READ' },
   { pattern: /^\/admin\/(?:review-queue|audit-chain)/, roles: ['ADMIN'], adminPermission:'COMPLIANCE_ADMIN' },
   { pattern: /^\/admin\//, roles: ['ADMIN'], adminPermission:'PLATFORM_READ' },
 

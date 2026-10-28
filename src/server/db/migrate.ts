@@ -1564,6 +1564,32 @@ CREATE INDEX IF NOT EXISTS idx_consumer_funnel_event_name ON consumer_funnel_eve
 CREATE INDEX IF NOT EXISTS idx_consumer_funnel_consumer ON consumer_funnel_events(consumer_id, created_at);
 `;
 
+export const SQL_MIGRATION_V30 = `
+CREATE TABLE IF NOT EXISTS sales_teams (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, manager_user_id TEXT, active_status TEXT NOT NULL CHECK (active_status IN ('ACTIVE','INACTIVE')),
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sales_territories (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, jurisdiction_codes TEXT NOT NULL, geographic_scope TEXT NOT NULL,
+  insurance_line_focus TEXT NOT NULL, assigned_team_id TEXT REFERENCES sales_teams(id), effective_from TEXT NOT NULL,
+  effective_to TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sales_rep_profiles (
+  id TEXT PRIMARY KEY, internal_user_id TEXT NOT NULL UNIQUE, team_id TEXT REFERENCES sales_teams(id), manager_id TEXT,
+  role TEXT NOT NULL CHECK (role IN ('SALES_ADMIN','SALES_MANAGER','SALES_REP','PROVIDER_ACTIVATION','SALES_FINANCE','SALES_AUDITOR')),
+  employment_classification TEXT NOT NULL, compensation_plan_version_id TEXT,
+  active_status TEXT NOT NULL CHECK (active_status IN ('ACTIVE','INACTIVE','SUSPENDED')),
+  effective_from TEXT NOT NULL, effective_to TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sales_audit_events (
+  id TEXT PRIMARY KEY, actor_id TEXT NOT NULL, object_type TEXT NOT NULL, object_id TEXT NOT NULL, action TEXT NOT NULL,
+  prior_state_reference TEXT, resulting_state_reference TEXT, occurred_at TEXT NOT NULL, correlation_id TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sales_territories_team ON sales_territories(assigned_team_id, effective_from);
+CREATE INDEX IF NOT EXISTS idx_sales_rep_profiles_team ON sales_rep_profiles(team_id, active_status);
+CREATE INDEX IF NOT EXISTS idx_sales_audit_object ON sales_audit_events(object_type, object_id, occurred_at);
+`;
+
 export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR || './data/openpolicy_pg') {
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
@@ -1688,7 +1714,11 @@ export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR ||
     await pglite.query(
       `INSERT INTO _migrations (name) VALUES ('0029_consumer_conversion_funnel') ON CONFLICT (name) DO NOTHING;`
     );
-    console.log(`[Open Policy DB] Migrations 0001 through 0029 applied successfully.`);
+    await pglite.exec(SQL_MIGRATION_V30);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0030_paso_foundation') ON CONFLICT (name) DO NOTHING;`
+    );
+    console.log(`[Open Policy DB] Migrations 0001 through 0030 applied successfully.`);
     return pglite;
   } catch (error) {
     console.error(`[Open Policy DB] Migration error:`, error);

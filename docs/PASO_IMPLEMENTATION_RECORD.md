@@ -2,7 +2,7 @@
 
 ## Cumulative implementation record
 
-**Status:** Reconnaissance complete; implementation not yet started  
+**Status:** PASO-1 foundation implemented and locally validated; PASO-2 not started
 **Feature branch:** `feature/paso-provider-acquisition`  
 **Governing specification:** PASO Master Build Instructions  
 **Integration posture:** Additive internal bounded context
@@ -100,3 +100,25 @@ The existing public provider flow currently grants a 30-day membership-only tria
 ## 7. Acceptance evidence required per stage
 
 Each stage must add focused domain, persistence, API-authorization and integration tests. A stage is not complete until the relevant new tests and existing provider onboarding, security, Commercial V2 and marketplace suites pass. Failures and unresolved decisions remain recorded in this document rather than being replaced by disconnected status files.
+
+## 8. PASO-1 implementation evidence
+
+Implemented on `feature/paso-provider-acquisition` without production deployment or migration:
+
+- Migration `0030_paso_foundation` creates sales teams, territories, rep profiles and immutable PASO audit events.
+- PASO roles and actions are evaluated fail closed, including representative ownership and manager team boundaries.
+- Internal routes under `/api/internal/sales/*` reuse authenticated administrator identity, require `PLATFORM_READ`, then apply PASO role permissions.
+- Platform owners retain bounded bootstrap authority to create the first teams, territories and PASO profiles.
+- Team, territory and profile creation writes correlated immutable audit evidence.
+
+Validation on October 28, 2026:
+
+- PASO authorization, existing route authorization and persistence tests: **21/21 passed**.
+- TypeScript check: **passed**.
+- Client and server production build: **passed**.
+- Migration `0030_paso_foundation`: applied to an isolated temporary PGlite database and recorded exactly once.
+- Durable PASO evidence: team, territory and profile persisted; three creation audit events recorded.
+
+Environment note: the Windows runner returned `uv_os_get_passwd ... ENOMEM` before the TypeScript loader could initialize. `scripts/node-userinfo-shim.cjs` preserves native account lookup when available and supplies deterministic process-account metadata only for that runner failure. Tests then loaded and passed; no application runtime behavior uses the shim.
+
+PASO-1 does not alter provider activation, provider authority, Commercial V2 economics, Stripe behavior, consumer records, marketplace billing events or production data.
