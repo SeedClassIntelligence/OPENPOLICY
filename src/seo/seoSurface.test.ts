@@ -44,7 +44,7 @@ test('public education routes receive unique indexable metadata and structured d
   const comparison = renderSeoHtml(template, '/insurance-comparison');
   assert.match(about, /<title>About Open Polici/);
   assert.match(about, /AboutPage/);
-  assert.match(comparison, /<title>How Insurance Offer Comparison Works/);
+  assert.match(comparison, /<title>Open Polici vs Insurance Lead Generation/);
   assert.match(comparison, /application\/ld\+json/);
   assert.doesNotMatch(comparison, /noindex,nofollow/);
 });

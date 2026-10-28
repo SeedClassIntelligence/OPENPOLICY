@@ -280,7 +280,7 @@ export const Header: React.FC<HeaderProps> = ({
               </nav>
               {!isAuthenticated && (
                 <nav aria-label="Learn about Open Polici" className="hidden xl:flex items-center gap-1 ml-auto shrink-0">
-                  <button type="button" onClick={() => showPublicLanding('COMPARISON')} className={`px-2.5 py-1.5 rounded-lg text-xs font-medium ${publicLandingPath === '/insurance-comparison' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'}`}>How comparison works</button>
+                  <button type="button" onClick={() => showPublicLanding('COMPARISON')} className={`px-2.5 py-1.5 rounded-lg text-xs font-medium ${publicLandingPath === '/insurance-comparison' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'}`}>Industry comparison</button>
                   <button type="button" onClick={() => showPublicLanding('ABOUT')} className={`px-2.5 py-1.5 rounded-lg text-xs font-medium ${publicLandingPath === '/about' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'}`}>About</button>
                 </nav>
               )}

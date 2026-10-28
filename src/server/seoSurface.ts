@@ -24,8 +24,8 @@ const PUBLIC_PAGES: Record<string, SeoPage> = {
     canonical: `${ORIGIN}/about`, index: true
   },
   '/insurance-comparison': {
-    title: 'How Insurance Offer Comparison Works | Open Polici',
-    description: 'See how Open Polici compares insurance premiums, coverage limits, deductibles, inclusions, and unknowns against a consumer-controlled baseline.',
+    title: 'Open Polici vs Insurance Lead Generation | Competitive Analysis',
+    description: 'Compare Open Polici with direct carrier funnels, insurance lead marketplaces, quote sites, and independent agencies across privacy, competition, provider economics, and consumer control.',
     canonical: `${ORIGIN}/insurance-comparison`, index: true
   }
 };
@@ -49,7 +49,7 @@ export function renderSeoHtml(template: string, pathname: string): string {
   const structuredData = pathname === '/about'
     ? { '@context': 'https://schema.org', '@type': 'AboutPage', name: page.title, url: page.canonical, description: page.description, isPartOf: { '@type': 'WebSite', name: 'Open Polici', url: ORIGIN } }
     : pathname === '/insurance-comparison'
-    ? { '@context': 'https://schema.org', '@type': 'Article', headline: 'How Open Polici Compares Insurance Offers', description: page.description, mainEntityOfPage: page.canonical, publisher: { '@type': 'Organization', name: 'Open Polici', url: ORIGIN } }
+    ? { '@context': 'https://schema.org', '@type': 'Article', headline: 'Open Polici Insurance Marketplace Competitive Analysis', description: page.description, mainEntityOfPage: page.canonical, publisher: { '@type': 'Organization', name: 'Open Polici', url: ORIGIN } }
     : null;
   let html = template
     .replace(/<title>[^<]*<\/title>/, `<title>${title}</title>`)

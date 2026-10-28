@@ -61,7 +61,7 @@ export const AboutPage: React.FC = () => (
 
     <section className="max-w-5xl mx-auto px-5 py-20 text-center">
       <Users className="w-9 h-9 text-emerald-600 mx-auto" /><h2 className="mt-4 text-3xl font-black">Built first for Nevada, designed for governed expansion.</h2><p className="mt-4 text-slate-600 leading-7">Open Polici’s initial market is Nevada. Insurance-line availability, regulatory rules, provider authority, and document-processing readiness are independently controlled so expansion never silently inherits assumptions from another state or product line.</p>
-      <button onClick={() => go('/insurance-comparison')} className="mt-7 px-5 py-3 bg-slate-950 text-white rounded-xl font-bold inline-flex gap-2 items-center">See how comparison works <ArrowRight className="w-4 h-4" /></button>
+      <button onClick={() => go('/insurance-comparison')} className="mt-7 px-5 py-3 bg-slate-950 text-white rounded-xl font-bold inline-flex gap-2 items-center">See the industry comparison <ArrowRight className="w-4 h-4" /></button>
     </section>
   </div>
 );

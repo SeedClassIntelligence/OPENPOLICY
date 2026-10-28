@@ -21,7 +21,7 @@ import { canEnterPolicyPipeline, getInsuranceLineDefinition } from './domain/ins
 import { ProviderInvitationAcceptance } from './components/ProviderInvitationAcceptance';
 import { ProviderOnboardingStatus } from './components/ProviderOnboardingStatus';
 import { AboutPage } from './components/AboutPage';
-import { ComparisonAnalysisPage } from './components/ComparisonAnalysisPage';
+import { IndustryComparisonPage } from './components/IndustryComparisonPage';
 import { recordConsumerFunnelEvent } from './services/consumerFunnel';
 
 function MainApp() {
@@ -227,7 +227,7 @@ function MainApp() {
         ) : (
           <>
             {activePerspective === 'LANDING' && (
-              publicPath === '/about' ? <AboutPage /> : publicPath === '/insurance-comparison' ? <ComparisonAnalysisPage /> : <LandingPage
+              publicPath === '/about' ? <AboutPage /> : publicPath === '/insurance-comparison' ? <IndustryComparisonPage /> : <LandingPage
                 onNavigateConsumer={() => handlePerspectiveChange('CONSUMER', 'UPLOAD_EXTRACT')}
                 onNavigateProvider={() => handlePerspectiveChange('PROVIDER')}
                 onNavigateAdmin={() => handlePerspectiveChange('ADMIN_AUDIT')}

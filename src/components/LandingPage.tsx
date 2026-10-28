@@ -1758,7 +1758,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 <li>
                   <a href="/insurance-comparison" className="hover:text-emerald-400 transition text-left flex items-center space-x-1.5 text-slate-400">
                     <ChevronRight className="w-3 h-3 text-slate-600" />
-                    <span>How Comparison Works</span>
+                    <span>Industry Comparison</span>
                   </a>
                 </li>
                 <li>
