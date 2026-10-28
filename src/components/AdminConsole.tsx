@@ -34,12 +34,15 @@ import {
   ChainVerificationResult, 
   RegulatoryAuditProof 
 } from '../types/insurance';
+import { TelemetryDashboard } from './TelemetryDashboard';
+import { ArchitectureDocs } from './ArchitectureDocs';
 
 interface AdminConsoleProps {
   onRefreshData: () => void;
 }
 
-type OwnerConsoleSection = 'OVERVIEW' | 'MARKETPLACE' | 'PROVIDERS' | 'COMMERCIAL' | 'SECURITY' | 'MARKETS' | 'REVIEWS' | 'AUDIT';
+type OwnerConsoleSection = 'OVERVIEW' | 'PROVIDERS' | 'MARKETS' | 'REVIEWS' | 'MARKETPLACE' | 'CONSUMERS' | 'COMMERCIAL' | 'SALES' | 'REPORTING' | 'SECURITY';
+type SystemGovernancePanel = 'ACCESS' | 'OPERATIONS' | 'AUDIT';
 
 const NEVADA_DOI_LOOKUP_URL = 'https://di.nv.gov/ins/f?p=licensing:search';
 const NIPR_NPN_LOOKUP_URL = 'https://npn-lookup.app.nipr.com/npn-lookup/PacNpnSearch.htm';
@@ -52,18 +55,21 @@ const emptyApplicationReview = () => ({
 });
 
 const OWNER_CONSOLE_SECTIONS: Array<{ id: OwnerConsoleSection; label: string; help: string }> = [
-  { id: 'OVERVIEW', label: 'Overview', help: 'Platform totals, payment readiness, and current operating health.' },
-  { id: 'MARKETPLACE', label: 'Marketplace', help: 'Opportunities, offers, selections, cohorts, and completed handoffs.' },
-  { id: 'PROVIDERS', label: 'Providers', help: 'Review authority evidence, prepare membership, and control provider activation.' },
-  { id: 'COMMERCIAL', label: 'Commercial', help: 'Membership agreements, invoices, charges, refunds, and revenue controls.' },
-  { id: 'SECURITY', label: 'Security', help: 'Owner and staff permissions for protected platform administration.' },
-  { id: 'MARKETS', label: 'Markets', help: 'Insurance-line readiness and jurisdiction rollout status. This does not activate a market.' },
-  { id: 'REVIEWS', label: 'Reviews', help: 'Human review items that require an explicit administrative decision.' },
-  { id: 'AUDIT', label: 'Audit', help: 'Cryptographic integrity checks, immutable events, and regulatory proof exports.' }
+  { id: 'OVERVIEW', label: '01 · Command Overview', help: 'Marketplace health, urgent decisions, consumer demand, provider supply, and operating readiness.' },
+  { id: 'PROVIDERS', label: '02 · Provider Registry', help: 'Organizations, carriers, agencies, producers, applications, activation, restriction, and reinstatement.' },
+  { id: 'MARKETS', label: '03 · Jurisdiction Governance', help: 'States, insurance lines, RulePacks, authority gates, market status, and access prerequisites.' },
+  { id: 'REVIEWS', label: '04 · Compliance & Authority', help: 'Licensing evidence, appointments, re-verification, incidents, and human decisions.' },
+  { id: 'MARKETPLACE', label: '05 · Marketplace Operations', help: 'Opportunities, competitions, submissions, selections, and controlled handoffs.' },
+  { id: 'CONSUMERS', label: '06 · Consumer Operations', help: 'Intake, document processing, privacy, consent, support, and consumer funnel health.' },
+  { id: 'COMMERCIAL', label: '07 · Commercial V2', help: 'Memberships, entitlements, capacity, usage, invoices, payments, and ledger evidence.' },
+  { id: 'SALES', label: '08 · Sales & Acquisition', help: 'Provider applications, recruitment pipeline, attribution, assignments, and acquisition readiness.' },
+  { id: 'REPORTING', label: '09 · Intelligence & Reporting', help: 'Supply, demand, conversion, retention, marketplace performance, and operating reports.' },
+  { id: 'SECURITY', label: '10 · System Governance', help: 'Internal roles, configuration, telemetry, architecture, audit evidence, and emergency controls.' }
 ];
 
 export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => {
   const [activeSection, setActiveSection] = useState<OwnerConsoleSection>('OVERVIEW');
+  const [systemGovernancePanel, setSystemGovernancePanel] = useState<SystemGovernancePanel>('ACCESS');
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [insuranceLines, setInsuranceLines] = useState<any[]>([]);
@@ -531,7 +537,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
             Open Polici Owner Control Center
           </h2>
           <p className="text-xs text-slate-400">
-            One protected view of marketplace operations, provider organizations, commercial administration, rollout readiness, reviews and immutable audit evidence.
+            The governed operating authority for marketplace admission, provider scope, jurisdiction readiness, consumer operations, Commercial V2, security, and immutable evidence.
           </p>
         </div>
 
@@ -556,7 +562,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
         </div>
       </div>
 
-      <nav aria-label="Owner console sections" className="sticky top-20 z-20 grid grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur sm:grid-cols-4 xl:grid-cols-8">
+      <nav aria-label="Master administration operating areas" className="sticky top-20 z-20 grid grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur md:grid-cols-3 xl:grid-cols-5">
         {OWNER_CONSOLE_SECTIONS.map(section => (
           <div key={section.id} className="group relative">
             <button
@@ -564,7 +570,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
               onClick={() => setActiveSection(section.id)}
               aria-pressed={activeSection === section.id}
               aria-describedby={`owner-help-${section.id.toLowerCase()}`}
-              className={`w-full whitespace-nowrap rounded-lg px-3 py-2 text-xs font-bold transition ${activeSection === section.id ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'}`}
+              className={`min-h-11 w-full rounded-lg px-3 py-2 text-left text-[11px] font-bold leading-4 transition ${activeSection === section.id ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'}`}
             >
               {section.label}
             </button>
@@ -722,6 +728,60 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
           </label>
           <p className="text-[10px] text-slate-500">Suspension immediately removes marketplace eligibility. A suspended organization displays a Re-activate button; initial activation must still pass the application, authority, membership, and settlement gates. Every change is committed with immutable administrator audit evidence.</p>
         </div>
+      </section>
+
+      <section id="owner-consumers" className={`rounded-xl border border-slate-200 bg-white p-5 shadow-xs space-y-5 ${activeSection === 'CONSUMERS' ? '' : 'hidden'}`}>
+        <div>
+          <p className="text-[10px] font-mono font-bold uppercase tracking-wider text-emerald-700">Consumer operations</p>
+          <h3 className="text-base font-bold text-slate-950">Intake, baseline, marketplace activation, privacy, and consent oversight</h3>
+          <p className="text-xs text-slate-500">Operational visibility only. Administration may investigate failures and consent evidence; it may not select a provider or alter submitted insurance terms.</p>
+        </div>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          {[
+            ['Free accounts', 'ACCOUNT_CREATED'], ['Path selected', 'BASELINE_PATH_SELECTED'],
+            ['Baseline confirmed', 'BASELINE_CONFIRMED'], ['Marketplace activated', 'MARKETPLACE_REQUEST_ACTIVATED']
+          ].map(([label,eventName]) => {
+            const value=consumerFunnel?.events?.find((item:any)=>item.eventName===eventName)?.consumers||0;
+            return <div key={eventName} className="rounded-xl border border-emerald-200 bg-emerald-50 p-3"><span className="block text-[10px] font-semibold uppercase text-emerald-800">{label}</span><strong className="mt-1 block text-xl text-slate-950">{value}</strong></div>;
+          })}
+        </div>
+        <div className="grid gap-3 md:grid-cols-3">
+          <div className="rounded-xl border p-4"><span className="text-[10px] font-bold uppercase text-slate-500">Durable policies</span><strong className="mt-1 block text-2xl">{marketplaceOperations?.policies?.length ?? '—'}</strong><p className="mt-1 text-[10px] text-slate-500">Ingested policy records available to operations.</p></div>
+          <div className="rounded-xl border p-4"><span className="text-[10px] font-bold uppercase text-slate-500">Controlled handoffs</span><strong className="mt-1 block text-2xl">{marketplaceOperations?.handoffs?.length ?? '—'}</strong><p className="mt-1 text-[10px] text-slate-500">Selection and disclosure lifecycle records.</p></div>
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4"><span className="text-[10px] font-bold uppercase text-amber-800">Support case management</span><strong className="mt-1 block text-sm text-amber-950">Not yet connected</strong><p className="mt-1 text-[10px] text-amber-800">A durable support-case and privacy-incident queue remains a backend implementation requirement.</p></div>
+        </div>
+      </section>
+
+      <section id="owner-sales" className={`rounded-xl border border-slate-200 bg-white p-5 shadow-xs space-y-5 ${activeSection === 'SALES' ? '' : 'hidden'}`}>
+        <div>
+          <p className="text-[10px] font-mono font-bold uppercase tracking-wider text-blue-700">Sales and provider acquisition</p>
+          <h3 className="text-base font-bold text-slate-950">Recruitment-to-application handoff</h3>
+          <p className="text-xs text-slate-500">Sales may recruit and support applications. Sales does not verify authority, approve marketplace participation, or activate provider access.</p>
+        </div>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          {['SUBMITTED','UNDER_REVIEW','APPROVED','REJECTED'].map(status=><div key={status} className="rounded-xl border bg-slate-50 p-3"><span className="block text-[10px] font-bold uppercase text-slate-500">{status.replaceAll('_',' ')}</span><strong className="mt-1 block text-2xl">{providerApplications.filter((item:any)=>item.status===status).length}</strong></div>)}
+        </div>
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-950">
+          <strong className="block">Sales attribution is not yet authoritative.</strong>
+          <p className="mt-1 leading-5">Prospects, territories, assignments, compensation approvals, provider acquisition cost, and retention cohorts require a dedicated durable sales ledger. Provider applications shown here are operational records—not a substitute for that ledger.</p>
+        </div>
+      </section>
+
+      <section id="owner-reporting" className={`rounded-xl border border-slate-200 bg-white p-5 shadow-xs space-y-5 ${activeSection === 'REPORTING' ? '' : 'hidden'}`}>
+        <div>
+          <p className="text-[10px] font-mono font-bold uppercase tracking-wider text-indigo-700">Intelligence and reporting</p>
+          <h3 className="text-base font-bold text-slate-950">Current marketplace supply, demand, and conversion evidence</h3>
+          <p className="text-xs text-slate-500">Every figure below is calculated from the currently loaded durable operating records. No synthetic KPI is presented as production performance.</p>
+        </div>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          {[
+            ['Active provider supply', ownerOverview?.counts?.activeProviderOrganizations ?? '—'],
+            ['Open consumer demand', ownerOverview?.counts?.openCompetitions ?? '—'],
+            ['Offers submitted', marketplaceOperations?.offers?.length ?? '—'],
+            ['Authorized handoffs', marketplaceOperations?.handoffs?.length ?? '—']
+          ].map(([label,value])=><div key={String(label)} className="rounded-xl border bg-slate-50 p-4"><span className="block text-[10px] font-bold uppercase text-slate-500">{label}</span><strong className="mt-1 block text-2xl text-slate-950">{value}</strong></div>)}
+        </div>
+        <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-xs text-blue-950">Conversion, retention, CAC, and jurisdiction supply-demand ratios will remain explicitly unavailable until their source events and denominators are durably defined. The console will not infer business performance from incomplete data.</div>
       </section>
 
       {/* Owner financial control plane */}
@@ -960,7 +1020,16 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
         <p className="text-[10px] text-emerald-700">Workflow automation, enterprise reporting, API integration and multi-location administration are delivered through tenant-scoped, entitlement-enforced provider services.</p>
       </section>
 
-      <section id="owner-security" className={`rounded-xl border border-slate-300 bg-white p-5 shadow-xs space-y-4 ${activeSection === 'SECURITY' ? '' : 'hidden'}`}>
+      <section id="owner-system-governance" className={`space-y-4 ${activeSection === 'SECURITY' ? '' : 'hidden'}`}>
+        <div className="rounded-xl border border-slate-300 bg-white p-4 shadow-xs">
+          <p className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-600">Restricted system governance</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {([['ACCESS','Roles & access'],['OPERATIONS','System operations'],['AUDIT','Audit & evidence']] as const).map(([id,label])=><button key={id} type="button" onClick={()=>setSystemGovernancePanel(id)} className={`rounded-lg px-3 py-2 text-xs font-bold ${systemGovernancePanel===id?'bg-slate-950 text-white':'border bg-white text-slate-700'}`}>{label}</button>)}
+          </div>
+        </div>
+      </section>
+
+      <section id="owner-security" className={`rounded-xl border border-slate-300 bg-white p-5 shadow-xs space-y-4 ${activeSection === 'SECURITY' && systemGovernancePanel === 'ACCESS' ? '' : 'hidden'}`}>
         <div><p className="text-[10px] font-mono font-bold uppercase tracking-wider text-rose-700">Security governance</p><h3 className="text-base font-bold text-slate-950">Platform administrator authority</h3><p className="text-xs text-slate-500">Firebase authenticates the person. PostgreSQL determines their current administrative permissions on every request.</p></div>
         {administratorRegistry?<>
           <div className="overflow-x-auto rounded-lg border"><table className="min-w-full text-left text-[11px]"><thead className="bg-slate-50"><tr><th className="px-3 py-2">Firebase UID</th><th className="px-3 py-2">Type</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Permissions</th></tr></thead><tbody>{administratorRegistry.administrators.map((item:any)=><tr key={item.firebaseUid} className="border-t"><td className="px-3 py-2 font-mono">{item.firebaseUid}</td><td className="px-3 py-2">{item.adminType}</td><td className="px-3 py-2">{item.status}</td><td className="px-3 py-2">{item.permissions.join(', ')}</td></tr>)}</tbody></table></div>
@@ -1035,10 +1104,20 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
         </div>}
       </div>
 
+      <section id="owner-operations" className={`space-y-6 ${activeSection === 'SECURITY' && systemGovernancePanel === 'OPERATIONS' ? '' : 'hidden'}`}>
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4">
+          <p className="text-[10px] font-mono font-bold uppercase tracking-wider text-amber-800">Restricted owner operations</p>
+          <h3 className="mt-1 text-base font-bold text-slate-950">Telemetry, engine health, architecture, and test evidence</h3>
+          <p className="mt-1 text-xs leading-5 text-slate-700">These engineering surfaces are available only inside the authenticated owner control center. They are not public website destinations.</p>
+        </div>
+        <TelemetryDashboard />
+        <ArchitectureDocs />
+      </section>
+
       {/* ========================================================================= */}
       {/* 1. CRYPTOGRAPHIC CHAIN & MERKLE ROOT INTEGRITY CARD (Section 33)           */}
       {/* ========================================================================= */}
-      <div className={`bg-white rounded-xl shadow-xs border border-slate-200 p-6 space-y-4 ${activeSection === 'AUDIT' ? '' : 'hidden'}`}>
+      <div className={`bg-white rounded-xl shadow-xs border border-slate-200 p-6 space-y-4 ${activeSection === 'SECURITY' && systemGovernancePanel === 'AUDIT' ? '' : 'hidden'}`}>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
           <div className="flex items-center space-x-2">
             <Lock className="w-5 h-5 text-indigo-600" />
@@ -1135,6 +1214,15 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
       {/* 2. SECTION 32 HUMAN-IN-THE-LOOP REVIEW QUEUE                              */}
       {/* ========================================================================= */}
       <div id="owner-reviews" className={`bg-white rounded-xl shadow-xs border border-slate-200 p-6 space-y-4 ${activeSection === 'REVIEWS' ? '' : 'hidden'}`}>
+        <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+          <p className="text-[10px] font-mono font-bold uppercase tracking-wider text-blue-800">Compliance and authority evidence</p>
+          <div className="mt-2 grid gap-3 sm:grid-cols-3">
+            <div><span className="block text-[10px] uppercase text-blue-700">Evidence snapshots</span><strong className="text-xl text-slate-950">{providerAuthorityEvidence.length}</strong></div>
+            <div><span className="block text-[10px] uppercase text-blue-700">Pending applications</span><strong className="text-xl text-slate-950">{providerApplications.filter((item:any)=>['SUBMITTED','UNDER_REVIEW'].includes(item.status)).length}</strong></div>
+            <div><span className="block text-[10px] uppercase text-blue-700">Human review items</span><strong className="text-xl text-slate-950">{pendingCount}</strong></div>
+          </div>
+          <p className="mt-2 text-[10px] leading-4 text-blue-900">Authority evidence remains separate from marketplace approval, commercial standing, and appetite. Expiration or failed re-verification must remove affected access without deleting historical decisions.</p>
+        </div>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
           <div className="flex items-center space-x-2">
             <ShieldAlert className="w-5 h-5 text-amber-600" />
@@ -1281,7 +1369,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
       {/* ========================================================================= */}
       {/* 3. APPEND-ONLY CRYPTOGRAPHIC AUDIT TRAIL TABLE (Section 33)              */}
       {/* ========================================================================= */}
-      <div id="owner-audit" className={`bg-white rounded-xl shadow-xs border border-slate-200 p-6 space-y-4 ${activeSection === 'AUDIT' ? '' : 'hidden'}`}>
+      <div id="owner-audit" className={`bg-white rounded-xl shadow-xs border border-slate-200 p-6 space-y-4 ${activeSection === 'SECURITY' && systemGovernancePanel === 'AUDIT' ? '' : 'hidden'}`}>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
           <div>
             <h3 className="text-base font-bold text-slate-900">

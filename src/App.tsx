@@ -9,8 +9,6 @@ import { LandingPage } from './components/LandingPage';
 import { ConsumerPortal, type ConsumerStep } from './components/ConsumerPortal';
 import { ProviderPortal } from './components/ProviderPortal';
 import { AdminConsole } from './components/AdminConsole';
-import { TelemetryDashboard } from './components/TelemetryDashboard';
-import { ArchitectureDocs } from './components/ArchitectureDocs';
 import { AuthProvider, useAuth, UserRole } from './context/AuthContext';
 import { AuthModal } from './components/AuthModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -288,17 +286,6 @@ function MainApp() {
               </ErrorBoundary>
             )}
 
-            {activePerspective === 'TELEMETRY' && userRole === 'ADMIN' && (
-              <ErrorBoundary fallbackTitle="Unable to Display Telemetry Dashboard">
-                <TelemetryDashboard />
-              </ErrorBoundary>
-            )}
-
-            {activePerspective === 'ARCHITECTURE_TESTS' && userRole === 'ADMIN' && (
-              <ErrorBoundary fallbackTitle="Unable to Display System Specifications">
-                <ArchitectureDocs />
-              </ErrorBoundary>
-            )}
           </>
         )}
       </main>
