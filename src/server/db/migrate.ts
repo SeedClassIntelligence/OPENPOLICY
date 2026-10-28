@@ -1650,6 +1650,40 @@ CREATE INDEX IF NOT EXISTS idx_sales_activity_opportunity ON sales_activities(sa
 CREATE INDEX IF NOT EXISTS idx_sales_transition_opportunity ON sales_pipeline_transitions(sales_opportunity_id,changed_at);
 `;
 
+export const SQL_MIGRATION_V33 = `
+CREATE TABLE IF NOT EXISTS sales_attributions (
+  id TEXT PRIMARY KEY, provider_organization_id TEXT NOT NULL UNIQUE REFERENCES provider_organizations(id),
+  primary_rep_id TEXT NOT NULL REFERENCES sales_rep_profiles(id), optional_split_allocation TEXT NOT NULL DEFAULT '[]',
+  attribution_source TEXT NOT NULL, effective_at TEXT NOT NULL, approved_by TEXT NOT NULL,
+  immutable_decision_reference TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sales_compensation_plan_versions (
+  id TEXT PRIMARY KEY, plan_name TEXT NOT NULL, version INTEGER NOT NULL, effective_from TEXT, effective_to TEXT,
+  approved_by TEXT, approved_at TEXT, commission_rules TEXT NOT NULL, retention_rules TEXT NOT NULL,
+  eligibility_rules TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('DRAFT','APPROVED','ACTIVE','RETIRED')),
+  created_at TEXT NOT NULL, UNIQUE(plan_name,version)
+);
+CREATE TABLE IF NOT EXISTS sales_compensation_events (
+  id TEXT PRIMARY KEY, provider_organization_id TEXT NOT NULL REFERENCES provider_organizations(id),
+  attributed_rep_id TEXT NOT NULL REFERENCES sales_rep_profiles(id), plan_version_id TEXT NOT NULL REFERENCES sales_compensation_plan_versions(id),
+  source_commercial_event_id TEXT, source_payment_id TEXT NOT NULL REFERENCES payment_records(id),
+  event_type TEXT NOT NULL CHECK(event_type IN ('ACQUISITION_COMMISSION','RETENTION_BONUS')),
+  amount_cents INTEGER NOT NULL CHECK(amount_cents>=0), currency TEXT NOT NULL DEFAULT 'USD', earned_at TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('PENDING_EVIDENCE','ELIGIBLE','ACCRUED','APPROVED','PAYOUT_EXPORTED','RECONCILED','ADJUSTED','DISPUTED')),
+  evidence_snapshot TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sales_compensation_rep_status ON sales_compensation_events(attributed_rep_id,status,earned_at);
+CREATE INDEX IF NOT EXISTS idx_sales_compensation_provider_type ON sales_compensation_events(provider_organization_id,event_type);
+INSERT INTO sales_compensation_plan_versions(id,plan_name,version,commission_rules,retention_rules,eligibility_rules,status,created_at)
+VALUES(
+  'SCPV-INITIAL-DRAFT-V1','Open Polici Provider Acquisition',1,
+  '{"PLAN_SOLO":5000,"PLAN_AGENCY":12500,"PLAN_OPEN_POLICY_PREMIUM":25000,"PLAN_NETWORK":50000,"PLAN_ENTERPRISE":null}',
+  '{"paidPeriodsRequired":3,"PLAN_SOLO":2500,"PLAN_AGENCY":6000,"PLAN_OPEN_POLICY_PREMIUM":12500,"PLAN_NETWORK":25000,"PLAN_ENTERPRISE":null}',
+  '{"requiresVerifiedOrganization":true,"requiresApprovedAttribution":true,"requiresPaidSubscription":true,"excludedRevenueBases":["AUTHORIZED_CONNECTION","INSURANCE_PREMIUM","POLICY_ISSUANCE","CONSUMER_SELECTION","PROVIDER_WIN"]}',
+  'DRAFT','2026-10-28T00:00:00.000Z'
+) ON CONFLICT(id) DO NOTHING;
+`;
+
 export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR || './data/openpolicy_pg') {
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
@@ -1786,7 +1820,11 @@ export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR ||
     await pglite.query(
       `INSERT INTO _migrations (name) VALUES ('0032_paso_pipeline') ON CONFLICT (name) DO NOTHING;`
     );
-    console.log(`[Open Policy DB] Migrations 0001 through 0032 applied successfully.`);
+    await pglite.exec(SQL_MIGRATION_V33);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0033_paso_compensation') ON CONFLICT (name) DO NOTHING;`
+    );
+    console.log(`[Open Policy DB] Migrations 0001 through 0033 applied successfully.`);
     return pglite;
   } catch (error) {
     console.error(`[Open Policy DB] Migration error:`, error);

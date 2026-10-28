@@ -2,7 +2,7 @@
 
 ## Cumulative implementation record
 
-**Status:** PASO-1 through PASO-3 backend implemented and locally validated; PASO-4 not started
+**Status:** PASO-1 through PASO-4 backend implemented and locally validated; PASO-5 not started
 **Feature branch:** `feature/paso-provider-acquisition`  
 **Governing specification:** PASO Master Build Instructions  
 **Integration posture:** Additive internal bounded context
@@ -169,3 +169,28 @@ Validation on October 28, 2026:
 - TypeScript, client/server production build and Commercial V2 regression: **passed**.
 
 PASO-3 reads authoritative provider, commercial and marketplace evidence. It does not alter those source records or create a parallel definition of verification, payment or participation.
+
+## 11. PASO-4 implementation evidence
+
+The compensation layer is now an immutable, versioned calculation system grounded only in settled Commercial V2 membership revenue.
+
+- Migration `0033_paso_compensation` adds compensation-plan versions, acquisition attribution and immutable compensation events.
+- The initial founder-specified schedule is stored as `DRAFT`. It cannot calculate compensation until an authorized sales administrator approves and explicitly activates it.
+- Acquisition rates are Solo $50, Agency $125, Premium $250 and Network $500. Enterprise remains fail closed until its negotiated schedule is present.
+- Retention eligibility requires three fully paid membership periods. Retention rates are Solo $25, Agency $60, Premium $125 and Network $250; Enterprise remains fail closed without its negotiated schedule.
+- Eligibility requires an authoritative verified provider organization, immutable acquisition attribution and a Commercial V2 subscription invoice that is paid, has zero balance, has a successful payment and has a settlement allocation.
+- Compensation calculation is deterministic and idempotent. Recalculating the same qualifying membership event returns the existing immutable event rather than creating another commission.
+- Split allocations must total exactly 100 percent and are recorded with the event evidence.
+- `AUTHORIZED_CONNECTION`, insurance premium, policy issuance, consumer selection and provider-win events are explicitly excluded from the compensation base.
+- Representatives may read only their own compensation events. Approval and activation remain separately authorized administrative actions.
+
+Validation on October 28, 2026:
+
+- PASO-4 focused compensation domain and persistence tests: **passed**.
+- Cumulative PASO validation: **passed**.
+- Commercial V2 regression suite: **passed**.
+- TypeScript lint/check: **passed**.
+- Client and server production builds: **passed**.
+- Production build emitted only the existing bundle-size and mixed static/dynamic-import warnings; neither is a build failure.
+
+PASO-4 does not disburse funds, modify payroll, create Stripe charges, alter provider authority, change Commercial V2 prices or use marketplace connection revenue as a commission base.
