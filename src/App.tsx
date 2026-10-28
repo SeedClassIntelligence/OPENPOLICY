@@ -20,7 +20,6 @@ import { ProviderInvitationAcceptance } from './components/ProviderInvitationAcc
 import { ProviderOnboardingStatus } from './components/ProviderOnboardingStatus';
 import { AboutPage } from './components/AboutPage';
 import { IndustryComparisonPage } from './components/IndustryComparisonPage';
-import { DeveloperPage } from './components/DeveloperPage';
 import { recordConsumerFunnelEvent } from './services/consumerFunnel';
 
 function MainApp() {
@@ -50,7 +49,7 @@ function MainApp() {
     const syncRoute = () => {
       const path = window.location.pathname;
       setPublicPath(path);
-      if (path === '/' || path === '/consumers' || path === '/providers' || path === '/about' || path === '/insurance-comparison' || path === '/developers') {
+      if (path === '/' || path === '/consumers' || path === '/providers' || path === '/about' || path === '/insurance-comparison') {
         setActivePerspective('LANDING');
       } else if (path === '/account' && isAuthenticated && userRole === 'CONSUMER') {
         setActivePerspective('CONSUMER');
@@ -226,7 +225,7 @@ function MainApp() {
         ) : (
           <>
             {activePerspective === 'LANDING' && (
-              publicPath === '/about' ? <AboutPage /> : publicPath === '/insurance-comparison' ? <IndustryComparisonPage /> : publicPath === '/developers' ? <DeveloperPage /> : <LandingPage
+              publicPath === '/about' ? <AboutPage /> : publicPath === '/insurance-comparison' ? <IndustryComparisonPage /> : <LandingPage
                 onNavigateConsumer={() => handlePerspectiveChange('CONSUMER', 'UPLOAD_EXTRACT')}
                 onNavigateProvider={() => handlePerspectiveChange('PROVIDER')}
                 onNavigateAdmin={() => handlePerspectiveChange('ADMIN_AUDIT')}

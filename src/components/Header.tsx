@@ -123,8 +123,8 @@ export const Header: React.FC<HeaderProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showPerspectiveMenu, showAccountMenu]);
 
-  const showPublicLanding = (page: 'HOME' | 'CONSUMER' | 'PROVIDER' | 'ABOUT' | 'COMPARISON' | 'DEVELOPERS') => {
-    const path = page === 'HOME' ? '/' : page === 'PROVIDER' ? '/providers' : page === 'ABOUT' ? '/about' : page === 'COMPARISON' ? '/insurance-comparison' : page === 'DEVELOPERS' ? '/developers' : '/consumers';
+  const showPublicLanding = (page: 'HOME' | 'CONSUMER' | 'PROVIDER' | 'ABOUT' | 'COMPARISON') => {
+    const path = page === 'HOME' ? '/' : page === 'PROVIDER' ? '/providers' : page === 'ABOUT' ? '/about' : page === 'COMPARISON' ? '/insurance-comparison' : '/consumers';
     window.history.pushState({}, '', path);
     window.dispatchEvent(new PopStateEvent('popstate'));
     setPublicLandingPath(path);
@@ -152,7 +152,7 @@ export const Header: React.FC<HeaderProps> = ({
   }, []);
 
   const unreadCount = notifications.filter(n => !n.read).length;
-  const isPublicWebsite = ['/', '/consumers', '/providers', '/insurance-comparison', '/about', '/developers'].includes(publicLandingPath);
+  const isPublicWebsite = ['/', '/consumers', '/providers', '/insurance-comparison', '/about'].includes(publicLandingPath);
   const publicAuthRole = publicLandingPath === '/providers' ? 'PROVIDER' : 'CONSUMER';
 
   const handleMarkRead = async (id: string) => {
@@ -218,12 +218,10 @@ export const Header: React.FC<HeaderProps> = ({
                 {isPublicWebsite && <>
                   {[
                     ['HOME', '/', 'Home'],
-                    ['CONSUMER', '/consumers', 'Consumers'],
                     ['PROVIDER', '/providers', 'Providers & Carriers'],
                     ['COMPARISON', '/insurance-comparison', 'Comparison'],
-                    ['ABOUT', '/about', 'About'],
-                    ['DEVELOPERS', '/developers', 'Developers']
-                  ].map(([page, path, label]) => <button key={path} type="button" onClick={() => showPublicLanding(page as 'HOME' | 'CONSUMER' | 'PROVIDER' | 'ABOUT' | 'COMPARISON' | 'DEVELOPERS')} className={`flex items-center px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap ${publicLandingPath === path ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-900/60'}`}>{label}</button>)}
+                    ['ABOUT', '/about', 'About']
+                  ].map(([page, path, label]) => <button key={path} type="button" onClick={() => showPublicLanding(page as 'HOME' | 'PROVIDER' | 'ABOUT' | 'COMPARISON')} className={`flex items-center px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap ${publicLandingPath === path || (page === 'HOME' && publicLandingPath === '/consumers') ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-900/60'}`}>{label}</button>)}
                 </>}
                 {isAuthenticated && !isPublicWebsite && PERSPECTIVES.map((p) => {
                   if (!isAuthenticated && p.id === 'LANDING') return null;
