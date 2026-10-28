@@ -2,7 +2,7 @@ import { PGlite } from '@electric-sql/pglite';
 import fs from 'fs';
 import pg from 'pg';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8, SQL_MIGRATION_V9, SQL_MIGRATION_V10, SQL_MIGRATION_V11, SQL_MIGRATION_V12, SQL_MIGRATION_V13, SQL_MIGRATION_V14, SQL_MIGRATION_V15, SQL_MIGRATION_V16, SQL_MIGRATION_V17, SQL_MIGRATION_V18, SQL_MIGRATION_V19, SQL_MIGRATION_V20, SQL_MIGRATION_V21, SQL_MIGRATION_V22, SQL_MIGRATION_V23, SQL_MIGRATION_V24, SQL_MIGRATION_V25, SQL_MIGRATION_V26, SQL_MIGRATION_V27, SQL_MIGRATION_V28, SQL_MIGRATION_V29, SQL_MIGRATION_V30, SQL_MIGRATION_V31, SQL_MIGRATION_V32, SQL_MIGRATION_V33, SQL_MIGRATION_V34 } from './migrate';
+import { SQL_MIGRATION_V1, SQL_MIGRATION_V2, SQL_MIGRATION_V3, SQL_MIGRATION_V4, SQL_MIGRATION_V5, SQL_MIGRATION_V6, SQL_MIGRATION_V7, SQL_MIGRATION_V8, SQL_MIGRATION_V9, SQL_MIGRATION_V10, SQL_MIGRATION_V11, SQL_MIGRATION_V12, SQL_MIGRATION_V13, SQL_MIGRATION_V14, SQL_MIGRATION_V15, SQL_MIGRATION_V16, SQL_MIGRATION_V17, SQL_MIGRATION_V18, SQL_MIGRATION_V19, SQL_MIGRATION_V20, SQL_MIGRATION_V21, SQL_MIGRATION_V22, SQL_MIGRATION_V23, SQL_MIGRATION_V24, SQL_MIGRATION_V25, SQL_MIGRATION_V26, SQL_MIGRATION_V27, SQL_MIGRATION_V28, SQL_MIGRATION_V29, SQL_MIGRATION_V30, SQL_MIGRATION_V31, SQL_MIGRATION_V32, SQL_MIGRATION_V33, SQL_MIGRATION_V34, SQL_MIGRATION_V35 } from './migrate';
 import type { ConsumerDefinedCoverageRequestBaseline } from '../../domain/consumerDefinedCoverageRequest';
 import { assertAuthorityEvidenceMatches, authorityEvidenceSha256, nextAuthorityReviewDate, normalizeEvidencePayload, resolveAuthoritySource, type ProviderAuthorityEvidence } from '../../domain/providerAuthorityVerification';
 import { buildVerifiedPolicyAndBaseline } from '../../domain/policyEvidenceVerification';
@@ -377,6 +377,8 @@ export class PostgresStore {
         await this.sql.query(
           `INSERT INTO _migrations (name) VALUES ('0034_paso_finance') ON CONFLICT (name) DO NOTHING;`
         );
+        await this.sql.exec(SQL_MIGRATION_V35);
+        await this.sql.query(`INSERT INTO _migrations (name) VALUES ('0035_paso_intelligence') ON CONFLICT (name) DO NOTHING;`);
         this.isReady = true;
         console.log(
           this.useCloudSql

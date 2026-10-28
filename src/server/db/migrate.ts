@@ -1707,6 +1707,23 @@ CREATE TABLE IF NOT EXISTS sales_payout_batch_items (
 CREATE INDEX IF NOT EXISTS idx_sales_adjustment_event ON sales_compensation_adjustments(original_event_id,authorized_at);
 CREATE INDEX IF NOT EXISTS idx_sales_payout_status ON sales_payout_batches(status,period_end);
 `;
+export const SQL_MIGRATION_V35 = `
+CREATE TABLE IF NOT EXISTS sales_acquisition_expenses (
+ id TEXT PRIMARY KEY, amount_cents INTEGER NOT NULL CHECK(amount_cents>=0), category TEXT NOT NULL,
+ incurred_at TEXT NOT NULL, territory_id TEXT REFERENCES sales_territories(id), rep_profile_id TEXT REFERENCES sales_rep_profiles(id),
+ evidence_reference TEXT NOT NULL UNIQUE, recorded_by TEXT NOT NULL, created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sales_financial_scenarios (
+ id TEXT PRIMARY KEY, name TEXT NOT NULL, assumptions TEXT NOT NULL, result_snapshot TEXT NOT NULL,
+ created_by TEXT NOT NULL, created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sales_demand_targets (
+ id TEXT PRIMARY KEY, target_name TEXT NOT NULL UNIQUE, target_count INTEGER NOT NULL CHECK(target_count>0),
+ status TEXT NOT NULL CHECK(status IN ('MONITORING','REACHED','ARCHIVED')), created_by TEXT NOT NULL, created_at TEXT NOT NULL
+);
+INSERT INTO sales_demand_targets(id,target_name,target_count,status,created_by,created_at)
+VALUES('SDT-CONSUMER-1000','Initial consumer demand milestone',1000,'MONITORING','SYSTEM_SPEC','2026-10-28T00:00:00.000Z') ON CONFLICT(target_name) DO NOTHING;
+`;
 
 export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR || './data/openpolicy_pg') {
   if (!fs.existsSync(dataDir)) {
@@ -1852,7 +1869,9 @@ export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR ||
     await pglite.query(
       `INSERT INTO _migrations (name) VALUES ('0034_paso_finance') ON CONFLICT (name) DO NOTHING;`
     );
-    console.log(`[Open Policy DB] Migrations 0001 through 0034 applied successfully.`);
+    await pglite.exec(SQL_MIGRATION_V35);
+    await pglite.query(`INSERT INTO _migrations (name) VALUES ('0035_paso_intelligence') ON CONFLICT (name) DO NOTHING;`);
+    console.log(`[Open Policy DB] Migrations 0001 through 0035 applied successfully.`);
     return pglite;
   } catch (error) {
     console.error(`[Open Policy DB] Migration error:`, error);

@@ -2,7 +2,7 @@
 
 ## Cumulative implementation record
 
-**Status:** PASO-1 through PASO-5 backend implemented and locally validated; PASO-6 not started
+**Status:** PASO-1 through PASO-6 backend implemented and locally validated; PASO-7 not started
 **Feature branch:** `feature/paso-provider-acquisition`  
 **Governing specification:** PASO Master Build Instructions  
 **Integration posture:** Additive internal bounded context
@@ -216,3 +216,14 @@ Validation on October 28, 2026:
 - Migration `0034_paso_finance` applied once in isolated durable storage.
 
 PASO-5 prepares evidence for an external payout process. It does not store banking details, initiate disbursements, alter Stripe, or change provider/consumer marketplace behavior.
+
+## 13. PASO-6 implementation evidence
+
+- Migration `0035_paso_intelligence` adds evidenced acquisition expenses, explicitly labeled financial scenarios and the initial 1,000-consumer aggregate demand target.
+- Actual reporting derives membership MRR, collected membership revenue, connection revenue, new paying providers and compensation expense from authoritative commercial and PASO records.
+- Provider CAC, contribution, CAC payback and compensation ratio handle zero or non-positive denominators without manufacturing a result.
+- Cohorts group actual paid membership evidence by acquisition month, plan and attributed representative.
+- Forecasts persist separately as `SCENARIO`; membership-only scenarios cannot silently include connection revenue.
+- Demand reporting exposes aggregate counts and jurisdiction/line breakdowns only. It cannot release consumer data, activate providers or initiate outreach.
+
+Validation on October 28, 2026: analytics and integrated durable-store tests **4/4 passed**; TypeScript check **passed**. Membership MRR excluded connection charges, connection revenue remained separately zero in the membership-only fixture, compensation reconciled to immutable events and adjustments, and the 1,000-consumer milestone had no automatic-release behavior.

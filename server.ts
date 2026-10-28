@@ -115,6 +115,7 @@ import { pasoPipelineStore } from './src/server/db/pasoPipelineStore';
 import { PASO_PIPELINE_STAGES, type PasoPipelineStage } from './src/domain/pasoPipeline';
 import { pasoCompensationStore } from './src/server/db/pasoCompensationStore';
 import { pasoFinanceStore } from './src/server/db/pasoFinanceStore';
+import { pasoAnalyticsStore } from './src/server/db/pasoAnalyticsStore';
 
 export const app = express();
 const DEFAULT_PORT = Number(process.env.PORT) || 3000;
@@ -1642,6 +1643,10 @@ app.post('/api/internal/sales/compensation/events/:eventId/adjustments',async(re
 app.post('/api/internal/sales/payout-batches',async(req,res)=>{try{await requirePaso(req,'PAYOUT_RECONCILE');res.status(201).json({batch:await pasoFinanceStore.prepareBatch({periodStart:String(req.body?.periodStart||''),periodEnd:String(req.body?.periodEnd||''),actorId:req.openPolicyIdentity!.uid})});}catch(e:any){res.status(e.statusCode||500).json({error:e.message});}});
 app.post('/api/internal/sales/payout-batches/:batchId/export',async(req,res)=>{try{await requirePaso(req,'PAYOUT_RECONCILE');res.json(await pasoFinanceStore.exportBatch({batchId:req.params.batchId,actorId:req.openPolicyIdentity!.uid}));}catch(e:any){res.status(e.statusCode||500).json({error:e.message});}});
 app.post('/api/internal/sales/payout-batches/:batchId/reconcile',async(req,res)=>{try{await requirePaso(req,'PAYOUT_RECONCILE');res.json({batch:await pasoFinanceStore.reconcileBatch({batchId:req.params.batchId,actorId:req.openPolicyIdentity!.uid,reconciliationReference:String(req.body?.reconciliationReference||''),observedExportHash:String(req.body?.observedExportHash||'')})});}catch(e:any){res.status(e.statusCode||500).json({error:e.message});}});
+app.post('/api/internal/sales/analytics/expenses',async(req,res)=>{try{await requirePaso(req,'PAYOUT_RECONCILE');res.status(201).json({expense:await pasoAnalyticsStore.recordExpense({amountCents:Number(req.body?.amountCents),category:String(req.body?.category||''),incurredAt:String(req.body?.incurredAt||''),evidenceReference:String(req.body?.evidenceReference||''),territoryId:req.body?.territoryId?String(req.body.territoryId):undefined,repProfileId:req.body?.repProfileId?String(req.body.repProfileId):undefined,recordedBy:req.openPolicyIdentity!.uid})});}catch(e:any){res.status(e.statusCode||500).json({error:e.message});}});
+app.get('/api/internal/sales/analytics/actuals',async(req,res)=>{try{await requirePaso(req,'COMPENSATION_READ');res.json(await pasoAnalyticsStore.actuals(String(req.query.periodStart||''),String(req.query.periodEnd||'')));}catch(e:any){res.status(e.statusCode||500).json({error:e.message});}});
+app.post('/api/internal/sales/analytics/scenarios',async(req,res)=>{try{await requirePaso(req,'COMPENSATION_READ');res.status(201).json({scenario:await pasoAnalyticsStore.createScenario({name:String(req.body?.name||''),providerCount:Number(req.body?.providerCount),membershipMrrPerProviderCents:Number(req.body?.membershipMrrPerProviderCents),connectionRevenuePerProviderCents:Number(req.body?.connectionRevenuePerProviderCents),variableCostPerProviderCents:Number(req.body?.variableCostPerProviderCents),includeConnectionRevenue:Boolean(req.body?.includeConnectionRevenue),actorId:req.openPolicyIdentity!.uid})});}catch(e:any){res.status(e.statusCode||500).json({error:e.message});}});
+app.get('/api/internal/sales/analytics/demand',async(req,res)=>{try{await requirePaso(req,'FOUNDATION_READ');res.json(await pasoAnalyticsStore.demand());}catch(e:any){res.status(e.statusCode||500).json({error:e.message});}});
 
 const V2_PROVIDER_PLAN_CODES: Set<string> = new Set(
   Object.values(OPEN_POLICY_COMMERCIAL_PRICE_BOOK_V2.memberships).map(plan => plan.planCode)
