@@ -22,6 +22,7 @@ import { ProviderInvitationAcceptance } from './components/ProviderInvitationAcc
 import { ProviderOnboardingStatus } from './components/ProviderOnboardingStatus';
 import { AboutPage } from './components/AboutPage';
 import { IndustryComparisonPage } from './components/IndustryComparisonPage';
+import { HomePage } from './components/HomePage';
 import { recordConsumerFunnelEvent } from './services/consumerFunnel';
 
 function MainApp() {
@@ -227,7 +228,7 @@ function MainApp() {
         ) : (
           <>
             {activePerspective === 'LANDING' && (
-              publicPath === '/about' ? <AboutPage /> : publicPath === '/insurance-comparison' ? <IndustryComparisonPage /> : <LandingPage
+              publicPath === '/' ? <HomePage /> : publicPath === '/about' ? <AboutPage /> : publicPath === '/insurance-comparison' ? <IndustryComparisonPage /> : <LandingPage
                 onNavigateConsumer={() => handlePerspectiveChange('CONSUMER', 'UPLOAD_EXTRACT')}
                 onNavigateProvider={() => handlePerspectiveChange('PROVIDER')}
                 onNavigateAdmin={() => handlePerspectiveChange('ADMIN_AUDIT')}
