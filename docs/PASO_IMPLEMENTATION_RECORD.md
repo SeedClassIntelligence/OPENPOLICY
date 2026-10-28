@@ -2,7 +2,7 @@
 
 ## Cumulative implementation record
 
-**Status:** PASO-1 foundation implemented and locally validated; PASO-2 not started
+**Status:** PASO-1 and PASO-2 backend implemented and locally validated; PASO-3 not started
 **Feature branch:** `feature/paso-provider-acquisition`  
 **Governing specification:** PASO Master Build Instructions  
 **Integration posture:** Additive internal bounded context
@@ -122,3 +122,25 @@ Validation on October 28, 2026:
 Environment note: the Windows runner returned `uv_os_get_passwd ... ENOMEM` before the TypeScript loader could initialize. `scripts/node-userinfo-shim.cjs` preserves native account lookup when available and supplies deterministic process-account metadata only for that runner failure. Tests then loaded and passed; no application runtime behavior uses the shim.
 
 PASO-1 does not alter provider activation, provider authority, Commercial V2 economics, Stripe behavior, consumer records, marketplace billing events or production data.
+
+## 9. PASO-2 implementation evidence
+
+Implemented on the same isolated feature branch without outreach execution or production mutation:
+
+- Migration `0031_paso_acquisition_crm` adds provider prospects, business contacts, duplicate candidates, assignment history and outreach activity records.
+- Organization names, website domains and license identifiers normalize deterministically before duplicate comparison.
+- Duplicate signals include organization identity, business address, website domain and license identifiers. Candidate records remain separate and require an audited human resolution; no record is automatically merged.
+- Representative prospect visibility is owner-bound. Manager visibility is team-bound. Sales administration and audit roles retain their authorized aggregate scope.
+- Manual creation and controlled imports share the same validation and duplicate-detection path. Imports are limited to 100 parsed rows and return a row-level accepted/rejected result.
+- Contact creation requires a business contact method plus a recorded consent or lawful outreach basis.
+- Reassignment preserves prior and resulting ownership, the actor, reason and time.
+- Outreach records are internal evidence only; the implementation does not send email, place calls or contact external parties.
+
+Validation on October 28, 2026:
+
+- PASO focused authorization, persistence and CRM tests: **23/23 passed**.
+- Duplicate review, representative and manager scope, contact validation, outreach history, human resolution and reassignment history are directly asserted.
+- Migration `0031_paso_acquisition_crm`: applied to an isolated database and recorded exactly once.
+- TypeScript check and client/server production build: **passed**.
+
+PASO-2 does not create provider applications, determine provider authority, activate memberships, generate invoices, alter provider ranking, expose consumer information or issue acquisition compensation.

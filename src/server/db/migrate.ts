@@ -1590,6 +1590,44 @@ CREATE INDEX IF NOT EXISTS idx_sales_rep_profiles_team ON sales_rep_profiles(tea
 CREATE INDEX IF NOT EXISTS idx_sales_audit_object ON sales_audit_events(object_type, object_id, occurred_at);
 `;
 
+export const SQL_MIGRATION_V31 = `
+CREATE TABLE IF NOT EXISTS provider_prospects (
+  id TEXT PRIMARY KEY, organization_name TEXT NOT NULL, normalized_organization_name TEXT NOT NULL,
+  organization_type TEXT NOT NULL, business_address TEXT NOT NULL, jurisdiction TEXT NOT NULL,
+  website TEXT, normalized_website_domain TEXT, known_license_identifiers TEXT NOT NULL,
+  primary_insurance_lines TEXT NOT NULL, prospect_source TEXT NOT NULL, qualification_status TEXT NOT NULL,
+  assigned_rep_id TEXT REFERENCES sales_rep_profiles(id), assigned_territory_id TEXT REFERENCES sales_territories(id),
+  existing_provider_organization_id TEXT UNIQUE, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS prospect_contacts (
+  id TEXT PRIMARY KEY, prospect_id TEXT NOT NULL REFERENCES provider_prospects(id), contact_name TEXT NOT NULL,
+  business_role TEXT NOT NULL, business_email TEXT, business_phone TEXT, communication_preferences TEXT NOT NULL,
+  consent_or_lawful_outreach_basis TEXT NOT NULL, created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS prospect_duplicate_candidates (
+  id TEXT PRIMARY KEY, prospect_id TEXT NOT NULL REFERENCES provider_prospects(id), candidate_prospect_id TEXT NOT NULL REFERENCES provider_prospects(id),
+  match_reasons TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('PENDING_REVIEW','DISTINCT','CONFIRMED_DUPLICATE')),
+  created_at TEXT NOT NULL, resolved_at TEXT, resolved_by TEXT, resolution_reason TEXT,
+  UNIQUE(prospect_id,candidate_prospect_id)
+);
+CREATE TABLE IF NOT EXISTS prospect_assignment_history (
+  id TEXT PRIMARY KEY, prospect_id TEXT NOT NULL REFERENCES provider_prospects(id), prior_rep_id TEXT,
+  resulting_rep_id TEXT, prior_territory_id TEXT, resulting_territory_id TEXT, reason TEXT NOT NULL,
+  changed_by TEXT NOT NULL, changed_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS prospect_outreach_activities (
+  id TEXT PRIMARY KEY, prospect_id TEXT NOT NULL REFERENCES provider_prospects(id), actor_profile_id TEXT NOT NULL,
+  activity_type TEXT NOT NULL, occurred_at TEXT NOT NULL, notes TEXT, next_action_at TEXT, outcome TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_provider_prospects_assignment ON provider_prospects(assigned_rep_id,assigned_territory_id,updated_at);
+CREATE INDEX IF NOT EXISTS idx_provider_prospects_identity ON provider_prospects(normalized_organization_name,normalized_website_domain,jurisdiction);
+CREATE INDEX IF NOT EXISTS idx_prospect_contacts_prospect ON prospect_contacts(prospect_id,created_at);
+CREATE INDEX IF NOT EXISTS idx_prospect_duplicate_review ON prospect_duplicate_candidates(status,created_at);
+CREATE INDEX IF NOT EXISTS idx_prospect_assignment_history ON prospect_assignment_history(prospect_id,changed_at);
+CREATE INDEX IF NOT EXISTS idx_prospect_outreach ON prospect_outreach_activities(prospect_id,occurred_at);
+`;
+
 export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR || './data/openpolicy_pg') {
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
@@ -1718,7 +1756,11 @@ export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR ||
     await pglite.query(
       `INSERT INTO _migrations (name) VALUES ('0030_paso_foundation') ON CONFLICT (name) DO NOTHING;`
     );
-    console.log(`[Open Policy DB] Migrations 0001 through 0030 applied successfully.`);
+    await pglite.exec(SQL_MIGRATION_V31);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0031_paso_acquisition_crm') ON CONFLICT (name) DO NOTHING;`
+    );
+    console.log(`[Open Policy DB] Migrations 0001 through 0031 applied successfully.`);
     return pglite;
   } catch (error) {
     console.error(`[Open Policy DB] Migration error:`, error);
