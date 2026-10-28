@@ -4,11 +4,9 @@ import { apiFetch } from '../services/apiClient';
 import { 
   UserCheck, 
   Briefcase, 
-  Activity, 
   FileText, 
   RotateCcw,
   Sparkles,
-  GitBranch,
   Bell,
   BookOpen,
   X,
@@ -79,24 +77,6 @@ export const PERSPECTIVES: PerspectiveMeta[] = [
     color: 'text-amber-400',
     badgeBg: 'bg-amber-600'
   },
-  {
-    id: 'TELEMETRY',
-    title: 'Telemetry & Engine',
-    label: 'Telemetry',
-    description: 'Real-time engine operations: rating latency, Redis cache performance, and system throughput.',
-    icon: Activity,
-    color: 'text-purple-400',
-    badgeBg: 'bg-purple-600'
-  },
-  {
-    id: 'ARCHITECTURE_TESTS',
-    title: 'Architecture & Tests',
-    label: 'Architecture',
-    description: 'Engineering specifications: domain modeling rules, security constraints, and automated unit tests.',
-    icon: GitBranch,
-    color: 'text-indigo-400',
-    badgeBg: 'bg-indigo-600'
-  }
 ];
 
 interface HeaderProps {
@@ -143,8 +123,8 @@ export const Header: React.FC<HeaderProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showPerspectiveMenu, showAccountMenu]);
 
-  const showPublicLanding = (page: 'HOME' | 'CONSUMER' | 'PROVIDER' | 'ABOUT' | 'COMPARISON') => {
-    const path = page === 'HOME' ? '/' : page === 'PROVIDER' ? '/providers' : page === 'ABOUT' ? '/about' : page === 'COMPARISON' ? '/insurance-comparison' : '/consumers';
+  const showPublicLanding = (page: 'HOME' | 'CONSUMER' | 'PROVIDER' | 'ABOUT' | 'COMPARISON' | 'DEVELOPERS') => {
+    const path = page === 'HOME' ? '/' : page === 'PROVIDER' ? '/providers' : page === 'ABOUT' ? '/about' : page === 'COMPARISON' ? '/insurance-comparison' : page === 'DEVELOPERS' ? '/developers' : '/consumers';
     window.history.pushState({}, '', path);
     window.dispatchEvent(new PopStateEvent('popstate'));
     setPublicLandingPath(path);
@@ -216,7 +196,7 @@ export const Header: React.FC<HeaderProps> = ({
           <div className="relative min-w-0 flex-1" ref={perspectiveMenuRef}>
             <div className="bg-slate-950/80 p-1 rounded-xl border border-slate-800/90 shadow-inner flex items-center gap-1">
               {/* Perspective Trigger */}
-              <button
+              {isAuthenticated && <button
                 id="perspective-menu-trigger-btn"
                 type="button"
                 onClick={() => setShowPerspectiveMenu(prev => !prev)}
@@ -230,12 +210,21 @@ export const Header: React.FC<HeaderProps> = ({
                 <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                 <span className="tracking-wider uppercase text-[10px] font-semibold hidden lg:inline">{isAuthenticated ? 'Perspective' : 'Explore'}</span>
                 <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform duration-200 ${showPerspectiveMenu ? 'rotate-180 text-emerald-400' : ''}`} />
-              </button>
+              </button>}
 
               {/* Direct Fast-Access Segmented Tabs */}
               <nav aria-label="Perspective Switcher" className="flex items-center gap-0.5 sm:gap-1 overflow-x-auto scrollbar-none">
-                {!isAuthenticated && <button type="button" onClick={() => showPublicLanding('HOME')} className={`flex items-center px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap ${publicLandingPath === '/' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-900/60'}`}>Home</button>}
-                {PERSPECTIVES.map((p) => {
+                {!isAuthenticated && <>
+                  {[
+                    ['HOME', '/', 'Home'],
+                    ['CONSUMER', '/consumers', 'Consumers'],
+                    ['PROVIDER', '/providers', 'Providers & Carriers'],
+                    ['COMPARISON', '/insurance-comparison', 'Comparison'],
+                    ['ABOUT', '/about', 'About'],
+                    ['DEVELOPERS', '/developers', 'Developers']
+                  ].map(([page, path, label]) => <button key={path} type="button" onClick={() => showPublicLanding(page as 'HOME' | 'CONSUMER' | 'PROVIDER' | 'ABOUT' | 'COMPARISON' | 'DEVELOPERS')} className={`flex items-center px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap ${publicLandingPath === path ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-900/60'}`}>{label}</button>)}
+                </>}
+                {isAuthenticated && PERSPECTIVES.map((p) => {
                   if (!isAuthenticated && p.id === 'LANDING') return null;
                   const isPublicLandingSelection = !isAuthenticated && activePerspective === 'LANDING';
                   const isActive = isPublicLandingSelection
@@ -279,16 +268,10 @@ export const Header: React.FC<HeaderProps> = ({
                   );
                 })}
               </nav>
-              {!isAuthenticated && (
-                <nav aria-label="Learn about Open Polici" className="flex items-center gap-1 ml-auto shrink-0">
-                  <button type="button" onClick={() => showPublicLanding('COMPARISON')} className={`px-2.5 py-1.5 rounded-lg text-xs font-medium ${publicLandingPath === '/insurance-comparison' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'}`}>Industry comparison</button>
-                  <button type="button" onClick={() => showPublicLanding('ABOUT')} className={`px-2.5 py-1.5 rounded-lg text-xs font-medium ${publicLandingPath === '/about' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'}`}>About</button>
-                </nav>
-              )}
             </div>
 
             {/* Interactive Perspective Menu Popover */}
-            {showPerspectiveMenu && (
+            {isAuthenticated && showPerspectiveMenu && (
               <div 
                 id="perspective-dropdown-menu"
                 className="absolute left-0 mt-3 w-80 sm:w-96 bg-slate-900 text-white rounded-2xl shadow-2xl border border-slate-700/80 z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-100"

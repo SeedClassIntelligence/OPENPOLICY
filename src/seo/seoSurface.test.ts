@@ -18,7 +18,7 @@ test('public search surface exposes crawl controls, canonical identity, and stru
   for (const privatePath of ['/api/', '/account', '/provider-account', '/admin']) {
     assert.match(robots, new RegExp(`Disallow: ${privatePath.replace('/', '\\/')}`));
   }
-  for (const publicUrl of ['https://openpolici.com/', 'https://openpolici.com/consumers', 'https://openpolici.com/providers', 'https://openpolici.com/about', 'https://openpolici.com/insurance-comparison']) {
+  for (const publicUrl of ['https://openpolici.com/', 'https://openpolici.com/consumers', 'https://openpolici.com/providers', 'https://openpolici.com/about', 'https://openpolici.com/insurance-comparison', 'https://openpolici.com/developers']) {
     assert.ok(sitemap.includes(`<loc>${publicUrl}</loc>`));
   }
   assert.match(llms, /consumer-controlled insurance marketplace/i);

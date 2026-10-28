@@ -34,12 +34,14 @@ import {
   ChainVerificationResult, 
   RegulatoryAuditProof 
 } from '../types/insurance';
+import { TelemetryDashboard } from './TelemetryDashboard';
+import { ArchitectureDocs } from './ArchitectureDocs';
 
 interface AdminConsoleProps {
   onRefreshData: () => void;
 }
 
-type OwnerConsoleSection = 'OVERVIEW' | 'MARKETPLACE' | 'PROVIDERS' | 'COMMERCIAL' | 'SECURITY' | 'MARKETS' | 'REVIEWS' | 'AUDIT';
+type OwnerConsoleSection = 'OVERVIEW' | 'MARKETPLACE' | 'PROVIDERS' | 'COMMERCIAL' | 'SECURITY' | 'MARKETS' | 'REVIEWS' | 'AUDIT' | 'OPERATIONS';
 
 const NEVADA_DOI_LOOKUP_URL = 'https://di.nv.gov/ins/f?p=licensing:search';
 const NIPR_NPN_LOOKUP_URL = 'https://npn-lookup.app.nipr.com/npn-lookup/PacNpnSearch.htm';
@@ -59,7 +61,8 @@ const OWNER_CONSOLE_SECTIONS: Array<{ id: OwnerConsoleSection; label: string; he
   { id: 'SECURITY', label: 'Security', help: 'Owner and staff permissions for protected platform administration.' },
   { id: 'MARKETS', label: 'Markets', help: 'Insurance-line readiness and jurisdiction rollout status. This does not activate a market.' },
   { id: 'REVIEWS', label: 'Reviews', help: 'Human review items that require an explicit administrative decision.' },
-  { id: 'AUDIT', label: 'Audit', help: 'Cryptographic integrity checks, immutable events, and regulatory proof exports.' }
+  { id: 'AUDIT', label: 'Audit', help: 'Cryptographic integrity checks, immutable events, and regulatory proof exports.' },
+  { id: 'OPERATIONS', label: 'Operations', help: 'Restricted telemetry, engine health, architecture specifications, and automated test evidence.' }
 ];
 
 export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => {
@@ -556,7 +559,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
         </div>
       </div>
 
-      <nav aria-label="Owner console sections" className="sticky top-20 z-20 grid grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur sm:grid-cols-4 xl:grid-cols-8">
+      <nav aria-label="Owner console sections" className="sticky top-20 z-20 grid grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur sm:grid-cols-3 xl:grid-cols-9">
         {OWNER_CONSOLE_SECTIONS.map(section => (
           <div key={section.id} className="group relative">
             <button
@@ -1034,6 +1037,16 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
           <p className="text-[10px] text-slate-500">This view is evidence-only. It cannot mark a rule verified, publish a RulePack, attest a gate, or activate production.</p>
         </div>}
       </div>
+
+      <section id="owner-operations" className={`space-y-6 ${activeSection === 'OPERATIONS' ? '' : 'hidden'}`}>
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4">
+          <p className="text-[10px] font-mono font-bold uppercase tracking-wider text-amber-800">Restricted owner operations</p>
+          <h3 className="mt-1 text-base font-bold text-slate-950">Telemetry, engine health, architecture, and test evidence</h3>
+          <p className="mt-1 text-xs leading-5 text-slate-700">These engineering surfaces are available only inside the authenticated owner control center. They are not public website destinations.</p>
+        </div>
+        <TelemetryDashboard />
+        <ArchitectureDocs />
+      </section>
 
       {/* ========================================================================= */}
       {/* 1. CRYPTOGRAPHIC CHAIN & MERKLE ROOT INTEGRITY CARD (Section 33)           */}

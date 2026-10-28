@@ -9,8 +9,6 @@ import { LandingPage } from './components/LandingPage';
 import { ConsumerPortal, type ConsumerStep } from './components/ConsumerPortal';
 import { ProviderPortal } from './components/ProviderPortal';
 import { AdminConsole } from './components/AdminConsole';
-import { TelemetryDashboard } from './components/TelemetryDashboard';
-import { ArchitectureDocs } from './components/ArchitectureDocs';
 import { AuthProvider, useAuth, UserRole } from './context/AuthContext';
 import { AuthModal } from './components/AuthModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -22,7 +20,7 @@ import { ProviderInvitationAcceptance } from './components/ProviderInvitationAcc
 import { ProviderOnboardingStatus } from './components/ProviderOnboardingStatus';
 import { AboutPage } from './components/AboutPage';
 import { IndustryComparisonPage } from './components/IndustryComparisonPage';
-import { HomePage } from './components/HomePage';
+import { DeveloperPage } from './components/DeveloperPage';
 import { recordConsumerFunnelEvent } from './services/consumerFunnel';
 
 function MainApp() {
@@ -52,7 +50,7 @@ function MainApp() {
     const syncRoute = () => {
       const path = window.location.pathname;
       setPublicPath(path);
-      if (path === '/' || path === '/consumers' || path === '/providers' || path === '/about' || path === '/insurance-comparison') {
+      if (path === '/' || path === '/consumers' || path === '/providers' || path === '/about' || path === '/insurance-comparison' || path === '/developers') {
         setActivePerspective('LANDING');
       } else if (path === '/account' && isAuthenticated && userRole === 'CONSUMER') {
         setActivePerspective('CONSUMER');
@@ -228,7 +226,7 @@ function MainApp() {
         ) : (
           <>
             {activePerspective === 'LANDING' && (
-              publicPath === '/' ? <HomePage /> : publicPath === '/about' ? <AboutPage /> : publicPath === '/insurance-comparison' ? <IndustryComparisonPage /> : <LandingPage
+              publicPath === '/about' ? <AboutPage /> : publicPath === '/insurance-comparison' ? <IndustryComparisonPage /> : publicPath === '/developers' ? <DeveloperPage /> : <LandingPage
                 onNavigateConsumer={() => handlePerspectiveChange('CONSUMER', 'UPLOAD_EXTRACT')}
                 onNavigateProvider={() => handlePerspectiveChange('PROVIDER')}
                 onNavigateAdmin={() => handlePerspectiveChange('ADMIN_AUDIT')}
@@ -289,17 +287,6 @@ function MainApp() {
               </ErrorBoundary>
             )}
 
-            {activePerspective === 'TELEMETRY' && userRole === 'ADMIN' && (
-              <ErrorBoundary fallbackTitle="Unable to Display Telemetry Dashboard">
-                <TelemetryDashboard />
-              </ErrorBoundary>
-            )}
-
-            {activePerspective === 'ARCHITECTURE_TESTS' && userRole === 'ADMIN' && (
-              <ErrorBoundary fallbackTitle="Unable to Display System Specifications">
-                <ArchitectureDocs />
-              </ErrorBoundary>
-            )}
           </>
         )}
       </main>

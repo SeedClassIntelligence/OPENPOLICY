@@ -8,6 +8,7 @@ Open Polici is a consumer-controlled insurance marketplace serving Nevada at ini
 - https://openpolici.com/providers - Provider and carrier marketplace overview, membership, and onboarding
 - https://openpolici.com/about - Mission, operating model, privacy principles, and marketplace roles
 - https://openpolici.com/insurance-comparison - Factual explanation and example of the insurance offer comparison method
+- https://openpolici.com/developers - Governed marketplace integration architecture and controlled developer access
 
 ## Platform model
 

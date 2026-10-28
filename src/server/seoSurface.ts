@@ -27,6 +27,11 @@ const PUBLIC_PAGES: Record<string, SeoPage> = {
     title: 'Open Polici vs Insurance Lead Generation | Competitive Analysis',
     description: 'Compare Open Polici with direct carrier funnels, insurance lead marketplaces, quote sites, and independent agencies across privacy, competition, provider economics, and consumer control.',
     canonical: `${ORIGIN}/insurance-comparison`, index: true
+  },
+  '/developers': {
+    title: 'Open Polici Developers | Governed Insurance Marketplace Integrations',
+    description: 'Explore Open Polici integration architecture, governed marketplace boundaries, tenant isolation, controlled disclosure, and developer access.',
+    canonical: `${ORIGIN}/developers`, index: true
   }
 };
 
