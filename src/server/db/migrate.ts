@@ -1628,6 +1628,28 @@ CREATE INDEX IF NOT EXISTS idx_prospect_assignment_history ON prospect_assignmen
 CREATE INDEX IF NOT EXISTS idx_prospect_outreach ON prospect_outreach_activities(prospect_id,occurred_at);
 `;
 
+export const SQL_MIGRATION_V32 = `
+CREATE TABLE IF NOT EXISTS sales_opportunities (
+  id TEXT PRIMARY KEY, prospect_id TEXT NOT NULL UNIQUE REFERENCES provider_prospects(id), owner_rep_id TEXT REFERENCES sales_rep_profiles(id),
+  pipeline_stage TEXT NOT NULL, target_membership_tier TEXT, expected_monthly_membership_revenue_cents INTEGER,
+  qualification_evidence TEXT, stage_entered_at TEXT NOT NULL, application_reference TEXT,
+  commercial_account_reference TEXT, lost_reason TEXT, closed_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sales_activities (
+  id TEXT PRIMARY KEY, sales_opportunity_id TEXT NOT NULL REFERENCES sales_opportunities(id), actor_user_id TEXT NOT NULL,
+  activity_type TEXT NOT NULL, occurred_at TEXT NOT NULL, notes TEXT, next_action_at TEXT, outcome TEXT, created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sales_pipeline_transitions (
+  id TEXT PRIMARY KEY, sales_opportunity_id TEXT NOT NULL REFERENCES sales_opportunities(id), prior_stage TEXT NOT NULL,
+  resulting_stage TEXT NOT NULL, transition_source TEXT NOT NULL CHECK(transition_source IN ('SALES_ACTIVITY','PROVIDER_APPLICATION','PROVIDER_AUTHORITY','COMMERCIAL_LEDGER','MARKETPLACE_EVIDENCE')),
+  source_reference TEXT, reason TEXT NOT NULL, changed_by TEXT NOT NULL, changed_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sales_opportunity_owner_stage ON sales_opportunities(owner_rep_id,pipeline_stage,updated_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_opportunity_application ON sales_opportunities(application_reference) WHERE application_reference IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_sales_activity_opportunity ON sales_activities(sales_opportunity_id,occurred_at);
+CREATE INDEX IF NOT EXISTS idx_sales_transition_opportunity ON sales_pipeline_transitions(sales_opportunity_id,changed_at);
+`;
+
 export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR || './data/openpolicy_pg') {
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
@@ -1760,7 +1782,11 @@ export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR ||
     await pglite.query(
       `INSERT INTO _migrations (name) VALUES ('0031_paso_acquisition_crm') ON CONFLICT (name) DO NOTHING;`
     );
-    console.log(`[Open Policy DB] Migrations 0001 through 0031 applied successfully.`);
+    await pglite.exec(SQL_MIGRATION_V32);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0032_paso_pipeline') ON CONFLICT (name) DO NOTHING;`
+    );
+    console.log(`[Open Policy DB] Migrations 0001 through 0032 applied successfully.`);
     return pglite;
   } catch (error) {
     console.error(`[Open Policy DB] Migration error:`, error);

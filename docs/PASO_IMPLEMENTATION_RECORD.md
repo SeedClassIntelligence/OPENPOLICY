@@ -2,7 +2,7 @@
 
 ## Cumulative implementation record
 
-**Status:** PASO-1 and PASO-2 backend implemented and locally validated; PASO-3 not started
+**Status:** PASO-1 through PASO-3 backend implemented and locally validated; PASO-4 not started
 **Feature branch:** `feature/paso-provider-acquisition`  
 **Governing specification:** PASO Master Build Instructions  
 **Integration posture:** Additive internal bounded context
@@ -144,3 +144,28 @@ Validation on October 28, 2026:
 - TypeScript check and client/server production build: **passed**.
 
 PASO-2 does not create provider applications, determine provider authority, activate memberships, generate invoices, alter provider ranking, expose consumer information or issue acquisition compensation.
+
+## 10. PASO-3 implementation evidence
+
+The audited acquisition pipeline now contains all specified stages, but the implementation deliberately separates sales-controlled progression from authoritative platform facts.
+
+- Sales activity may advance only the ordinary acquisition sequence from `IDENTIFIED` through `DEMO_COMPLETED`, or close an opportunity as `LOST` or `DISQUALIFIED`.
+- Sales-controlled requests for `APPLICATION_SUBMITTED`, `VERIFICATION_PENDING`, `VERIFIED`, `PAYMENT_PENDING`, `PAID_ACTIVE` or `ACTIVE_PARTICIPANT` fail closed.
+- Provider applications link by durable application identifier and can be linked to only one sales opportunity.
+- `APPLICATION_SUBMITTED` and `VERIFICATION_PENDING` project from the provider-application record.
+- `VERIFIED` projects only from an approved application with its authoritative provider-organization mapping.
+- `PAYMENT_PENDING` is a commercial-ledger projection after verified authority and before a paid membership.
+- `PAID_ACTIVE` requires a positive Commercial V2 subscription invoice that is `PAID` with zero balance, a successful payment record and a settlement allocation. A trial or salesperson action cannot establish it.
+- `ACTIVE_PARTICIPANT` requires authoritative marketplace participation evidence for that provider organization.
+- Every stage change records prior stage, resulting stage, source system, source reference, reason, actor and timestamp.
+- Opportunity revenue expectations are derived from the immutable Commercial V2 membership plan rather than entered as an arbitrary sales estimate.
+
+Validation on October 28, 2026:
+
+- Cumulative PASO focused suite: **26/26 passed**.
+- The integration fixture progresses from a real linked application through submitted, review, authority approval, paid subscription settlement and active marketplace participation.
+- Direct attempts by sales to manufacture `VERIFIED`, `PAID_ACTIVE` or `ACTIVE_PARTICIPANT` are rejected.
+- Migration `0032_paso_pipeline` applies on isolated durable storage.
+- TypeScript, client/server production build and Commercial V2 regression: **passed**.
+
+PASO-3 reads authoritative provider, commercial and marketplace evidence. It does not alter those source records or create a parallel definition of verification, payment or participation.
