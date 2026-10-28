@@ -2,7 +2,7 @@
 
 ## Cumulative implementation record
 
-**Status:** PASO-1 through PASO-4 backend implemented and locally validated; PASO-5 not started
+**Status:** PASO-1 through PASO-5 backend implemented and locally validated; PASO-6 not started
 **Feature branch:** `feature/paso-provider-acquisition`  
 **Governing specification:** PASO Master Build Instructions  
 **Integration posture:** Additive internal bounded context
@@ -194,3 +194,25 @@ Validation on October 28, 2026:
 - Production build emitted only the existing bundle-size and mixed static/dynamic-import warnings; neither is a build failure.
 
 PASO-4 does not disburse funds, modify payroll, create Stripe charges, alter provider authority, change Commercial V2 prices or use marketplace connection revenue as a commission base.
+
+## 12. PASO-5 implementation evidence
+
+The finance stage prepares and reconciles evidence without becoming a payroll or banking system.
+
+- Migration `0034_paso_finance` adds immutable compensation adjustments, payout batches and batch items.
+- Only accrued compensation can be approved, and only separately authorized finance actors can adjust, export or reconcile it.
+- Adjustments are compensating records with reasons, actors, timestamps, idempotency keys and prior-value evidence. Original compensation events are never overwritten.
+- A payout batch includes only approved events within its bounded period and applies all authorized adjustments deterministically.
+- Export preparation emits a versioned JSON artifact and stores its SHA-256 hash. It does not transmit money or call a payroll provider.
+- Reconciliation requires the exact export hash plus an external reconciliation reference; a mismatched artifact fails closed.
+- Exported or reconciled events cannot be adjusted, preventing silent post-export mutation.
+- Batch membership is unique per compensation event, preventing duplicate payout preparation.
+
+Validation on October 28, 2026:
+
+- PASO authorization, compensation and finance tests: **7/7 passed**.
+- Approval, idempotent adjustment, net payout calculation, hashed export, hash-mismatch rejection, reconciliation and finalized-event immutability are directly asserted.
+- TypeScript check: **passed**.
+- Migration `0034_paso_finance` applied once in isolated durable storage.
+
+PASO-5 prepares evidence for an external payout process. It does not store banking details, initiate disbursements, alter Stripe, or change provider/consumer marketplace behavior.

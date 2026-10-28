@@ -1684,6 +1684,30 @@ VALUES(
 ) ON CONFLICT(id) DO NOTHING;
 `;
 
+export const SQL_MIGRATION_V34 = `
+CREATE TABLE IF NOT EXISTS sales_compensation_adjustments (
+  id TEXT PRIMARY KEY, original_event_id TEXT NOT NULL REFERENCES sales_compensation_events(id),
+  amount_cents INTEGER NOT NULL, reason TEXT NOT NULL, authorized_by TEXT NOT NULL,
+  authorized_at TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE,
+  evidence_snapshot TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sales_payout_batches (
+  id TEXT PRIMARY KEY, period_start TEXT NOT NULL, period_end TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('PREPARED','EXPORTED','RECONCILED','CANCELLED')),
+  prepared_by TEXT NOT NULL, prepared_at TEXT NOT NULL, exported_by TEXT, exported_at TEXT,
+  export_hash TEXT, reconciled_by TEXT, reconciled_at TEXT, reconciliation_reference TEXT,
+  UNIQUE(period_start,period_end)
+);
+CREATE TABLE IF NOT EXISTS sales_payout_batch_items (
+  batch_id TEXT NOT NULL REFERENCES sales_payout_batches(id),
+  compensation_event_id TEXT NOT NULL REFERENCES sales_compensation_events(id),
+  net_amount_cents INTEGER NOT NULL, PRIMARY KEY(batch_id,compensation_event_id),
+  UNIQUE(compensation_event_id)
+);
+CREATE INDEX IF NOT EXISTS idx_sales_adjustment_event ON sales_compensation_adjustments(original_event_id,authorized_at);
+CREATE INDEX IF NOT EXISTS idx_sales_payout_status ON sales_payout_batches(status,period_end);
+`;
+
 export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR || './data/openpolicy_pg') {
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
@@ -1824,7 +1848,11 @@ export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR ||
     await pglite.query(
       `INSERT INTO _migrations (name) VALUES ('0033_paso_compensation') ON CONFLICT (name) DO NOTHING;`
     );
-    console.log(`[Open Policy DB] Migrations 0001 through 0033 applied successfully.`);
+    await pglite.exec(SQL_MIGRATION_V34);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0034_paso_finance') ON CONFLICT (name) DO NOTHING;`
+    );
+    console.log(`[Open Policy DB] Migrations 0001 through 0034 applied successfully.`);
     return pglite;
   } catch (error) {
     console.error(`[Open Policy DB] Migration error:`, error);
