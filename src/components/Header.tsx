@@ -152,6 +152,7 @@ export const Header: React.FC<HeaderProps> = ({
   }, []);
 
   const unreadCount = notifications.filter(n => !n.read).length;
+  const isPublicWebsite = ['/', '/consumers', '/providers', '/insurance-comparison', '/about', '/developers'].includes(publicLandingPath);
   const publicAuthRole = publicLandingPath === '/providers' ? 'PROVIDER' : 'CONSUMER';
 
   const handleMarkRead = async (id: string) => {
@@ -196,7 +197,7 @@ export const Header: React.FC<HeaderProps> = ({
           <div className="relative min-w-0 flex-1" ref={perspectiveMenuRef}>
             <div className="bg-slate-950/80 p-1 rounded-xl border border-slate-800/90 shadow-inner flex items-center gap-1">
               {/* Perspective Trigger */}
-              {isAuthenticated && <button
+              {isAuthenticated && !isPublicWebsite && <button
                 id="perspective-menu-trigger-btn"
                 type="button"
                 onClick={() => setShowPerspectiveMenu(prev => !prev)}
@@ -214,7 +215,7 @@ export const Header: React.FC<HeaderProps> = ({
 
               {/* Direct Fast-Access Segmented Tabs */}
               <nav aria-label="Perspective Switcher" className="flex items-center gap-0.5 sm:gap-1 overflow-x-auto scrollbar-none">
-                {!isAuthenticated && <>
+                {isPublicWebsite && <>
                   {[
                     ['HOME', '/', 'Home'],
                     ['CONSUMER', '/consumers', 'Consumers'],
@@ -224,7 +225,7 @@ export const Header: React.FC<HeaderProps> = ({
                     ['DEVELOPERS', '/developers', 'Developers']
                   ].map(([page, path, label]) => <button key={path} type="button" onClick={() => showPublicLanding(page as 'HOME' | 'CONSUMER' | 'PROVIDER' | 'ABOUT' | 'COMPARISON' | 'DEVELOPERS')} className={`flex items-center px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap ${publicLandingPath === path ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-900/60'}`}>{label}</button>)}
                 </>}
-                {isAuthenticated && PERSPECTIVES.map((p) => {
+                {isAuthenticated && !isPublicWebsite && PERSPECTIVES.map((p) => {
                   if (!isAuthenticated && p.id === 'LANDING') return null;
                   const isPublicLandingSelection = !isAuthenticated && activePerspective === 'LANDING';
                   const isActive = isPublicLandingSelection
@@ -271,7 +272,7 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
 
             {/* Interactive Perspective Menu Popover */}
-            {isAuthenticated && showPerspectiveMenu && (
+            {isAuthenticated && !isPublicWebsite && showPerspectiveMenu && (
               <div 
                 id="perspective-dropdown-menu"
                 className="absolute left-0 mt-3 w-80 sm:w-96 bg-slate-900 text-white rounded-2xl shadow-2xl border border-slate-700/80 z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-100"
