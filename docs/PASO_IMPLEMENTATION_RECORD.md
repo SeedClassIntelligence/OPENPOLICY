@@ -2,7 +2,7 @@
 
 ## Cumulative implementation record
 
-**Status:** PASO-1 through PASO-6 backend implemented and locally validated; PASO-7 not started
+**Status:** PASO-1 through PASO-7 implemented and locally validated; PASO-8 acceptance not started
 **Feature branch:** `feature/paso-provider-acquisition`  
 **Governing specification:** PASO Master Build Instructions  
 **Integration posture:** Additive internal bounded context
@@ -227,3 +227,16 @@ PASO-5 prepares evidence for an external payout process. It does not store banki
 - Demand reporting exposes aggregate counts and jurisdiction/line breakdowns only. It cannot release consumer data, activate providers or initiate outreach.
 
 Validation on October 28, 2026: analytics and integrated durable-store tests **4/4 passed**; TypeScript check **passed**. Membership MRR excluded connection charges, connection revenue remained separately zero in the membership-only fixture, compensation reconciled to immutable events and adjustments, and the 1,000-consumer milestone had no automatic-release behavior.
+
+## 14. PASO-7 implementation evidence
+
+The existing Owner Console `Sales & Acquisition` section now hosts the Provider Acquisition Command Center. No parallel admin product or authentication system was created.
+
+- The active PASO role is visible and all data is loaded through the protected `/api/internal/sales/*` routes.
+- Summary cards show prospect inventory, open pipeline, new paying providers, authoritative membership MRR and progress toward the 1,000-consumer aggregate milestone.
+- Authorized users can record a prospect through the same normalized, duplicate-preserving CRM path used by imports. The interface explicitly states that this records evidence and does not contact the prospect.
+- Prospect and opportunity tables expose assignment and audited pipeline state without consumer identity, policy documents or provider proposal intelligence.
+- Financial cards are labeled as actuals and keep membership revenue, connection revenue, CAC and compensation expense separate.
+- The interface states that sales cannot manufacture verification, paid activation or marketplace participation and that payout export does not move funds.
+
+Validation on October 28, 2026: TypeScript check and client/server production builds **passed**. The built client contains the integrated command center; bundle-size and mixed-import notices remain non-failing optimization warnings.
