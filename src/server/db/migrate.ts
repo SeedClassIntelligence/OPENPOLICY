@@ -1725,6 +1725,20 @@ INSERT INTO sales_demand_targets(id,target_name,target_count,status,created_by,c
 VALUES('SDT-CONSUMER-1000','Initial consumer demand milestone',1000,'MONITORING','SYSTEM_SPEC','2026-10-28T00:00:00.000Z') ON CONFLICT(target_name) DO NOTHING;
 `;
 
+export const SQL_MIGRATION_V36 = `
+CREATE TABLE IF NOT EXISTS prospect_authority_evidence (
+  id TEXT PRIMARY KEY, prospect_id TEXT NOT NULL REFERENCES provider_prospects(id),
+  subject_type TEXT NOT NULL CHECK(subject_type IN ('INDIVIDUAL_LICENSE','ORGANIZATION_LICENSE','CARRIER_AUTHORITY','APPOINTMENT')),
+  legal_name TEXT NOT NULL, jurisdiction TEXT NOT NULL, authority_number TEXT NOT NULL, npn TEXT,
+  status TEXT NOT NULL, expiration_date TEXT, qualifications TEXT NOT NULL,
+  source_name TEXT NOT NULL, source_url TEXT NOT NULL, source_record_id TEXT NOT NULL,
+  retrieved_at TEXT NOT NULL, evidence_sha256 TEXT NOT NULL UNIQUE, evidence_payload TEXT NOT NULL,
+  submitted_by TEXT NOT NULL, submitted_at TEXT NOT NULL, review_status TEXT NOT NULL DEFAULT 'PENDING_OWNER_REVIEW'
+    CHECK(review_status IN ('PENDING_OWNER_REVIEW','ACCEPTED','REJECTED'))
+);
+CREATE INDEX IF NOT EXISTS idx_prospect_authority_evidence ON prospect_authority_evidence(prospect_id,subject_type,retrieved_at);
+`;
+
 export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR || './data/openpolicy_pg') {
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
@@ -1871,7 +1885,9 @@ export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR ||
     );
     await pglite.exec(SQL_MIGRATION_V35);
     await pglite.query(`INSERT INTO _migrations (name) VALUES ('0035_paso_intelligence') ON CONFLICT (name) DO NOTHING;`);
-    console.log(`[Open Policy DB] Migrations 0001 through 0035 applied successfully.`);
+    await pglite.exec(SQL_MIGRATION_V36);
+    await pglite.query(`INSERT INTO _migrations (name) VALUES ('0036_paso_prospect_authority_evidence') ON CONFLICT (name) DO NOTHING;`);
+    console.log(`[Open Policy DB] Migrations 0001 through 0036 applied successfully.`);
     return pglite;
   } catch (error) {
     console.error(`[Open Policy DB] Migration error:`, error);
