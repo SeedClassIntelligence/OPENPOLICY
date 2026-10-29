@@ -34,18 +34,37 @@ export async function candidatePreviewFetch(input: RequestInfo | URL, init: Requ
   ]});
   if (path === '/api/rollout/jurisdiction-lines') return json({ entries: [{ jurisdictionCode: 'NV', insuranceLine: 'PERSONAL_AUTO', marketStatus: 'CONTROLLED_ACCEPTANCE' }] });
   if (path === '/api/admin/overview') return json({
-    providers: { active: 3, pendingApplications: 1, suspended: 1 }, consumers: { registered: 64, target: 1000 },
-    marketplace: { openOpportunities: 12, activeCompetitions: 7, authorizedConnections: 4 },
-    attention: [{ severity: 'REVIEW', label: '1 provider application awaiting authority review' }]
+    generatedAt: '2026-10-29T00:00:00.000Z',
+    counts: { activeProviderOrganizations: 3, providerOrganizations: 4, activeProviderUsers: 6, providerUsers: 7, openCompetitions: 12, competitions: 18, policies: 29, verifiedBaselines: 29, bindingHandoffs: 4, policyVaultItems: 4, pendingReviews: 1, auditEvents: 0 },
+    paymentProcessor: { configured: true, secureReturnUrl: true, liveCollectionsEnabled: false },
+    organizations: [
+      { id: 'org_preview_sierra', legalName: 'Sierra Brokerage Group LLC', verificationStatus: 'MARKETPLACE_APPROVED', marketplaceStatus: 'ACTIVE', users: 2, jurisdictions: ['NV'], insuranceLines: ['PERSONAL_AUTO'] },
+      { id: 'org_preview_suspended', legalName: 'Wave Zero Suspended Provider Demo LLC', verificationStatus: 'MARKETPLACE_APPROVED', marketplaceStatus: 'SUSPENDED', users: 1, jurisdictions: ['NV'], insuranceLines: ['PERSONAL_AUTO'] }
+    ]
   });
   if (path === '/api/admin/commercial/governance') return json({ priceBookId: 'OPEN_POLICY_COMMERCIAL_V2', status: 'ACTIVE', liveCollectionsEnabled: false, plans: [] });
   if (path === '/api/admin/commercial/platform-summary') return json({ liveCollectionsEnabled: false, activeMemberships: 3, invoices: 0, payments: 0, outstandingCents: 0 });
   if (path === '/api/admin/administrators') return json({ administrators: [{ firebaseUid: 'preview-owner', adminType: 'OWNER', permissions: ['PLATFORM_READ'], status: 'ACTIVE' }] });
-  if (path === '/api/admin/marketplace-operations') return json({ opportunities: 12, competitions: 7, submissions: 15, selections: 4, controlledDisclosures: 4 });
+  if (path === '/api/admin/marketplace-operations') return json({
+    policies: [{ id: 'preview-policy-1' }],
+    opportunities: [{ id: 'preview-opportunity-1', referenceNumber: 'NV-PA-PREVIEW-001', jurisdiction: 'NV', insuranceLine: 'PERSONAL_AUTO', status: 'OPEN', competitionStatus: 'SUBMISSION_WINDOW', offersCount: 2, activeOfferCohort: 1, maximumActivatedProviders: 5 }],
+    offers: [{ id: 'preview-offer-1' }, { id: 'preview-offer-2' }], selections: [], handoffs: []
+  });
   if (path === '/api/admin/provider-applications') return json([application]);
   if (path === '/api/admin/provider-authority-evidence') return json([]);
-  if (path === '/api/admin/jurisdictions/NV/readiness') return json({ jurisdictionCode: 'NV', insuranceLine: 'PERSONAL_AUTO', status: 'CONTROLLED_ACCEPTANCE', productionEligible: false, reason: 'Synthetic preview only' });
-  if (path === '/api/admin/consumer-funnel/summary') return json({ registeredConsumers: 64, targetConsumers: 1000, baselinesCreated: 29, opportunitiesOpened: 18, selections: 4 });
+  if (path === '/api/admin/jurisdictions/NV/readiness') return json({
+    market: { readiness: 'CONTROLLED_ACCEPTANCE', state: 'PRE_PRODUCTION', gates: [] },
+    candidatePacket: { rules: [
+      { ruleId: 'NV-PREVIEW-INDIVIDUAL-LICENSE', researchStatus: 'READY_FOR_VERIFICATION', verificationStatus: 'SANDBOX_ONLY', normalizedProposition: 'Individual producer licensing is evaluated independently.', primaryAuthority: { officialUrl: 'https://doi.nv.gov/', citation: 'Nevada Division of Insurance' }, openQuestions: [] },
+      { ruleId: 'NV-PREVIEW-ORGANIZATION-LICENSE', researchStatus: 'REVIEW_REQUIRED', verificationStatus: 'UNPUBLISHED', normalizedProposition: 'Business-entity authority is evaluated separately from individual authority.', primaryAuthority: { officialUrl: 'https://doi.nv.gov/', citation: 'Nevada Division of Insurance' }, openQuestions: ['Independent production verification remains required.'] }
+    ] },
+    manifest: { activationGates: [{ gateCode: 'INDEPENDENT_RULE_VERIFICATION', evidenceRefs: ['Synthetic preview—no production attestation'] }] }
+  });
+  if (path === '/api/admin/consumer-funnel/summary') return json({ targetActivatedConsumers: 1000, events: [
+    { eventName: 'ACCOUNT_CREATED', consumers: 64 }, { eventName: 'INTAKE_PATH_SELECTED', consumers: 51 },
+    { eventName: 'BASELINE_CONFIRMED', consumers: 29 }, { eventName: 'MARKETPLACE_REQUEST_ACTIVATED', consumers: 18 },
+    { eventName: 'FIRST_OFFER_RECEIVED', consumers: 9 }, { eventName: 'PROVIDER_CONNECTION_AUTHORIZED', consumers: 4 }
+  ] });
 
   if (path === '/api/internal/sales/foundation') return json({ profile: { id: 'preview-sales-owner', role: 'SALES_ADMIN', activeStatus: 'ACTIVE' }, teams: [{ id: 'preview-team-nv', name: 'Nevada Provider Acquisition' }], territories: [{ id: 'preview-territory-nv', name: 'Nevada Wave 0' }] });
   if (path === '/api/internal/sales/prospects') return json({ prospects: [{ id: 'preview-prospect-1', organizationName: 'Silver State Coverage Partners', jurisdiction: 'NV', assignedRepId: 'preview-sales-owner', status: 'QUALIFIED' }] });
