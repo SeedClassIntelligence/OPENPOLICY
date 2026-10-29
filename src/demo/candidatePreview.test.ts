@@ -35,6 +35,9 @@ test('preview API serves synthetic reads and rejects every write', async () => {
   const applications = await read.json();
   assert.equal(applications[0].status, 'PENDING_REVIEW');
 
+  const notifications = await candidatePreviewFetch('/api/notifications');
+  assert.deepEqual(await notifications.json(), []);
+
   const write = await candidatePreviewFetch('/api/admin/provider-applications/example/review', { method: 'POST' });
   assert.equal(write.status, 403);
   assert.match((await write.json()).error, /Read-only preview/);

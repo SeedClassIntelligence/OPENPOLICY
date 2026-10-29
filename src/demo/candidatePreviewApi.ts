@@ -20,6 +20,7 @@ export async function candidatePreviewFetch(input: RequestInfo | URL, init: Requ
   const url = new URL(raw, window.location.origin);
   const path = url.pathname;
 
+  if (path === '/api/notifications') return json([]);
   if (path === '/api/challenges') return json([]);
   if (path === '/api/audit-events') return json([]);
   if (path === '/api/admin/review-queue') return json([]);
