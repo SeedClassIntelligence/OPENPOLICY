@@ -2,7 +2,7 @@
 
 ## Cumulative implementation record
 
-**Status:** PASO-1 through PASO-7 implemented and locally validated; PASO-8 acceptance not started
+**Status:** PASO-1 through PASO-7 implemented; PASO-8 automated acceptance passed with browser-visible review still pending
 **Feature branch:** `feature/paso-provider-acquisition`  
 **Governing specification:** PASO Master Build Instructions  
 **Integration posture:** Additive internal bounded context
@@ -240,3 +240,20 @@ The existing Owner Console `Sales & Acquisition` section now hosts the Provider 
 - The interface states that sales cannot manufacture verification, paid activation or marketplace participation and that payout export does not move funds.
 
 Validation on October 28, 2026: TypeScript check and client/server production builds **passed**. The built client contains the integrated command center; bundle-size and mixed-import notices remain non-failing optimization warnings.
+
+## 15. PASO-8 acceptance evidence
+
+Final automated acceptance on October 28, 2026 produced the following evidence:
+
+- PASO cumulative domain and durable-store suite: **14 assertions passed** when isolated database suites were run in the supported sequential mode. A parallel run exhausted the Windows Node process while starting multiple embedded PostgreSQL instances; the two interrupted suites then passed **3/3** sequentially with no code change.
+- Provider onboarding and activation regression: **48/48 passed**. Provider and direct-carrier activation still fail closed until authority evidence, governing V2 enrollment and settled subscription evidence exist.
+- Authentication, authorization, tenant isolation, Stripe boundary and Firestore security regression: **58/58 passed** after correcting Node-safe access to the Vite development-environment object.
+- Commercial V2 and payment-boundary regression: **13/13 commercial checks plus 11 payment/processor checks passed**. Commercial-plan differences do not affect marketplace comparison, and live collections remain fail closed when operational enablement is absent.
+- HTTP security probes: **19/19 passed**, including anonymous rejection, consumer ownership, participating-provider scope, cross-organization denial, spoofed-organization denial and administrator isolation.
+- TypeScript check and reproducible client/server production build: **passed**.
+
+The local application served `/admin` successfully and rejected an unauthenticated PASO foundation request with HTTP 403. Direct browser capture could not be completed because local Browser Use was disabled in the Work setting at action time. This is a remaining visual-acceptance step, not evidence of a backend or build failure.
+
+### PASO-8 disposition
+
+**CONDITIONAL GO for zero-traffic acceptance deployment.** The candidate is not authorized by this record for production migration, traffic promotion, external outreach, payout execution, or live Stripe collections. Before promotion, visually confirm the command center using an authenticated owner account and execute the existing zero-traffic deployment procedure with migrations 0030–0035 against a backed-up target database.

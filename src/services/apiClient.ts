@@ -31,7 +31,8 @@ export async function executeAuthenticatedFetch(
   const headers = new Headers(init.headers);
   const { user } = dependencies;
   if (user) headers.set('Authorization', `Bearer ${await user.getIdToken()}`);
-  if (import.meta.env.DEV && import.meta.env.VITE_ENABLE_DEMO_IDENTITIES === 'true') {
+  const runtimeEnv = (import.meta as ImportMeta & { env?: Record<string, unknown> }).env;
+  if (runtimeEnv?.DEV === true && runtimeEnv.VITE_ENABLE_DEMO_IDENTITIES === 'true' && typeof window !== 'undefined') {
     const fixtureRole = window.sessionStorage.getItem('openpolici-fixture-role');
     if (fixtureRole) headers.set('x-openpolicy-fixture-role', fixtureRole);
   }
