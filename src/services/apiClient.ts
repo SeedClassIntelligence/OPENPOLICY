@@ -1,5 +1,7 @@
 import { signOut } from 'firebase/auth';
 import { auth } from '../firebase/config';
+import { isCandidatePreview } from '../demo/candidatePreview';
+import { candidatePreviewFetch } from '../demo/candidatePreviewApi';
 
 export const REAUTH_REQUIRED_EVENT = 'openpolicy:reauth-required';
 
@@ -56,6 +58,7 @@ export async function executeAuthenticatedFetch(
 
 /** Attach the current Firebase ID token to Open Policy API requests. */
 export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  if (isCandidatePreview()) return candidatePreviewFetch(input, init);
   return executeAuthenticatedFetch(input, init, {
     user: auth.currentUser,
     // Window.fetch requires its Window receiver in Chromium. Passing the bare method

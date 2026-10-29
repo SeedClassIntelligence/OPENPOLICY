@@ -14,6 +14,7 @@ import { auth } from '../firebase/config';
 import { createUserProfile, loadUserProfile, FirestoreUserProfile } from '../services/userService';
 import { REAUTH_REQUIRED_EVENT } from '../services/apiClient';
 import type { InsuranceLine } from '../types/jurisdiction';
+import { isCandidatePreview } from '../demo/candidatePreview';
 
 export type UserRole = 'CONSUMER' | 'PROVIDER' | 'ADMIN';
 
@@ -302,7 +303,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const useDemoAccount = (role: UserRole = 'CONSUMER', alias?: string) => {
-    if (!import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO_IDENTITIES !== 'true') {
+    const localDemoEnabled = import.meta.env.DEV && import.meta.env.VITE_ENABLE_DEMO_IDENTITIES === 'true';
+    if (!localDemoEnabled && !isCandidatePreview()) {
       throw new Error('Demonstration identities are disabled outside the explicitly enabled local development environment.');
     }
     setIsDemoUser(true);
