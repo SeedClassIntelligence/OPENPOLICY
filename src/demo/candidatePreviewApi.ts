@@ -29,7 +29,14 @@ export async function candidatePreviewFetch(input: RequestInfo | URL, init: Requ
   if (path === '/api/challenges') return json([]);
   if (path === '/api/audit-events') return json([]);
   if (path === '/api/admin/review-queue') return json([]);
-  if (path === '/api/admin/audit-chain/verify') return json({ valid: true, totalRecords: 0, verifiedRecords: 0, message: 'Synthetic preview contains no production audit records.' });
+  if (path === '/api/admin/audit-chain/verify') return json({
+    valid: true,
+    totalRecords: 0,
+    verifiedRecords: 0,
+    merkleRoot: 'preview0000000000000000000000000000000000000000000000000000000000',
+    latestBlockHash: 'preview0000000000000000000000000000000000000000000000000000000000',
+    message: 'Synthetic preview contains no production audit records.'
+  });
   if (path === '/api/insurance-lines') return json({ insuranceLines: [
     { code: 'PERSONAL_AUTO', displayName: 'Personal Auto', status: 'ACTIVE' },
     { code: 'HOMEOWNERS', displayName: 'Homeowners', status: 'PRE_PRODUCTION' },
@@ -81,10 +88,10 @@ export async function candidatePreviewFetch(input: RequestInfo | URL, init: Requ
 
   if (path === '/api/marketplace/opportunities' || path === '/api/marketplace/competitions') return json([]);
   if (path === '/api/marketplace/my-provider') return json({
-    org: { id: 'org_preview_sierra', legalName: 'Sierra Brokerage Group LLC', displayName: 'Sierra Brokerage Group', organizationType: 'INDEPENDENT_AGENCY', verificationStatus: 'MARKETPLACE_APPROVED', marketplaceStatus: 'ACTIVE' },
+    org: { id: 'org_preview_sierra', legalName: 'Sierra Brokerage Group LLC', displayName: 'Sierra Brokerage Group', organizationType: 'INDEPENDENT_AGENCY', verificationStatus: 'MARKETPLACE_APPROVED', marketplaceStatus: 'ACTIVE', states: ['NV'], linesOfBusiness: ['PERSONAL_AUTO'] },
     user: { id: 'user_sierra_1', fullName: 'Jordan Rivera', email: 'jordan@example.invalid', role: 'ADMIN', activeStatus: 'ACTIVE' },
     licenses: [{ id: 'license-preview-1', jurisdiction: 'NV', licenseNumber: 'NV-PREVIEW-48291', status: 'ACTIVE', linesOfAuthority: ['PROPERTY', 'CASUALTY'] }],
-    appetite: { states: ['NV'], linesOfBusiness: ['PERSONAL_AUTO'], status: 'ACTIVE' },
+    appetite: { states: ['NV'], jurisdictions: ['NV'], linesOfBusiness: ['PERSONAL_AUTO'], riskMarkets: ['PREFERRED', 'STANDARD'], status: 'ACTIVE' },
     carriers: [{ id: 'carrier-preview-1', carrierName: 'Synthetic Carrier for Preview', status: 'ACTIVE', insuranceLines: ['PERSONAL_AUTO'] }]
   });
   if (path.startsWith('/api/commercial/')) {

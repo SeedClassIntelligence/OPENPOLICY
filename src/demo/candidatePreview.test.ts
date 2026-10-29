@@ -38,6 +38,14 @@ test('preview API serves synthetic reads and rejects every write', async () => {
   const notifications = await candidatePreviewFetch('/api/notifications');
   assert.deepEqual(await notifications.json(), []);
 
+  const provider = await candidatePreviewFetch('/api/marketplace/my-provider').then((response) => response.json());
+  assert.deepEqual(provider.org.states, ['NV']);
+  assert.deepEqual(provider.appetite.jurisdictions, ['NV']);
+
+  const audit = await candidatePreviewFetch('/api/admin/audit-chain/verify').then((response) => response.json());
+  assert.equal(typeof audit.merkleRoot, 'string');
+  assert.equal(typeof audit.latestBlockHash, 'string');
+
   const write = await candidatePreviewFetch('/api/admin/provider-applications/example/review', { method: 'POST' });
   assert.equal(write.status, 403);
   assert.match((await write.json()).error, /Read-only preview/);
