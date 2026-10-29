@@ -35,12 +35,14 @@ test('PASO-1 persists teams, territories, profiles, and immutable creation evide
     assert.deepEqual((await paso.listTerritories())[0].insuranceLineFocus, ['PERSONAL_AUTO']);
     assert.equal((await paso.getProfileByInternalUserId(profile.internalUserId))?.teamId, team.id);
     assert.equal(territory.assignedTeamId, team.id);
+    assert.equal((await paso.updateProfileStatus({profileId:profile.id,activeStatus:'SUSPENDED',reason:'Owner access review',actorId:'owner-1'})).activeStatus,'SUSPENDED');
+    assert.equal((await paso.updateProfileStatus({profileId:profile.id,activeStatus:'ACTIVE',reason:'Owner restored access',actorId:'owner-1'})).activeStatus,'ACTIVE');
 
     const sql = await database.getPgClient();
     const migration = await sql.query<{ count:number }>("SELECT count(*)::int AS count FROM _migrations WHERE name='0030_paso_foundation'");
     assert.equal(Number(migration.rows[0].count), 1);
     const audits = await sql.query<{ count:number }>('SELECT count(*)::int AS count FROM sales_audit_events');
-    assert.equal(Number(audits.rows[0].count), 3);
+    assert.equal(Number(audits.rows[0].count), 5);
   } finally {
     await database.close();
     fs.rmSync(dataDir, { recursive: true, force: true });

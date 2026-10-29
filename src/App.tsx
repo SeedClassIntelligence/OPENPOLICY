@@ -9,6 +9,7 @@ import { LandingPage } from './components/LandingPage';
 import { ConsumerPortal, type ConsumerStep } from './components/ConsumerPortal';
 import { ProviderPortal } from './components/ProviderPortal';
 import { AdminConsole } from './components/AdminConsole';
+import { PasoWorkspace } from './components/PasoWorkspace';
 import { AuthProvider, useAuth, UserRole } from './context/AuthContext';
 import { AuthModal } from './components/AuthModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -42,9 +43,9 @@ function MainApp() {
       useDemoAccount(previewRole, previewRole === 'ADMIN' ? 'Owner Console Preview' : previewRole === 'PROVIDER' ? 'Provider Workspace Preview' : 'Consumer Workspace Preview');
       return;
     }
-    const localOwnerDemo = import.meta.env.DEV
+    const localOwnerDemo = (import.meta.env.DEV || ['localhost','127.0.0.1'].includes(window.location.hostname))
       && import.meta.env.VITE_ENABLE_DEMO_IDENTITIES === 'true'
-      && window.location.pathname === '/admin'
+      && (window.location.pathname === '/admin' || window.location.pathname === '/paso')
       && new URLSearchParams(window.location.search).get('demo') === 'owner';
     if (localOwnerDemo && (!isAuthenticated || userRole !== 'ADMIN')) {
       useDemoAccount('ADMIN', 'Open Polici Owner Demo');
@@ -61,7 +62,7 @@ function MainApp() {
         setActivePerspective('CONSUMER');
       } else if (path === '/provider-account' && isAuthenticated && userRole === 'PROVIDER') {
         setActivePerspective('PROVIDER');
-      } else if (path === '/admin' && isAuthenticated && userRole === 'ADMIN') {
+      } else if ((path === '/admin' || path === '/paso') && isAuthenticated && userRole === 'ADMIN') {
         setActivePerspective('ADMIN_AUDIT');
       }
     };
@@ -231,7 +232,8 @@ function MainApp() {
               <div className="flex flex-wrap gap-2">
                 <a className="rounded-lg border border-amber-400 bg-white px-3 py-2 font-bold" href="/account?preview=consumer">Consumer dashboard</a>
                 <a className="rounded-lg border border-amber-400 bg-white px-3 py-2 font-bold" href="/provider-account?preview=provider">Provider dashboard</a>
-                <a className="rounded-lg border border-amber-400 bg-white px-3 py-2 font-bold" href="/admin?preview=owner">Owner / PASO dashboard</a>
+                <a className="rounded-lg border border-amber-400 bg-white px-3 py-2 font-bold" href="/admin?preview=owner">Owner Admin</a>
+                <a className="rounded-lg border border-amber-400 bg-white px-3 py-2 font-bold" href="/paso?preview=owner">PASO workspace</a>
               </div>
             </div>
           </div>
@@ -300,7 +302,7 @@ function MainApp() {
 
             {activePerspective === 'ADMIN_AUDIT' && userRole === 'ADMIN' && (
               <ErrorBoundary fallbackTitle="Unable to Display Audit Console">
-                <AdminConsole onRefreshData={loadData} />
+                {publicPath === '/paso' ? <PasoWorkspace /> : <AdminConsole onRefreshData={loadData} />}
               </ErrorBoundary>
             )}
 

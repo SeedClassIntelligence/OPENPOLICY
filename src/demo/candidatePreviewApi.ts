@@ -79,12 +79,13 @@ export async function candidatePreviewFetch(input: RequestInfo | URL, init: Requ
     { eventName: 'FIRST_OFFER_RECEIVED', consumers: 9 }, { eventName: 'PROVIDER_CONNECTION_AUTHORIZED', consumers: 4 }
   ] });
 
-  if (path === '/api/internal/sales/foundation') return json({ profile: { id: 'preview-sales-owner', role: 'SALES_ADMIN', activeStatus: 'ACTIVE' }, teams: [{ id: 'preview-team-nv', name: 'Nevada Provider Acquisition' }], territories: [{ id: 'preview-territory-nv', name: 'Nevada Wave 0' }] });
-  if (path === '/api/internal/sales/prospects') return json({ prospects: [{ id: 'preview-prospect-1', organizationName: 'Silver State Coverage Partners', jurisdiction: 'NV', assignedRepId: 'preview-sales-owner', status: 'QUALIFIED' }] });
-  if (path === '/api/internal/sales/opportunities') return json({ opportunities: [{ id: 'preview-opportunity-1', stage: 'VERIFICATION_PENDING', targetMembershipTier: 'PLAN_AGENCY', providerApplicationId: application.id }] });
+  if (path === '/api/internal/sales/foundation') return json({ profile: { id: 'preview-sales-owner', internalUserId:'preview-owner', role: 'SALES_ADMIN', activeStatus: 'ACTIVE' }, teams: [{ id: 'preview-team-nv', name: 'Nevada Provider Acquisition', activeStatus:'ACTIVE' }], territories: [{ id: 'preview-territory-nv', name: 'Nevada Wave 0', jurisdictionCodes:['NV'], insuranceLineFocus:['PERSONAL_AUTO'] }], profiles:[{id:'preview-sales-owner',internalUserId:'preview-owner',teamId:'preview-team-nv',role:'SALES_ADMIN',activeStatus:'ACTIVE'},{id:'preview-sales-rep',internalUserId:'preview-rep@example.invalid',teamId:'preview-team-nv',role:'SALES_REP',activeStatus:'ACTIVE'}] });
+  if (path === '/api/internal/sales/prospects') return json({ prospects: [{ id: 'preview-prospect-1', organizationName: 'Silver State Coverage Partners', jurisdiction: 'NV', assignedRepId: 'preview-sales-rep', status: 'QUALIFIED' }] });
+  if (path === '/api/internal/sales/opportunities') return json({ opportunities: [{ id: 'preview-opportunity-1', prospectId:'preview-prospect-1', stage: 'VERIFICATION_PENDING', targetMembershipTier: 'PLAN_AGENCY', providerApplicationId: application.id }] });
   if (path === '/api/internal/sales/compensation/plans') return json({ plans: [{ id: 'preview-plan-v1', planName: 'Provider Acquisition Plan', version: 1, status: 'DRAFT' }] });
   if (path === '/api/internal/sales/analytics/actuals') return json({ newPayingProviders: 0, membershipMrrCents: 0, providerCacCents: 0, membershipRevenueCents: 0, connectionRevenueCents: 0, compensationExpenseCents: 0 });
-  if (path === '/api/internal/sales/analytics/demand') return json({ registeredConsumers: 64, target: { count: 1000 }, openDemand: 12 });
+  if (path === '/api/internal/sales/analytics/demand') return json({ registeredConsumers: 64, completedIntakes:29, eligibleStructuredOpportunities:18, activeCompetitions:12, target: { count: 1000 }, openDemand: 12 });
+  if (path === '/api/internal/sales/duplicates') return json({ candidates: [] });
 
   if (path === '/api/marketplace/opportunities' || path === '/api/marketplace/competitions') return json([]);
   if (path === '/api/marketplace/my-provider') return json({

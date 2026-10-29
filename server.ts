@@ -1599,6 +1599,10 @@ app.post('/api/internal/sales/profiles',async(req,res)=>{
   try{await requirePaso(req,'PROFILE_WRITE');const role=String(req.body?.role||'') as PasoRole;if(!PASO_ROLES.has(role))return res.status(400).json({error:'Valid PASO role required.'});const profile=await pasoStore.createProfile({internalUserId:String(req.body?.internalUserId||''),teamId:req.body?.teamId?String(req.body.teamId):undefined,managerId:req.body?.managerId?String(req.body.managerId):undefined,role,employmentClassification:String(req.body?.employmentClassification||''),effectiveFrom:String(req.body?.effectiveFrom||''),actorId:req.openPolicyIdentity!.uid});res.status(201).json({profile});}
   catch(e:any){res.status(e.statusCode||500).json({error:e.message});}
 });
+app.patch('/api/internal/sales/profiles/:profileId/status',async(req,res)=>{
+  try{await requirePaso(req,'PROFILE_WRITE');const activeStatus=String(req.body?.activeStatus||'') as 'ACTIVE'|'INACTIVE'|'SUSPENDED';const profile=await pasoStore.updateProfileStatus({profileId:req.params.profileId,activeStatus,reason:String(req.body?.reason||''),actorId:req.openPolicyIdentity!.uid});res.json({profile});}
+  catch(e:any){res.status(e.statusCode||500).json({error:e.message});}
+});
 const pasoScope=(profile:Awaited<ReturnType<typeof requirePaso>>):ProspectScope=>profile?{role:profile.role,profileId:profile.id,teamId:profile.teamId}:{role:'PLATFORM_OWNER'};
 async function requireProspectScope(req:express.Request,action:PasoAction){const profile=await requirePaso(req,action);return {profile,scope:pasoScope(profile)};}
 async function assertProspectAccess(profile:Awaited<ReturnType<typeof requirePaso>>,prospectId:string){

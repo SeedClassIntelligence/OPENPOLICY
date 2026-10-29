@@ -303,7 +303,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const useDemoAccount = (role: UserRole = 'CONSUMER', alias?: string) => {
-    const localDemoEnabled = import.meta.env.DEV && import.meta.env.VITE_ENABLE_DEMO_IDENTITIES === 'true';
+    const localDemoEnabled = (import.meta.env.DEV || ['localhost','127.0.0.1'].includes(window.location.hostname))
+      && import.meta.env.VITE_ENABLE_DEMO_IDENTITIES === 'true';
     if (!localDemoEnabled && !isCandidatePreview()) {
       throw new Error('Demonstration identities are disabled outside the explicitly enabled local development environment.');
     }
