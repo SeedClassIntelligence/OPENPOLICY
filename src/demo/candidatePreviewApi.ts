@@ -21,6 +21,11 @@ export async function candidatePreviewFetch(input: RequestInfo | URL, init: Requ
   const path = url.pathname;
 
   if (path === '/api/notifications') return json([]);
+  if (path === '/api/metrics') return json({
+    activeChallenges: 1, totalPoliciesIngested: 29, redisCacheHitRate: 96.4,
+    p95ComparisonLatencyMs: 14.2, workerQueueJobsProcessed: 1492,
+    discrepanciesIntercepted: 14, averageConsumerSavings: 428
+  });
   if (path === '/api/challenges') return json([]);
   if (path === '/api/audit-events') return json([]);
   if (path === '/api/admin/review-queue') return json([]);
@@ -39,8 +44,8 @@ export async function candidatePreviewFetch(input: RequestInfo | URL, init: Requ
     counts: { activeProviderOrganizations: 3, providerOrganizations: 4, activeProviderUsers: 6, providerUsers: 7, openCompetitions: 12, competitions: 18, policies: 29, verifiedBaselines: 29, bindingHandoffs: 4, policyVaultItems: 4, pendingReviews: 1, auditEvents: 0 },
     paymentProcessor: { configured: true, secureReturnUrl: true, liveCollectionsEnabled: false },
     organizations: [
-      { id: 'org_preview_sierra', legalName: 'Sierra Brokerage Group LLC', verificationStatus: 'MARKETPLACE_APPROVED', marketplaceStatus: 'ACTIVE', users: 2, jurisdictions: ['NV'], insuranceLines: ['PERSONAL_AUTO'] },
-      { id: 'org_preview_suspended', legalName: 'Wave Zero Suspended Provider Demo LLC', verificationStatus: 'MARKETPLACE_APPROVED', marketplaceStatus: 'SUSPENDED', users: 1, jurisdictions: ['NV'], insuranceLines: ['PERSONAL_AUTO'] }
+      { id: 'org_preview_sierra', displayName: 'Sierra Brokerage Group', legalName: 'Sierra Brokerage Group LLC', verificationStatus: 'MARKETPLACE_APPROVED', marketplaceStatus: 'ACTIVE', userCount: 2, states: ['NV'], linesOfBusiness: ['PERSONAL_AUTO'] },
+      { id: 'org_preview_suspended', displayName: 'Wave Zero Suspended Provider Demo', legalName: 'Wave Zero Suspended Provider Demo LLC', verificationStatus: 'MARKETPLACE_APPROVED', marketplaceStatus: 'SUSPENDED', userCount: 1, states: ['NV'], linesOfBusiness: ['PERSONAL_AUTO'] }
     ]
   });
   if (path === '/api/admin/commercial/governance') return json({ priceBookId: 'OPEN_POLICY_COMMERCIAL_V2', status: 'ACTIVE', liveCollectionsEnabled: false, plans: [] });
@@ -75,13 +80,24 @@ export async function candidatePreviewFetch(input: RequestInfo | URL, init: Requ
   if (path === '/api/internal/sales/analytics/demand') return json({ registeredConsumers: 64, target: { count: 1000 }, openDemand: 12 });
 
   if (path === '/api/marketplace/opportunities' || path === '/api/marketplace/competitions') return json([]);
-  if (path === '/api/marketplace/my-provider') return json({ organization: { id: 'org_preview_sierra', legalName: 'Sierra Brokerage Group LLC', displayName: 'Sierra Brokerage Group', verificationStatus: 'MARKETPLACE_APPROVED', marketplaceStatus: 'ACTIVE', jurisdictions: ['NV'], insuranceLines: ['PERSONAL_AUTO'] }, user: { id: 'user_sierra_1', role: 'ADMIN', activeStatus: 'ACTIVE' } });
+  if (path === '/api/marketplace/my-provider') return json({
+    org: { id: 'org_preview_sierra', legalName: 'Sierra Brokerage Group LLC', displayName: 'Sierra Brokerage Group', organizationType: 'INDEPENDENT_AGENCY', verificationStatus: 'MARKETPLACE_APPROVED', marketplaceStatus: 'ACTIVE' },
+    user: { id: 'user_sierra_1', fullName: 'Jordan Rivera', email: 'jordan@example.invalid', role: 'ADMIN', activeStatus: 'ACTIVE' },
+    licenses: [{ id: 'license-preview-1', jurisdiction: 'NV', licenseNumber: 'NV-PREVIEW-48291', status: 'ACTIVE', linesOfAuthority: ['PROPERTY', 'CASUALTY'] }],
+    appetite: { states: ['NV'], linesOfBusiness: ['PERSONAL_AUTO'], status: 'ACTIVE' },
+    carriers: [{ id: 'carrier-preview-1', carrierName: 'Synthetic Carrier for Preview', status: 'ACTIVE', insuranceLines: ['PERSONAL_AUTO'] }]
+  });
   if (path.startsWith('/api/commercial/')) {
-    if (path.endsWith('/account')) return json({ providerOrganizationId: 'org_preview_sierra', planCode: 'PLAN_AGENCY', status: 'TRIAL', trialDaysRemaining: 30 });
-    if (path.endsWith('/agreement')) return json({ id: 'agreement-preview', status: 'TRIAL', planCode: 'PLAN_AGENCY' });
+    if (path.endsWith('/account')) return json({ account: { providerOrganizationId: 'org_preview_sierra', planCode: 'PLAN_AGENCY', status: 'TRIAL', trialDaysRemaining: 30 } });
+    if (path.endsWith('/agreement')) return json({ agreement: { id: 'agreement-preview', status: 'TRIAL', planCode: 'PLAN_AGENCY' }, plan: { code: 'PLAN_AGENCY', name: 'Agency' }, planVersion: { version: 1 } });
     if (path.endsWith('/entitlements')) return json({ entitlements: [] });
-    if (path.endsWith('/value-summary')) return json({ membershipStatus: 'TRIAL', opportunitiesReceived: 0, authorizedConnections: 0 });
-    if (path.endsWith('/billable-events/summary')) return json({ totalCents: 0, count: 0 });
+    if (path.endsWith('/events')) return json({ events: [] });
+    if (path.endsWith('/value-summary')) return json({ valueSummary: { membershipStatus: 'TRIAL', opportunitiesReceived: 0, authorizedConnections: 0 } });
+    if (path.endsWith('/billable-events')) return json({ billableEvents: [] });
+    if (path.endsWith('/adjustments')) return json({ adjustments: [] });
+    if (path.endsWith('/billable-events/summary')) return json({ summary: { totalCents: 0, count: 0 } });
+    if (path.endsWith('/invoices')) return json({ invoices: [] });
+    if (path.endsWith('/billing-periods')) return json({ billingPeriods: [] });
     if (path.endsWith('/statements/current')) return json({ statement: null });
     return json([]);
   }
