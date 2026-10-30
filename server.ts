@@ -875,6 +875,10 @@ app.get('/api/documents/samples', async (req, res) => {
 });
 
 app.post('/api/documents/upload-sample', async (req, res) => {
+  const actorRole = req.openPolicyIdentity!.role;
+  if (actorRole === 'PASO') {
+    return res.status(403).json({ error: 'Forbidden', message: 'PASO identities cannot upload consumer policy documents.' });
+  }
   const { sampleId } = req.body;
   const sample = SAMPLE_DECLARATIONS_PAGES.find(s => s.id === sampleId) || SAMPLE_DECLARATIONS_PAGES[0];
 
@@ -900,7 +904,7 @@ app.post('/api/documents/upload-sample', async (req, res) => {
 
   await postgresStore.commitPolicyWithAudit(policy, [
     {
-      eventType: 'POLICY_UPLOADED', actorRole: req.openPolicyIdentity!.role, actorId: req.openPolicyIdentity!.uid,
+      eventType: 'POLICY_UPLOADED', actorRole, actorId: req.openPolicyIdentity!.uid,
       details: `Policy ${policy.id} stored in private vault`
     },
     {

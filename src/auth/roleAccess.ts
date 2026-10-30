@@ -13,6 +13,6 @@ export function canEnterOwnerDestination(role: UserRole | null, _destination: Ow
 
 export function destinationForRole(role: UserRole): MarketplaceDestination | 'ADMIN_AUDIT' {
   if (role === 'PROVIDER') return 'PROVIDER';
-  if (role === 'ADMIN') return 'ADMIN_AUDIT';
+  if (role === 'ADMIN' || role === 'PASO') return 'ADMIN_AUDIT';
   return 'CONSUMER';
 }

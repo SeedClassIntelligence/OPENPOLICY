@@ -457,8 +457,8 @@ export const Header: React.FC<HeaderProps> = ({
                     <p className="truncate text-xs font-bold">{userProfile?.displayName || 'Open Polici account'}</p>
                     <p className="truncate text-[10px] text-slate-500">{userProfile?.email}</p>
                   </div>
-                  <button type="button" onClick={() => { setShowAccountMenu(false); const destination = userRole === 'PROVIDER' ? 'PROVIDER' : userRole === 'ADMIN' ? 'ADMIN_AUDIT' : 'CONSUMER'; if (destination === 'CONSUMER') window.history.pushState({}, '', '/account'); if (destination === 'PROVIDER') window.history.pushState({}, '', '/provider-account'); if (destination === 'ADMIN_AUDIT') window.history.pushState({}, '', '/admin'); setActivePerspective(destination); }} className="w-full px-4 py-3 text-left text-xs font-semibold hover:bg-slate-50">
-                    Open my {userRole === 'PROVIDER' ? 'Provider Desk' : userRole === 'ADMIN' ? 'Admin Console' : 'Consumer Account'}
+                  <button type="button" onClick={() => { setShowAccountMenu(false); const destination = userRole === 'PROVIDER' ? 'PROVIDER' : (userRole === 'ADMIN' || userRole === 'PASO') ? 'ADMIN_AUDIT' : 'CONSUMER'; if (destination === 'CONSUMER') window.history.pushState({}, '', '/account'); if (destination === 'PROVIDER') window.history.pushState({}, '', '/provider-account'); if (destination === 'ADMIN_AUDIT') window.history.pushState({}, '', userRole === 'PASO' ? '/paso' : '/admin'); window.dispatchEvent(new PopStateEvent('popstate')); setActivePerspective(destination); }} className="w-full px-4 py-3 text-left text-xs font-semibold hover:bg-slate-50">
+                    Open my {userRole === 'PROVIDER' ? 'Provider Desk' : userRole === 'ADMIN' ? 'Admin Console' : userRole === 'PASO' ? 'PASO Workspace' : 'Consumer Account'}
                   </button>
                   <button type="button" onClick={async () => { setShowAccountMenu(false); await signOutUser(); showPublicLanding('CONSUMER'); }} className="w-full border-t border-slate-100 px-4 py-3 text-left text-xs font-semibold text-red-700 hover:bg-red-50">
                     Sign out

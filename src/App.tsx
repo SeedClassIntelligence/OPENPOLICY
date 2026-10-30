@@ -62,7 +62,9 @@ function MainApp() {
         setActivePerspective('CONSUMER');
       } else if (path === '/provider-account' && isAuthenticated && userRole === 'PROVIDER') {
         setActivePerspective('PROVIDER');
-      } else if ((path === '/admin' || path === '/paso') && isAuthenticated && userRole === 'ADMIN') {
+      } else if (path === '/admin' && isAuthenticated && userRole === 'ADMIN') {
+        setActivePerspective('ADMIN_AUDIT');
+      } else if (path === '/paso' && isAuthenticated && (userRole === 'ADMIN' || userRole === 'PASO')) {
         setActivePerspective('ADMIN_AUDIT');
       }
     };
@@ -181,7 +183,11 @@ function MainApp() {
   };
 
   const handleAuthSuccess = (role: UserRole) => {
-    if (role === 'ADMIN') {
+    if (role === 'PASO') {
+      window.history.pushState({}, '', '/paso');
+      setActivePerspective('ADMIN_AUDIT');
+      showToast('PASO identity loaded. Provider acquisition workspace is available.');
+    } else if (role === 'ADMIN') {
       window.history.pushState({}, '', '/admin');
       setActivePerspective('ADMIN_AUDIT');
       showToast('Owner identity loaded. Administrative controls are available.');
@@ -300,7 +306,7 @@ function MainApp() {
               </ErrorBoundary>
             )}
 
-            {activePerspective === 'ADMIN_AUDIT' && userRole === 'ADMIN' && (
+            {activePerspective === 'ADMIN_AUDIT' && (userRole === 'ADMIN' || (publicPath === '/paso' && userRole === 'PASO')) && (
               <ErrorBoundary fallbackTitle="Unable to Display Audit Console">
                 {publicPath === '/paso' ? <PasoWorkspace /> : <AdminConsole onRefreshData={loadData} />}
               </ErrorBoundary>

@@ -16,7 +16,7 @@ import { REAUTH_REQUIRED_EVENT } from '../services/apiClient';
 import type { InsuranceLine } from '../types/jurisdiction';
 import { isCandidatePreview } from '../demo/candidatePreview';
 
-export type UserRole = 'CONSUMER' | 'PROVIDER' | 'ADMIN';
+export type UserRole = 'CONSUMER' | 'PROVIDER' | 'ADMIN' | 'PASO';
 
 export interface AuthContextType {
   currentUser: FirebaseUser | null;

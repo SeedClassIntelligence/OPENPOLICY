@@ -188,9 +188,16 @@ test('founder-approved directory and notification route policies are enforced', 
   assert.equal(invoke('GET', '/notifications', consumer).next, true);
 });
 
-test('PASO foundation routes require an authenticated administrator with platform read authority', () => {
+test('PASO routes accept a bounded PASO identity without granting Owner/Admin access', () => {
   assert.equal(invoke('GET', '/internal/sales/foundation').status, 401);
   assert.equal(invoke('GET', '/internal/sales/foundation', consumer).status, 403);
+  const paso: RequestIdentity = {
+    uid: 'paso-sales-admin',
+    role: 'PASO',
+    source: 'FIREBASE'
+  };
+  assert.equal(invoke('GET', '/internal/sales/foundation', paso).next, true);
+  assert.equal(invoke('GET', '/admin/marketplace-operations', paso).status, 403);
   const staffWithoutPlatformRead: RequestIdentity = {
     uid: 'staff-no-platform-read',
     role: 'ADMIN',

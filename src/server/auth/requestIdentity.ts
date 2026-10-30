@@ -4,7 +4,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 
 export type AuthMode = 'firebase' | 'fixture';
-export type IdentityRole = 'CONSUMER' | 'PROVIDER' | 'ADMIN';
+export type IdentityRole = 'CONSUMER' | 'PROVIDER' | 'ADMIN' | 'PASO';
 export type AdminPermission = 'PLATFORM_READ'|'PROVIDER_ADMIN'|'COMMERCIAL_ADMIN'|'COMPLIANCE_ADMIN'|'SECURITY_ADMIN';
 
 export interface RequestIdentity {
@@ -134,7 +134,7 @@ export async function resolveFirebaseIdentity(token: string): Promise<RequestIde
 
   const profile = profileSnapshot.data() || {};
   const role = profile.role as IdentityRole | undefined;
-  if (!role || !['CONSUMER', 'PROVIDER', 'ADMIN'].includes(role)) {
+  if (!role || !['CONSUMER', 'PROVIDER', 'ADMIN', 'PASO'].includes(role)) {
     throw Object.assign(new Error('Open Polici profile has no valid account role.'), { statusCode: 403 });
   }
 

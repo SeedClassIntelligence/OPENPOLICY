@@ -16,6 +16,7 @@ test('post-authentication routing comes from the persisted role', () => {
   assert.equal(destinationForRole('CONSUMER'), 'CONSUMER');
   assert.equal(destinationForRole('PROVIDER'), 'PROVIDER');
   assert.equal(destinationForRole('ADMIN'), 'ADMIN_AUDIT');
+  assert.equal(destinationForRole('PASO'), 'ADMIN_AUDIT');
 });
 
 test('owner operations destinations require the persisted ADMIN role', () => {
@@ -23,6 +24,7 @@ test('owner operations destinations require the persisted ADMIN role', () => {
     assert.equal(canEnterOwnerDestination('ADMIN', destination), true);
     assert.equal(canEnterOwnerDestination('CONSUMER', destination), false);
     assert.equal(canEnterOwnerDestination('PROVIDER', destination), false);
+    assert.equal(canEnterOwnerDestination('PASO', destination), false);
     assert.equal(canEnterOwnerDestination(null, destination), false);
   }
 });
@@ -41,7 +43,8 @@ test('owner navigation and destructive reset are hidden from non-admin users', (
   const app = fs.readFileSync(path.join(root, 'src/App.tsx'), 'utf8');
   const header = fs.readFileSync(path.join(root, 'src/components/Header.tsx'), 'utf8');
   assert.match(app, /canEnterOwnerDestination/);
-  assert.match(app, /activePerspective === 'ADMIN_AUDIT' && userRole === 'ADMIN'/);
+  assert.match(app, /path === '\/admin' && isAuthenticated && userRole === 'ADMIN'/);
+  assert.match(app, /publicPath === '\/paso' && userRole === 'PASO'/);
   assert.match(header, /p\.id === 'ADMIN_AUDIT'.*userRole !== 'ADMIN'/s);
   assert.match(header, /userRole === 'ADMIN'.*reset-canonical-btn/s);
 });

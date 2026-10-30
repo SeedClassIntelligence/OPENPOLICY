@@ -43,7 +43,10 @@ const rules: RouteRule[] = [
   { methods: ['POST'], pattern: /^\/admin\/jurisdictions\/[^/]+\/market\/(?:gates|transition)$/, roles: ['ADMIN'], adminPermission:'COMPLIANCE_ADMIN' },
   { methods: ['GET'], pattern: /^\/admin\/jurisdictions\/NV\/readiness$/, roles: ['ADMIN'], adminPermission:'COMPLIANCE_ADMIN' },
   { pattern: /^\/admin\/commercial\//, roles: ['ADMIN'], adminPermission:'COMMERCIAL_ADMIN' },
-  { pattern: /^\/internal\/sales(?:\/.*)?$/, roles: ['ADMIN'], adminPermission:'PLATFORM_READ' },
+  // PASO personnel authenticate independently from the Owner/Admin control plane.
+  // ADMIN actors still require PLATFORM_READ; PASO actors are further constrained
+  // by their active sales_rep_profiles assignment inside each route handler.
+  { pattern: /^\/internal\/sales(?:\/.*)?$/, roles: ['ADMIN', 'PASO'], adminPermission:'PLATFORM_READ' },
   { pattern: /^\/admin\/(?:review-queue|audit-chain)/, roles: ['ADMIN'], adminPermission:'COMPLIANCE_ADMIN' },
   { pattern: /^\/admin\//, roles: ['ADMIN'], adminPermission:'PLATFORM_READ' },
 
