@@ -45,7 +45,7 @@ import {
 } from './src/domain/pm5ReconciliationEngine';
 import { verifyCryptographicAuditChain, processReviewQueueResolution,
   generateRegulatoryAuditProof } from './src/domain/governanceAuditEngine';
-import { assertProductionAuthConfiguration, attachRequestIdentity, configuredAuthMode, getFirebaseUserProfile, linkFirebaseProviderMembership, updateFirebaseProviderReviewState } from './src/server/auth/requestIdentity';
+import { assertProductionAuthConfiguration, attachRequestIdentity, configuredAuthMode, getFirebasePasoIdentitySummaries, getFirebaseUserProfile, linkFirebaseProviderMembership, provisionFirebasePasoIdentity, rollbackProvisionedPasoIdentity, updateFirebaseProviderReviewState } from './src/server/auth/requestIdentity';
 import { assertBindingRelationship, assertChallengeRelationship, enforceApiAuthorization } from './src/server/auth/routeAuthorization';
 import {
   assertDirectSettlementMutationAllowed,
@@ -1588,8 +1588,32 @@ async function requirePaso(req: express.Request, action:PasoAction){
 }
 
 app.get('/api/internal/sales/foundation',async(req,res)=>{
-  try{const profile=await requirePaso(req,'FOUNDATION_READ');const [teams,territories,profiles]=await Promise.all([pasoStore.listTeams(),pasoStore.listTerritories(),pasoStore.listProfiles()]);res.json({profile:profile||{role:'PLATFORM_OWNER'},teams,territories,profiles});}
+  try{const profile=await requirePaso(req,'FOUNDATION_READ');const [teams,territories,profiles]=await Promise.all([pasoStore.listTeams(),pasoStore.listTerritories(),pasoStore.listProfiles()]);const identities=req.openPolicyIdentity?.adminType==='OWNER'?await getFirebasePasoIdentitySummaries(profiles.map(item=>item.internalUserId)):{};res.json({profile:profile||{role:'PLATFORM_OWNER'},teams,territories,profiles:profiles.map(item=>({...item,...identities[item.internalUserId]}))});}
   catch(e:any){res.status(e.statusCode||500).json({error:e.message});}
+});
+app.post('/api/admin/paso/users',async(req,res)=>{
+  let identity: Awaited<ReturnType<typeof provisionFirebasePasoIdentity>> | undefined;
+  try{
+    if(req.openPolicyIdentity?.adminType!=='OWNER')throw Object.assign(new Error('Only the platform Owner may create PASO login accounts.'),{statusCode:403});
+    const role=String(req.body?.role||'') as PasoRole;
+    if(!PASO_ROLES.has(role))return res.status(400).json({error:'Valid PASO role required.'});
+    identity=await provisionFirebasePasoIdentity({email:String(req.body?.email||''),displayName:String(req.body?.displayName||'')});
+    const profile=await pasoStore.createProfile({internalUserId:identity.uid,teamId:req.body?.teamId?String(req.body.teamId):undefined,managerId:req.body?.managerId?String(req.body.managerId):undefined,role,employmentClassification:String(req.body?.employmentClassification||'EMPLOYEE'),effectiveFrom:new Date().toISOString(),actorId:req.openPolicyIdentity.uid});
+    res.status(201).json({user:{uid:identity.uid,email:identity.email,displayName:String(req.body.displayName).trim()},profile,sendPasswordSetup:true});
+  }catch(e:any){
+    if(identity)await rollbackProvisionedPasoIdentity(identity).catch(()=>undefined);
+    res.status(e.statusCode||500).json({error:e.message||'PASO user could not be created.'});
+  }
+});
+app.post('/api/admin/paso/profiles/:profileId/setup-email',async(req,res)=>{
+  try{
+    if(req.openPolicyIdentity?.adminType!=='OWNER')throw Object.assign(new Error('Only the platform Owner may send PASO setup emails.'),{statusCode:403});
+    const profile=(await pasoStore.listProfiles()).find(item=>item.id===req.params.profileId);
+    if(!profile)throw Object.assign(new Error('PASO profile not found.'),{statusCode:404});
+    const identity=(await getFirebasePasoIdentitySummaries([profile.internalUserId]))[profile.internalUserId];
+    if(!identity?.email)throw Object.assign(new Error('PASO login email is unavailable.'),{statusCode:409});
+    res.json({email:identity.email});
+  }catch(e:any){res.status(e.statusCode||500).json({error:e.message||'PASO setup email could not be prepared.'});}
 });
 app.post('/api/internal/sales/teams',async(req,res)=>{
   try{await requirePaso(req,'TEAM_WRITE');const team=await pasoStore.createTeam({name:String(req.body?.name||''),managerUserId:req.body?.managerUserId?String(req.body.managerUserId):undefined,actorId:req.openPolicyIdentity!.uid});res.status(201).json({team});}
@@ -1600,11 +1624,11 @@ app.post('/api/internal/sales/territories',async(req,res)=>{
   catch(e:any){res.status(e.statusCode||500).json({error:e.message});}
 });
 app.post('/api/internal/sales/profiles',async(req,res)=>{
-  try{await requirePaso(req,'PROFILE_WRITE');const role=String(req.body?.role||'') as PasoRole;if(!PASO_ROLES.has(role))return res.status(400).json({error:'Valid PASO role required.'});const profile=await pasoStore.createProfile({internalUserId:String(req.body?.internalUserId||''),teamId:req.body?.teamId?String(req.body.teamId):undefined,managerId:req.body?.managerId?String(req.body.managerId):undefined,role,employmentClassification:String(req.body?.employmentClassification||''),effectiveFrom:String(req.body?.effectiveFrom||''),actorId:req.openPolicyIdentity!.uid});res.status(201).json({profile});}
+  try{if(req.openPolicyIdentity?.adminType!=='OWNER')throw Object.assign(new Error('Only the platform Owner may create PASO profiles.'),{statusCode:403});const role=String(req.body?.role||'') as PasoRole;if(!PASO_ROLES.has(role))return res.status(400).json({error:'Valid PASO role required.'});const profile=await pasoStore.createProfile({internalUserId:String(req.body?.internalUserId||''),teamId:req.body?.teamId?String(req.body.teamId):undefined,managerId:req.body?.managerId?String(req.body.managerId):undefined,role,employmentClassification:String(req.body?.employmentClassification||''),effectiveFrom:String(req.body?.effectiveFrom||''),actorId:req.openPolicyIdentity!.uid});res.status(201).json({profile});}
   catch(e:any){res.status(e.statusCode||500).json({error:e.message});}
 });
 app.patch('/api/internal/sales/profiles/:profileId/status',async(req,res)=>{
-  try{await requirePaso(req,'PROFILE_WRITE');const activeStatus=String(req.body?.activeStatus||'') as 'ACTIVE'|'INACTIVE'|'SUSPENDED';const profile=await pasoStore.updateProfileStatus({profileId:req.params.profileId,activeStatus,reason:String(req.body?.reason||''),actorId:req.openPolicyIdentity!.uid});res.json({profile});}
+  try{if(req.openPolicyIdentity?.adminType!=='OWNER')throw Object.assign(new Error('Only the platform Owner may change PASO access.'),{statusCode:403});const activeStatus=String(req.body?.activeStatus||'') as 'ACTIVE'|'INACTIVE'|'SUSPENDED';const profile=await pasoStore.updateProfileStatus({profileId:req.params.profileId,activeStatus,reason:String(req.body?.reason||''),actorId:req.openPolicyIdentity!.uid});res.json({profile});}
   catch(e:any){res.status(e.statusCode||500).json({error:e.message});}
 });
 const pasoScope=(profile:Awaited<ReturnType<typeof requirePaso>>):ProspectScope=>profile?{role:profile.role,profileId:profile.id,teamId:profile.teamId}:{role:'PLATFORM_OWNER'};

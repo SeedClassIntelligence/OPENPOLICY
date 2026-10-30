@@ -1,13 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Activity, BadgeDollarSign, BriefcaseBusiness, Building2, CircleDollarSign, RefreshCw, ShieldCheck, Users } from 'lucide-react';
+import { Activity, BadgeDollarSign, BriefcaseBusiness, Building2, CircleDollarSign, RefreshCw, ShieldCheck } from 'lucide-react';
 import { apiFetch } from '../services/apiClient';
 
 type Tab='OVERVIEW'|'CRM'|'PIPELINE'|'COMPENSATION'|'FINANCE'|'INTELLIGENCE'|'WORKFORCE';
 const tabs:{id:Tab;label:string;icon:any}[]=[
   {id:'CRM',label:'Provider CRM',icon:Building2},{id:'PIPELINE',label:'Acquisition Pipeline',icon:BriefcaseBusiness},
   {id:'OVERVIEW',label:'Overview',icon:Activity},{id:'COMPENSATION',label:'Compensation',icon:BadgeDollarSign},
-  {id:'FINANCE',label:'Finance',icon:CircleDollarSign},{id:'INTELLIGENCE',label:'Intelligence',icon:Activity},
-  {id:'WORKFORCE',label:'Teams & Access',icon:Users}
+  {id:'FINANCE',label:'Finance',icon:CircleDollarSign},{id:'INTELLIGENCE',label:'Intelligence',icon:Activity}
 ];
 
 async function read(res:Response){const data=await res.json().catch(()=>({}));if(!res.ok)throw new Error(data.error||`Request failed (${res.status})`);return data;}
@@ -36,7 +35,7 @@ export function PasoWorkspace(){
   const role=data.foundation?.profile?.role||'PLATFORM_OWNER';
   const cards=[['Prospects',data.prospects.length],['Open pipeline',data.opportunities.length],['Membership revenue',money(data.actuals?.membershipRevenueCents)],['Provider CAC',money(data.actuals?.providerCacCents)],['Consumer demand',data.demand?.registeredConsumers??'—'],['Role',role]];
   return <section className="space-y-5" data-testid="paso-workspace">
-    <header className="rounded-2xl bg-slate-950 p-6 text-white shadow-xl"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-[10px] font-bold uppercase tracking-[.2em] text-emerald-300">Provider Acquisition & Sales Operations</p><h1 className="mt-2 text-2xl font-black">PASO Operating Workspace</h1><p className="mt-2 max-w-3xl text-sm text-slate-300">Recruit providers, collect authoritative licensing evidence, manage the acquisition pipeline, govern compensation, and measure growth. PASO staff prepare evidence; Owner review independently establishes provider authority and marketplace activation.</p></div><div className="flex gap-2"><a href="/admin?preview=owner" className="rounded-lg border border-slate-600 px-3 py-2 text-xs font-bold">Owner Admin</a><button onClick={load} disabled={busy} className="rounded-lg bg-emerald-400 px-3 py-2 text-xs font-black text-slate-950"><RefreshCw className="mr-1 inline h-3 w-3"/>Refresh</button></div></div></header>
+    <header className="rounded-2xl bg-slate-950 p-6 text-white shadow-xl"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-[10px] font-bold uppercase tracking-[.2em] text-emerald-300">Provider Acquisition & Sales Operations</p><h1 className="mt-2 text-2xl font-black">PASO Operating Workspace</h1><p className="mt-2 max-w-3xl text-sm text-slate-300">Recruit providers, collect authoritative licensing evidence, manage the acquisition pipeline, govern compensation, and measure growth. PASO staff prepare evidence; Owner review independently establishes provider authority and marketplace activation.</p></div><button onClick={load} disabled={busy} className="rounded-lg bg-emerald-400 px-3 py-2 text-xs font-black text-slate-950"><RefreshCw className="mr-1 inline h-3 w-3"/>Refresh</button></div></header>
     <nav className="flex gap-2 overflow-x-auto rounded-xl border bg-white p-2">{tabs.map(x=>{const I=x.icon;return <button key={x.id} onClick={()=>setTab(x.id)} className={`whitespace-nowrap rounded-lg px-3 py-2 text-xs font-bold ${tab===x.id?'bg-slate-950 text-white':'text-slate-600 hover:bg-slate-100'}`}><I className="mr-1 inline h-3.5 w-3.5"/>{x.label}</button>})}</nav>
     {(message||error)&&<div className={`rounded-xl border p-3 text-xs font-semibold ${error?'border-rose-300 bg-rose-50 text-rose-800':'border-emerald-300 bg-emerald-50 text-emerald-800'}`}>{error||message}</div>}
     {tab==='OVERVIEW'&&<div className="space-y-4"><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{cards.map(([l,v])=><div key={String(l)} className="rounded-xl border bg-white p-4"><span className="text-[10px] font-bold uppercase text-slate-500">{l}</span><strong className="mt-1 block text-xl text-slate-950">{String(v)}</strong></div>)}</div><div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950"><ShieldCheck className="mr-2 inline h-4 w-4"/><strong>Enforced boundary:</strong> PASO may recruit and support providers. Regulatory verification, marketplace activation, consumer disclosure, Commercial V2 pricing, and payment authority remain in their authoritative systems.</div></div>}

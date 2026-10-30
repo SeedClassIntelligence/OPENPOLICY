@@ -207,6 +207,11 @@ test('PASO routes accept a bounded PASO identity without granting Owner/Admin ac
   };
   assert.equal(invoke('GET', '/internal/sales/foundation', staffWithoutPlatformRead).status, 403);
   assert.equal(invoke('GET', '/internal/sales/foundation', admin).next, true);
+  assert.equal(invoke('POST', '/admin/paso/users', paso).status, 403);
+  assert.equal(invoke('POST', '/admin/paso/users', staffWithoutPlatformRead).status, 403);
+  assert.equal(invoke('POST', '/admin/paso/users', admin).next, true);
+  assert.equal(invoke('POST', '/admin/paso/profiles/profile-a/setup-email', paso).status, 403);
+  assert.equal(invoke('POST', '/admin/paso/profiles/profile-a/setup-email', admin).next, true);
 });
 
 test('fixture bypass requires an explicit process-only switch and is forbidden by production auth mode', () => {

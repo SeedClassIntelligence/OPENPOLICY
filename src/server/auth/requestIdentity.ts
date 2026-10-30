@@ -124,6 +124,73 @@ export async function linkFirebaseProviderMembership(uid: string, params: {
   });
 }
 
+export interface ProvisionedPasoIdentity {
+  uid: string;
+  email: string;
+  created: boolean;
+  profileCreated: boolean;
+}
+
+/**
+ * Creates the authentication identity used by one PASO staff member. This is
+ * deliberately separate from platform-administrator authority: the Firestore
+ * profile contains only the PASO role and the durable PASO assignment is
+ * enforced independently by sales_rep_profiles.
+ */
+export async function provisionFirebasePasoIdentity(input: {
+  email: string;
+  displayName: string;
+}): Promise<ProvisionedPasoIdentity> {
+  const email = input.email.trim().toLowerCase();
+  const displayName = input.displayName.trim();
+  if (!/^\S+@\S+\.\S+$/.test(email) || !displayName) {
+    throw Object.assign(new Error('A valid email address and full name are required.'), { statusCode: 400 });
+  }
+
+  const adminApp = firebaseAdminApp();
+  const auth = getAuth(adminApp);
+  const firestore = getFirestore(adminApp);
+  let user;
+  let created = false;
+  try {
+    user = await auth.getUserByEmail(email);
+  } catch (error: any) {
+    if (error?.code !== 'auth/user-not-found') throw error;
+    user = await auth.createUser({ email, displayName, emailVerified: false, disabled: false });
+    created = true;
+  }
+
+  const profileRef = firestore.collection('users').doc(user.uid);
+  const existing = await profileRef.get();
+  const existingRole = existing.data()?.role;
+  if (existingRole && existingRole !== 'PASO') {
+    if (created) await auth.deleteUser(user.uid);
+    throw Object.assign(new Error('That email already belongs to a non-PASO Open Polici account.'), { statusCode: 409 });
+  }
+
+  const now = new Date().toISOString();
+  await profileRef.set({
+    email,
+    displayName,
+    role: 'PASO',
+    updatedAt: now,
+    ...(existing.exists ? {} : { createdAt: now })
+  }, { merge: true });
+  return { uid: user.uid, email, created, profileCreated: !existing.exists };
+}
+
+export async function rollbackProvisionedPasoIdentity(identity: ProvisionedPasoIdentity): Promise<void> {
+  const adminApp = firebaseAdminApp();
+  if (identity.profileCreated) await getFirestore(adminApp).collection('users').doc(identity.uid).delete();
+  if (identity.created) await getAuth(adminApp).deleteUser(identity.uid);
+}
+
+export async function getFirebasePasoIdentitySummaries(uids: string[]): Promise<Record<string, {email?: string; displayName?: string}>> {
+  if (!uids.length) return {};
+  const result = await getAuth(firebaseAdminApp()).getUsers(uids.map(uid => ({ uid })));
+  return Object.fromEntries(result.users.map(user => [user.uid, { email: user.email, displayName: user.displayName }]));
+}
+
 export async function resolveFirebaseIdentity(token: string): Promise<RequestIdentity> {
   const adminApp = firebaseAdminApp();
   const decoded = await getAuth(adminApp).verifyIdToken(token, true);
