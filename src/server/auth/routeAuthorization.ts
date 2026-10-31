@@ -36,6 +36,7 @@ const rules: RouteRule[] = [
   { methods: ['POST'], pattern: /^\/commercial\/payments$/, roles: ['ADMIN'], adminPermission:'COMMERCIAL_ADMIN' },
   { methods: ['POST'], pattern: /^\/commercial\/refunds$/, roles: ['ADMIN'], adminPermission:'COMMERCIAL_ADMIN' },
   { pattern: /^\/admin\/administrators(?:\/[^/]+)?$/, roles: ['ADMIN'], adminPermission:'SECURITY_ADMIN' },
+  { pattern: /^\/admin\/paso(?:\/.*)?$/, roles: ['ADMIN'], adminPermission:'SECURITY_ADMIN' },
   { pattern: /^\/admin\/provider-applications(?:\/[^/]+\/(?:review|prepare-membership|activate))?$/, roles: ['ADMIN'], adminPermission:'PROVIDER_ADMIN' },
   { methods: ['GET'], pattern: /^\/admin\/provider-authority-evidence$/, roles: ['ADMIN'], adminPermission:'PROVIDER_ADMIN' },
   { pattern: /^\/admin\/providers(?:\/[^/]+\/status)?$/, roles: ['ADMIN'], adminPermission:'PROVIDER_ADMIN' },
@@ -43,6 +44,10 @@ const rules: RouteRule[] = [
   { methods: ['POST'], pattern: /^\/admin\/jurisdictions\/[^/]+\/market\/(?:gates|transition)$/, roles: ['ADMIN'], adminPermission:'COMPLIANCE_ADMIN' },
   { methods: ['GET'], pattern: /^\/admin\/jurisdictions\/NV\/readiness$/, roles: ['ADMIN'], adminPermission:'COMPLIANCE_ADMIN' },
   { pattern: /^\/admin\/commercial\//, roles: ['ADMIN'], adminPermission:'COMMERCIAL_ADMIN' },
+  // PASO personnel authenticate independently from the Owner/Admin control plane.
+  // ADMIN actors still require PLATFORM_READ; PASO actors are further constrained
+  // by their active sales_rep_profiles assignment inside each route handler.
+  { pattern: /^\/internal\/sales(?:\/.*)?$/, roles: ['ADMIN', 'PASO'], adminPermission:'PLATFORM_READ' },
   { pattern: /^\/admin\/(?:review-queue|audit-chain)/, roles: ['ADMIN'], adminPermission:'COMPLIANCE_ADMIN' },
   { pattern: /^\/admin\//, roles: ['ADMIN'], adminPermission:'PLATFORM_READ' },
 

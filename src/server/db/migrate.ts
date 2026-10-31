@@ -1564,6 +1564,181 @@ CREATE INDEX IF NOT EXISTS idx_consumer_funnel_event_name ON consumer_funnel_eve
 CREATE INDEX IF NOT EXISTS idx_consumer_funnel_consumer ON consumer_funnel_events(consumer_id, created_at);
 `;
 
+export const SQL_MIGRATION_V30 = `
+CREATE TABLE IF NOT EXISTS sales_teams (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, manager_user_id TEXT, active_status TEXT NOT NULL CHECK (active_status IN ('ACTIVE','INACTIVE')),
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sales_territories (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, jurisdiction_codes TEXT NOT NULL, geographic_scope TEXT NOT NULL,
+  insurance_line_focus TEXT NOT NULL, assigned_team_id TEXT REFERENCES sales_teams(id), effective_from TEXT NOT NULL,
+  effective_to TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sales_rep_profiles (
+  id TEXT PRIMARY KEY, internal_user_id TEXT NOT NULL UNIQUE, team_id TEXT REFERENCES sales_teams(id), manager_id TEXT,
+  role TEXT NOT NULL CHECK (role IN ('SALES_ADMIN','SALES_MANAGER','SALES_REP','PROVIDER_ACTIVATION','SALES_FINANCE','SALES_AUDITOR')),
+  employment_classification TEXT NOT NULL, compensation_plan_version_id TEXT,
+  active_status TEXT NOT NULL CHECK (active_status IN ('ACTIVE','INACTIVE','SUSPENDED')),
+  effective_from TEXT NOT NULL, effective_to TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sales_audit_events (
+  id TEXT PRIMARY KEY, actor_id TEXT NOT NULL, object_type TEXT NOT NULL, object_id TEXT NOT NULL, action TEXT NOT NULL,
+  prior_state_reference TEXT, resulting_state_reference TEXT, occurred_at TEXT NOT NULL, correlation_id TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sales_territories_team ON sales_territories(assigned_team_id, effective_from);
+CREATE INDEX IF NOT EXISTS idx_sales_rep_profiles_team ON sales_rep_profiles(team_id, active_status);
+CREATE INDEX IF NOT EXISTS idx_sales_audit_object ON sales_audit_events(object_type, object_id, occurred_at);
+`;
+
+export const SQL_MIGRATION_V31 = `
+CREATE TABLE IF NOT EXISTS provider_prospects (
+  id TEXT PRIMARY KEY, organization_name TEXT NOT NULL, normalized_organization_name TEXT NOT NULL,
+  organization_type TEXT NOT NULL, business_address TEXT NOT NULL, jurisdiction TEXT NOT NULL,
+  website TEXT, normalized_website_domain TEXT, known_license_identifiers TEXT NOT NULL,
+  primary_insurance_lines TEXT NOT NULL, prospect_source TEXT NOT NULL, qualification_status TEXT NOT NULL,
+  assigned_rep_id TEXT REFERENCES sales_rep_profiles(id), assigned_territory_id TEXT REFERENCES sales_territories(id),
+  existing_provider_organization_id TEXT UNIQUE, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS prospect_contacts (
+  id TEXT PRIMARY KEY, prospect_id TEXT NOT NULL REFERENCES provider_prospects(id), contact_name TEXT NOT NULL,
+  business_role TEXT NOT NULL, business_email TEXT, business_phone TEXT, communication_preferences TEXT NOT NULL,
+  consent_or_lawful_outreach_basis TEXT NOT NULL, created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS prospect_duplicate_candidates (
+  id TEXT PRIMARY KEY, prospect_id TEXT NOT NULL REFERENCES provider_prospects(id), candidate_prospect_id TEXT NOT NULL REFERENCES provider_prospects(id),
+  match_reasons TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('PENDING_REVIEW','DISTINCT','CONFIRMED_DUPLICATE')),
+  created_at TEXT NOT NULL, resolved_at TEXT, resolved_by TEXT, resolution_reason TEXT,
+  UNIQUE(prospect_id,candidate_prospect_id)
+);
+CREATE TABLE IF NOT EXISTS prospect_assignment_history (
+  id TEXT PRIMARY KEY, prospect_id TEXT NOT NULL REFERENCES provider_prospects(id), prior_rep_id TEXT,
+  resulting_rep_id TEXT, prior_territory_id TEXT, resulting_territory_id TEXT, reason TEXT NOT NULL,
+  changed_by TEXT NOT NULL, changed_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS prospect_outreach_activities (
+  id TEXT PRIMARY KEY, prospect_id TEXT NOT NULL REFERENCES provider_prospects(id), actor_profile_id TEXT NOT NULL,
+  activity_type TEXT NOT NULL, occurred_at TEXT NOT NULL, notes TEXT, next_action_at TEXT, outcome TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_provider_prospects_assignment ON provider_prospects(assigned_rep_id,assigned_territory_id,updated_at);
+CREATE INDEX IF NOT EXISTS idx_provider_prospects_identity ON provider_prospects(normalized_organization_name,normalized_website_domain,jurisdiction);
+CREATE INDEX IF NOT EXISTS idx_prospect_contacts_prospect ON prospect_contacts(prospect_id,created_at);
+CREATE INDEX IF NOT EXISTS idx_prospect_duplicate_review ON prospect_duplicate_candidates(status,created_at);
+CREATE INDEX IF NOT EXISTS idx_prospect_assignment_history ON prospect_assignment_history(prospect_id,changed_at);
+CREATE INDEX IF NOT EXISTS idx_prospect_outreach ON prospect_outreach_activities(prospect_id,occurred_at);
+`;
+
+export const SQL_MIGRATION_V32 = `
+CREATE TABLE IF NOT EXISTS sales_opportunities (
+  id TEXT PRIMARY KEY, prospect_id TEXT NOT NULL UNIQUE REFERENCES provider_prospects(id), owner_rep_id TEXT REFERENCES sales_rep_profiles(id),
+  pipeline_stage TEXT NOT NULL, target_membership_tier TEXT, expected_monthly_membership_revenue_cents INTEGER,
+  qualification_evidence TEXT, stage_entered_at TEXT NOT NULL, application_reference TEXT,
+  commercial_account_reference TEXT, lost_reason TEXT, closed_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sales_activities (
+  id TEXT PRIMARY KEY, sales_opportunity_id TEXT NOT NULL REFERENCES sales_opportunities(id), actor_user_id TEXT NOT NULL,
+  activity_type TEXT NOT NULL, occurred_at TEXT NOT NULL, notes TEXT, next_action_at TEXT, outcome TEXT, created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sales_pipeline_transitions (
+  id TEXT PRIMARY KEY, sales_opportunity_id TEXT NOT NULL REFERENCES sales_opportunities(id), prior_stage TEXT NOT NULL,
+  resulting_stage TEXT NOT NULL, transition_source TEXT NOT NULL CHECK(transition_source IN ('SALES_ACTIVITY','PROVIDER_APPLICATION','PROVIDER_AUTHORITY','COMMERCIAL_LEDGER','MARKETPLACE_EVIDENCE')),
+  source_reference TEXT, reason TEXT NOT NULL, changed_by TEXT NOT NULL, changed_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sales_opportunity_owner_stage ON sales_opportunities(owner_rep_id,pipeline_stage,updated_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_opportunity_application ON sales_opportunities(application_reference) WHERE application_reference IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_sales_activity_opportunity ON sales_activities(sales_opportunity_id,occurred_at);
+CREATE INDEX IF NOT EXISTS idx_sales_transition_opportunity ON sales_pipeline_transitions(sales_opportunity_id,changed_at);
+`;
+
+export const SQL_MIGRATION_V33 = `
+CREATE TABLE IF NOT EXISTS sales_attributions (
+  id TEXT PRIMARY KEY, provider_organization_id TEXT NOT NULL UNIQUE REFERENCES provider_organizations(id),
+  primary_rep_id TEXT NOT NULL REFERENCES sales_rep_profiles(id), optional_split_allocation TEXT NOT NULL DEFAULT '[]',
+  attribution_source TEXT NOT NULL, effective_at TEXT NOT NULL, approved_by TEXT NOT NULL,
+  immutable_decision_reference TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sales_compensation_plan_versions (
+  id TEXT PRIMARY KEY, plan_name TEXT NOT NULL, version INTEGER NOT NULL, effective_from TEXT, effective_to TEXT,
+  approved_by TEXT, approved_at TEXT, commission_rules TEXT NOT NULL, retention_rules TEXT NOT NULL,
+  eligibility_rules TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('DRAFT','APPROVED','ACTIVE','RETIRED')),
+  created_at TEXT NOT NULL, UNIQUE(plan_name,version)
+);
+CREATE TABLE IF NOT EXISTS sales_compensation_events (
+  id TEXT PRIMARY KEY, provider_organization_id TEXT NOT NULL REFERENCES provider_organizations(id),
+  attributed_rep_id TEXT NOT NULL REFERENCES sales_rep_profiles(id), plan_version_id TEXT NOT NULL REFERENCES sales_compensation_plan_versions(id),
+  source_commercial_event_id TEXT, source_payment_id TEXT NOT NULL REFERENCES payment_records(id),
+  event_type TEXT NOT NULL CHECK(event_type IN ('ACQUISITION_COMMISSION','RETENTION_BONUS')),
+  amount_cents INTEGER NOT NULL CHECK(amount_cents>=0), currency TEXT NOT NULL DEFAULT 'USD', earned_at TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('PENDING_EVIDENCE','ELIGIBLE','ACCRUED','APPROVED','PAYOUT_EXPORTED','RECONCILED','ADJUSTED','DISPUTED')),
+  evidence_snapshot TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sales_compensation_rep_status ON sales_compensation_events(attributed_rep_id,status,earned_at);
+CREATE INDEX IF NOT EXISTS idx_sales_compensation_provider_type ON sales_compensation_events(provider_organization_id,event_type);
+INSERT INTO sales_compensation_plan_versions(id,plan_name,version,commission_rules,retention_rules,eligibility_rules,status,created_at)
+VALUES(
+  'SCPV-INITIAL-DRAFT-V1','Open Polici Provider Acquisition',1,
+  '{"PLAN_SOLO":5000,"PLAN_AGENCY":12500,"PLAN_OPEN_POLICY_PREMIUM":25000,"PLAN_NETWORK":50000,"PLAN_ENTERPRISE":null}',
+  '{"paidPeriodsRequired":3,"PLAN_SOLO":2500,"PLAN_AGENCY":6000,"PLAN_OPEN_POLICY_PREMIUM":12500,"PLAN_NETWORK":25000,"PLAN_ENTERPRISE":null}',
+  '{"requiresVerifiedOrganization":true,"requiresApprovedAttribution":true,"requiresPaidSubscription":true,"excludedRevenueBases":["AUTHORIZED_CONNECTION","INSURANCE_PREMIUM","POLICY_ISSUANCE","CONSUMER_SELECTION","PROVIDER_WIN"]}',
+  'DRAFT','2026-10-28T00:00:00.000Z'
+) ON CONFLICT(id) DO NOTHING;
+`;
+
+export const SQL_MIGRATION_V34 = `
+CREATE TABLE IF NOT EXISTS sales_compensation_adjustments (
+  id TEXT PRIMARY KEY, original_event_id TEXT NOT NULL REFERENCES sales_compensation_events(id),
+  amount_cents INTEGER NOT NULL, reason TEXT NOT NULL, authorized_by TEXT NOT NULL,
+  authorized_at TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE,
+  evidence_snapshot TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sales_payout_batches (
+  id TEXT PRIMARY KEY, period_start TEXT NOT NULL, period_end TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('PREPARED','EXPORTED','RECONCILED','CANCELLED')),
+  prepared_by TEXT NOT NULL, prepared_at TEXT NOT NULL, exported_by TEXT, exported_at TEXT,
+  export_hash TEXT, reconciled_by TEXT, reconciled_at TEXT, reconciliation_reference TEXT,
+  UNIQUE(period_start,period_end)
+);
+CREATE TABLE IF NOT EXISTS sales_payout_batch_items (
+  batch_id TEXT NOT NULL REFERENCES sales_payout_batches(id),
+  compensation_event_id TEXT NOT NULL REFERENCES sales_compensation_events(id),
+  net_amount_cents INTEGER NOT NULL, PRIMARY KEY(batch_id,compensation_event_id),
+  UNIQUE(compensation_event_id)
+);
+CREATE INDEX IF NOT EXISTS idx_sales_adjustment_event ON sales_compensation_adjustments(original_event_id,authorized_at);
+CREATE INDEX IF NOT EXISTS idx_sales_payout_status ON sales_payout_batches(status,period_end);
+`;
+export const SQL_MIGRATION_V35 = `
+CREATE TABLE IF NOT EXISTS sales_acquisition_expenses (
+ id TEXT PRIMARY KEY, amount_cents INTEGER NOT NULL CHECK(amount_cents>=0), category TEXT NOT NULL,
+ incurred_at TEXT NOT NULL, territory_id TEXT REFERENCES sales_territories(id), rep_profile_id TEXT REFERENCES sales_rep_profiles(id),
+ evidence_reference TEXT NOT NULL UNIQUE, recorded_by TEXT NOT NULL, created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sales_financial_scenarios (
+ id TEXT PRIMARY KEY, name TEXT NOT NULL, assumptions TEXT NOT NULL, result_snapshot TEXT NOT NULL,
+ created_by TEXT NOT NULL, created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sales_demand_targets (
+ id TEXT PRIMARY KEY, target_name TEXT NOT NULL UNIQUE, target_count INTEGER NOT NULL CHECK(target_count>0),
+ status TEXT NOT NULL CHECK(status IN ('MONITORING','REACHED','ARCHIVED')), created_by TEXT NOT NULL, created_at TEXT NOT NULL
+);
+INSERT INTO sales_demand_targets(id,target_name,target_count,status,created_by,created_at)
+VALUES('SDT-CONSUMER-1000','Initial consumer demand milestone',1000,'MONITORING','SYSTEM_SPEC','2026-10-28T00:00:00.000Z') ON CONFLICT(target_name) DO NOTHING;
+`;
+
+export const SQL_MIGRATION_V36 = `
+CREATE TABLE IF NOT EXISTS prospect_authority_evidence (
+  id TEXT PRIMARY KEY, prospect_id TEXT NOT NULL REFERENCES provider_prospects(id),
+  subject_type TEXT NOT NULL CHECK(subject_type IN ('INDIVIDUAL_LICENSE','ORGANIZATION_LICENSE','CARRIER_AUTHORITY','APPOINTMENT')),
+  legal_name TEXT NOT NULL, jurisdiction TEXT NOT NULL, authority_number TEXT NOT NULL, npn TEXT,
+  status TEXT NOT NULL, expiration_date TEXT, qualifications TEXT NOT NULL,
+  source_name TEXT NOT NULL, source_url TEXT NOT NULL, source_record_id TEXT NOT NULL,
+  retrieved_at TEXT NOT NULL, evidence_sha256 TEXT NOT NULL UNIQUE, evidence_payload TEXT NOT NULL,
+  submitted_by TEXT NOT NULL, submitted_at TEXT NOT NULL, review_status TEXT NOT NULL DEFAULT 'PENDING_OWNER_REVIEW'
+    CHECK(review_status IN ('PENDING_OWNER_REVIEW','ACCEPTED','REJECTED'))
+);
+CREATE INDEX IF NOT EXISTS idx_prospect_authority_evidence ON prospect_authority_evidence(prospect_id,subject_type,retrieved_at);
+`;
+
 export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR || './data/openpolicy_pg') {
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
@@ -1688,7 +1863,31 @@ export async function runMigrations(dataDir = process.env.OPENPOLICY_DATA_DIR ||
     await pglite.query(
       `INSERT INTO _migrations (name) VALUES ('0029_consumer_conversion_funnel') ON CONFLICT (name) DO NOTHING;`
     );
-    console.log(`[Open Policy DB] Migrations 0001 through 0029 applied successfully.`);
+    await pglite.exec(SQL_MIGRATION_V30);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0030_paso_foundation') ON CONFLICT (name) DO NOTHING;`
+    );
+    await pglite.exec(SQL_MIGRATION_V31);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0031_paso_acquisition_crm') ON CONFLICT (name) DO NOTHING;`
+    );
+    await pglite.exec(SQL_MIGRATION_V32);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0032_paso_pipeline') ON CONFLICT (name) DO NOTHING;`
+    );
+    await pglite.exec(SQL_MIGRATION_V33);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0033_paso_compensation') ON CONFLICT (name) DO NOTHING;`
+    );
+    await pglite.exec(SQL_MIGRATION_V34);
+    await pglite.query(
+      `INSERT INTO _migrations (name) VALUES ('0034_paso_finance') ON CONFLICT (name) DO NOTHING;`
+    );
+    await pglite.exec(SQL_MIGRATION_V35);
+    await pglite.query(`INSERT INTO _migrations (name) VALUES ('0035_paso_intelligence') ON CONFLICT (name) DO NOTHING;`);
+    await pglite.exec(SQL_MIGRATION_V36);
+    await pglite.query(`INSERT INTO _migrations (name) VALUES ('0036_paso_prospect_authority_evidence') ON CONFLICT (name) DO NOTHING;`);
+    console.log(`[Open Policy DB] Migrations 0001 through 0036 applied successfully.`);
     return pglite;
   } catch (error) {
     console.error(`[Open Policy DB] Migration error:`, error);

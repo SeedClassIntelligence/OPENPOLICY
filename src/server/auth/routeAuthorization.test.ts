@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { Request, Response } from 'express';
-import { assertBindingRelationship, assertChallengeRelationship, enforceApiAuthorization } from './routeAuthorization';
-import type { RequestIdentity } from './requestIdentity';
+import { assertBindingRelationship, assertChallengeRelationship, enforceApiAuthorization } from './routeAuthorization.ts';
+import type { RequestIdentity } from './requestIdentity.ts';
 
 function invoke(method: string, path: string, identity?: RequestIdentity, env: Record<string, string | undefined> = {}) {
   const previous = {
@@ -186,6 +186,32 @@ test('founder-approved directory and notification route policies are enforced', 
   assert.equal(invoke('GET', '/marketplace/providers', consumer).next, true);
   assert.equal(invoke('GET', '/marketplace/providers', provider).next, true);
   assert.equal(invoke('GET', '/notifications', consumer).next, true);
+});
+
+test('PASO routes accept a bounded PASO identity without granting Owner/Admin access', () => {
+  assert.equal(invoke('GET', '/internal/sales/foundation').status, 401);
+  assert.equal(invoke('GET', '/internal/sales/foundation', consumer).status, 403);
+  const paso: RequestIdentity = {
+    uid: 'paso-sales-admin',
+    role: 'PASO',
+    source: 'FIREBASE'
+  };
+  assert.equal(invoke('GET', '/internal/sales/foundation', paso).next, true);
+  assert.equal(invoke('GET', '/admin/marketplace-operations', paso).status, 403);
+  const staffWithoutPlatformRead: RequestIdentity = {
+    uid: 'staff-no-platform-read',
+    role: 'ADMIN',
+    adminType: 'STAFF',
+    adminPermissions: ['PROVIDER_ADMIN'],
+    source: 'FIREBASE'
+  };
+  assert.equal(invoke('GET', '/internal/sales/foundation', staffWithoutPlatformRead).status, 403);
+  assert.equal(invoke('GET', '/internal/sales/foundation', admin).next, true);
+  assert.equal(invoke('POST', '/admin/paso/users', paso).status, 403);
+  assert.equal(invoke('POST', '/admin/paso/users', staffWithoutPlatformRead).status, 403);
+  assert.equal(invoke('POST', '/admin/paso/users', admin).next, true);
+  assert.equal(invoke('POST', '/admin/paso/profiles/profile-a/setup-email', paso).status, 403);
+  assert.equal(invoke('POST', '/admin/paso/profiles/profile-a/setup-email', admin).next, true);
 });
 
 test('fixture bypass requires an explicit process-only switch and is forbidden by production auth mode', () => {

@@ -63,7 +63,7 @@ export interface FirestoreUserProfile {
   email: string;
   displayName: string;
   createdAt: string;
-  role?: 'CONSUMER' | 'PROVIDER' | 'ADMIN';
+  role?: 'CONSUMER' | 'PROVIDER' | 'ADMIN' | 'PASO';
   agencyName?: string;
   licenseNumber?: string;
   state?: string;

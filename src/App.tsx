@@ -9,6 +9,7 @@ import { LandingPage } from './components/LandingPage';
 import { ConsumerPortal, type ConsumerStep } from './components/ConsumerPortal';
 import { ProviderPortal } from './components/ProviderPortal';
 import { AdminConsole } from './components/AdminConsole';
+import { PasoWorkspace } from './components/PasoWorkspace';
 import { AuthProvider, useAuth, UserRole } from './context/AuthContext';
 import { AuthModal } from './components/AuthModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -21,6 +22,7 @@ import { ProviderOnboardingStatus } from './components/ProviderOnboardingStatus'
 import { AboutPage } from './components/AboutPage';
 import { IndustryComparisonPage } from './components/IndustryComparisonPage';
 import { recordConsumerFunnelEvent } from './services/consumerFunnel';
+import { candidatePreviewRole, isCandidatePreview } from './demo/candidatePreview';
 
 function MainApp() {
   const { isAuthenticated, userRole, userProfile, isDemoUser, loading: authLoading, openAuthModal, useDemoAccount } = useAuth();
@@ -36,9 +38,14 @@ function MainApp() {
   const providerInvitationMatch = window.location.pathname.match(/^\/provider-invitation\/([^/]+)$/);
 
   useEffect(() => {
-    const localOwnerDemo = import.meta.env.DEV
+    const previewRole = candidatePreviewRole();
+    if (previewRole && (!isAuthenticated || userRole !== previewRole || !isDemoUser)) {
+      useDemoAccount(previewRole, previewRole === 'ADMIN' ? 'Owner Console Preview' : previewRole === 'PROVIDER' ? 'Provider Workspace Preview' : 'Consumer Workspace Preview');
+      return;
+    }
+    const localOwnerDemo = (import.meta.env.DEV || ['localhost','127.0.0.1'].includes(window.location.hostname))
       && import.meta.env.VITE_ENABLE_DEMO_IDENTITIES === 'true'
-      && window.location.pathname === '/admin'
+      && (window.location.pathname === '/admin' || window.location.pathname === '/paso')
       && new URLSearchParams(window.location.search).get('demo') === 'owner';
     if (localOwnerDemo && (!isAuthenticated || userRole !== 'ADMIN')) {
       useDemoAccount('ADMIN', 'Open Polici Owner Demo');
@@ -56,6 +63,8 @@ function MainApp() {
       } else if (path === '/provider-account' && isAuthenticated && userRole === 'PROVIDER') {
         setActivePerspective('PROVIDER');
       } else if (path === '/admin' && isAuthenticated && userRole === 'ADMIN') {
+        setActivePerspective('ADMIN_AUDIT');
+      } else if (path === '/paso' && isAuthenticated && (userRole === 'ADMIN' || userRole === 'PASO')) {
         setActivePerspective('ADMIN_AUDIT');
       }
     };
@@ -174,7 +183,11 @@ function MainApp() {
   };
 
   const handleAuthSuccess = (role: UserRole) => {
-    if (role === 'ADMIN') {
+    if (role === 'PASO') {
+      window.history.pushState({}, '', '/paso');
+      setActivePerspective('ADMIN_AUDIT');
+      showToast('PASO identity loaded. Provider acquisition workspace is available.');
+    } else if (role === 'ADMIN') {
       window.history.pushState({}, '', '/admin');
       setActivePerspective('ADMIN_AUDIT');
       showToast('Owner identity loaded. Administrative controls are available.');
@@ -218,6 +231,19 @@ function MainApp() {
 
       {/* Main Content Area */}
       <main className={`flex-1 w-full ${activePerspective === 'LANDING' ? '' : 'max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6'}`}>
+        {isCandidatePreview() && (
+          <div className="mx-auto mb-4 max-w-7xl rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-xs text-amber-950 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div><strong className="block uppercase tracking-wider">Read-only synthetic preview</strong><span>No production account, provider authority, consumer record, payment, or marketplace action is created by this view.</span></div>
+              <div className="flex flex-wrap gap-2">
+                <a className="rounded-lg border border-amber-400 bg-white px-3 py-2 font-bold" href="/account?preview=consumer">Consumer dashboard</a>
+                <a className="rounded-lg border border-amber-400 bg-white px-3 py-2 font-bold" href="/provider-account?preview=provider">Provider dashboard</a>
+                <a className="rounded-lg border border-amber-400 bg-white px-3 py-2 font-bold" href="/admin?preview=owner">Owner Admin</a>
+                <a className="rounded-lg border border-amber-400 bg-white px-3 py-2 font-bold" href="/paso?preview=owner">PASO workspace</a>
+              </div>
+            </div>
+          </div>
+        )}
         {loading ? (
           <div className="flex items-center justify-center py-24 text-slate-500 text-xs font-mono">
             Booting Open Polici Engine...
@@ -280,9 +306,9 @@ function MainApp() {
               </ErrorBoundary>
             )}
 
-            {activePerspective === 'ADMIN_AUDIT' && userRole === 'ADMIN' && (
+            {activePerspective === 'ADMIN_AUDIT' && (userRole === 'ADMIN' || (publicPath === '/paso' && userRole === 'PASO')) && (
               <ErrorBoundary fallbackTitle="Unable to Display Audit Console">
-                <AdminConsole onRefreshData={loadData} />
+                {publicPath === '/paso' ? <PasoWorkspace /> : <AdminConsole onRefreshData={loadData} />}
               </ErrorBoundary>
             )}
 

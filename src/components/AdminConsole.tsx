@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { sendPasswordResetEmail } from 'firebase/auth';
+import { auth } from '../firebase/config';
 import { apiFetch } from '../services/apiClient';
 import { 
   FileText, 
@@ -62,7 +64,7 @@ const OWNER_CONSOLE_SECTIONS: Array<{ id: OwnerConsoleSection; label: string; he
   { id: 'MARKETPLACE', label: '05 · Marketplace Operations', help: 'Opportunities, competitions, submissions, selections, and controlled handoffs.' },
   { id: 'CONSUMERS', label: '06 · Consumer Operations', help: 'Intake, document processing, privacy, consent, support, and consumer funnel health.' },
   { id: 'COMMERCIAL', label: '07 · Commercial V2', help: 'Memberships, entitlements, capacity, usage, invoices, payments, and ledger evidence.' },
-  { id: 'SALES', label: '08 · Sales & Acquisition', help: 'Provider applications, recruitment pipeline, attribution, assignments, and acquisition readiness.' },
+  { id: 'SALES', label: '08 · PASO Governance', help: 'PASO workforce, role boundaries, acquisition oversight, compensation governance, and operating readiness.' },
   { id: 'REPORTING', label: '09 · Intelligence & Reporting', help: 'Supply, demand, conversion, retention, marketplace performance, and operating reports.' },
   { id: 'SECURITY', label: '10 · System Governance', help: 'Internal roles, configuration, telemetry, architecture, audit evidence, and emergency controls.' }
 ];
@@ -134,6 +136,49 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
   const [applicationMessage,setApplicationMessage]=useState<string|null>(null);
   const [selectedApplicationId,setSelectedApplicationId]=useState<string|null>(null);
   const [applicationReview,setApplicationReview]=useState(emptyApplicationReview);
+  const [salesCommand,setSalesCommand]=useState<any|null>(null);
+  const [salesBusy,setSalesBusy]=useState(false);
+  const [salesMessage,setSalesMessage]=useState<string|null>(null);
+  const [pasoInvite,setPasoInvite]=useState({displayName:'',email:'',role:'SALES_REP',teamId:'',employmentClassification:'EMPLOYEE'});
+
+  const loadSalesCommandCenter=async()=>{
+    setSalesBusy(true);setSalesMessage(null);
+    try{const periodStart=`${new Date().getUTCFullYear()}-01-01T00:00:00.000Z`,periodEnd=new Date(Date.now()+86400000).toISOString();const responses=await Promise.all([apiFetch('/api/internal/sales/foundation'),apiFetch('/api/internal/sales/prospects'),apiFetch('/api/internal/sales/opportunities'),apiFetch('/api/internal/sales/compensation/plans'),apiFetch(`/api/internal/sales/analytics/actuals?periodStart=${encodeURIComponent(periodStart)}&periodEnd=${encodeURIComponent(periodEnd)}`),apiFetch('/api/internal/sales/analytics/demand')]);const payloads=await Promise.all(responses.map(async r=>({ok:r.ok,data:await r.json()})));const failed=payloads.find(x=>!x.ok);if(failed)throw new Error(failed.data?.error||'Sales command center could not be loaded.');setSalesCommand({foundation:payloads[0].data,prospects:payloads[1].data.prospects||[],opportunities:payloads[2].data.opportunities||[],plans:payloads[3].data.plans||[],actuals:payloads[4].data,demand:payloads[5].data});}catch(error:any){setSalesMessage(error?.message||'Sales command center could not be loaded.');}finally{setSalesBusy(false);}
+  };
+  useEffect(()=>{if(activeSection==='SALES')void loadSalesCommandCenter();},[activeSection]);
+
+  const invitePasoUser=async(event:React.FormEvent<HTMLFormElement>)=>{
+    event.preventDefault();setSalesBusy(true);setSalesMessage(null);
+    try{
+      const response=await apiFetch('/api/admin/paso/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(pasoInvite)});
+      const data=await response.json();if(!response.ok)throw new Error(data.error||'PASO user could not be created.');
+      await sendPasswordResetEmail(auth,data.user.email,{url:'https://openpolici.com/paso'});
+      setSalesMessage(`PASO login created for ${data.user.email}. Firebase sent that person a password-setup email.`);
+      setPasoInvite({displayName:'',email:'',role:'SALES_REP',teamId:'',employmentClassification:'EMPLOYEE'});
+      await loadSalesCommandCenter();
+    }catch(error:any){setSalesMessage(error?.message||'PASO invitation could not be completed.');}
+    finally{setSalesBusy(false);}
+  };
+
+  const changePasoAccess=async(profile:any)=>{
+    const activeStatus=profile.activeStatus==='ACTIVE'?'SUSPENDED':'ACTIVE';
+    setSalesBusy(true);setSalesMessage(null);
+    try{
+      const response=await apiFetch(`/api/internal/sales/profiles/${encodeURIComponent(profile.id)}/status`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({activeStatus,reason:activeStatus==='ACTIVE'?'Owner restored PASO access.':'Owner suspended PASO access.'})});
+      const data=await response.json();if(!response.ok)throw new Error(data.error||'PASO access could not be changed.');
+      setSalesMessage(`PASO access ${activeStatus==='ACTIVE'?'restored':'suspended'} for ${profile.email||profile.internalUserId}.`);await loadSalesCommandCenter();
+    }catch(error:any){setSalesMessage(error?.message||'PASO access could not be changed.');}finally{setSalesBusy(false);}
+  };
+
+  const sendPasoSetup=async(profile:any)=>{
+    setSalesBusy(true);setSalesMessage(null);
+    try{
+      const response=await apiFetch(`/api/admin/paso/profiles/${encodeURIComponent(profile.id)}/setup-email`,{method:'POST'});
+      const data=await response.json();if(!response.ok)throw new Error(data.error||'PASO setup email could not be prepared.');
+      await sendPasswordResetEmail(auth,data.email,{url:'https://openpolici.com/paso'});
+      setSalesMessage(`A fresh PASO password-setup email was sent to ${data.email}.`);
+    }catch(error:any){setSalesMessage(error?.message||'PASO setup email could not be sent.');}finally{setSalesBusy(false);}
+  };
 
   const loadData = async () => {
     setLoading(true);
@@ -753,18 +798,12 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onRefreshData }) => 
       </section>
 
       <section id="owner-sales" className={`rounded-xl border border-slate-200 bg-white p-5 shadow-xs space-y-5 ${activeSection === 'SALES' ? '' : 'hidden'}`}>
-        <div>
-          <p className="text-[10px] font-mono font-bold uppercase tracking-wider text-blue-700">Sales and provider acquisition</p>
-          <h3 className="text-base font-bold text-slate-950">Recruitment-to-application handoff</h3>
-          <p className="text-xs text-slate-500">Sales may recruit and support applications. Sales does not verify authority, approve marketplace participation, or activate provider access.</p>
-        </div>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          {['SUBMITTED','UNDER_REVIEW','APPROVED','REJECTED'].map(status=><div key={status} className="rounded-xl border bg-slate-50 p-3"><span className="block text-[10px] font-bold uppercase text-slate-500">{status.replaceAll('_',' ')}</span><strong className="mt-1 block text-2xl">{providerApplications.filter((item:any)=>item.status===status).length}</strong></div>)}
-        </div>
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-950">
-          <strong className="block">Sales attribution is not yet authoritative.</strong>
-          <p className="mt-1 leading-5">Prospects, territories, assignments, compensation approvals, provider acquisition cost, and retention cohorts require a dedicated durable sales ledger. Provider applications shown here are operational records—not a substitute for that ledger.</p>
-        </div>
+        <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-[10px] font-mono font-bold uppercase tracking-wider text-blue-700">PASO Governance</p><h3 className="text-base font-bold text-slate-950">Owner oversight of Provider Acquisition & Sales Operations</h3><p className="text-xs text-slate-500">The Owner Console governs PASO staff access, boundaries, and performance. Daily prospect, pipeline, compensation, finance, and intelligence work belongs to assigned PASO personnel.</p></div><div className="flex gap-2"><button onClick={loadSalesCommandCenter} disabled={salesBusy} className="rounded-lg border px-3 py-2 text-xs font-bold"><RefreshCw className="mr-1 inline h-3 w-3"/>Refresh</button><a href="/paso?preview=owner" className="rounded-lg bg-blue-700 px-4 py-2 text-xs font-bold text-white">Preview PASO Staff Workspace — Read Only</a></div></div>
+        {salesMessage&&<div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-950">{salesMessage}</div>}
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-5">{[
+          ['Prospects',salesCommand?.prospects?.length??'—'],['Open pipeline',salesCommand?.opportunities?.filter((x:any)=>!['LOST','DISQUALIFIED','ACTIVE_PARTICIPANT'].includes(x.stage)).length??'—'],['Paid providers',salesCommand?.actuals?.newPayingProviders??'—'],['Membership MRR',salesCommand?.actuals?`$${(salesCommand.actuals.membershipMrrCents/100).toLocaleString()}`:'—'],['Consumer milestone',salesCommand?.demand?`${salesCommand.demand.registeredConsumers}/${salesCommand.demand.target?.count||1000}`:'—']].map(([label,value])=><div key={String(label)} className="rounded-xl border bg-slate-50 p-3"><span className="block text-[10px] font-bold uppercase text-slate-500">{label}</span><strong className="mt-1 block text-xl">{value}</strong></div>)}</div>
+        <div className="grid gap-4 xl:grid-cols-[420px_1fr]"><form onSubmit={invitePasoUser} className="space-y-3 rounded-xl border border-blue-200 bg-blue-50 p-4"><div><h4 className="text-sm font-bold text-slate-950">Add a PASO team member</h4><p className="mt-1 text-xs text-slate-600">Creates one individual PASO staff login, assigns a bounded role, and emails that person a first-password link. This is not the Owner account and never grants provider authority.</p></div><input required value={pasoInvite.displayName} onChange={event=>setPasoInvite({...pasoInvite,displayName:event.target.value})} placeholder="Full name" className="w-full rounded-lg border bg-white p-2 text-xs"/><input required type="email" value={pasoInvite.email} onChange={event=>setPasoInvite({...pasoInvite,email:event.target.value})} placeholder="Work email address" className="w-full rounded-lg border bg-white p-2 text-xs"/><select value={pasoInvite.role} onChange={event=>setPasoInvite({...pasoInvite,role:event.target.value})} className="w-full rounded-lg border bg-white p-2 text-xs">{['SALES_ADMIN','SALES_MANAGER','SALES_REP','PROVIDER_ACTIVATION','SALES_FINANCE','SALES_AUDITOR'].map(role=><option key={role}>{role}</option>)}</select><select value={pasoInvite.teamId} onChange={event=>setPasoInvite({...pasoInvite,teamId:event.target.value})} className="w-full rounded-lg border bg-white p-2 text-xs"><option value="">No team assigned yet</option>{(salesCommand?.foundation?.teams||[]).map((team:any)=><option key={team.id} value={team.id}>{team.name}</option>)}</select><button disabled={salesBusy} className="w-full rounded-lg bg-blue-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">Create PASO login and send setup email</button></form><div className="overflow-hidden rounded-xl border"><div className="border-b bg-slate-50 px-4 py-3"><strong className="block text-xs">PASO workforce</strong><span className="text-[10px] text-slate-500">These are PASO staff identities—not the platform Owner email.</span></div><table className="w-full text-left text-xs"><thead><tr className="text-[10px] uppercase text-slate-500"><th className="p-3">PASO staff identity</th><th>Role</th><th>Team</th><th>Status</th><th>Owner action</th></tr></thead><tbody>{(salesCommand?.foundation?.profiles||[]).map((x:any)=><tr key={x.id} className="border-t"><td className="p-3"><strong className="block">{x.displayName||'PASO team member'}</strong><span className="text-[10px] text-slate-500">{x.email||x.internalUserId}</span></td><td>{x.role}</td><td>{x.teamId||'—'}</td><td>{x.activeStatus}</td><td><div className="flex flex-wrap gap-1"><button type="button" disabled={salesBusy||x.activeStatus!=='ACTIVE'} title={x.activeStatus==='ACTIVE'?'Send a first-password or password-reset email.':'Reactivate this PASO staff assignment before sending a setup email.'} onClick={()=>void sendPasoSetup(x)} className="rounded border px-2 py-1 text-[10px] font-bold disabled:cursor-not-allowed disabled:opacity-40">{x.activeStatus==='ACTIVE'?'Send setup email':'Setup email unavailable'}</button><button type="button" disabled={salesBusy} onClick={()=>void changePasoAccess(x)} className="rounded border px-2 py-1 text-[10px] font-bold disabled:opacity-40">{x.activeStatus==='ACTIVE'?'Suspend':'Reactivate'}</button></div></td></tr>)}{!salesCommand?.foundation?.profiles?.length&&<tr><td colSpan={5} className="p-4 text-center text-slate-500">No PASO profiles recorded.</td></tr>}</tbody></table></div></div>
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs text-emerald-950"><strong>Boundaries enforced:</strong> authoritative application, verification, paid membership and marketplace participation stages are projected from their owning systems. PASO cannot manufacture them. Compensation uses settled membership revenue only; payout exports do not move money.</div>
       </section>
 
       <section id="owner-reporting" className={`rounded-xl border border-slate-200 bg-white p-5 shadow-xs space-y-5 ${activeSection === 'REPORTING' ? '' : 'hidden'}`}>
