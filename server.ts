@@ -1610,6 +1610,7 @@ app.post('/api/admin/paso/profiles/:profileId/setup-email',async(req,res)=>{
     if(req.openPolicyIdentity?.adminType!=='OWNER')throw Object.assign(new Error('Only the platform Owner may send PASO setup emails.'),{statusCode:403});
     const profile=(await pasoStore.listProfiles()).find(item=>item.id===req.params.profileId);
     if(!profile)throw Object.assign(new Error('PASO profile not found.'),{statusCode:404});
+    if(profile.activeStatus!=='ACTIVE')throw Object.assign(new Error('Password setup is available only for an active PASO staff assignment.'),{statusCode:409});
     const identity=(await getFirebasePasoIdentitySummaries([profile.internalUserId]))[profile.internalUserId];
     if(!identity?.email)throw Object.assign(new Error('PASO login email is unavailable.'),{statusCode:409});
     res.json({email:identity.email});
